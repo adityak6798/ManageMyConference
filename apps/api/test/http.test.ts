@@ -42,6 +42,31 @@ describe("events HTTP transport", () => {
     expect(logger.warn).toHaveBeenCalledTimes(2);
   });
 
+  it("denies event mutations before persistence", async () => {
+    const create = vi.fn();
+    const service = new EventService({
+      repository: { create, list: vi.fn().mockResolvedValue([]) },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = createHttpApp(service, logger, {
+      demoMode: true,
+      sessionSecret: secret,
+      now: () => 1_000,
+    });
+    const request = (headers: Record<string, string>) =>
+      app.request("/api/events", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ name: "Forbidden Summit", timezone: "UTC" }),
+      });
+
+    expect((await request({})).status).toBe(401);
+    expect((await request(await cookieFor("reviewer"))).status).toBe(403);
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("ignores attacker-controlled roles and malformed correlation IDs", async () => {
     const { app } = createTestApp();
     const response = await app.request("/api/events", {
@@ -82,6 +107,56 @@ describe("events HTTP transport", () => {
       }),
       "request.completed",
     );
+  });
+
+  it("issues a bounded secure cookie for HTTPS demo sessions", async () => {
+    const { app } = createTestApp();
+    const response = await app.request("https://greenroom.test/api/demo-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ persona: "organizer" }),
+    });
+    const cookie = response.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Strict");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("Path=/");
+    expect(cookie).toContain("Max-Age=28800");
+  });
+
+  it("rejects semantic input errors without writing", async () => {
+    const create = vi.fn();
+    const service = new EventService({
+      repository: { create, list: vi.fn().mockResolvedValue([]) },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = createHttpApp(service, logger, {
+      demoMode: true,
+      sessionSecret: secret,
+      now: () => 1_000,
+    });
+    for (const name of ["   ", "x".repeat(121)]) {
+      const response = await app.request("/api/events", {
+        method: "POST",
+        headers: {
+          ...(await cookieFor("organizer")),
+          "content-type": "application/json",
+          "x-correlation-id": "validation-correlation",
+        },
+        body: JSON.stringify({ name, timezone: "UTC" }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: "VALIDATION_FAILED",
+          correlationId: "validation-correlation",
+          fieldErrors: { name: expect.any(Array) },
+        },
+      });
+    }
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("returns a standard 400 for malformed JSON", async () => {
@@ -129,6 +204,15 @@ describe("events HTTP transport", () => {
       headers: { ...(await cookieFor("organizer")), "x-correlation-id": "failure-correlation" },
     });
     expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Something went wrong.",
+        correlationId: "failure-correlation",
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain("storage unavailable");
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
