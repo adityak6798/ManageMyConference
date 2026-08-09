@@ -1,0 +1,36 @@
+{
+  "name": "project-greenroom",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": ">=22 <27"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run format:check && uv run greenroom-context check && uv run python -m unittest discover -s tools/tests && npm run lint && npm run typecheck && npm run openapi:check && npm test && npm run build",
+    "context": "uv run greenroom-context",
+    "dev": "npm run setup:local && concurrently -n api,web -c blue,green \"npm run dev --workspace @greenroom/api\" \"npm run dev --workspace @greenroom/web\"",
+    "format": "biome format --write . && uv run ruff format tools",
+    "format:check": "biome format . && uv run ruff format --check tools",
+    "lint": "biome lint . && node tools/check-errors.mjs && uv run ruff check tools",
+    "openapi:check": "npm run openapi:check --workspace @greenroom/contracts",
+    "openapi:generate": "npm run openapi:generate --workspace @greenroom/contracts",
+    "reset": "npm run reset --workspace @greenroom/api --if-present",
+    "setup:local": "node tools/setup-local.mjs",
+    "test": "node --test tools/tests/check-errors.test.mjs && npm test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspace @greenroom/web",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.2",
+    "@types/node": "^22.14.0",
+    "concurrently": "^9.2.1",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.9.2"
+  }
+}

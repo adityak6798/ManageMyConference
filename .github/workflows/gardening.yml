@@ -1,0 +1,27 @@
+name: Repository gardening
+
+on:
+  schedule:
+    - cron: "17 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: uv sync --locked
+      - run: npm ci
+      - run: uv run greenroom-context check --json
+      - run: uv run python -m unittest discover -s tools/tests
+      - run: npm run openapi:check
+      - run: npm audit --audit-level=high
