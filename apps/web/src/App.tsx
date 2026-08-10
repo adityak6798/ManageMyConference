@@ -194,7 +194,11 @@ export function App() {
               )}
             </section>
             {selectedEvent ? (
-              <CfpWorkspace eventId={selectedEvent.id} organizer={activeRole === "organizer"} />
+              <CfpWorkspace
+                key={`${selectedEvent.id}:${session.actor.id}:${activeRole}`}
+                eventId={selectedEvent.id}
+                organizer={activeRole === "organizer"}
+              />
             ) : null}
             {session.capabilities.includes("events:create") ? (
               <section aria-labelledby="create-title">

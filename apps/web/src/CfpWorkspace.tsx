@@ -30,6 +30,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
   const [submitting, setSubmitting] = useState(false);
+  const [loadingCfp, setLoadingCfp] = useState(true);
   useEffect(() => {
     let current = true;
     setForm(null);
@@ -38,6 +39,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     setDescription("");
     setAnswers({});
     setSubmissionKey(crypto.randomUUID());
+    setLoadingCfp(true);
     setNotice("");
     setErrors({});
     // ERROR-INTENT: React effects cannot await; the handlers render load failures.
@@ -53,6 +55,9 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
         if (!current) return;
         if (!(reason instanceof CfpApiError && reason.envelope.error.code === "NOT_FOUND"))
           setNotice(message(reason));
+      })
+      .finally(() => {
+        if (current) setLoadingCfp(false);
       });
     return () => {
       current = false;
@@ -97,7 +102,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const renderFields = (editable: boolean) =>
     fields.map((field, index) => (
       <div className="cfp-field" key={field.id}>
-        <label htmlFor={`cfp-${field.id}`}>
+        <label htmlFor={`${editable ? "editor-label" : "answer"}-${field.id}`}>
           {field.label}
           {field.required ? " *" : ""}
         </label>
@@ -131,7 +136,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
             <label>
               Question label
               <input
-                id={`cfp-${field.id}`}
+                id={`editor-label-${field.id}`}
                 value={field.label}
                 onChange={(e) =>
                   setFields(
@@ -227,13 +232,13 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
           </>
         ) : field.type === "long_text" ? (
           <textarea
-            id={`cfp-${field.id}`}
+            id={`answer-${field.id}`}
             value={answers[field.id] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
           />
         ) : field.type === "select" ? (
           <select
-            id={`cfp-${field.id}`}
+            id={`answer-${field.id}`}
             value={answers[field.id] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
           >
@@ -244,7 +249,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
           </select>
         ) : (
           <input
-            id={`cfp-${field.id}`}
+            id={`answer-${field.id}`}
             type={field.type === "email" ? "email" : "text"}
             value={answers[field.id] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
@@ -257,6 +262,12 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
         ))}
       </div>
     ));
+  if (loadingCfp)
+    return (
+      <section>
+        <p role="status">Loading call for proposals…</p>
+      </section>
+    );
   if (!organizer && !form)
     return (
       <section>
@@ -270,7 +281,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
       </section>
     );
   return (
-    <section aria-labelledby="cfp-title">
+    <section aria-labelledby="cfp-workspace-title">
       <p className="eyebrow">
         {organizer
           ? "CFP composer"
@@ -278,7 +289,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
             ? "Submissions closed"
             : "Submit a proposal"}
       </p>
-      <h2 id="cfp-title">{organizer ? "Build the proposal form" : form?.title}</h2>
+      <h2 id="cfp-workspace-title">{organizer ? "Build the proposal form" : form?.title}</h2>
       {organizer ? (
         <>
           <label>
