@@ -134,6 +134,7 @@
       "post": {
         "description": "Internal demo-only endpoint; unavailable unless DEMO_MODE is explicitly enabled.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -542,6 +543,7 @@
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {

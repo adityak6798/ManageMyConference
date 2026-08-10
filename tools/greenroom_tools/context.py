@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,6 @@ SPEC_PATTERN = re.compile(
     r"(?:-[A-Z0-9]+)+\b"
 )
 METADATA_PATTERN = re.compile(r"@(spec|acceptance|plan)\s+(.+)")
-MARKER_PATTERN = re.compile(r"ERROR-INTENT:\s*\S.+")
 LAYER_ORDER = {
     "domain": 0,
     "application": 1,
@@ -63,7 +63,7 @@ def spec_locations() -> dict[str, list[str]]:
 
 def context_locations() -> dict[str, list[dict[str, str]]]:
     result: dict[str, list[dict[str, str]]] = {}
-    for path in all_files((".md", ".ts", ".tsx", ".py")):
+    for path in all_files((".md", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py")):
         relative = str(path.relative_to(ROOT))
         content = path.read_text(encoding="utf-8")
         if path.suffix == ".md":
@@ -76,7 +76,12 @@ def context_locations() -> dict[str, list[dict[str, str]]]:
             searchable = content
         else:
             trust = "repository-fact"
-            kind = "test" if re.search(r"\.(?:test|spec)\.", relative) else "code"
+            kind = (
+                "test"
+                if re.search(r"\.(?:test|spec)\.", relative)
+                or (path.suffix == ".py" and path.name.startswith("test_"))
+                else "code"
+            )
             searchable = "\n".join(match.group(2) for match in METADATA_PATTERN.finditer(content))
         for identifier in set(SPEC_PATTERN.findall(searchable)):
             result.setdefault(identifier, []).append(
@@ -151,6 +156,15 @@ def production_layer_problems(relative_path: str, manifest: dict[str, Any]) -> l
     return []
 
 
+def module_specifiers(content: str) -> set[str]:
+    """Extract supported static, dynamic, and CommonJS literal dependencies."""
+    return set(
+        re.findall(r'(?:from\s+|import\s*)["\']([^"\']+)["\']', content)
+        + re.findall(r'\bimport\s*\(\s*["\']([^"\']+)["\']\s*\)', content)
+        + re.findall(r'\brequire\s*\(\s*["\']([^"\']+)["\']\s*\)', content)
+    )
+
+
 def architecture_import_problems(
     relative_path: str, content: str, manifest: dict[str, Any]
 ) -> list[str]:
@@ -160,7 +174,7 @@ def architecture_import_problems(
         return problems
     path = ROOT / relative_path
     owning_domain = domain_for(relative_path, manifest)
-    for imported in re.findall(r'(?:from\s+|import\s*)["\']([^"\']+)["\']', content):
+    for imported in module_specifiers(content):
         if not imported.startswith("."):
             allowed = manifest["architecture"]["externalPackagesByLayer"][current_layer]
             if imported not in allowed:
@@ -193,6 +207,22 @@ def architecture_import_problems(
                 f"'{target_domain['id']}': {relative_path} -> {target_relative}"
             )
     return problems
+
+
+def migration_schema(paths: list[Path]) -> dict[str, set[str]]:
+    """Replay ordered migrations and return the resulting SQLite table shape."""
+    tables: dict[str, set[str]] = {}
+    with sqlite3.connect(":memory:") as database:
+        for migration_path in sorted(paths):
+            database.executescript(migration_path.read_text(encoding="utf-8"))
+        table_names = database.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        for (table,) in table_names:
+            tables[table] = {
+                row[1] for row in database.execute(f'PRAGMA table_info("{table}")').fetchall()
+            }
+    return tables
 
 
 def generated_index(manifest: dict[str, Any]) -> str:
@@ -296,7 +326,7 @@ def check_repository() -> list[str]:
             if not (path.parent / target).resolve().exists():
                 problems.append(f"Broken link in {path.relative_to(ROOT)}: {target}")
 
-    source_files = all_files((".ts", ".tsx", ".js", ".jsx"))
+    source_files = all_files((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"))
     valid_acceptance = {
         identifier for domain in manifest["domains"] for identifier in domain["acceptance"]
     }
@@ -321,22 +351,6 @@ def check_repository() -> list[str]:
                 problems.append(
                     f"Test declares unknown acceptance ID '{identifier}': {relative_path}"
                 )
-        for index, line in enumerate(lines):
-            stripped = line.strip()
-            if re.search(r"catch\s*\([^)]*\)\s*\{\s*\}", stripped):
-                problems.append(f"Empty catch in {path.relative_to(ROOT)}:{index + 1}")
-            if re.search(r"\bvoid\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(", stripped):
-                prior = lines[max(0, index - 2) : index]
-                if not any(MARKER_PATTERN.search(candidate) for candidate in prior):
-                    problems.append(
-                        f"Intentional ignored promise lacks ERROR-INTENT in "
-                        f"{path.relative_to(ROOT)}:{index + 1}"
-                    )
-            if "console." in stripped:
-                prior = lines[max(0, index - 2) : index]
-                if not any("biome-ignore lint/suspicious/noConsole" in item for item in prior):
-                    problems.append(f"Bare console call in {path.relative_to(ROOT)}:{index + 1}")
-
         problems.extend(architecture_import_problems(relative_path, "\n".join(lines), manifest))
 
         if owning_domain:
@@ -384,18 +398,8 @@ def check_repository() -> list[str]:
             re.DOTALL,
         ):
             schema_tables[table] = set(re.findall(r'text\("([A-Za-z_][A-Za-z0-9_]*)"\)', body))
-    migration_tables: dict[str, set[str]] = {}
-    for migration_path in all_files((".sql",)):
-        if "migrations" not in migration_path.parts:
-            continue
-        for table, body in re.findall(
-            r"CREATE\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\);",
-            migration_path.read_text(encoding="utf-8"),
-            re.DOTALL | re.IGNORECASE,
-        ):
-            migration_tables[table] = set(
-                re.findall(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+TEXT\b", body, re.MULTILINE)
-            )
+    migration_paths = sorted(path for path in all_files((".sql",)) if "migrations" in path.parts)
+    migration_tables = migration_schema(migration_paths)
     if schema_tables != migration_tables:
         problems.append("Drizzle/migration table or column drift; regenerate and review migrations")
     return problems

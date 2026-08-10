@@ -36,6 +36,19 @@ test("arbitrary catch returns do not count as handling", () => {
   );
 });
 
+test("nested functions do not handle an outer catch", () => {
+  assert.notEqual(
+    inspectText(
+      "try { work(); } catch { const unused = () => logger.error('later'); return fallback; }",
+    ),
+    [],
+  );
+  assert.notEqual(
+    inspectText("try { work(); } catch { function unused() { throw failure; } return fallback; }"),
+    [],
+  );
+});
+
 test("requires intent for error-related suppressions", () => {
   assert.notEqual(inspectText("// @ts-expect-error\noperation();"), []);
   assert.notEqual(

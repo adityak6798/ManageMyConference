@@ -21,7 +21,10 @@ export function App() {
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached rejection handler renders the failure.
     void listEvents()
-      .then(setEvents)
+      .then((loadedEvents) => {
+        setEvents(loadedEvents);
+        setSignedIn(true);
+      })
       .catch((reason: unknown) => setError(readableError(reason)));
   }, []);
 

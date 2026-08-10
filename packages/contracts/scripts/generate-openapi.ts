@@ -35,7 +35,7 @@ registry.registerPath({
   method: "post",
   path: "/api/demo-session",
   description: "Internal demo-only endpoint; unavailable unless DEMO_MODE is explicitly enabled.",
-  request: { body: { content: json(demoSessionInputSchema) } },
+  request: { body: { required: true, content: json(demoSessionInputSchema) } },
   responses: {
     200: {
       description: "Signed demo session established",
@@ -61,7 +61,7 @@ registry.registerPath({
   method: "post",
   path: "/api/events",
   security: [{ sessionCookie: [] }],
-  request: { body: { content: json(createEventInputSchema) } },
+  request: { body: { required: true, content: json(createEventInputSchema) } },
   responses: {
     201: { description: "Created event", content: json(createEventResponseSchema) },
     400: errorResponse,

@@ -15,7 +15,7 @@ const ignored = new Set([
   "playwright-report",
   "test-results",
 ]);
-const extensions = new Set([".ts", ".tsx", ".js", ".jsx"]);
+const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
 function files(directory) {
   return readdirSync(directory).flatMap((name) => {
@@ -39,6 +39,14 @@ function hasIntent(source, node) {
 function handledCatch(block) {
   let handled = false;
   function visit(node) {
+    if (
+      node !== block &&
+      (ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isMethodDeclaration(node))
+    )
+      return;
     if (ts.isThrowStatement(node)) handled = true;
     if (ts.isCallExpression(node)) {
       const called = node.expression.getText();
@@ -57,7 +65,11 @@ function handledRejectionCallback(callback) {
 }
 
 export function inspectText(text, path = "fixture.ts") {
-  const kind = path.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const kind = path.endsWith("x")
+    ? ts.ScriptKind.TSX
+    : path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".cjs")
+      ? ts.ScriptKind.JS
+      : ts.ScriptKind.TS;
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind);
   const failures = [];
   function fail(node, message) {
@@ -93,19 +105,27 @@ export function inspectText(text, path = "fixture.ts") {
     ts.forEachChild(node, visit);
   }
   visit(source);
-  for (const match of text.matchAll(/@ts-(?:ignore|expect-error)/g)) {
-    const prefix = text.slice(Math.max(0, match.index - 240), match.index);
-    if (!/ERROR-INTENT:\s*\S.+/.test(prefix)) {
-      const node = ts.getTokenAtPosition(source, match.index);
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, kind, text);
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (
+      token !== ts.SyntaxKind.SingleLineCommentTrivia &&
+      token !== ts.SyntaxKind.MultiLineCommentTrivia
+    )
+      continue;
+    const comment = scanner.getTokenText();
+    const position = scanner.getTokenPos();
+    const line = source.getLineAndCharacterOfPosition(position).line;
+    const priorLineStart = source.getLineStarts()[Math.max(0, line - 1)] ?? 0;
+    const adjacent = text.slice(priorLineStart, position);
+    const hasAdjacentIntent = /ERROR-INTENT:\s*\S.+/.test(adjacent);
+    const node = ts.getTokenAtPosition(source, position);
+    if (/@ts-(?:ignore|expect-error)/.test(comment) && !hasAdjacentIntent)
       fail(node, "error-related TypeScript suppression requires ERROR-INTENT");
-    }
-  }
-  for (const match of text.matchAll(/biome-ignore[^\n]*(?:noFloatingPromises|promise|error)/gi)) {
-    const prefix = text.slice(Math.max(0, match.index - 240), match.index);
-    if (!/ERROR-INTENT:\s*\S.+/.test(prefix)) {
-      const node = ts.getTokenAtPosition(source, match.index);
+    if (
+      /biome-ignore[^\n]*(?:noFloatingPromises|promise|error)/i.test(comment) &&
+      !hasAdjacentIntent
+    )
       fail(node, "error-related Biome suppression requires ERROR-INTENT");
-    }
   }
   return failures;
 }

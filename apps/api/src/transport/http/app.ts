@@ -10,6 +10,7 @@ import {
   type Actor,
   AuthenticationRequiredError,
   CapabilityDeniedError,
+  requireCapability,
 } from "../../application/identity/actor";
 import { createDemoSession, resolveDemoSession } from "../../application/identity/demo-session";
 import { createEventInputToCommand, eventToDto } from "./event-mappers";
@@ -139,6 +140,7 @@ export function createHttpApp(
     context.json({ events: (await service.list(context.get("actor"))).map(eventToDto) }),
   );
   app.post("/api/events", async (context) => {
+    requireCapability(context.get("actor"), "events:create");
     const parsed = createEventInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -159,6 +161,12 @@ export function createHttpApp(
       201,
     );
   });
+  app.notFound((context) =>
+    context.json(
+      envelope("NOT_FOUND", "The requested resource was not found.", context.get("correlationId")),
+      404,
+    ),
+  );
   app.onError((error, context) => {
     const correlationId = context.get("correlationId") ?? crypto.randomUUID();
     if (error instanceof AuthenticationRequiredError)
@@ -182,7 +190,6 @@ export function createHttpApp(
         operation: context.get("operation"),
         actorId: context.get("actor")?.id,
         errorName: error.name,
-        errorMessage: error.message,
       },
       "request.exception",
     );

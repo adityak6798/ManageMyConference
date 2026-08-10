@@ -67,6 +67,16 @@ describe("events HTTP transport", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("authorizes event mutations before parsing their body", async () => {
+    const { app } = createTestApp();
+    const malformed = { method: "POST", body: "{" };
+    expect((await app.request("/api/events", malformed)).status).toBe(401);
+    expect(
+      (await app.request("/api/events", { ...malformed, headers: await cookieFor("reviewer") }))
+        .status,
+    ).toBe(403);
+  });
+
   it("ignores attacker-controlled roles and malformed correlation IDs", async () => {
     const { app } = createTestApp();
     const response = await app.request("/api/events", {
@@ -185,6 +195,21 @@ describe("events HTTP transport", () => {
     );
   });
 
+  it("returns the standard envelope for unknown routes", async () => {
+    const { app } = createTestApp();
+    const response = await app.request("/api/unknown", {
+      headers: { "x-correlation-id": "missing-correlation" },
+    });
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "NOT_FOUND",
+        message: "The requested resource was not found.",
+        correlationId: "missing-correlation",
+      },
+    });
+  });
+
   it("logs unexpected failures exactly once with request dimensions", async () => {
     const service = new EventService({
       repository: {
@@ -214,6 +239,10 @@ describe("events HTTP transport", () => {
     });
     expect(JSON.stringify(body)).not.toContain("storage unavailable");
     expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorMessage: expect.anything() }),
+      expect.anything(),
+    );
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         correlationId: "failure-correlation",

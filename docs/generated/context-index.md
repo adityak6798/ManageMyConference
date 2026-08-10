@@ -41,6 +41,8 @@
 - `specification` / `normative`: [docs/exec-plans/completed.md](../../docs/exec-plans/completed.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `test` / `repository-fact`: [tools/tests/check-errors.test.mjs](../../tools/tests/check-errors.test.mjs)
+- `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 
 ### `ACC-INTEGRATION`
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
@@ -68,7 +70,7 @@
 - `specification` / `normative`: [docs/engineering/ci-and-release.md](../../docs/engineering/ci-and-release.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [tools/greenroom_tools/context.py](../../tools/greenroom_tools/context.py)
-- `code` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
+- `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 
 ### `JNY-001`
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
@@ -166,6 +168,7 @@
 ### `PRD-IAM-001`
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [tools/setup-local.mjs](../../tools/setup-local.mjs)
 
 ### `PRD-IAM-002`
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)

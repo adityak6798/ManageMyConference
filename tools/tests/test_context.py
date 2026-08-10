@@ -1,9 +1,12 @@
 """Tests for repository context routing.
 
 @spec ENG-CI-001
+@acceptance ACC-HARNESS
 """
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from greenroom_tools.context import (
     architecture_import_problems,
@@ -13,6 +16,8 @@ from greenroom_tools.context import (
     domain_for,
     layer_for,
     load_manifest,
+    migration_schema,
+    module_specifiers,
     production_layer_problems,
     spec_locations,
 )
@@ -95,6 +100,28 @@ class ContextRoutingTest(unittest.TestCase):
                 "packages/contracts/src/index.ts", 'import { Hono } from "hono";', manifest
             )
         )
+
+    def test_dynamic_and_commonjs_imports_cannot_bypass_boundaries(self) -> None:
+        manifest = load_manifest()
+        content = 'const one = import("hono"); const two = require("drizzle-orm/sqlite-core");'
+        self.assertEqual(module_specifiers(content), {"hono", "drizzle-orm/sqlite-core"})
+        problems = architecture_import_problems("apps/web/src/App.tsx", content, manifest)
+        self.assertEqual(len(problems), 2)
+
+    def test_migration_schema_replays_alter_table_history(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "0001.sql"
+            second = root / "0002.sql"
+            first.write_text("CREATE TABLE events (id TEXT PRIMARY KEY);", encoding="utf-8")
+            second.write_text("ALTER TABLE events ADD COLUMN name TEXT;", encoding="utf-8")
+            self.assertEqual(migration_schema([first, second]), {"events": {"id", "name"}})
+
+    def test_mjs_and_python_tests_are_context_backlinks(self) -> None:
+        locations = context_locations()["ACC-HARNESS"]
+        by_path = {record["path"]: record["kind"] for record in locations}
+        self.assertEqual(by_path["tools/tests/check-errors.test.mjs"], "test")
+        self.assertEqual(by_path["tools/tests/test_context.py"], "test")
 
     def test_repository_integrity_is_clean(self) -> None:
         self.assertEqual(check_repository(), [])

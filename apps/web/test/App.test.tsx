@@ -32,6 +32,8 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("Greenroom Summit")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Continue as demo organizer" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Create event" })).toBeEnabled();
   });
 
   it("shows a safe error and correlation reference", async () => {

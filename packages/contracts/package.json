@@ -8,7 +8,8 @@
   },
   "scripts": {
     "openapi:generate": "node --import tsx scripts/generate-openapi.ts",
-    "openapi:check": "node --import tsx scripts/generate-openapi.ts --check"
+    "openapi:check": "node --import tsx scripts/generate-openapi.ts --check",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.4",

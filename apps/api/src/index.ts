@@ -13,8 +13,8 @@ export function runtimeAuth(
   environment: Pick<Environment, "DEMO_MODE" | "SESSION_SECRET" | "ENVIRONMENT">,
 ) {
   const demoMode = environment.DEMO_MODE === "true";
-  if (environment.ENVIRONMENT === "production" && demoMode)
-    throw new Error("DEMO_MODE must be disabled in production");
+  if (demoMode && environment.ENVIRONMENT !== "development")
+    throw new Error("DEMO_MODE is allowed only when ENVIRONMENT=development");
   if (
     demoMode &&
     (!environment.SESSION_SECRET || environment.SESSION_SECRET === "local-development-secret")
