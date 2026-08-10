@@ -2,7 +2,9 @@ export type Capability =
   | "events:read"
   | "events:create"
   | "events:settings:read"
-  | "events:settings:update";
+  | "events:settings:update"
+  | "content:read"
+  | "content:manage";
 
 export interface EventAccess {
   readonly eventId: string;

@@ -8,6 +8,8 @@ import {
 import { z, type ZodType } from "zod";
 import {
   apiErrorEnvelopeSchema,
+  acceptContentInputSchema,
+  contentWorkspaceSchema,
   createEventInputSchema,
   createEventResponseSchema,
   demoSessionInputSchema,
@@ -16,6 +18,17 @@ import {
   eventIdParamsSchema,
   healthResponseSchema,
   sessionResponseSchema,
+  eventContentParamsSchema,
+  profileParamsSchema,
+  recordSpeakerMessageInputSchema,
+  requestSpeakerTaskInputSchema,
+  speakerProfileSchema,
+  speakerMessageSchema,
+  speakerTaskSchema,
+  taskParamsSchema,
+  updateSpeakerProfileInputSchema,
+  uploadSpeakerAssetInputSchema,
+  speakerAssetSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -38,6 +51,134 @@ registry.registerPath({
   responses: {
     200: { description: "Current identity and capabilities", content: json(sessionResponseSchema) },
     401: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/content",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventContentParamsSchema },
+  responses: {
+    200: {
+      description: "Organizer or speaker-scoped content workspace",
+      content: json(contentWorkspaceSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/content/accept",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: eventContentParamsSchema,
+    body: { required: true, content: json(acceptContentInputSchema) },
+  },
+  responses: {
+    201: { description: "Idempotently accepted content", content: json(contentWorkspaceSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "patch",
+  path: "/api/speaker-profiles/{profileId}",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: profileParamsSchema,
+    body: { required: true, content: json(updateSpeakerProfileInputSchema) },
+  },
+  responses: {
+    200: {
+      description: "Updated speaker profile",
+      content: json(z.object({ profile: speakerProfileSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/tasks/{taskId}/complete",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventContentParamsSchema.merge(taskParamsSchema) },
+  responses: {
+    200: { description: "Completed speaker task", content: json(contentWorkspaceSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/speaker-assets",
+  security: [{ sessionCookie: [] }],
+  request: { body: { required: true, content: json(uploadSpeakerAssetInputSchema) } },
+  responses: {
+    201: {
+      description: "Stored private or explicitly publishable asset metadata",
+      content: json(z.object({ asset: speakerAssetSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/speaker-tasks",
+  security: [{ sessionCookie: [] }],
+  request: { body: { required: true, content: json(requestSpeakerTaskInputSchema) } },
+  responses: {
+    201: {
+      description: "Organizer-requested speaker task",
+      content: json(z.object({ task: speakerTaskSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/speaker-messages",
+  security: [{ sessionCookie: [] }],
+  request: { body: { required: true, content: json(recordSpeakerMessageInputSchema) } },
+  responses: {
+    201: {
+      description: "Recorded speaker communication",
+      content: json(z.object({ message: speakerMessageSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/speaker-calendar.ics",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventContentParamsSchema },
+  responses: {
+    200: {
+      description: "Deterministic speaker calendar",
+      content: { "text/calendar": { schema: z.string() } },
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
     500: errorResponse,
   },
 });

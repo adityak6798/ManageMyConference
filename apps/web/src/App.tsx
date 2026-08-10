@@ -1,6 +1,7 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
+import { ContentWorkspace } from "./ContentWorkspace";
 import "./styles.css";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
@@ -37,6 +38,7 @@ export function App() {
     setEvents(loadedEvents);
     setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
   }, []);
+  const reportError = useCallback((reason: unknown) => setError(readableError(reason)), []);
 
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
@@ -218,6 +220,9 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEventId && (activeRole === "organizer" || activeRole === "speaker") ? (
+              <ContentWorkspace eventId={selectedEventId} role={activeRole} onError={reportError} />
+            ) : null}
             {error ? (
               <p role="alert" className="error">
                 {error}

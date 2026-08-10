@@ -1,0 +1,120 @@
+// @acceptance ACC-SPEAKER
+import { readFile } from "node:fs/promises";
+import { Miniflare } from "miniflare";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  type ContentDatabasePort,
+  D1ContentRepository,
+} from "../src/adapters/persistence/d1-content-repository";
+import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
+import { ContentService } from "../src/application/content/content-service";
+import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+
+const statements = (sql: string) =>
+  sql
+    .split(";")
+    .map((value) => value.trim())
+    .filter(Boolean);
+describe("D1ContentRepository", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+  it("rolls back a failed acceptance and permits a clean retry", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "content-atomic-test" },
+    });
+    const database = await runtime.getD1Database("DB");
+    for (const file of [
+      "0001_create_events.sql",
+      "0002_identity_event_foundation.sql",
+      "0003_content_speaker_portal.sql",
+    ]) {
+      const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      for (const statement of statements(sql)) await database.prepare(statement).run();
+    }
+    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
+    for (const statement of statements(reset)) await database.prepare(statement).run();
+    const repository = new D1ContentRepository(database as ContentDatabasePort);
+    const session = {
+      id: "50000000-0000-4000-8000-000000000001",
+      eventId: "00000000-0000-4000-8000-000000000001",
+      proposalId: "atomic-proposal",
+      title: "Atomic acceptance",
+      abstract: "Must roll back",
+      format: "Talk",
+      speakerProfileIds: ["50000000-0000-4000-8000-000000000002"],
+      tags: [],
+      tracks: [],
+      publicationState: "draft" as const,
+    };
+    const invalidProfile = {
+      id: "50000000-0000-4000-8000-000000000002",
+      eventId: session.eventId,
+      userId: "missing-user",
+      sourcePersonId: "atomic-person",
+      name: "Atomic Speaker",
+      email: "atomic@example.test",
+      bio: "",
+      pronouns: "",
+      organization: "",
+    };
+    await expect(
+      repository.accept({ session, speakers: [invalidProfile], tasks: [], messages: [] }),
+    ).rejects.toThrow();
+    await expect(
+      repository.findSessionByProposal(session.eventId, session.proposalId),
+    ).resolves.toBeNull();
+    const validProfile = { ...invalidProfile, userId: "seed-speaker" };
+    await expect(
+      repository.accept({ session, speakers: [validProfile], tasks: [], messages: [] }),
+    ).resolves.toBeUndefined();
+    await expect(
+      repository.findSessionByProposal(session.eventId, session.proposalId),
+    ).resolves.toEqual(session);
+    const command = {
+      eventId: session.eventId,
+      proposalId: "concurrent-proposal",
+      title: "Concurrent acceptance",
+      abstract: "Converges",
+      format: "Talk",
+      tags: [],
+      tracks: [],
+      speakers: [
+        {
+          userId: "seed-speaker",
+          sourcePersonId: "concurrent-person",
+          name: "Sam Speaker",
+          email: "sam@example.test",
+        },
+      ],
+    };
+    const makeService = (prefix: string) => {
+      let id = 0;
+      return new ContentService({
+        repository,
+        assetStorage: new DeterministicAssetStorage(),
+        newId: () => `${prefix}0000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+        now: () => new Date("2026-08-10T12:00:00.000Z"),
+      });
+    };
+    const organizer = await resolveSeededDemoActor("organizer");
+    const results = await Promise.all([
+      makeService("6").accept(organizer, command),
+      makeService("7").accept(organizer, command),
+    ]);
+    expect(
+      results[0].sessions.filter(({ proposalId }) => proposalId === command.proposalId),
+    ).toHaveLength(1);
+    expect(
+      results[1].sessions.filter(({ proposalId }) => proposalId === command.proposalId),
+    ).toHaveLength(1);
+    const canonical = await repository.workspace(command.eventId);
+    expect(
+      canonical.sessions.filter(({ proposalId }) => proposalId === command.proposalId),
+    ).toHaveLength(1);
+    expect(
+      canonical.speakers.filter(({ sourcePersonId }) => sourcePersonId === "concurrent-person"),
+    ).toHaveLength(1);
+  });
+});

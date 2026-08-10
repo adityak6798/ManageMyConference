@@ -1,12 +1,21 @@
 import {
+  acceptContentInputSchema,
   type ApiErrorEnvelope,
   createEventInputSchema,
   demoSessionInputSchema,
+  eventContentParamsSchema,
   eventIdParamsSchema,
+  profileParamsSchema,
+  recordSpeakerMessageInputSchema,
+  requestSpeakerTaskInputSchema,
+  taskParamsSchema,
+  updateSpeakerProfileInputSchema,
+  uploadSpeakerAssetInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
+import type { ContentService } from "../../application/content/content-service";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -60,6 +69,7 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
+  content?: ContentService,
 ) {
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
@@ -100,7 +110,7 @@ export function createHttpApp(
     context.json({
       status: "ok",
       checks: { database: "configured", sessionSigning: auth.demoMode ? "configured" : "disabled" },
-      providerMode: "deterministic-fakes",
+      providerMode: "sql-r2",
       logFormat: "structured-json",
     }),
   );
@@ -194,6 +204,161 @@ export function createHttpApp(
         404,
       );
     return context.json({ event: eventToDto(event) });
+  });
+  app.get("/api/events/:eventId/content", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const parsed = eventContentParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(await content.workspace(context.get("actor"), parsed.data.eventId));
+  });
+  app.post("/api/events/:eventId/content/accept", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = eventContentParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = acceptContentInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Accepted content is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      await content.accept(context.get("actor"), { eventId: params.data.eventId, ...parsed.data }),
+      201,
+    );
+  });
+  app.patch("/api/speaker-profiles/:profileId", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const params = profileParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Profile ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = updateSpeakerProfileInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker profile is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      profile: await content.updateMyProfile(
+        context.get("actor"),
+        params.data.profileId,
+        parsed.data,
+      ),
+    });
+  });
+  app.post("/api/events/:eventId/tasks/:taskId/complete", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const eventParams = eventContentParamsSchema.safeParse(context.req.param());
+    const taskParams = taskParamsSchema.safeParse(context.req.param());
+    if (!eventParams.success || !taskParams.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Task reference is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      await content.completeTask(
+        context.get("actor"),
+        taskParams.data.taskId,
+        eventParams.data.eventId,
+      ),
+    );
+  });
+  app.post("/api/speaker-tasks", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const parsed = requestSpeakerTaskInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker task is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      { task: await content.requestTask(context.get("actor"), parsed.data) },
+      201,
+    );
+  });
+  app.post("/api/speaker-messages", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const parsed = recordSpeakerMessageInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker message is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      { message: await content.recordMessage(context.get("actor"), parsed.data) },
+      201,
+    );
+  });
+  app.post("/api/speaker-assets", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const parsed = uploadSpeakerAssetInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker asset is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    const binary = atob(parsed.data.contentBase64);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return context.json(
+      { asset: await content.upload(context.get("actor"), { ...parsed.data, bytes }) },
+      201,
+    );
+  });
+  app.get("/api/events/:eventId/speaker-calendar.ics", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const parsed = eventContentParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.body(await content.calendar(context.get("actor"), parsed.data.eventId), 200, {
+      "content-type": "text/calendar; charset=utf-8",
+      "content-disposition": 'attachment; filename="greenroom-sessions.ics"',
+    });
   });
   app.notFound((context) =>
     context.json(

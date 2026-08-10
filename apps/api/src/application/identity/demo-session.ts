@@ -13,9 +13,15 @@ const personas = {
     eventAccess: [primaryEventId, secondaryEventId].map((eventId) => ({
       eventId,
       role: "organizer" as const,
-      capabilities: ["events:read", "events:settings:read", "events:settings:update"] as const,
+      capabilities: [
+        "events:read",
+        "events:settings:read",
+        "events:settings:update",
+        "content:read",
+        "content:manage",
+      ] as const,
     })),
-    capabilities: ["events:read", "events:create"] as const,
+    capabilities: ["events:read", "events:create", "content:read", "content:manage"] as const,
   },
   reviewer: {
     id: "seed-reviewer",
@@ -37,9 +43,13 @@ const personas = {
     persona: "speaker",
     organizations: [],
     eventAccess: [
-      { eventId: primaryEventId, role: "speaker" as const, capabilities: ["events:read"] as const },
+      {
+        eventId: primaryEventId,
+        role: "speaker" as const,
+        capabilities: ["events:read", "content:read"] as const,
+      },
     ],
-    capabilities: ["events:read"] as const,
+    capabilities: ["events:read", "content:read"] as const,
   },
   public: {
     id: "seed-public",

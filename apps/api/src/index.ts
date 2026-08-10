@@ -1,10 +1,14 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
+import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
+import { ContentService } from "./application/content/content-service";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
 interface Environment {
   DB: D1DatabasePort;
+  ASSETS: R2BucketPort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
   ENVIRONMENT?: string;
@@ -35,6 +39,12 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const content = new ContentService({
+      repository: new D1ContentRepository(environment.DB),
+      assetStorage: new R2AssetStorage(environment.ASSETS),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -56,6 +66,7 @@ export default {
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      content,
     );
     return Promise.resolve(app.fetch(request));
   },
