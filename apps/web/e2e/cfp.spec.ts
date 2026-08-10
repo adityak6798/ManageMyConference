@@ -23,6 +23,13 @@ test("organizer publishes a typed form and an applicant receives a durable confi
   await expect(page.getByRole("status")).toContainText("Draft saved");
   await page.getByRole("button", { name: "Publish CFP" }).click();
   await expect(page.getByRole("status")).toContainText("CFP is open");
+  await page.getByLabel("Description").fill("A replacement draft description");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("button", { name: "Close live CFP" })).toBeVisible();
+  await page.getByRole("button", { name: "Close live CFP" }).click();
+  await expect(page.getByLabel("Description")).toHaveValue("A replacement draft description");
+  await page.getByRole("button", { name: "Reopen live CFP" }).click();
+  await page.getByRole("button", { name: "Publish CFP" }).click();
 
   await page.getByRole("combobox", { name: "Demo identity" }).selectOption("public");
   await expect(page.getByRole("heading", { name: "Share your conference story" })).toBeVisible();
@@ -32,4 +39,6 @@ test("organizer publishes a typed form and an applicant receives a durable confi
   await page.getByLabel("Experience level").selectOption("Experienced");
   await page.getByRole("button", { name: "Submit proposal" }).click();
   await expect(page.getByRole("status")).toContainText(/Confirmation: [0-9a-f-]{36}/);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Share your conference story" })).toBeVisible();
 });

@@ -39,6 +39,11 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(snapshot)) await database.prepare(statement).run();
+    const snapshotStatus = await readFile(
+      new URL("../migrations/0005_cfp_snapshot_status.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(snapshotStatus)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 
@@ -53,6 +58,15 @@ describe("D1IdentityDirectory", () => {
         },
       ]),
       capabilities: new Set(["events:read", "events:create"]),
+    });
+    await directory.grantOrganizer("00000000-0000-4000-8000-000000000002", "seed-reviewer");
+    await expect(directory.findByPersona("reviewer")).resolves.toMatchObject({
+      eventAccess: expect.arrayContaining([
+        expect.objectContaining({
+          eventId: "00000000-0000-4000-8000-000000000002",
+          role: "organizer",
+        }),
+      ]),
     });
 
     await database

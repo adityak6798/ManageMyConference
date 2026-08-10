@@ -282,6 +282,9 @@ export function createHttpApp(
       );
     return context.json({ cfp: await cfpService.getPublished(parsed.data.eventId) });
   });
+  app.get("/api/public/events", async (context) =>
+    context.json({ events: (await service.listAssigned(context.get("actor"))).map(eventToDto) }),
+  );
   app.post("/api/public/events/:eventId/submissions", async (context) => {
     if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
     const params = eventIdParamsSchema.safeParse(context.req.param());

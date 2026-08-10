@@ -28,19 +28,36 @@ export class CfpService {
   ) {}
   async getForOrganizer(actor: Actor | null, eventId: string) {
     organizerFor(actor, eventId);
-    return this.repository.findForm(eventId);
+    const [form, published] = await Promise.all([
+      this.repository.findForm(eventId),
+      this.repository.findPublished(eventId),
+    ]);
+    return form
+      ? {
+          ...form,
+          publishedStatus:
+            published?.status === "open" || published?.status === "closed"
+              ? published.status
+              : null,
+        }
+      : null;
   }
   async save(
     actor: Actor | null,
-    input: Omit<CfpForm, "status" | "version" | "publishedAt">,
+    input: Omit<CfpForm, "status" | "version" | "publishedAt" | "publishedStatus">,
   ): Promise<CfpForm> {
     organizerFor(actor, input.eventId);
-    const prior = await this.repository.findForm(input.eventId);
+    const [prior, published] = await Promise.all([
+      this.repository.findForm(input.eventId),
+      this.repository.findPublished(input.eventId),
+    ]);
     const form: CfpForm = {
       ...input,
       status: "draft",
       version: (prior?.version ?? 0) + 1,
       publishedAt: null,
+      publishedStatus:
+        published?.status === "open" || published?.status === "closed" ? published.status : null,
     };
     await this.repository.saveForm(form);
     return form;
@@ -64,9 +81,10 @@ export class CfpService {
       ...source,
       status: state === "close" ? "closed" : "open",
       publishedAt: source.publishedAt ?? this.now().toISOString(),
+      publishedStatus: state === "close" ? "closed" : "open",
     };
     await this.repository.savePublished(form, state === "publish" || draft.status !== "draft");
-    return form;
+    return (await this.getForOrganizer(actor, eventId)) ?? form;
   }
   async getPublished(eventId: string): Promise<CfpForm> {
     const form = await this.repository.findPublished(eventId);
@@ -84,7 +102,7 @@ export class CfpService {
     if (form.status !== "open") throw new CfpUnavailableError("The CFP is closed");
     const fieldErrors = validateAnswers(form.fields, answers);
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
-    return this.repository.createSubmission({
+    const created = await this.repository.createSubmission({
       id: this.newId(),
       eventId,
       cfpVersion: form.version,
@@ -92,14 +110,15 @@ export class CfpService {
       answers,
       submittedAt: this.now().toISOString(),
     });
+    if (!created) throw new CfpStateError("The CFP changed before this proposal was saved");
+    return created;
   }
   async proposalReference(
     proposalId: string,
     eventId: string,
-    key: string,
   ): Promise<SubmittedProposalReference | null> {
-    const proposal = await this.repository.findSubmission(eventId, key);
-    return proposal?.id === proposalId
+    const proposal = await this.repository.findSubmissionById(eventId, proposalId);
+    return proposal
       ? { proposalId, eventId, cfpVersion: proposal.cfpVersion, submittedAt: proposal.submittedAt }
       : null;
   }

@@ -71,6 +71,12 @@ describe("CFP service", () => {
       email: "b@example.com",
     });
     expect(retry).toEqual(first);
+    await expect(service.proposalReference(first.id, eventId)).resolves.toEqual({
+      proposalId: first.id,
+      eventId,
+      cfpVersion: first.cfpVersion,
+      submittedAt: first.submittedAt,
+    });
   });
   it("does not expose drafts and rejects cross-event organizers", async () => {
     const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());

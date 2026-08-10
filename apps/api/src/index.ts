@@ -32,10 +32,12 @@ export function runtimeAuth(
 export default {
   fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
+    const identityDirectory = new D1IdentityDirectory(environment.DB);
     const service = new EventService({
       repository: new D1EventRepository(environment.DB),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
+      grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
     const cfpService = new CfpService(
       new D1CfpRepository(environment.DB),
@@ -56,7 +58,6 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
-    const identityDirectory = new D1IdentityDirectory(environment.DB);
     const app = createHttpApp(
       service,
       logger,

@@ -115,6 +115,7 @@ export const cfpFormSchema = saveCfpInputSchema.extend({
   status: cfpStatusSchema,
   version: z.number().int().positive(),
   publishedAt: z.string().datetime().nullable(),
+  publishedStatus: z.enum(["open", "closed"]).nullable(),
 });
 export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
 export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close", "reopen"]) });

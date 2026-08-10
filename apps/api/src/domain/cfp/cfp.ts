@@ -15,6 +15,7 @@ export interface CfpForm {
   readonly status: "draft" | "open" | "closed";
   readonly version: number;
   readonly publishedAt: string | null;
+  readonly publishedStatus: "open" | "closed" | null;
 }
 export interface ProposalSubmission {
   readonly id: string;

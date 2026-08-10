@@ -47,6 +47,7 @@ export class D1CfpRepository implements CfpRepository {
           status: row.status,
           version: row.version,
           publishedAt: row.published_at,
+          publishedStatus: row.status === "draft" ? null : row.status,
         }
       : null;
   }
@@ -124,10 +125,31 @@ export class D1CfpRepository implements CfpRepository {
         }
       : null;
   }
+  async findSubmissionById(eventId: string, proposalId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT id, event_id, cfp_version, idempotency_key, answers_json, submitted_at FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1",
+      )
+      .bind(eventId, proposalId)
+      .all<SubmissionRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to find submission by ID: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row
+      ? {
+          id: row.id,
+          eventId: row.event_id,
+          cfpVersion: row.cfp_version,
+          idempotencyKey: row.idempotency_key,
+          answers: JSON.parse(row.answers_json),
+          submittedAt: row.submitted_at,
+        }
+      : null;
+  }
   async createSubmission(submission: ProposalSubmission) {
     const result = await this.database
       .prepare(
-        "INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, submitted_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, submitted_at) SELECT ?, ?, ?, ?, ?, ? FROM cfp_forms WHERE event_id = ? AND json_extract(published_json, '$.status') = 'open' AND CAST(json_extract(published_json, '$.version') AS INTEGER) = ?",
       )
       .bind(
         submission.id,
@@ -136,10 +158,12 @@ export class D1CfpRepository implements CfpRepository {
         submission.idempotencyKey,
         JSON.stringify(submission.answers),
         submission.submittedAt,
+        submission.eventId,
+        submission.cfpVersion,
       )
       .run();
     if (!result.success)
       throw new Error(`D1 failed to create submission: ${result.error ?? "unknown error"}`);
-    return (await this.findSubmission(submission.eventId, submission.idempotencyKey)) ?? submission;
+    return this.findSubmission(submission.eventId, submission.idempotencyKey);
   }
 }

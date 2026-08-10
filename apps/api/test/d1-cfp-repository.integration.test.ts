@@ -26,6 +26,7 @@ describe("D1CfpRepository", () => {
       "0002_identity_event_foundation.sql",
       "0003_cfp.sql",
       "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       for (const statement of statements(sql)) await database.prepare(statement).run();
@@ -50,6 +51,7 @@ describe("D1CfpRepository", () => {
       status: "open" as const,
       version: 1,
       publishedAt: "2026-08-10T00:00:00.000Z",
+      publishedStatus: "open" as const,
     };
     await repository.saveForm(form);
     await repository.savePublished(form, true);
@@ -66,7 +68,18 @@ describe("D1CfpRepository", () => {
       repository.createSubmission(proposal),
       repository.createSubmission({ ...proposal, id: "00000000-0000-4000-8000-000000000222" }),
     ]);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    if (!first || !second) throw new Error("Expected idempotent submissions");
     expect(first.id).toBe(second.id);
     expect(first.id).toBe(proposal.id);
+    await repository.savePublished({ ...form, status: "closed", publishedStatus: "closed" }, true);
+    await expect(
+      repository.createSubmission({
+        ...proposal,
+        id: "00000000-0000-4000-8000-000000000333",
+        idempotencyKey: "after-close",
+      }),
+    ).resolves.toBeNull();
   });
 });

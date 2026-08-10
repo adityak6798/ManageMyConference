@@ -1,6 +1,13 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
+import {
+  ApiError,
+  createEvent,
+  getSession,
+  listEvents,
+  listPublicEvents,
+  startDemoSession,
+} from "./api/events";
 import "./styles.css";
 import { CfpWorkspace } from "./CfpWorkspace";
 
@@ -33,14 +40,14 @@ export function App() {
     const currentSession = await getSession();
     const loadedEvents = currentSession.capabilities.includes("events:read")
       ? await listEvents()
-      : [];
+      : currentSession.actor.persona === "public"
+        ? await listPublicEvents()
+        : [];
     setSession(currentSession);
-    setEvents((current) => {
-      if (loadedEvents.length || currentSession.actor.persona !== "public") return loadedEvents;
-      const allowed = new Set(currentSession.eventAccess.map(({ eventId }) => eventId));
-      return current.filter(({ id }) => allowed.has(id));
-    });
-    setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
+    setEvents(loadedEvents);
+    setSelectedEventId((current) =>
+      loadedEvents.some(({ id }) => id === current) ? current : loadedEvents[0]?.id || "",
+    );
   }, []);
 
   useEffect(() => {

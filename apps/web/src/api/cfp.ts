@@ -3,7 +3,6 @@ import {
   cfpResponseSchema,
   cfpStateInputSchema,
   proposalConfirmationResponseSchema,
-  saveCfpInputSchema,
   submitProposalInputSchema,
   type CfpFormDto,
   type SaveCfpInput,
@@ -37,7 +36,7 @@ export async function saveCfp(
   input: SaveCfpInput,
   fetcher: typeof fetch = fetch,
 ): Promise<CfpFormDto> {
-  const body = saveCfpInputSchema.parse(input);
+  const body = input;
   return (
     await decode(
       await fetcher(`/api/events/${eventId}/cfp`, {

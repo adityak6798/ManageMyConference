@@ -23,10 +23,20 @@ export class MemoryCfpRepository implements CfpRepository {
   findSubmission(eventId: string, key: string) {
     return Promise.resolve(this.submissions.get(`${eventId}:${key}`) ?? null);
   }
+  findSubmissionById(eventId: string, proposalId: string) {
+    return Promise.resolve(
+      [...this.submissions.values()].find(
+        (item) => item.eventId === eventId && item.id === proposalId,
+      ) ?? null,
+    );
+  }
   createSubmission(submission: ProposalSubmission) {
     const key = `${submission.eventId}:${submission.idempotencyKey}`;
     const prior = this.submissions.get(key);
     if (prior) return Promise.resolve(prior);
+    const published = this.published.get(submission.eventId);
+    if (published?.status !== "open" || published.version !== submission.cfpVersion)
+      return Promise.resolve(null);
     this.submissions.set(key, structuredClone(submission));
     return Promise.resolve(submission);
   }

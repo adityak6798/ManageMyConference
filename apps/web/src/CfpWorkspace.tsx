@@ -64,12 +64,14 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     };
   }, [eventId, organizer]);
   const persist = async () => {
+    setErrors({});
     try {
       const saved = await saveCfp(eventId, { title, description, fields });
       setForm(saved);
       setNotice("Draft saved.");
     } catch (reason) {
       // ERROR-INTENT: The rendered notice is the user-facing save failure state.
+      if (reason instanceof CfpApiError) setErrors(reason.envelope.error.fieldErrors ?? {});
       setNotice(message(reason));
     }
   };
@@ -233,12 +235,22 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
         ) : field.type === "long_text" ? (
           <textarea
             id={`answer-${field.id}`}
+            required={field.required}
+            aria-invalid={Boolean(errors[`answers.${field.id}`])}
+            aria-describedby={
+              errors[`answers.${field.id}`] ? `answer-error-${field.id}` : undefined
+            }
             value={answers[field.id] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
           />
         ) : field.type === "select" ? (
           <select
             id={`answer-${field.id}`}
+            required={field.required}
+            aria-invalid={Boolean(errors[`answers.${field.id}`])}
+            aria-describedby={
+              errors[`answers.${field.id}`] ? `answer-error-${field.id}` : undefined
+            }
             value={answers[field.id] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
           >
@@ -250,13 +262,18 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
         ) : (
           <input
             id={`answer-${field.id}`}
+            required={field.required}
+            aria-invalid={Boolean(errors[`answers.${field.id}`])}
+            aria-describedby={
+              errors[`answers.${field.id}`] ? `answer-error-${field.id}` : undefined
+            }
             type={field.type === "email" ? "email" : "text"}
             value={answers[field.id] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
           />
         )}{" "}
         {errors[`answers.${field.id}`]?.map((error) => (
-          <p className="error" key={error}>
+          <p className="error" id={`answer-error-${field.id}`} key={error}>
             {error}
           </p>
         ))}
@@ -301,6 +318,14 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
           {renderFields(true)}
+          {Object.entries(errors)
+            .filter(([key]) => key === "fields" || key.startsWith("fields."))
+            .flatMap(([, messages]) => messages)
+            .map((error) => (
+              <p role="alert" className="error" key={error}>
+                {error}
+              </p>
+            ))}
           <button
             type="button"
             onClick={() =>
@@ -323,25 +348,26 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
           <button type="button" onClick={() => void persist()}>
             Save draft
           </button>{" "}
-          {form && (
+          {form?.status === "draft" && (
             <button
               type="button"
               onClick={() =>
                 // ERROR-INTENT: React handlers cannot await; transition renders failures.
-                void transition(
-                  form.status === "open"
-                    ? "close"
-                    : form.status === "closed"
-                      ? "reopen"
-                      : "publish",
-                )
+                void transition("publish")
               }
             >
-              {form.status === "open"
-                ? "Close CFP"
-                : form.status === "closed"
-                  ? "Reopen CFP"
-                  : "Publish CFP"}
+              Publish CFP
+            </button>
+          )}
+          {form?.publishedStatus && (
+            <button
+              type="button"
+              onClick={() => {
+                // ERROR-INTENT: React handlers cannot await; transition renders failures.
+                void transition(form.publishedStatus === "open" ? "close" : "reopen");
+              }}
+            >
+              {form.publishedStatus === "open" ? "Close live CFP" : "Reopen live CFP"}
             </button>
           )}
           <h3>Preview</h3>

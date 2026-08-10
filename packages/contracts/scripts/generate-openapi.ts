@@ -47,6 +47,20 @@ registry.registerPath({
   },
 });
 registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/cfp",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: { description: "Editable CFP and published state", content: json(cfpResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
   method: "put",
   path: "/api/events/{eventId}/cfp",
   security: [{ sessionCookie: [] }],
@@ -59,6 +73,16 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/public/events",
+  security: [{ sessionCookie: [] }],
+  responses: {
+    200: { description: "Publicly assigned events", content: json(eventListResponseSchema) },
+    401: errorResponse,
     500: errorResponse,
   },
 });

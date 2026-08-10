@@ -117,6 +117,7 @@
         "apps/api/src/adapters/persistence/memory-cfp-repository.ts",
         "apps/api/migrations/0003_cfp.sql",
         "apps/api/migrations/0004_cfp_published_snapshot.sql",
+        "apps/api/migrations/0005_cfp_snapshot_status.sql",
         "apps/api/test/cfp-service.test.ts",
         "apps/api/test/cfp-http.test.ts",
         "apps/api/test/d1-cfp-repository.integration.test.ts",

@@ -19,8 +19,16 @@ async function setup() {
     () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
     () => new Date("2026-08-10T12:00:00Z"),
   );
+  const eventRepository = new MemoryEventRepository();
+  await eventRepository.create({
+    id: eventId,
+    organizationId: "00000000-0000-4000-8000-000000000010",
+    name: "Public CFP Event",
+    timezone: "UTC",
+    createdAt: "2026-08-10T00:00:00.000Z",
+  });
   const events = new EventService({
-    repository: new MemoryEventRepository(),
+    repository: eventRepository,
     newId: crypto.randomUUID,
     now: () => new Date(),
   });
@@ -124,5 +132,15 @@ describe("CFP HTTP journey", () => {
     expect((await app.request(`/api/events/${eventId}/cfp`, { headers: reviewer })).status).toBe(
       403,
     );
+  });
+  it("lists event metadata for a direct public session", async () => {
+    const { app } = await setup();
+    const response = await app.request("/api/public/events", {
+      headers: { cookie: `greenroom_session=${await createDemoSession("public", secret, 2_000)}` },
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      events: [{ id: eventId, name: "Public CFP Event" }],
+    });
   });
 });

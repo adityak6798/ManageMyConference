@@ -137,7 +137,9 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("Pat Attendee");
     expect(screen.getByRole("link", { name: "Published event" })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith("/api/public/events");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
   });
 
   it("creates an event inside the organizer organization", async () => {
