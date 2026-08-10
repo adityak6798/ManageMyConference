@@ -1,6 +1,6 @@
 ---
 name: ship-it
-description: Take implementation-ready repository work to a review-ready pull request through scoped validation, documentation synchronization, adversarial Ralph review loops, intentional commit and push, hosted CI repair, a 15-minute automated-review observation window, review-thread triage, and transparent PR findings/outstanding-work comments. Use when the user says ship it, make this PR ready, prepare or finish a PR, run final review, or asks to take completed implementation through CI and review. Supports invocation-specific review opinions and durable repo review opinions.
+description: Take implementation-ready repository work to a review-ready pull request through scoped validation, documentation synchronization, adversarial Ralph review loops, intentional commit and push, hosted CI repair, a 15-minute automated-review observation window, review-thread triage, durable issue capture for deferred work, and transparent PR findings/outstanding-work comments. Use when the user says ship it, make this PR ready, prepare or finish a PR, run final review, or asks to take completed implementation through CI and review. Supports invocation-specific review opinions and durable repo review opinions.
 ---
 
 # Ship It
@@ -63,10 +63,18 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
 - Triage every new actionable thread. Fix valid in-scope findings, explain rejected suggestions, and surface design decisions.
 - After any pushed repair, repeat affected local checks, doc sync, Ralph review, and hosted CI. Start a new 15-minute quiet window only after required CI is green on the repaired head SHA.
 
-### 7. Post transparent PR comments
+### 7. Capture deferred work in the issue tracker
+
+- Inventory every actionable deferred, out-of-scope, or externally blocked item found during implementation, Ralph review, CI repair, or automated-review triage.
+- Search open and closed issues before writing. Update the best existing issue when its outcome and owner already cover the work; otherwise create a focused issue.
+- Give each issue the source PR, reason for deferral, owning domain/person, concrete scope, and closure condition. Apply existing repository labels without inventing taxonomy casually.
+- Do not use a PR comment, local note, or vague roadmap reference as the only record of actionable deferred work. Do not classify a merge blocker as deferred.
+- Record the durable issue URL for every deferred item in the findings ledger and remaining-work comment. If no actionable work is deferred, state that explicitly.
+
+### 8. Post transparent PR comments
 
 - Add or update one PR comment containing the triaged findings table. Include Ralph and automated-review findings, their disposition, and evidence.
-- Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, and ownership. If nothing remains, say so explicitly.
+- Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, linked deferred issues, external verification, and ownership. If nothing remains, say so explicitly.
 - Use stable HTML markers so reruns update the two comments instead of creating duplicates. Follow [pr-ci-and-comments.md](references/pr-ci-and-comments.md).
 - Resolve a review thread only after its fix is pushed and validated, or after a clear documented rejection makes resolution appropriate.
 
@@ -86,7 +94,8 @@ Call the PR review-ready only when:
 - required hosted CI is green;
 - the final 15-minute bot-review window is complete or honestly reported as externally pending;
 - actionable review threads are triaged;
+- every actionable deferred item is captured in an updated or new issue and linked from the PR;
 - findings and remaining-work comments reflect the final commit;
 - the worktree is clean and the branch is pushed.
 
-Return the PR link, final commit, checks, review verdict, thread counts, deferred work, and any decision still required from the user.
+Return the PR link, final commit, checks, review verdict, thread counts, linked deferred issues, and any decision still required from the user.

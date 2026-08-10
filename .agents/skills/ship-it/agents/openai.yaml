@@ -1,4 +1,4 @@
 interface:
   display_name: "Ship It"
-  short_description: "Take implementation-ready work to a review-ready PR"
-  default_prompt: "Use $ship-it to take this implementation through review, documentation sync, CI, and automated PR feedback."
+  short_description: "Ship work with CI, review, and tracked follow-ups"
+  default_prompt: "Use $ship-it to take this implementation through review, CI, automated feedback, and durable deferred-work issue capture."

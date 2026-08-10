@@ -25,6 +25,17 @@ Use waits or polls of at most 60 seconds and provide concise progress updates. W
 
 Triage bot feedback on merit. Do not implement suggestions that broaden scope, contradict product intent, weaken safety, or introduce needless machinery. Record rejections with evidence.
 
+## Deferred-work issue capture
+
+Before posting final PR comments, inventory actionable work intentionally left outside the PR.
+
+1. Search the repository issue tracker by outcome, domain, governing ID, and key terms.
+2. Update an existing issue when it already owns the outcome. Add the source PR, deferred scope, and closure condition without duplicating its canonical body unnecessarily.
+3. Create an issue when no existing item owns the work. Include outcome, scope, boundaries, acceptance/closure criteria, provenance, owner/domain, and existing labels.
+4. Link every deferred item from the PR `Remaining work` comment. A local note or unlinked PR bullet is not durable capture.
+
+Do not create issues for non-actionable observations, work already completed in the PR, or transient external checks. Never move a blocker into deferred follow-up to satisfy completion.
+
 ## Findings comment
 
 Create or update a single comment with this marker and structure:
@@ -57,7 +68,7 @@ Create or update a separate comment:
 - None.
 
 ### Deferred follow-up
-- `<item>` — owner, reason, and closure condition.
+- `#123 — <issue-url> — <item>` — owner, reason, and closure condition.
 
 ### External verification
 - `<item>` — current state and how to verify.
