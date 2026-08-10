@@ -9,6 +9,7 @@ This repository is a context system for humans and agents. Start here, follow li
 3. Read the linked active execution plan and architecture boundary before editing.
 4. Keep product behavior in specs, exact HTTP shapes in Zod/OpenAPI, and storage history in migrations.
 5. Run `npm run check` before handing work off.
+6. When implementation is ready to publish, use the repo-local [Ship It skill](.agents/skills/ship-it/SKILL.md).
 
 ## Non-negotiable boundaries
 
@@ -27,5 +28,6 @@ This repository is a context system for humans and agents. Start here, follow li
 - `npm run dev` — local reference slice.
 - `npm run reset` — deterministic seed reset.
 - `npm test` — automated tests.
+- `$ship-it` — take implementation-ready work through doc sync, skeptical review, PR CI, and automated-review triage.
 
 If navigation fails, use the direct indexes in `docs/`; search remains allowed for investigation.
