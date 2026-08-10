@@ -27,7 +27,7 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 - `PRD-AGD-001` The agenda manages rooms, tracks, timeslots, and sessions; speaker, room, and overlap conflicts are explicit.
 - `PRD-COM-001` Templates and triggers enqueue immutable delivery attempts with retry and terminal state; sent history is auditable.
 - `PRD-INT-001` SQL is canonical. Airtable and Accelevents receive versioned outbound projections through typed ports.
-- `PRD-PUB-001` Only published projections are public. Event hub, schedule, sessions, speakers, and CFP have direct and embeddable views.
+- `PRD-PUB-001` Only published projections are public. Event hub, schedule, sessions, speakers, and CFP have direct and embeddable views. Publishing copies the current allowlisted draft projection into an immutable public snapshot; draft edits remain invisible until the next publish. Unpublishing removes the public snapshot immediately and public routes return the same not-published response used for unknown slugs.
 - `PRD-AI-001` AI may draft or summarize but never silently changes canonical state; manual fallback is required.
 
 Detailed wire and event contracts belong in [interfaces](../interfaces/README.md); data ownership belongs in [domain boundaries](../architecture/domain-boundaries.md).

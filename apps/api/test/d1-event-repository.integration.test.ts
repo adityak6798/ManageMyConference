@@ -42,6 +42,15 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
+    const publishing = await readFile(
+      new URL("../migrations/0003_public_event_projections.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of publishing
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
       repository.list({
@@ -100,6 +109,15 @@ describe("D1EventRepository", () => {
       "utf8",
     );
     for (const statement of foundation
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const publishing = await readFile(
+      new URL("../migrations/0003_public_event_projections.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of publishing
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))

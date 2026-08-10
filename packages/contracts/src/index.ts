@@ -71,3 +71,58 @@ export const apiErrorEnvelopeSchema = z.object({
 });
 
 export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>;
+
+// @spec PRD-PUB-001
+export const publicSpeakerSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  bio: z.string(),
+  headline: z.string(),
+  photoUrl: z.string().url().optional(),
+});
+export const publicSessionSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  abstract: z.string(),
+  format: z.string(),
+  track: z.string(),
+  speakerSlugs: z.array(z.string()),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  room: z.string().optional(),
+});
+export const publicEventProjectionSchema = z.object({
+  event: z.object({
+    slug: z.string(),
+    name: z.string(),
+    summary: z.string(),
+    startsOn: z.string(),
+    endsOn: z.string(),
+    timezone: z.string(),
+    venue: z.string(),
+  }),
+  cfp: z.object({
+    title: z.string(),
+    description: z.string(),
+    opensAt: z.string().datetime(),
+    closesAt: z.string().datetime(),
+    submissionUrl: z.string().url(),
+  }),
+  sessions: z.array(publicSessionSchema),
+  speakers: z.array(publicSpeakerSchema),
+});
+export type PublicEventProjectionDto = z.infer<typeof publicEventProjectionSchema>;
+export const publicEventResponseSchema = z.object({ projection: publicEventProjectionSchema });
+export const publicEventSlugParamsSchema = z.object({
+  slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+});
+export const publicationPreviewResponseSchema = z.object({
+  publication: z.object({
+    eventId: z.string().uuid(),
+    slug: z.string(),
+    state: z.enum(["draft", "published", "unpublished"]),
+    draft: publicEventProjectionSchema,
+    published: publicEventProjectionSchema.nullable(),
+    publishedAt: z.string().datetime().nullable(),
+  }),
+});

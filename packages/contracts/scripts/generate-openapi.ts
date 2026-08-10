@@ -15,6 +15,9 @@ import {
   eventListResponseSchema,
   eventIdParamsSchema,
   healthResponseSchema,
+  publicationPreviewResponseSchema,
+  publicEventResponseSchema,
+  publicEventSlugParamsSchema,
   sessionResponseSchema,
 } from "../src/index";
 
@@ -31,6 +34,54 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
   in: "cookie",
   name: "greenroom_session",
 });
+registry.registerPath({
+  method: "get",
+  path: "/api/public/events/{slug}",
+  request: { params: publicEventSlugParamsSchema },
+  responses: {
+    200: {
+      description: "Published allowlisted event projection",
+      content: json(publicEventResponseSchema),
+    },
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/publishing/events/{eventId}/preview",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: {
+      description: "Organizer publication state and preview",
+      content: json(publicationPreviewResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+for (const action of ["publish", "unpublish"])
+  registry.registerPath({
+    method: "post",
+    path: `/api/publishing/events/{eventId}/${action}`,
+    security: [{ sessionCookie: [] }],
+    request: { params: eventIdParamsSchema },
+    responses: {
+      200: {
+        description: `Publication ${action} result`,
+        content: json(publicationPreviewResponseSchema),
+      },
+      400: errorResponse,
+      401: errorResponse,
+      403: errorResponse,
+      404: errorResponse,
+      500: errorResponse,
+    },
+  });
 registry.registerPath({
   method: "get",
   path: "/api/session",

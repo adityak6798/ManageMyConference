@@ -5,6 +5,7 @@
     "events": "events",
     "users": "identity-access",
     "organization_memberships": "identity-access",
-    "event_roles": "identity-access"
+    "event_roles": "identity-access",
+    "public_event_projections": "publishing"
   }
 }

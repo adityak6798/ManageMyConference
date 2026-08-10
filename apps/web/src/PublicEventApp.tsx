@@ -1,0 +1,226 @@
+import type { PublicEventProjectionDto } from "@greenroom/contracts";
+import { useEffect, useState } from "react";
+import { getPublicEvent, PublicApiError } from "./api/publication";
+import "./public-event.css";
+
+type View = "home" | "schedule" | "sessions" | "speakers" | "cfp";
+const route = () => {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  const embedded = parts[0] === "embed";
+  const offset = embedded ? 1 : 0;
+  const slug = parts[offset] === "events" ? (parts[offset + 1] ?? "") : "";
+  const section = parts[offset + 2] ?? "home";
+  return {
+    embedded,
+    slug,
+    section: (["schedule", "sessions", "speakers", "cfp"].includes(section)
+      ? section
+      : "home") as View,
+    detail: parts[offset + 3],
+  };
+};
+
+const dates = (projection: PublicEventProjectionDto) =>
+  `${projection.event.startsOn}–${projection.event.endsOn}`;
+
+// @spec PRD-PUB-001
+export function PublicEventApp() {
+  const [{ embedded, slug, section, detail }] = useState(route);
+  const [projection, setProjection] = useState<PublicEventProjectionDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    // ERROR-INTENT: React effects cannot await; handlers render loading/error outcomes.
+    void getPublicEvent(slug)
+      .then(setProjection)
+      .catch((reason: unknown) =>
+        setError(
+          reason instanceof PublicApiError ? reason.message : "The event could not be loaded.",
+        ),
+      );
+  }, [slug]);
+  if (error)
+    return (
+      <main className="public-state">
+        <h1>Event unavailable</h1>
+        <p role="alert">{error}</p>
+      </main>
+    );
+  if (!projection)
+    return (
+      <main className="public-state">
+        <p role="status">Loading published event…</p>
+      </main>
+    );
+  const base = `${embedded ? "/embed" : ""}/events/${slug}`;
+  const session =
+    section === "sessions" && detail
+      ? projection.sessions.find((item) => item.slug === detail)
+      : undefined;
+  const speaker =
+    section === "speakers" && detail
+      ? projection.speakers.find((item) => item.slug === detail)
+      : undefined;
+  if (
+    (detail && section === "sessions" && !session) ||
+    (detail && section === "speakers" && !speaker)
+  )
+    return (
+      <main className="public-state">
+        <h1>Page not found</h1>
+        <p>The requested published item is unavailable.</p>
+      </main>
+    );
+  return (
+    <div className={embedded ? "public-shell embed" : "public-shell"}>
+      <header>
+        <a className="brand" href={base}>
+          {projection.event.name}
+        </a>
+        {!embedded && (
+          <nav aria-label="Event navigation">
+            <a href={`${base}/schedule`}>Schedule</a>
+            <a href={`${base}/sessions`}>Sessions</a>
+            <a href={`${base}/speakers`}>Speakers</a>
+            <a href={`${base}/cfp`}>CFP</a>
+          </nav>
+        )}
+      </header>
+      <main>
+        {section === "home" && (
+          <>
+            <p className="kicker">
+              {dates(projection)} · {projection.event.venue}
+            </p>
+            <h1>{projection.event.name}</h1>
+            <p className="lede">{projection.event.summary}</p>
+            <div className="actions">
+              <a href={`${base}/schedule`}>Explore the schedule</a>
+              <a href={`${base}/cfp`}>Call for proposals</a>
+            </div>
+          </>
+        )}
+        {section === "schedule" && (
+          <>
+            <p className="kicker">Published schedule</p>
+            <h1>Plan your time</h1>
+            <div className="cards">
+              {projection.sessions
+                .filter(({ startsAt }) => startsAt)
+                .map((item) => (
+                  <article key={item.slug}>
+                    <time dateTime={item.startsAt}>
+                      {new Date(item.startsAt ?? "").toLocaleString([], {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </time>
+                    <h2>
+                      <a href={`${base}/sessions/${item.slug}`}>{item.title}</a>
+                    </h2>
+                    <p>
+                      {item.room} · {item.track}
+                    </p>
+                  </article>
+                ))}
+            </div>
+          </>
+        )}
+        {section === "sessions" && !session && (
+          <>
+            <p className="kicker">Program</p>
+            <h1>Sessions</h1>
+            <div className="cards">
+              {projection.sessions.map((item) => (
+                <article key={item.slug}>
+                  <p>
+                    {item.format} · {item.track}
+                  </p>
+                  <h2>
+                    <a href={`${base}/sessions/${item.slug}`}>{item.title}</a>
+                  </h2>
+                  <p>{item.abstract}</p>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+        {session && (
+          <article className="detail">
+            <p className="kicker">
+              {session.format} · {session.track}
+            </p>
+            <h1>{session.title}</h1>
+            <p className="lede">{session.abstract}</p>
+            {session.startsAt && (
+              <p>
+                <time dateTime={session.startsAt}>
+                  {new Date(session.startsAt).toLocaleString([], {
+                    dateStyle: "full",
+                    timeStyle: "short",
+                  })}
+                </time>{" "}
+                · {session.room}
+              </p>
+            )}
+            <h2>Speakers</h2>
+            {session.speakerSlugs.map((speakerSlug) => {
+              const item = projection.speakers.find(({ slug: value }) => value === speakerSlug);
+              return item ? (
+                <p key={item.slug}>
+                  <a href={`${base}/speakers/${item.slug}`}>{item.name}</a>
+                </p>
+              ) : null;
+            })}
+          </article>
+        )}
+        {section === "speakers" && !speaker && (
+          <>
+            <p className="kicker">People</p>
+            <h1>Speakers</h1>
+            <div className="cards speaker-grid">
+              {projection.speakers.map((item) => (
+                <article key={item.slug}>
+                  <h2>
+                    <a href={`${base}/speakers/${item.slug}`}>{item.name}</a>
+                  </h2>
+                  <p>{item.headline}</p>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+        {speaker && (
+          <article className="detail">
+            <p className="kicker">Speaker</p>
+            <h1>{speaker.name}</h1>
+            <p className="lede">{speaker.headline}</p>
+            <p>{speaker.bio}</p>
+          </article>
+        )}
+        {section === "cfp" && (
+          <article className="detail">
+            <p className="kicker">Call for proposals</p>
+            <h1>{projection.cfp.title}</h1>
+            <p className="lede">{projection.cfp.description}</p>
+            <p>
+              Submissions close{" "}
+              <time dateTime={projection.cfp.closesAt}>
+                {new Date(projection.cfp.closesAt).toLocaleString([], {
+                  dateStyle: "long",
+                  timeStyle: "short",
+                })}
+              </time>
+              .
+            </p>
+            <a className="primary" href={projection.cfp.submissionUrl}>
+              Submit a proposal
+            </a>
+          </article>
+        )}
+      </main>
+      <footer>
+        <p>Published by Project Greenroom</p>
+      </footer>
+    </div>
+  );
+}

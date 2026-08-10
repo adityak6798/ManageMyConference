@@ -1,6 +1,8 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { EventService } from "./application/events/event-service";
+import { PublicationService } from "./application/publishing/publication-service";
 import { createHttpApp } from "./transport/http/app";
 
 interface Environment {
@@ -56,6 +58,7 @@ export default {
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      new PublicationService(new D1PublicationRepository(environment.DB)),
     );
     return Promise.resolve(app.fetch(request));
   },

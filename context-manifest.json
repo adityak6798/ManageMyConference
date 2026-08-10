@@ -12,9 +12,10 @@
       "apps/api/src/application/events/public.ts",
       "apps/api/src/application/identity/actor.ts",
       "apps/api/src/application/identity/demo-session.ts",
-      "apps/api/src/application/identity/identity-directory.ts"
+      "apps/api/src/application/identity/identity-directory.ts",
+      "apps/api/src/application/publishing/publication-service.ts"
     ],
-    "compositionRoots": ["apps/api/src/index.ts"],
+    "compositionRoots": ["apps/api/src/index.ts", "apps/web/src/main.tsx"],
     "layerPaths": {
       "domain": ["apps/api/src/domain"],
       "application": ["apps/api/src/application"],
@@ -61,7 +62,8 @@
         "apps/api/vitest.config.ts",
         "apps/api/vitest.integration.config.ts",
         "apps/web/vite.config.ts",
-        "apps/web/playwright.config.ts"
+        "apps/web/playwright.config.ts",
+        "apps/web/src/main.tsx"
       ]
     },
     {
@@ -97,9 +99,8 @@
         "apps/api/test/event-service.test.ts",
         "apps/web/src/App.tsx",
         "apps/web/src/api/events.ts",
-        "apps/web/src/main.tsx",
         "apps/web/test",
-        "apps/web/e2e"
+        "apps/web/e2e/reference-slice.spec.ts"
       ]
     },
     {
@@ -163,7 +164,16 @@
       "acceptance": ["ACC-PUBLIC"],
       "plans": ["PLAN-002", "PLAN-003"],
       "index": "docs/product/specifications.md",
-      "paths": []
+      "paths": [
+        "apps/api/src/domain/publishing",
+        "apps/api/src/application/publishing",
+        "apps/api/src/adapters/persistence/d1-publication-repository.ts",
+        "apps/api/migrations/0003_public_event_projections.sql",
+        "apps/api/test/publication.test.ts",
+        "apps/web/src/PublicEventApp.tsx",
+        "apps/web/src/api/publication.ts",
+        "apps/web/e2e/public-event.spec.ts"
+      ]
     }
   ],
   "symbols": {

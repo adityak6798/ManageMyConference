@@ -32,6 +32,11 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(foundation)) await database.prepare(statement).run();
+    const publishing = await readFile(
+      new URL("../migrations/0003_public_event_projections.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(publishing)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 
