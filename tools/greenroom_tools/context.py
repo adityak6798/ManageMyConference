@@ -393,7 +393,7 @@ def check_repository() -> list[str]:
             continue
         schema_text = schema_path.read_text(encoding="utf-8")
         for table, body in re.findall(
-            r'sqliteTable\("([A-Za-z_][A-Za-z0-9_]*)",\s*\{(.*?)\}\);',
+            r'sqliteTable\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*\{(.*?)\}\s*(?:,.*?)?\);',
             schema_text,
             re.DOTALL,
         ):

@@ -18,6 +18,15 @@ export interface EventServiceDependencies {
 export class EventService {
   constructor(private readonly dependencies: EventServiceDependencies) {}
 
+  private scope(actor: Actor) {
+    return {
+      organizationIds: actor.organizations.map(({ id }) => id),
+      eventIds: actor.eventAccess
+        .filter(({ capabilities }) => capabilities.has("events:read"))
+        .map(({ eventId }) => eventId),
+    };
+  }
+
   async create(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
     const authorized = requireCapability(actor, "events:create");
     if (!authorized.organizations.some(({ id }) => id === command.organizationId)) {
@@ -36,16 +45,11 @@ export class EventService {
 
   list(actor: Actor | null): Promise<readonly Event[]> {
     const authorized = requireCapability(actor, "events:read");
-    return this.dependencies.repository.list({
-      organizationIds: authorized.organizations.map(({ id }) => id),
-      eventIds: authorized.eventAccess
-        .filter(({ capabilities }) => capabilities.has("events:read"))
-        .map(({ eventId }) => eventId),
-    });
+    return this.dependencies.repository.list(this.scope(authorized));
   }
 
   async get(actor: Actor | null, eventId: string): Promise<Event | null> {
-    const visible = await this.list(actor);
-    return visible.find(({ id }) => id === eventId) ?? null;
+    const authorized = requireCapability(actor, "events:read");
+    return this.dependencies.repository.findById(eventId, this.scope(authorized));
   }
 }

@@ -70,7 +70,11 @@ describe("events HTTP transport", () => {
   it("denies event mutations before persistence", async () => {
     const create = vi.fn();
     const service = new EventService({
-      repository: { create, list: vi.fn().mockResolvedValue([]) },
+      repository: {
+        create,
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+      },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -167,7 +171,11 @@ describe("events HTTP transport", () => {
   it("rejects semantic input errors without writing", async () => {
     const create = vi.fn();
     const service = new EventService({
-      repository: { create, list: vi.fn().mockResolvedValue([]) },
+      repository: {
+        create,
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+      },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -307,6 +315,7 @@ describe("events HTTP transport", () => {
       repository: {
         create: vi.fn(),
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
+        findById: vi.fn().mockResolvedValue(null),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),

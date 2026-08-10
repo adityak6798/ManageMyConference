@@ -20,6 +20,17 @@ export class MemoryEventRepository implements EventRepository {
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
+  async findById(
+    eventId: string,
+    scope: { organizationIds: readonly string[]; eventIds: readonly string[] },
+  ): Promise<Event | null> {
+    const event = this.events.get(eventId);
+    if (!event) return null;
+    return scope.organizationIds.includes(event.organizationId) || scope.eventIds.includes(event.id)
+      ? event
+      : null;
+  }
+
   reset(): void {
     this.events.clear();
   }

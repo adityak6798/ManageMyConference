@@ -7,4 +7,8 @@ export interface EventRepository {
     organizationIds: readonly string[];
     eventIds: readonly string[];
   }): Promise<readonly Event[]>;
+  findById(
+    eventId: string,
+    scope: { organizationIds: readonly string[]; eventIds: readonly string[] },
+  ): Promise<Event | null>;
 }

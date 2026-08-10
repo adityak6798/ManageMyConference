@@ -72,6 +72,15 @@ describe("D1EventRepository", () => {
     await expect(
       repository.list({ organizationIds: [event.organizationId], eventIds: [] }),
     ).resolves.toEqual([event]);
+    await expect(
+      repository.findById(event.id, { organizationIds: [event.organizationId], eventIds: [] }),
+    ).resolves.toEqual(event);
+    await expect(
+      repository.findById(event.id, {
+        organizationIds: ["00000000-0000-4000-8000-000000000099"],
+        eventIds: [],
+      }),
+    ).resolves.toBeNull();
   });
 
   it("restores the exact deterministic seed when reset is applied twice", async () => {

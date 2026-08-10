@@ -58,4 +58,29 @@ export class D1EventRepository implements EventRepository {
     }
     return (result.results ?? []).map(rowToEvent);
   }
+
+  async findById(
+    eventId: string,
+    scope: { organizationIds: readonly string[]; eventIds: readonly string[] },
+  ): Promise<Event | null> {
+    const organizationIds = [...new Set(scope.organizationIds)];
+    const eventIds = [...new Set(scope.eventIds)];
+    if (organizationIds.length === 0 && eventIds.length === 0) return null;
+    const clauses = [
+      ...(organizationIds.length
+        ? [`organization_id IN (${organizationIds.map(() => "?").join(", ")})`]
+        : []),
+      ...(eventIds.length ? [`id IN (${eventIds.map(() => "?").join(", ")})`] : []),
+    ];
+    const result = await this.database
+      .prepare(
+        `SELECT id, organization_id, name, timezone, created_at FROM events WHERE id = ? AND (${clauses.join(" OR ")}) LIMIT 1`,
+      )
+      .bind(eventId, ...organizationIds, ...eventIds)
+      .all<EventRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to find event: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row ? rowToEvent(row) : null;
+  }
 }
