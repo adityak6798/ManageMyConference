@@ -5,9 +5,12 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await expect(page.getByRole("heading", { name: "Sessions & speakers" })).toBeVisible();
-  await expect(page.getByText("Designing the calm conference")).toBeVisible();
+  await expect(page.getByLabel("Session title").first()).toHaveValue(
+    "Designing the calm conference",
+  );
   await page.getByRole("button", { name: "Accept demo proposal" }).click();
-  await expect(page.getByText("A newly accepted session")).toBeVisible();
+  await expect(page.getByLabel("Session title")).toHaveCount(2);
+  await expect(page.getByLabel("Session title").first()).toHaveValue("A newly accepted session");
   await page.getByRole("button", { name: "Request presentation asset" }).click();
   await expect(page.getByText(/open tasks/)).toBeVisible();
   await page.getByRole("button", { name: "Record communication" }).click();
@@ -24,6 +27,14 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
     .setInputFiles({ name: "headshot.png", mimeType: "image/png", buffer: Buffer.from([1, 2, 3]) });
   await page.getByRole("button", { name: "Upload asset" }).click();
   await expect(page.getByText("1 asset(s) securely stored.")).toBeVisible();
+  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("organizer");
+  await page.getByLabel("Session title").first().fill("Organizer-managed session");
+  await page.getByLabel("Publication readiness").first().selectOption("ready");
+  await page.getByRole("button", { name: "Save session" }).first().click();
+  await expect(page.getByLabel("Session title").first()).toHaveValue("Organizer-managed session");
+  await page.getByRole("button", { name: "Mark publishable" }).click();
+  await expect(page.getByRole("button", { name: "Publishable" })).toBeVisible();
+  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("speaker");
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "Download calendar (.ics)" }).click();
   expect((await download).suggestedFilename()).toBe("greenroom-sessions.ics");

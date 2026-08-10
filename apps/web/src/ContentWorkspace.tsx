@@ -1,11 +1,13 @@
-import type { ContentWorkspaceDto } from "@greenroom/contracts";
+import type { ContentWorkspaceDto, UpdateContentSessionInput } from "@greenroom/contracts";
 import { type FormEvent, useEffect, useState } from "react";
 import {
   acceptContent,
   completeSpeakerTask,
   getContent,
+  publishSpeakerAsset,
   recordSpeakerMessage,
   requestSpeakerTask,
+  updateContentSession,
   updateSpeakerProfile,
   uploadSpeakerAsset,
 } from "./api/events";
@@ -14,6 +16,98 @@ interface Props {
   eventId: string;
   role: "organizer" | "speaker";
   onError: (error: unknown) => void;
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 0x8000)
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
+  return btoa(chunks.join(""));
+}
+
+function OrganizerSessionEditor({
+  session,
+  speakers,
+  busy,
+  onSave,
+}: {
+  session: ContentWorkspaceDto["sessions"][number];
+  speakers: ContentWorkspaceDto["speakers"];
+  busy: boolean;
+  onSave: (input: UpdateContentSessionInput) => Promise<unknown>;
+}) {
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const list = (name: string) =>
+      String(data.get(name) ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+    // ERROR-INTENT: React handlers cannot await; the parent run helper renders failures.
+    void onSave({
+      title: String(data.get("title")),
+      abstract: String(data.get("abstract")),
+      format: String(data.get("format")),
+      speakerProfileIds: data.getAll("speakers").map(String),
+      tags: list("tags"),
+      tracks: list("tracks"),
+      publicationState: String(
+        data.get("publicationState"),
+      ) as UpdateContentSessionInput["publicationState"],
+    });
+  }
+  return (
+    <article className="content-card">
+      <form onSubmit={submit}>
+        <label>
+          Session title
+          <input name="title" defaultValue={session.title} required />
+        </label>
+        <label>
+          Abstract
+          <textarea name="abstract" defaultValue={session.abstract} required />
+        </label>
+        <label>
+          Format
+          <input name="format" defaultValue={session.format} required />
+        </label>
+        <label>
+          Tags
+          <input name="tags" defaultValue={session.tags.join(", ")} />
+        </label>
+        <label>
+          Tracks
+          <input name="tracks" defaultValue={session.tracks.join(", ")} />
+        </label>
+        <fieldset>
+          <legend>Speakers</legend>
+          {speakers.map((speaker) => (
+            <label className="check-label" key={speaker.id}>
+              <input
+                type="checkbox"
+                name="speakers"
+                value={speaker.id}
+                defaultChecked={session.speakerProfileIds.includes(speaker.id)}
+              />
+              {speaker.name}
+            </label>
+          ))}
+        </fieldset>
+        <label>
+          Publication readiness
+          <select name="publicationState" defaultValue={session.publicationState}>
+            <option value="draft">Draft</option>
+            <option value="ready">Ready</option>
+            <option value="published">Published</option>
+          </select>
+        </label>
+        <button type="submit" disabled={busy}>
+          Save session
+        </button>
+      </form>
+    </article>
+  );
 }
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
@@ -127,15 +221,37 @@ export function ContentWorkspace({ eventId, role, onError }: Props) {
           </div>
         ) : null}
         {workspace.sessions.map((session) => (
-          <article className="content-card" key={session.id}>
-            <span className={`pill ${session.publicationState}`}>{session.publicationState}</span>
-            <h3>{session.title}</h3>
-            <p>{session.abstract}</p>
-            <small>
-              {session.format} · {session.tracks.join(", ") || "No track"}
-            </small>
-          </article>
+          <OrganizerSessionEditor
+            key={session.id}
+            session={session}
+            speakers={workspace.speakers}
+            busy={busy}
+            onSave={(input) => run(() => updateContentSession(session.id, input))}
+          />
         ))}
+        <h3>Speaker assets</h3>
+        {workspace.assets.length ? (
+          workspace.assets.map((asset) => (
+            <div className="task-row" key={asset.id}>
+              <span>
+                {asset.name} · {asset.visibility}
+              </span>
+              <button
+                type="button"
+                disabled={busy || asset.visibility === "publishable"}
+                onClick={() => {
+                  /* ERROR-INTENT: React handlers cannot await; run renders failures. */ void run(
+                    () => publishSpeakerAsset(asset.id),
+                  );
+                }}
+              >
+                {asset.visibility === "publishable" ? "Publishable" : "Mark publishable"}
+              </button>
+            </div>
+          ))
+        ) : (
+          <p className="empty">No speaker assets uploaded.</p>
+        )}
         <h3>Communication history</h3>
         {workspace.messages.length ? (
           workspace.messages.map((message) => (
@@ -174,16 +290,15 @@ export function ContentWorkspace({ eventId, role, onError }: Props) {
     const input = event.currentTarget.elements.namedItem("asset") as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    const contentBase64 = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
-    await run(() =>
-      uploadSpeakerAsset({
+    await run(async () => {
+      const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      await uploadSpeakerAsset({
         profileId: speakerProfile.id,
         name: file.name,
         contentType: file.type as "image/jpeg" | "image/png" | "application/pdf",
         contentBase64,
-        visibility: "private",
-      }),
-    );
+      });
+    });
   }
   return (
     <>

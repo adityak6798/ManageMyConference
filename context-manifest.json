@@ -186,6 +186,9 @@
     "createHttpApp": "apps/api/src/transport/http/app.ts",
     "App": "apps/web/src/App.tsx",
     "ContentService": "apps/api/src/application/content/content-service.ts",
-    "ContentQuery": "apps/api/src/application/content/public.ts"
+    "AgendaContentQuery": "apps/api/src/application/content/public.ts",
+    "PublishingContentQuery": "apps/api/src/application/content/public.ts",
+    "CrmContentQuery": "apps/api/src/application/content/public.ts",
+    "CommunicationsContentQuery": "apps/api/src/application/content/public.ts"
   }
 }

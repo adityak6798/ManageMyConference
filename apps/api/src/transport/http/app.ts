@@ -2,14 +2,17 @@ import {
   acceptContentInputSchema,
   type ApiErrorEnvelope,
   createEventInputSchema,
+  contentSessionParamsSchema,
   demoSessionInputSchema,
   eventContentParamsSchema,
   eventIdParamsSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
+  speakerAssetParamsSchema,
   taskParamsSchema,
   updateSpeakerProfileInputSchema,
+  updateContentSessionInputSchema,
   uploadSpeakerAssetInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
@@ -324,6 +327,47 @@ export function createHttpApp(
       { message: await content.recordMessage(context.get("actor"), parsed.data) },
       201,
     );
+  });
+  app.patch("/api/content-sessions/:sessionId", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = contentSessionParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Session ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = updateContentSessionInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Session content is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      session: await content.updateSession(
+        context.get("actor"),
+        params.data.sessionId,
+        parsed.data,
+      ),
+    });
+  });
+  app.post("/api/speaker-assets/:assetId/publish", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = speakerAssetParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Asset ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      asset: await content.publishAsset(context.get("actor"), params.data.assetId),
+    });
   });
   app.post("/api/speaker-assets", async (context) => {
     requireCapability(context.get("actor"), "content:read");

@@ -76,7 +76,6 @@ describe("ContentService", () => {
         name: "headshot.png",
         contentType: "image/png",
         bytes: new Uint8Array([1]),
-        visibility: "private",
       }),
     ).rejects.toThrow("metadata unavailable");
     expect(storage.objects.size).toBe(0);
@@ -99,8 +98,8 @@ describe("ContentService", () => {
     expect(linked.sessions).toHaveLength(2);
     expect(linked.speakers).toHaveLength(1);
     expect(
-      new Set(linked.sessions.flatMap(({ speakerProfileIds }) => speakerProfileIds)),
-    ).toHaveLength(1);
+      new Set(linked.sessions.flatMap(({ speakerProfileIds }) => speakerProfileIds)).size,
+    ).toBe(1);
   });
   it("scopes the portal to the assigned speaker and protects uploads", async () => {
     const { service, storage } = setup();
@@ -114,10 +113,37 @@ describe("ContentService", () => {
       name: "headshot.png",
       contentType: "image/png",
       bytes: new Uint8Array([1, 2]),
-      visibility: "private",
     });
     expect(asset.visibility).toBe("private");
     expect(storage.objects.has(asset.storageKey)).toBe(true);
+    await expect(service.publishAsset(speaker, asset.id)).rejects.toThrow();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await expect(service.publishAsset(organizer, asset.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
+    const session = portal.sessions[0];
+    await expect(
+      service.updateSession(organizer, session?.id ?? "", {
+        title: "Updated session",
+        abstract: "Updated abstract",
+        format: "Workshop",
+        speakerProfileIds: [profile?.id ?? ""],
+        tags: ["updated"],
+        tracks: ["Studio"],
+        publicationState: "ready",
+      }),
+    ).resolves.toMatchObject({ title: "Updated session", publicationState: "ready" });
+    await expect(
+      service.updateSession(speaker, session?.id ?? "", {
+        title: "Forbidden",
+        abstract: "Updated abstract",
+        format: "Workshop",
+        speakerProfileIds: [profile?.id ?? ""],
+        tags: [],
+        tracks: [],
+        publicationState: "published",
+      }),
+    ).rejects.toThrow();
     await expect(
       service.workspace(await resolveSeededDemoActor("reviewer"), eventId),
     ).rejects.toThrow();
@@ -151,7 +177,7 @@ describe("ContentService", () => {
           id: "session-1",
           eventId,
           proposalId: "proposal-1",
-          title: "A, B; and C",
+          title: "A, B; and C\r\nInjected",
           abstract: "",
           format: "Talk",
           speakerProfileIds: ["profile-1"],
@@ -192,6 +218,7 @@ describe("ContentService", () => {
     const first = await service.calendar(speaker, eventId);
     expect(await service.calendar(speaker, eventId)).toBe(first);
     expect(first).toContain("DTSTART:20260915T170000Z");
-    expect(first).toContain("SUMMARY:A\\, B\\; and C");
+    expect(first).toContain("SUMMARY:A\\, B\\; and C\\nInjected");
+    expect(first).not.toContain("\r\nInjected");
   });
 });

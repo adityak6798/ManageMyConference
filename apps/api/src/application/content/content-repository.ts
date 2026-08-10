@@ -20,10 +20,14 @@ export interface ContentRepository {
   workspace(eventId: string, userId?: string): Promise<ContentWorkspace>;
   updateProfile(profile: SpeakerProfile): Promise<void>;
   updateTask(task: SpeakerTask): Promise<void>;
+  updateSession(session: ContentSession): Promise<void>;
+  updateAsset(asset: SpeakerAsset): Promise<void>;
   addAsset(asset: SpeakerAsset): Promise<void>;
   addTask(task: SpeakerTask): Promise<void>;
   addMessage(message: SpeakerMessage): Promise<void>;
   findProfile(profileId: string): Promise<SpeakerProfile | null>;
+  findSession(sessionId: string): Promise<ContentSession | null>;
+  findAsset(assetId: string): Promise<SpeakerAsset | null>;
   findProfileBySource(eventId: string, sourcePersonId: string): Promise<SpeakerProfile | null>;
 }
 

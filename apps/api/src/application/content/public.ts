@@ -1,6 +1,50 @@
-import type { ContentWorkspace } from "../../domain/content/content";
-
-// Narrow read boundary for agenda, publishing, CRM, and communications consumers.
-export interface ContentQuery {
-  workspace(eventId: string): Promise<ContentWorkspace>;
+export interface AgendaContentQuery {
+  listSchedulableSessions(eventId: string): Promise<
+    readonly {
+      id: string;
+      title: string;
+      speakerProfileIds: readonly string[];
+      tracks: readonly string[];
+    }[]
+  >;
+}
+export interface PublishingContentQuery {
+  publishedEventContent(eventId: string): Promise<{
+    sessions: readonly {
+      id: string;
+      title: string;
+      abstract: string;
+      format: string;
+      speakerProfileIds: readonly string[];
+      tags: readonly string[];
+      tracks: readonly string[];
+    }[];
+    speakers: readonly {
+      id: string;
+      name: string;
+      bio: string;
+      pronouns: string;
+      organization: string;
+      photoAssetId?: string;
+    }[];
+    assets: readonly { id: string; speakerProfileId: string; name: string; contentType: string }[];
+  }>;
+}
+export interface CrmContentQuery {
+  findSpeakerOrigin(
+    eventId: string,
+    sourcePersonId: string,
+  ): Promise<{ profileId: string; userId: string; name: string; email: string } | null>;
+}
+export interface CommunicationsContentQuery {
+  listOpenSpeakerWork(eventId: string): Promise<
+    readonly {
+      profileId: string;
+      userId: string;
+      email: string;
+      taskId: string;
+      title: string;
+      dueAt: string;
+    }[]
+  >;
 }

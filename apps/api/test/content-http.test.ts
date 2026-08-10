@@ -123,6 +123,62 @@ describe("content HTTP transport", () => {
         )
       ).status,
     ).toBe(403);
+    const uploaded = await api.request("/api/speaker-assets", {
+      method: "POST",
+      headers: await cookie("speaker"),
+      body: JSON.stringify({
+        profileId,
+        name: "headshot.png",
+        contentType: "image/png",
+        contentBase64: "AQI=",
+        visibility: "publishable",
+      }),
+    });
+    expect(uploaded.status).toBe(201);
+    const uploadedAsset = (await uploaded.json()).asset;
+    expect(uploadedAsset.visibility).toBe("private");
+    expect(
+      (
+        await api.request(`/api/speaker-assets/${uploadedAsset.id}/publish`, {
+          method: "POST",
+          headers: await cookie("speaker"),
+        })
+      ).status,
+    ).toBe(403);
+    const published = await api.request(`/api/speaker-assets/${uploadedAsset.id}/publish`, {
+      method: "POST",
+      headers: await cookie("organizer"),
+    });
+    expect(published.status).toBe(200);
+    expect((await published.json()).asset.visibility).toBe("publishable");
+    const sessionId = portalBody.sessions[0]?.id;
+    const sessionInput = {
+      title: "Managed session",
+      abstract: "Managed abstract",
+      format: "Workshop",
+      speakerProfileIds: [profileId],
+      tags: ["managed"],
+      tracks: ["Studio"],
+      publicationState: "ready",
+    };
+    expect(
+      (
+        await api.request(`/api/content-sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: await cookie("speaker"),
+          body: "{",
+        })
+      ).status,
+    ).toBe(403);
+    const updatedSession = await api.request(`/api/content-sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: await cookie("organizer"),
+      body: JSON.stringify(sessionInput),
+    });
+    expect(updatedSession.status).toBe(200);
+    await expect(updatedSession.json()).resolves.toMatchObject({
+      session: { title: "Managed session", publicationState: "ready" },
+    });
     expect(
       (
         await api.request("/api/speaker-assets", {

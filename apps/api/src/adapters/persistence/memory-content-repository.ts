@@ -62,6 +62,12 @@ export class MemoryContentRepository implements ContentRepository {
   async updateTask(task: SpeakerTask) {
     this.tasks = this.tasks.map((item) => (item.id === task.id ? task : item));
   }
+  async updateSession(session: ContentWorkspace["sessions"][number]) {
+    this.sessions = this.sessions.map((item) => (item.id === session.id ? session : item));
+  }
+  async updateAsset(asset: SpeakerAsset) {
+    this.assets = this.assets.map((item) => (item.id === asset.id ? asset : item));
+  }
   async addAsset(asset: SpeakerAsset) {
     this.assets = [...this.assets, asset];
   }
@@ -73,6 +79,12 @@ export class MemoryContentRepository implements ContentRepository {
   }
   async findProfile(profileId: string) {
     return this.speakers.find(({ id }) => id === profileId) ?? null;
+  }
+  async findSession(sessionId: string) {
+    return this.sessions.find(({ id }) => id === sessionId) ?? null;
+  }
+  async findAsset(assetId: string) {
+    return this.assets.find(({ id }) => id === assetId) ?? null;
   }
   async findProfileBySource(eventId: string, sourcePersonId: string) {
     return (

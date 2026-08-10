@@ -191,12 +191,23 @@ export const uploadSpeakerAssetInputSchema = z.object({
       /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
       "Asset content must be valid base64",
     ),
-  visibility: z.enum(["private", "publishable"]).default("private"),
 });
 export type UploadSpeakerAssetInput = z.infer<typeof uploadSpeakerAssetInputSchema>;
 export const eventContentParamsSchema = z.object({ eventId: z.string().uuid() });
 export const profileParamsSchema = z.object({ profileId: z.string().uuid() });
 export const taskParamsSchema = z.object({ taskId: z.string().uuid() });
+export const contentSessionParamsSchema = z.object({ sessionId: z.string().uuid() });
+export const speakerAssetParamsSchema = z.object({ assetId: z.string().uuid() });
+export const updateContentSessionInputSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  abstract: z.string().trim().min(1),
+  format: z.string().trim().min(1),
+  speakerProfileIds: z.array(z.string().uuid()).min(1),
+  tags: z.array(z.string().trim().min(1)),
+  tracks: z.array(z.string().trim().min(1)),
+  publicationState: z.enum(["draft", "ready", "published"]),
+});
+export type UpdateContentSessionInput = z.infer<typeof updateContentSessionInputSchema>;
 export const requestSpeakerTaskInputSchema = z.object({
   profileId: z.string().uuid(),
   title: z.string().trim().min(1).max(160),

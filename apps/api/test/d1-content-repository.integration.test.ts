@@ -116,5 +116,36 @@ describe("D1ContentRepository", () => {
     expect(
       canonical.speakers.filter(({ sourcePersonId }) => sourcePersonId === "concurrent-person"),
     ).toHaveLength(1);
+    const managedSessionSource = canonical.sessions.find(
+      ({ proposalId }) => proposalId === command.proposalId,
+    );
+    if (!managedSessionSource) throw new Error("Concurrent session was not persisted");
+    const managedSession = {
+      ...managedSessionSource,
+      title: "Managed in D1",
+      publicationState: "ready" as const,
+    };
+    await repository.updateSession(managedSession);
+    await expect(repository.findSession(managedSession.id)).resolves.toEqual(managedSession);
+    const managedProfile = canonical.speakers.find(
+      ({ sourcePersonId }) => sourcePersonId === "concurrent-person",
+    );
+    if (!managedProfile) throw new Error("Concurrent speaker was not persisted");
+    const privateAsset = {
+      id: "80000000-0000-4000-8000-000000000001",
+      eventId: command.eventId,
+      speakerProfileId: managedProfile.id,
+      name: "headshot.png",
+      contentType: "image/png",
+      storageKey: "event/profile/asset",
+      visibility: "private" as const,
+      uploadedAt: "2026-08-10T12:00:00.000Z",
+    };
+    await repository.addAsset(privateAsset);
+    await expect(repository.findAsset(privateAsset.id)).resolves.toEqual(privateAsset);
+    await repository.updateAsset({ ...privateAsset, visibility: "publishable" });
+    await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
   });
 });

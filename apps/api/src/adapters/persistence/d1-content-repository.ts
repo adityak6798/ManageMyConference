@@ -194,6 +194,22 @@ export class D1ContentRepository implements ContentRepository {
       task.id,
     );
   }
+  async updateSession(session: ContentSession) {
+    await this.run(
+      "UPDATE content_sessions SET title=?,abstract=?,format=?,speaker_profile_ids=?,tags=?,tracks=?,publication_state=? WHERE id=?",
+      session.title,
+      session.abstract,
+      session.format,
+      JSON.stringify(session.speakerProfileIds),
+      JSON.stringify(session.tags),
+      JSON.stringify(session.tracks),
+      session.publicationState,
+      session.id,
+    );
+  }
+  async updateAsset(asset: SpeakerAsset) {
+    await this.run("UPDATE speaker_assets SET visibility=? WHERE id=?", asset.visibility, asset.id);
+  }
   async addAsset(asset: SpeakerAsset) {
     await this.run(
       "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at) VALUES (?,?,?,?,?,?,?,?)",
@@ -234,6 +250,16 @@ export class D1ContentRepository implements ContentRepository {
       await this.rows("SELECT * FROM speaker_profiles WHERE id = ? LIMIT 1", profileId)
     )[0];
     return row ? this.profile(row) : null;
+  }
+  async findSession(sessionId: string) {
+    const row = (
+      await this.rows("SELECT * FROM content_sessions WHERE id = ? LIMIT 1", sessionId)
+    )[0];
+    return row ? this.session(row) : null;
+  }
+  async findAsset(assetId: string) {
+    const row = (await this.rows("SELECT * FROM speaker_assets WHERE id = ? LIMIT 1", assetId))[0];
+    return row ? this.asset(row) : null;
   }
   async findProfileBySource(eventId: string, sourcePersonId: string) {
     const row = (

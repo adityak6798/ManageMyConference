@@ -1,5 +1,4 @@
 import type {
-  AssetVisibility,
   ContentSession,
   ContentWorkspace,
   SpeakerAsset,
@@ -207,6 +206,38 @@ export class ContentService {
     return message;
   }
 
+  async updateSession(
+    actor: Actor | null,
+    sessionId: string,
+    input: Pick<
+      ContentSession,
+      "title" | "abstract" | "format" | "speakerProfileIds" | "tags" | "tracks" | "publicationState"
+    >,
+  ) {
+    const authorized = requireCapability(actor, "content:manage");
+    const session = await this.dependencies.repository.findSession(sessionId);
+    if (!session || eventRole(authorized, session.eventId) !== "organizer")
+      throw new CapabilityDeniedError("Organizer session access denied");
+    const profiles = await Promise.all(
+      input.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
+    );
+    if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
+      throw new CapabilityDeniedError("Session speaker access denied");
+    const updated = { ...session, ...input };
+    await this.dependencies.repository.updateSession(updated);
+    return updated;
+  }
+
+  async publishAsset(actor: Actor | null, assetId: string) {
+    const authorized = requireCapability(actor, "content:manage");
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    if (!asset || eventRole(authorized, asset.eventId) !== "organizer")
+      throw new CapabilityDeniedError("Organizer asset access denied");
+    const updated: SpeakerAsset = { ...asset, visibility: "publishable" };
+    await this.dependencies.repository.updateAsset(updated);
+    return updated;
+  }
+
   async upload(
     actor: Actor | null,
     input: {
@@ -214,7 +245,6 @@ export class ContentService {
       name: string;
       contentType: string;
       bytes: Uint8Array;
-      visibility: AssetVisibility;
     },
   ): Promise<SpeakerAsset> {
     const authorized = requireCapability(actor, "content:read");
@@ -239,7 +269,7 @@ export class ContentService {
       name: input.name,
       contentType: input.contentType,
       storageKey: stored.key,
-      visibility: input.visibility,
+      visibility: "private",
       uploadedAt: this.dependencies.now().toISOString(),
     };
     try {
@@ -265,7 +295,7 @@ export class ContentService {
         .replaceAll("\\", "\\\\")
         .replaceAll(",", "\\,")
         .replaceAll(";", "\\;")
-        .replaceAll("\n", "\\n");
+        .replaceAll(/\r\n|\r|\n/g, "\\n");
     const date = (value: string) => value.replaceAll(/[-:]/g, "").replace(".000", "");
     const events = workspace.sessions
       .filter((session) => session.schedule)

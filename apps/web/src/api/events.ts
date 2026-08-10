@@ -14,6 +14,8 @@ import {
   contentWorkspaceSchema,
   updateSpeakerProfileInputSchema,
   type UpdateSpeakerProfileInput,
+  type UpdateContentSessionInput,
+  updateContentSessionInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
 
@@ -138,7 +140,6 @@ export async function uploadSpeakerAsset(
     name: string;
     contentType: "image/jpeg" | "image/png" | "application/pdf";
     contentBase64: string;
-    visibility: "private" | "publishable";
   },
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
@@ -147,5 +148,25 @@ export async function uploadSpeakerAsset(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+export async function updateContentSession(
+  sessionId: string,
+  input: UpdateContentSessionInput,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const validated = updateContentSessionInputSchema.parse(input);
+  const response = await fetcher(`/api/content-sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(validated),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+export async function publishSpeakerAsset(
+  assetId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/speaker-assets/${assetId}/publish`, { method: "POST" });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }

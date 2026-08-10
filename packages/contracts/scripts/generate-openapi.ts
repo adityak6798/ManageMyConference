@@ -10,6 +10,8 @@ import {
   apiErrorEnvelopeSchema,
   acceptContentInputSchema,
   contentWorkspaceSchema,
+  contentSessionParamsSchema,
+  contentSessionSchema,
   createEventInputSchema,
   createEventResponseSchema,
   demoSessionInputSchema,
@@ -29,6 +31,8 @@ import {
   updateSpeakerProfileInputSchema,
   uploadSpeakerAssetInputSchema,
   speakerAssetSchema,
+  speakerAssetParamsSchema,
+  updateContentSessionInputSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -127,6 +131,41 @@ registry.registerPath({
     201: {
       description: "Stored private or explicitly publishable asset metadata",
       content: json(z.object({ asset: speakerAssetSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/speaker-assets/{assetId}/publish",
+  security: [{ sessionCookie: [] }],
+  request: { params: speakerAssetParamsSchema },
+  responses: {
+    200: {
+      description: "Organizer-approved publishable asset",
+      content: json(z.object({ asset: speakerAssetSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "patch",
+  path: "/api/content-sessions/{sessionId}",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: contentSessionParamsSchema,
+    body: { required: true, content: json(updateContentSessionInputSchema) },
+  },
+  responses: {
+    200: {
+      description: "Organizer-managed session content and readiness",
+      content: json(z.object({ session: contentSessionSchema })),
     },
     400: errorResponse,
     401: errorResponse,
