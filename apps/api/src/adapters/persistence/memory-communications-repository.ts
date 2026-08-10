@@ -1,4 +1,7 @@
-import type { CommunicationsRepository } from "../../application/communications/ports";
+import {
+  type CommunicationsRepository,
+  DeliveryRecoveryConflictError,
+} from "../../application/communications/ports";
 import type {
   Delivery,
   DeliveryAttempt,
@@ -52,7 +55,32 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
   async list(organizationId: string, eventId: string) {
     return [...this.deliveries.values()]
       .filter((item) => item.organizationId === organizationId && item.eventId === eventId)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      .sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+      );
+  }
+
+  async historyPage(
+    organizationId: string,
+    eventId: string,
+    page: { limit: number; after?: { createdAt: string; id: string } },
+  ) {
+    const eligible = (await this.list(organizationId, eventId)).filter((delivery) => {
+      if (!page.after) return true;
+      return (
+        delivery.createdAt > page.after.createdAt ||
+        (delivery.createdAt === page.after.createdAt && delivery.id > page.after.id)
+      );
+    });
+    const selected = eligible.slice(0, page.limit);
+    return {
+      items: selected.map((delivery) => ({
+        delivery,
+        attempts: this.attemptLog.filter((attempt) => attempt.deliveryId === delivery.id),
+      })),
+      hasMore: eligible.length > page.limit,
+    };
   }
 
   async get(deliveryId: string) {
@@ -70,7 +98,7 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
       )
       .sort((left, right) => left.nextAttemptAt.localeCompare(right.nextAttemptAt))[0];
     if (!delivery) return null;
-    const leased = { ...delivery, leaseToken };
+    const leased = { ...delivery, leaseToken, updatedAt: now };
     this.deliveries.set(leased.id, leased);
     return leased;
   }
@@ -101,10 +129,11 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
   async retry(deliveryId: string, organizationId: string, now: string): Promise<Delivery> {
     const delivery = this.deliveries.get(deliveryId);
     if (!delivery || delivery.organizationId !== organizationId)
-      throw new Error("Delivery not found");
-    if (delivery.leaseToken) throw new Error("Delivery is currently leased");
+      throw new DeliveryRecoveryConflictError("Delivery not found");
+    if (delivery.leaseToken)
+      throw new DeliveryRecoveryConflictError("Delivery is currently leased");
     if (delivery.state !== "terminal" && delivery.state !== "retrying")
-      throw new Error("Delivery is not recoverable");
+      throw new DeliveryRecoveryConflictError("Delivery is not recoverable");
     const retried = { ...delivery, state: "queued" as const, nextAttemptAt: now, updatedAt: now };
     this.deliveries.set(deliveryId, retried);
     return retried;
@@ -112,5 +141,19 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
 
   async attempts(deliveryId: string) {
     return this.attemptLog.filter((item) => item.deliveryId === deliveryId);
+  }
+
+  async isProjectionSuperseded(delivery: Delivery) {
+    const projectionVersion = delivery.projectionVersion;
+    if (delivery.channel === "email" || projectionVersion === null) return false;
+    return [...this.deliveries.values()].some(
+      (candidate) =>
+        candidate.id !== delivery.id &&
+        candidate.channel === delivery.channel &&
+        candidate.eventId === delivery.eventId &&
+        candidate.recipientRef === delivery.recipientRef &&
+        candidate.projectionVersion !== null &&
+        candidate.projectionVersion > projectionVersion,
+    );
   }
 }

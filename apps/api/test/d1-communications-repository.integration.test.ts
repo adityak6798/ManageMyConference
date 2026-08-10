@@ -88,6 +88,22 @@ describe("D1CommunicationsRepository", () => {
       attemptCount: 1,
       leaseToken: null,
     });
+    const firstPage = await repository.historyPage(delivery.organizationId, delivery.eventId, {
+      limit: 2,
+    });
+    expect(firstPage.items).toHaveLength(2);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.items.some(({ attempts }) => attempts.length > 0)).toBe(true);
+    await repository.enqueue({
+      ...delivery,
+      id: "delivery-newer",
+      idempotencyKey: "projection:session:99:v3",
+      projectionVersion: 3,
+      state: "queued",
+      attemptCount: 0,
+      leaseToken: null,
+    });
+    await expect(repository.isProjectionSuperseded(delivery)).resolves.toBe(true);
   });
 
   it("executes queued work through the deployed scheduled entrypoint", async () => {

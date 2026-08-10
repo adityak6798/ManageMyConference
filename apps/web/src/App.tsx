@@ -1,5 +1,5 @@
 import type { CommunicationsHistoryDto, EventDto, SessionDto } from "@greenroom/contracts";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
 import {
   CommunicationsApiError,
@@ -35,6 +35,8 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<CommunicationsHistoryDto["history"] | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const selectedEventIdRef = useRef("");
 
   const loadShell = useCallback(async () => {
     const currentSession = await getSession();
@@ -43,7 +45,11 @@ export function App() {
       : [];
     setSession(currentSession);
     setEvents(loadedEvents);
-    setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
+    setSelectedEventId((current) => {
+      const next = current || loadedEvents[0]?.id || "";
+      selectedEventIdRef.current = next;
+      return next;
+    });
     setHistory(null);
   }, []);
 
@@ -69,6 +75,7 @@ export function App() {
     try {
       await startDemoSession(persona);
       setSelectedEventId("");
+      selectedEventIdRef.current = "";
       await loadShell();
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -87,6 +94,7 @@ export function App() {
       const event = await createEvent({ organizationId, name, timezone: "America/Los_Angeles" });
       setEvents(await listEvents());
       setSelectedEventId(event.id);
+      selectedEventIdRef.current = event.id;
       setName("");
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -97,13 +105,17 @@ export function App() {
 
   async function inspectHistory() {
     const organizationId = selectedEvent?.organizationId;
-    if (!organizationId || !selectedEventId) return;
+    const requestEventId = selectedEventId;
+    if (!organizationId || !requestEventId) return;
     setBusy(true);
     setError(null);
     try {
-      setHistory(await getCommunicationsHistory(organizationId, selectedEventId));
+      const page = await getCommunicationsHistory(organizationId, requestEventId);
+      if (selectedEventIdRef.current !== requestEventId) return;
+      setHistory(page.history);
+      setHistoryCursor(page.nextCursor);
     } catch (reason: unknown) {
-      setError(readableError(reason));
+      if (selectedEventIdRef.current === requestEventId) setError(readableError(reason));
     } finally {
       setBusy(false);
     }
@@ -111,14 +123,18 @@ export function App() {
 
   async function recover(deliveryId: string) {
     const organizationId = selectedEvent?.organizationId;
+    const requestEventId = selectedEventId;
     if (!organizationId) return;
     setBusy(true);
     setError(null);
     try {
       await retryDelivery(organizationId, deliveryId);
-      setHistory(await getCommunicationsHistory(organizationId, selectedEventId));
+      const page = await getCommunicationsHistory(organizationId, requestEventId);
+      if (selectedEventIdRef.current !== requestEventId) return;
+      setHistory(page.history);
+      setHistoryCursor(page.nextCursor);
     } catch (reason: unknown) {
-      setError(readableError(reason));
+      if (selectedEventIdRef.current === requestEventId) setError(readableError(reason));
     } finally {
       setBusy(false);
     }
@@ -199,7 +215,12 @@ export function App() {
             <select
               id="event-switcher"
               value={selectedEventId}
-              onChange={(event) => setSelectedEventId(event.target.value)}
+              onChange={(event) => {
+                setSelectedEventId(event.target.value);
+                selectedEventIdRef.current = event.target.value;
+                setHistory(null);
+                setHistoryCursor(null);
+              }}
             >
               {events.map((event) => (
                 <option key={event.id} value={event.id}>
@@ -299,6 +320,16 @@ export function App() {
                             Retry {delivery.recipientRef}
                           </button>
                         ) : null}
+                        {attempts.length ? (
+                          <ol className="attempt-history">
+                            {attempts.map((attempt) => (
+                              <li key={attempt.id}>
+                                Attempt {attempt.sequence}: {attempt.outcome}
+                                {attempt.errorCode ? ` — ${attempt.errorCode}` : ""}
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -307,6 +338,31 @@ export function App() {
                     Inspect the outbox to see queued, retrying, succeeded, and terminal deliveries.
                   </p>
                 )}
+                {historyCursor ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      const organizationId = selectedEvent.organizationId;
+                      const requestEventId = selectedEvent.id;
+                      setBusy(true);
+                      // ERROR-INTENT: React event handlers cannot await; attached handlers render failures.
+                      void getCommunicationsHistory(organizationId, requestEventId, historyCursor)
+                        .then((page) => {
+                          if (selectedEventIdRef.current !== requestEventId) return;
+                          setHistory((current) => [...(current ?? []), ...page.history]);
+                          setHistoryCursor(page.nextCursor);
+                        })
+                        .catch((reason: unknown) => {
+                          if (selectedEventIdRef.current === requestEventId)
+                            setError(readableError(reason));
+                        })
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    Load more history
+                  </button>
+                ) : null}
               </section>
             ) : null}
             {error ? (

@@ -212,4 +212,128 @@ describe("communications outbox", () => {
       test.repository.retry(delivery.id, organizationId, "2026-08-10T12:05:00.000Z"),
     ).rejects.toThrow("currently leased");
   });
+
+  it("terminalizes retryable failures after three observable attempts", async () => {
+    const test = harness("timeout");
+    const delivery = await templateAndTrigger(test);
+    await test.worker.runOne();
+    test.advance(1_000);
+    await test.worker.runOne();
+    test.advance(2_000);
+    await test.worker.runOne();
+    expect(await test.repository.get(delivery.id)).toMatchObject({
+      state: "terminal",
+      attemptCount: 3,
+    });
+    expect(await test.repository.attempts(delivery.id)).toEqual([
+      expect.objectContaining({ outcome: "retryable_failure" }),
+      expect.objectContaining({ outcome: "retryable_failure" }),
+      expect.objectContaining({
+        outcome: "terminal_failure",
+        errorCode: "RETRY_EXHAUSTED:PROVIDER_TIMEOUT",
+      }),
+    ]);
+  });
+
+  it("supersedes stale projection retries before calling the provider", async () => {
+    const test = harness("timeout");
+    const stale = await test.service.trigger(organizer, {
+      organizationId,
+      eventId,
+      idempotencyKey: "projection:session:42:v1",
+      triggerType: "projection.requested",
+      channel: "airtable",
+      recipientRef: "session:42",
+      payload: { title: "Old" },
+      projectionVersion: 1,
+    });
+    await test.worker.runOne();
+    await test.service.retry(organizer, organizationId, stale.id);
+    await test.service.trigger(organizer, {
+      organizationId,
+      eventId,
+      idempotencyKey: "projection:session:42:v2",
+      triggerType: "projection.requested",
+      channel: "airtable",
+      recipientRef: "session:42",
+      payload: { title: "New" },
+      projectionVersion: 2,
+    });
+    await test.worker.runOne();
+    expect(test.provider.calls).toHaveLength(1);
+    expect(await test.repository.get(stale.id)).toMatchObject({ state: "terminal" });
+    expect(await test.repository.attempts(stale.id)).toEqual([
+      expect.objectContaining({ outcome: "retryable_failure" }),
+      expect.objectContaining({ outcome: "terminal_failure", errorCode: "PROJECTION_SUPERSEDED" }),
+    ]);
+  });
+
+  it("returns bounded cursor pages with attempts already grouped", async () => {
+    const test = harness();
+    await test.service.createTemplate(organizer, {
+      organizationId,
+      key: "digest",
+      version: 1,
+      channel: "email",
+      subject: "Digest",
+      body: "Update",
+    });
+    for (let index = 0; index < 30; index += 1)
+      await test.service.trigger(organizer, {
+        organizationId,
+        eventId,
+        idempotencyKey: `digest:${index}`,
+        triggerType: "organizer.digest",
+        channel: "email",
+        recipientRef: `organizer:${index}`,
+        payload: {},
+        templateKey: "digest",
+      });
+    const first = await test.service.history(organizer, organizationId, eventId, { limit: 25 });
+    expect(first.history).toHaveLength(25);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = await test.service.history(organizer, organizationId, eventId, {
+      limit: 25,
+      cursor: first.nextCursor ?? undefined,
+    });
+    expect(second.history).toHaveLength(5);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("does not mislabel unexpected recovery storage failures as conflicts", async () => {
+    class FailingRetryRepository extends MemoryCommunicationsRepository {
+      override async retry(): Promise<never> {
+        throw new Error("storage unavailable");
+      }
+    }
+    const repository = new FailingRetryRepository();
+    await repository.enqueue({
+      id: "terminal-storage",
+      organizationId,
+      eventId,
+      idempotencyKey: "terminal-storage",
+      triggerType: "projection.requested",
+      channel: "airtable",
+      templateId: null,
+      templateVersion: null,
+      recipientRef: "session:storage",
+      payload: {},
+      projectionVersion: 1,
+      state: "terminal",
+      attemptCount: 1,
+      nextAttemptAt: "2026-08-10T12:00:00.000Z",
+      leaseToken: null,
+      createdAt: "2026-08-10T12:00:00.000Z",
+      updatedAt: "2026-08-10T12:00:00.000Z",
+    });
+    const service = new CommunicationsService({
+      repository,
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+    });
+    await expect(service.retry(organizer, organizationId, "terminal-storage")).rejects.toThrow(
+      "storage unavailable",
+    );
+  });
 });

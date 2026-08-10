@@ -15,13 +15,13 @@ Provider calls originate from outbox workers, not open database transactions. Ad
 
 `communications-integrations` owns immutable template versions, idempotently enqueued deliveries, immutable attempts, and outbound projection state. A trigger supplies organization/event scope, a stable idempotency key, a typed trigger, a recipient/resource reference, and a snapshot payload. Email triggers resolve and retain the exact template version; projection triggers retain their monotonically versioned payload. Reusing an organization-scoped idempotency key returns the original delivery.
 
-Workers durably lease eligible `queued` or `retrying` rows before making a provider call. They then append an attempt and transition the delivery in one atomic storage batch. Retryable failures use bounded exponential backoff; malformed responses and provider rejections are terminal. A successful Airtable or Accelevents attempt updates idempotent projection state without making provider data canonical.
+Workers durably lease eligible `queued` or `retrying` rows before making a provider call. They then append an attempt and transition the delivery in one atomic storage batch. Retryable failures use bounded exponential backoff and become terminal on the third attempt; malformed responses and provider rejections are immediately terminal. Manual recovery can explicitly request one further attempt while retaining the complete sequence. A projection is marked `PROJECTION_SUPERSEDED` without calling its provider when a newer version for the same destination/event/resource has already been requested. A successful Airtable or Accelevents attempt updates idempotent projection state without making provider data canonical.
 
 The deployed Worker invokes the outbox from a one-minute scheduled trigger, drains at most 100 eligible deliveries per invocation, and reclaims a lease after five minutes when a prior invocation terminates unexpectedly. Provider exceptions are normalized into retryable attempts. Manual recovery cannot clear an active lease.
 
 The organizer recovery procedure is:
 
-1. Inspect `GET /api/communications/history?organizationId={organizationId}&eventId={eventId}` and its ordered attempt history.
+1. Inspect `GET /api/communications/history?organizationId={organizationId}&eventId={eventId}&limit={limit}` and its ordered attempt history. Follow `nextCursor` for additional bounded pages.
 2. Correct the referenced template, recipient, credential, or canonical source data as indicated by the normalized error code.
 3. Submit `POST /api/communications/deliveries/{deliveryId}/retry?organizationId={organizationId}`.
 4. Reinspect history until a new immutable attempt is `succeeded` or yields a new actionable failure.

@@ -26,11 +26,13 @@ async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
 export async function getCommunicationsHistory(
   organizationId: string,
   eventId: string,
+  cursor?: string,
   fetcher: typeof fetch = fetch,
-): Promise<CommunicationsHistoryDto["history"]> {
-  const query = new URLSearchParams({ organizationId, eventId });
+): Promise<CommunicationsHistoryDto> {
+  const query = new URLSearchParams({ organizationId, eventId, limit: "25" });
+  if (cursor) query.set("cursor", cursor);
   const response = await fetcher(`/api/communications/history?${query}`);
-  return (await decode(response, communicationsHistoryResponseSchema)).history;
+  return decode(response, communicationsHistoryResponseSchema);
 }
 
 export async function retryDelivery(

@@ -35,7 +35,9 @@ Provider ports and semantics are defined in [integrations](../architecture/integ
 
 - `POST /api/communications/templates` creates an immutable, organization-scoped template version.
 - `POST /api/communications/deliveries` accepts a typed trigger and stable idempotency key, returning the existing delivery for a duplicate key.
-- `GET /api/communications/history?organizationId={organizationId}&eventId={eventId}` returns delivery state with ordered immutable attempts.
+- `GET /api/communications/history?organizationId={organizationId}&eventId={eventId}&limit={limit}&cursor={cursor}` returns at most 50 deliveries with ordered immutable attempts and an optional `nextCursor`; persistence loads each page and its attempts in two bounded queries.
 - `POST /api/communications/deliveries/{deliveryId}/retry?organizationId={organizationId}` explicitly requeues a retrying or terminal delivery without removing history.
 
 All four routes require `communications:manage` and enforce the owning organization. Email deliveries require a known template key/version. Airtable and Accelevents deliveries require a positive projection version and are outbound-only; SQL remains canonical. The runtime schemas in `@greenroom/contracts` own validation for these request shapes.
+
+Missing template/delivery references return `404 NOT_FOUND`; invalid template/channel semantics return `400 VALIDATION_FAILED`; and recovery races or non-recoverable states return `409 CONFLICT`.

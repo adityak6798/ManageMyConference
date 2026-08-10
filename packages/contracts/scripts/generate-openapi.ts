@@ -136,6 +136,7 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });
@@ -168,6 +169,8 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    404: errorResponse,
+    409: errorResponse,
     500: errorResponse,
   },
 });

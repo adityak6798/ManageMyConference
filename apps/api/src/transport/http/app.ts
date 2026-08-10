@@ -14,6 +14,11 @@ import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
 import type { CommunicationsService } from "../../application/communications/communications-service";
 import {
+  CommunicationsConflictError,
+  CommunicationsInputError,
+  CommunicationsNotFoundError,
+} from "../../application/communications/communications-service";
+import {
   type Actor,
   AuthenticationRequiredError,
   CapabilityDeniedError,
@@ -255,11 +260,12 @@ export function createHttpApp(
         400,
       );
     return context.json({
-      history: await communications.history(
+      ...(await communications.history(
         context.get("actor"),
         parsed.data.organizationId,
         parsed.data.eventId,
-      ),
+        { limit: parsed.data.limit, cursor: parsed.data.cursor },
+      )),
     });
   });
   app.post("/api/communications/deliveries/:deliveryId/retry", async (context) => {
@@ -304,6 +310,12 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Request body must be valid JSON.", correlationId),
         400,
       );
+    if (error instanceof CommunicationsInputError)
+      return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 400);
+    if (error instanceof CommunicationsNotFoundError)
+      return context.json(envelope("NOT_FOUND", error.message, correlationId), 404);
+    if (error instanceof CommunicationsConflictError)
+      return context.json(envelope("CONFLICT", error.message, correlationId), 409);
     logger.error(
       {
         correlationId,

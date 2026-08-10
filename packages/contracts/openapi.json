@@ -151,6 +151,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -201,6 +202,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -315,6 +317,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -420,6 +423,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -470,6 +474,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -520,6 +525,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -637,6 +643,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -687,6 +694,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -737,6 +745,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -787,6 +796,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -837,6 +847,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -946,6 +957,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -996,6 +1008,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1046,6 +1059,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1180,6 +1194,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1230,6 +1245,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1280,6 +1296,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1330,6 +1347,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1512,6 +1530,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1562,6 +1581,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1612,6 +1632,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1662,6 +1683,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1924,6 +1946,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1974,6 +1997,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2024,6 +2048,58 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2074,6 +2150,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2134,6 +2211,27 @@
             },
             "required": true,
             "name": "eventId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 25
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "required": false,
+            "name": "cursor",
             "in": "query"
           }
         ],
@@ -2318,10 +2416,15 @@
                           "attempts"
                         ]
                       }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "nullable": true
                     }
                   },
                   "required": [
-                    "history"
+                    "history",
+                    "nextCursor"
                   ]
                 }
               }
@@ -2344,6 +2447,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2394,6 +2498,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2444,6 +2549,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2494,6 +2600,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2699,6 +2806,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2749,6 +2857,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2799,6 +2908,109 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2849,6 +3061,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },

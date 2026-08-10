@@ -1,4 +1,7 @@
-import type { CommunicationsRepository } from "../../application/communications/ports";
+import {
+  type CommunicationsRepository,
+  DeliveryRecoveryConflictError,
+} from "../../application/communications/ports";
 import type {
   Delivery,
   DeliveryAttempt,
@@ -85,6 +88,16 @@ const templateFromRow = (row: TemplateRow): MessageTemplate => ({
   body: row.body,
   createdAt: row.created_at,
 });
+const attemptFromRow = (row: AttemptRow): DeliveryAttempt => ({
+  id: row.id,
+  deliveryId: row.delivery_id,
+  sequence: row.sequence,
+  startedAt: row.started_at,
+  completedAt: row.completed_at,
+  outcome: row.outcome,
+  providerReference: row.provider_reference,
+  errorCode: row.error_code,
+});
 
 export class D1CommunicationsRepository implements CommunicationsRepository {
   constructor(private readonly database: Database) {}
@@ -166,6 +179,49 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       .all<DeliveryRow>();
     this.ensure(result, "list deliveries");
     return (result.results ?? []).map(deliveryFromRow);
+  }
+  async historyPage(
+    organizationId: string,
+    eventId: string,
+    page: { limit: number; after?: { createdAt: string; id: string } },
+  ) {
+    const cursorClause = page.after ? " AND (created_at > ? OR (created_at = ? AND id > ?))" : "";
+    const deliveriesResult = await this.database
+      .prepare(
+        `SELECT ${deliveryColumns} FROM communication_deliveries WHERE organization_id = ? AND event_id = ?${cursorClause} ORDER BY created_at, id LIMIT ?`,
+      )
+      .bind(
+        organizationId,
+        eventId,
+        ...(page.after ? [page.after.createdAt, page.after.createdAt, page.after.id] : []),
+        page.limit + 1,
+      )
+      .all<DeliveryRow>();
+    this.ensure(deliveriesResult, "load delivery history page");
+    const deliveries = (deliveriesResult.results ?? []).slice(0, page.limit).map(deliveryFromRow);
+    if (deliveries.length === 0) return { items: [], hasMore: false };
+    const attemptsResult = await this.database
+      .prepare(
+        `SELECT id, delivery_id, sequence, started_at, completed_at, outcome, provider_reference, error_code FROM communication_attempts WHERE delivery_id IN (${deliveries.map(() => "?").join(", ")}) ORDER BY delivery_id, sequence`,
+      )
+      .bind(...deliveries.map(({ id }) => id))
+      .all<AttemptRow>();
+    this.ensure(attemptsResult, "load delivery history attempts");
+    const attemptsByDelivery = new Map<string, DeliveryAttempt[]>();
+    for (const row of attemptsResult.results ?? []) {
+      const attempt = attemptFromRow(row);
+      attemptsByDelivery.set(attempt.deliveryId, [
+        ...(attemptsByDelivery.get(attempt.deliveryId) ?? []),
+        attempt,
+      ]);
+    }
+    return {
+      items: deliveries.map((delivery) => ({
+        delivery,
+        attempts: attemptsByDelivery.get(delivery.id) ?? [],
+      })),
+      hasMore: (deliveriesResult.results?.length ?? 0) > page.limit,
+    };
   }
   async get(deliveryId: string) {
     const result = await this.database
@@ -259,7 +315,8 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       .bind(now, now, deliveryId, organizationId)
       .run();
     this.ensure(result, "retry delivery");
-    if ((result.meta?.changes ?? 0) !== 1) throw new Error("Delivery is not recoverable");
+    if ((result.meta?.changes ?? 0) !== 1)
+      throw new DeliveryRecoveryConflictError("Delivery is not recoverable");
     const delivery = await this.get(deliveryId);
     if (!delivery || delivery.organizationId !== organizationId || delivery.state !== "queued")
       throw new Error("Delivery is not recoverable");
@@ -273,15 +330,23 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       .bind(deliveryId)
       .all<AttemptRow>();
     this.ensure(result, "list attempts");
-    return (result.results ?? []).map((row) => ({
-      id: row.id,
-      deliveryId: row.delivery_id,
-      sequence: row.sequence,
-      startedAt: row.started_at,
-      completedAt: row.completed_at,
-      outcome: row.outcome,
-      providerReference: row.provider_reference,
-      errorCode: row.error_code,
-    }));
+    return (result.results ?? []).map(attemptFromRow);
+  }
+  async isProjectionSuperseded(delivery: Delivery) {
+    if (delivery.channel === "email" || delivery.projectionVersion === null) return false;
+    const result = await this.database
+      .prepare(
+        "SELECT id FROM communication_deliveries WHERE id != ? AND channel = ? AND event_id = ? AND recipient_ref = ? AND projection_version > ? LIMIT 1",
+      )
+      .bind(
+        delivery.id,
+        delivery.channel,
+        delivery.eventId,
+        delivery.recipientRef,
+        delivery.projectionVersion,
+      )
+      .all<{ id: string }>();
+    this.ensure(result, "check projection version");
+    return Boolean(result.results?.length);
   }
 }

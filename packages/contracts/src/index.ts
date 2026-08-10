@@ -113,6 +113,8 @@ export const triggerDeliveryInputSchema = z
 export const communicationsHistoryParamsSchema = z.object({
   organizationId: z.string().uuid(),
   eventId: z.string().uuid(),
+  limit: z.coerce.number().int().min(1).max(50).default(25),
+  cursor: z.string().min(1).max(500).optional(),
 });
 export const retryDeliveryInputSchema = z.object({ organizationId: z.string().uuid() });
 export const deliveryIdParamsSchema = z.object({ deliveryId: z.string().min(1) });
@@ -155,6 +157,7 @@ export const communicationsHistoryResponseSchema = z.object({
   history: z.array(
     z.object({ delivery: deliverySchema, attempts: z.array(deliveryAttemptSchema) }),
   ),
+  nextCursor: z.string().nullable(),
 });
 export type CreateTemplateInput = z.infer<typeof createTemplateInputSchema>;
 export type TriggerDeliveryInput = z.infer<typeof triggerDeliveryInputSchema>;
@@ -166,6 +169,7 @@ export const apiErrorCodeSchema = z.enum([
   "FORBIDDEN",
   "VALIDATION_FAILED",
   "NOT_FOUND",
+  "CONFLICT",
   "INTERNAL_ERROR",
 ]);
 

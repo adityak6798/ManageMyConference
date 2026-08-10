@@ -138,6 +138,19 @@ button:disabled {
 .delivery-history li {
   justify-content: space-between;
 }
+.delivery-history > li {
+  flex-wrap: wrap;
+}
+.attempt-history {
+  flex-basis: 100%;
+  margin: 0 0 0 20px;
+  color: #48584c;
+}
+.attempt-history li {
+  display: list-item;
+  border: 0;
+  padding: 3px 0;
+}
 .delivery-history {
   list-style: none;
   padding: 0;

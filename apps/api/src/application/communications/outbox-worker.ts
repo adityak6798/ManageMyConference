@@ -21,6 +21,24 @@ export class OutboxWorker {
 
     // The durable lease is committed before this provider call; no DB transaction is open here.
     const startedAt = this.dependencies.now().toISOString();
+    const sequence = delivery.attemptCount + 1;
+    if (await this.repository.isProjectionSuperseded(delivery)) {
+      await this.repository.complete(
+        leaseToken,
+        {
+          id: this.dependencies.newId(),
+          deliveryId: delivery.id,
+          sequence,
+          startedAt,
+          completedAt: startedAt,
+          outcome: "terminal_failure",
+          providerReference: null,
+          errorCode: "PROJECTION_SUPERSEDED",
+        },
+        { state: "terminal", nextAttemptAt: startedAt, updatedAt: startedAt },
+      );
+      return true;
+    }
     let result: ProviderResult;
     try {
       result = await this.providers[delivery.channel].deliver(delivery);
@@ -29,11 +47,11 @@ export class OutboxWorker {
       result = { kind: "retryable" as const, code: "UNEXPECTED_PROVIDER_ERROR" };
     }
     const completedAt = this.dependencies.now().toISOString();
-    const sequence = delivery.attemptCount + 1;
+    const retryExhausted = result.kind === "retryable" && sequence >= 3;
     const state =
       result.kind === "success"
         ? "succeeded"
-        : result.kind === "terminal"
+        : result.kind === "terminal" || retryExhausted
           ? "terminal"
           : "retrying";
     const nextAttemptAt =
@@ -51,11 +69,16 @@ export class OutboxWorker {
         outcome:
           result.kind === "success"
             ? "succeeded"
-            : result.kind === "retryable"
+            : result.kind === "retryable" && !retryExhausted
               ? "retryable_failure"
               : "terminal_failure",
         providerReference: result.kind === "success" ? result.providerReference : null,
-        errorCode: result.kind === "success" ? null : result.code,
+        errorCode:
+          result.kind === "success"
+            ? null
+            : retryExhausted
+              ? `RETRY_EXHAUSTED:${result.code}`
+              : result.code,
       },
       { state, nextAttemptAt, updatedAt: completedAt },
       result.kind === "success" &&

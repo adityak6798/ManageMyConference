@@ -10,6 +10,8 @@ export type ProviderResult =
   | { readonly kind: "retryable"; readonly code: string }
   | { readonly kind: "terminal"; readonly code: string };
 
+export class DeliveryRecoveryConflictError extends Error {}
+
 export interface DeliveryProvider {
   deliver(delivery: Delivery): Promise<ProviderResult>;
 }
@@ -24,6 +26,14 @@ export interface CommunicationsRepository {
   ): Promise<MessageTemplate | null>;
   enqueue(delivery: Delivery): Promise<Delivery>;
   list(organizationId: string, eventId: string): Promise<readonly Delivery[]>;
+  historyPage(
+    organizationId: string,
+    eventId: string,
+    page: { limit: number; after?: { createdAt: string; id: string } },
+  ): Promise<{
+    items: readonly { delivery: Delivery; attempts: readonly DeliveryAttempt[] }[];
+    hasMore: boolean;
+  }>;
   get(deliveryId: string): Promise<Delivery | null>;
   leaseNext(now: string, leaseToken: string): Promise<Delivery | null>;
   complete(
@@ -34,4 +44,5 @@ export interface CommunicationsRepository {
   ): Promise<void>;
   retry(deliveryId: string, organizationId: string, now: string): Promise<Delivery>;
   attempts(deliveryId: string): Promise<readonly DeliveryAttempt[]>;
+  isProjectionSuperseded(delivery: Delivery): Promise<boolean>;
 }

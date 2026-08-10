@@ -6,7 +6,7 @@ import type {
   MessageTemplate,
   TriggerType,
 } from "../../domain/communications/delivery";
-import type { CommunicationsRepository } from "./ports";
+import { type CommunicationsRepository, DeliveryRecoveryConflictError } from "./ports";
 
 export interface CommunicationsDependencies {
   repository: CommunicationsRepository;
@@ -16,6 +16,17 @@ export interface CommunicationsDependencies {
   newId(): string;
   now(): Date;
 }
+
+export class CommunicationsInputError extends Error {}
+export class CommunicationsNotFoundError extends Error {}
+export class CommunicationsConflictError extends Error {}
+
+const decodeCursor = (cursor: string) => {
+  const separator = cursor.lastIndexOf("~");
+  if (separator < 1 || separator === cursor.length - 1)
+    throw new CommunicationsInputError("History cursor is malformed");
+  return { createdAt: cursor.slice(0, separator), id: cursor.slice(separator + 1) };
+};
 
 export class CommunicationsService {
   constructor(private readonly dependencies: CommunicationsDependencies) {}
@@ -75,17 +86,18 @@ export class CommunicationsService {
           input.templateVersion,
         )
       : null;
-    if (input.templateKey && !template) throw new Error("Template version not found");
+    if (input.templateKey && !template)
+      throw new CommunicationsNotFoundError("Template version not found");
     if (input.channel === "email" && !template)
-      throw new Error("Email delivery requires a template");
+      throw new CommunicationsInputError("Email delivery requires a template");
     if (template && template.channel !== input.channel)
-      throw new Error("Template channel does not match delivery channel");
+      throw new CommunicationsInputError("Template channel does not match delivery channel");
     if (input.channel === "email" && input.triggerType === "projection.requested")
-      throw new Error("Projection triggers require a projection provider");
+      throw new CommunicationsInputError("Projection triggers require a projection provider");
     if (input.channel !== "email" && input.triggerType !== "projection.requested")
-      throw new Error("Projection providers require a projection trigger");
+      throw new CommunicationsInputError("Projection providers require a projection trigger");
     if (input.channel !== "email" && input.projectionVersion === undefined)
-      throw new Error("Projection delivery requires a version");
+      throw new CommunicationsInputError("Projection delivery requires a version");
     const now = this.dependencies.now().toISOString();
     return this.dependencies.repository.enqueue({
       id: this.dependencies.newId(),
@@ -108,24 +120,46 @@ export class CommunicationsService {
     });
   }
 
-  async history(actor: Actor | null, organizationId: string, eventId: string) {
+  async history(
+    actor: Actor | null,
+    organizationId: string,
+    eventId: string,
+    page: { limit: number; cursor?: string | undefined },
+  ) {
     const authorized = this.organization(actor, organizationId);
     await this.event(authorized, eventId, organizationId);
-    const deliveries = await this.dependencies.repository.list(organizationId, eventId);
-    return Promise.all(
-      deliveries.map(async (delivery) => ({
-        delivery,
-        attempts: await this.dependencies.repository.attempts(delivery.id),
-      })),
-    );
+    const result = await this.dependencies.repository.historyPage(organizationId, eventId, {
+      limit: page.limit,
+      ...(page.cursor ? { after: decodeCursor(page.cursor) } : {}),
+    });
+    const last = result.items.at(-1)?.delivery;
+    return {
+      history: result.items,
+      nextCursor: result.hasMore && last ? `${last.createdAt}~${last.id}` : null,
+    };
   }
 
   async retry(actor: Actor | null, organizationId: string, deliveryId: string) {
     this.organization(actor, organizationId);
-    return this.dependencies.repository.retry(
-      deliveryId,
-      organizationId,
-      this.dependencies.now().toISOString(),
-    );
+    const delivery = await this.dependencies.repository.get(deliveryId);
+    if (!delivery || delivery.organizationId !== organizationId)
+      throw new CommunicationsNotFoundError("Delivery not found");
+    if (delivery.leaseToken)
+      throw new CommunicationsConflictError("Delivery is currently being processed");
+    if (delivery.state !== "retrying" && delivery.state !== "terminal")
+      throw new CommunicationsConflictError("Delivery is not recoverable");
+    try {
+      return await this.dependencies.repository.retry(
+        deliveryId,
+        organizationId,
+        this.dependencies.now().toISOString(),
+      );
+    } catch (error) {
+      if (error instanceof DeliveryRecoveryConflictError)
+        throw new CommunicationsConflictError(
+          "Delivery recovery conflicted with worker processing",
+        );
+      throw error;
+    }
   }
 }
