@@ -32,6 +32,11 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(foundation)) await database.prepare(statement).run();
+    const communications = await readFile(
+      new URL("../migrations/0003_communications_outbox.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(communications)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 
@@ -45,7 +50,7 @@ describe("D1IdentityDirectory", () => {
           capabilities: expect.any(Set),
         },
       ]),
-      capabilities: new Set(["events:read", "events:create"]),
+      capabilities: new Set(["events:read", "events:create", "communications:manage"]),
     });
 
     await database

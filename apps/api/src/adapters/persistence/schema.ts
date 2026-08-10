@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
 
 // @spec PRD-EVT-001
 export const organizations = sqliteTable(
@@ -76,4 +84,99 @@ export const eventRoles = sqliteTable(
     check("event_roles_role", sql`${table.role} IN ('organizer', 'reviewer', 'speaker', 'public')`),
     index("event_roles_user_id_idx").on(table.userId),
   ],
+);
+
+// @spec PRD-COM-001 PRD-INT-001
+export const messageTemplates = sqliteTable(
+  "message_templates",
+  {
+    id: text("id").primaryKey().notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    templateKey: text("template_key").notNull(),
+    version: integer("version").notNull(),
+    channel: text("channel").notNull(),
+    subject: text("subject"),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [unique().on(table.organizationId, table.templateKey, table.version)],
+);
+
+export const communicationDeliveries = sqliteTable(
+  "communication_deliveries",
+  {
+    id: text("id").primaryKey().notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    triggerType: text("trigger_type").notNull(),
+    channel: text("channel").notNull(),
+    templateId: text("template_id").references(() => messageTemplates.id),
+    templateVersion: integer("template_version"),
+    recipientRef: text("recipient_ref").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    projectionVersion: integer("projection_version"),
+    state: text("state").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull(),
+    leaseToken: text("lease_token"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    unique().on(table.organizationId, table.idempotencyKey),
+    index("communication_deliveries_worker_idx").on(
+      table.state,
+      table.nextAttemptAt,
+      table.leaseToken,
+    ),
+    index("communication_deliveries_event_idx").on(
+      table.organizationId,
+      table.eventId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const communicationAttempts = sqliteTable(
+  "communication_attempts",
+  {
+    id: text("id").primaryKey().notNull(),
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => communicationDeliveries.id),
+    sequence: integer("sequence").notNull(),
+    startedAt: text("started_at").notNull(),
+    completedAt: text("completed_at").notNull(),
+    outcome: text("outcome").notNull(),
+    providerReference: text("provider_reference"),
+    errorCode: text("error_code"),
+  },
+  (table) => [
+    unique().on(table.deliveryId, table.sequence),
+    index("communication_attempts_delivery_idx").on(table.deliveryId, table.sequence),
+  ],
+);
+
+export const outboundProjectionState = sqliteTable(
+  "outbound_projection_state",
+  {
+    destination: text("destination").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    resourceRef: text("resource_ref").notNull(),
+    version: integer("version").notNull(),
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => communicationDeliveries.id),
+    projectedAt: text("projected_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.destination, table.eventId, table.resourceRef] })],
 );

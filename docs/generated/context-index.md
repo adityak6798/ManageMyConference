@@ -49,6 +49,9 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-INTEGRATION`
+- `test` / `repository-fact`: [apps/api/test/communications-http.test.ts](../../apps/api/test/communications-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-service.test.ts](../../apps/api/test/communications-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-communications-repository.integration.test.ts](../../apps/api/test/d1-communications-repository.integration.test.ts)
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -153,7 +156,13 @@
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 
 ### `PRD-COM-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/communications-service.ts](../../apps/api/src/application/communications/communications-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-CRM-001`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -187,7 +196,12 @@
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 
 ### `PRD-INT-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-PUB-001`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

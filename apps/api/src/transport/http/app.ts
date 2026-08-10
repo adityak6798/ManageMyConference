@@ -1,12 +1,18 @@
 import {
   type ApiErrorEnvelope,
   createEventInputSchema,
+  communicationsHistoryParamsSchema,
+  createTemplateInputSchema,
+  deliveryIdParamsSchema,
   demoSessionInputSchema,
   eventIdParamsSchema,
+  retryDeliveryInputSchema,
+  triggerDeliveryInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
+import type { CommunicationsService } from "../../application/communications/communications-service";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -60,6 +66,7 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
+  communications?: CommunicationsService,
 ) {
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
@@ -194,6 +201,88 @@ export function createHttpApp(
         404,
       );
     return context.json({ event: eventToDto(event) });
+  });
+  app.post("/api/communications/templates", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const parsed = createTemplateInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The template is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json(
+      { template: await communications.createTemplate(context.get("actor"), parsed.data) },
+      201,
+    );
+  });
+  app.post("/api/communications/deliveries", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const parsed = triggerDeliveryInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The delivery trigger is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json(
+      { delivery: await communications.trigger(context.get("actor"), parsed.data) },
+      202,
+    );
+  });
+  app.get("/api/communications/history", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const parsed = communicationsHistoryParamsSchema.safeParse(context.req.query());
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Organization and event IDs are required.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json({
+      history: await communications.history(
+        context.get("actor"),
+        parsed.data.organizationId,
+        parsed.data.eventId,
+      ),
+    });
+  });
+  app.post("/api/communications/deliveries/:deliveryId/retry", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const params = deliveryIdParamsSchema.safeParse(context.req.param());
+    const body = retryDeliveryInputSchema.safeParse(await readJson(context.req));
+    if (!params.success || !body.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The recovery request is invalid.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      delivery: await communications.retry(
+        context.get("actor"),
+        body.data.organizationId,
+        params.data.deliveryId,
+      ),
+    });
   });
   app.notFound((context) =>
     context.json(

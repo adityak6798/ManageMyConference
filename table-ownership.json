@@ -5,6 +5,10 @@
     "events": "events",
     "users": "identity-access",
     "organization_memberships": "identity-access",
-    "event_roles": "identity-access"
+    "event_roles": "identity-access",
+    "message_templates": "communications-integrations",
+    "communication_deliveries": "communications-integrations",
+    "communication_attempts": "communications-integrations",
+    "outbound_projection_state": "communications-integrations"
   }
 }

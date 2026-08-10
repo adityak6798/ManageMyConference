@@ -81,6 +81,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (organizationList.length) {
       capabilities.add("events:read");
       capabilities.add("events:create");
+      capabilities.add("communications:manage");
     }
     if (eventAccess.some(({ capabilities: assigned }) => assigned.has("events:read"))) {
       capabilities.add("events:read");

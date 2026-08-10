@@ -15,7 +15,7 @@ const personas = {
       role: "organizer" as const,
       capabilities: ["events:read", "events:settings:read", "events:settings:update"] as const,
     })),
-    capabilities: ["events:read", "events:create"] as const,
+    capabilities: ["events:read", "events:create", "communications:manage"] as const,
   },
   reviewer: {
     id: "seed-reviewer",

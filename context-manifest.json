@@ -12,7 +12,8 @@
       "apps/api/src/application/events/public.ts",
       "apps/api/src/application/identity/actor.ts",
       "apps/api/src/application/identity/demo-session.ts",
-      "apps/api/src/application/identity/identity-directory.ts"
+      "apps/api/src/application/identity/identity-directory.ts",
+      "apps/api/src/application/communications/communications-service.ts"
     ],
     "compositionRoots": ["apps/api/src/index.ts"],
     "layerPaths": {
@@ -154,7 +155,17 @@
       "acceptance": ["ACC-INTEGRATION"],
       "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
-      "paths": []
+      "paths": [
+        "apps/api/src/domain/communications",
+        "apps/api/src/application/communications",
+        "apps/api/src/adapters/providers",
+        "apps/api/src/adapters/persistence/d1-communications-repository.ts",
+        "apps/api/src/adapters/persistence/memory-communications-repository.ts",
+        "apps/api/test/communications-http.test.ts",
+        "apps/api/test/communications-service.test.ts",
+        "apps/api/test/d1-communications-repository.integration.test.ts",
+        "apps/api/migrations/0003_communications_outbox.sql"
+      ]
     },
     {
       "id": "publishing",
@@ -171,6 +182,9 @@
     "EventRepository": "apps/api/src/application/events/event-repository.ts",
     "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
     "createHttpApp": "apps/api/src/transport/http/app.ts",
+    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
+    "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
+    "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts",
     "App": "apps/web/src/App.tsx"
   }
 }

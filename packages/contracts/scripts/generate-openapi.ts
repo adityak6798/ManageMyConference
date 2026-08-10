@@ -8,14 +8,22 @@ import {
 import { z, type ZodType } from "zod";
 import {
   apiErrorEnvelopeSchema,
+  communicationsHistoryParamsSchema,
+  communicationsHistoryResponseSchema,
+  createTemplateInputSchema,
   createEventInputSchema,
   createEventResponseSchema,
   demoSessionInputSchema,
   demoSessionResponseSchema,
+  deliveryIdParamsSchema,
+  deliveryResponseSchema,
   eventListResponseSchema,
   eventIdParamsSchema,
   healthResponseSchema,
   sessionResponseSchema,
+  retryDeliveryInputSchema,
+  templateResponseSchema,
+  triggerDeliveryInputSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -99,6 +107,64 @@ registry.registerPath({
   request: { body: { required: true, content: json(createEventInputSchema) } },
   responses: {
     201: { description: "Created event", content: json(createEventResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/communications/templates",
+  security: [{ sessionCookie: [] }],
+  request: { body: { required: true, content: json(createTemplateInputSchema) } },
+  responses: {
+    201: { description: "Immutable template version", content: json(templateResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/communications/deliveries",
+  security: [{ sessionCookie: [] }],
+  request: { body: { required: true, content: json(triggerDeliveryInputSchema) } },
+  responses: {
+    202: { description: "Queued or existing delivery", content: json(deliveryResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/communications/history",
+  security: [{ sessionCookie: [] }],
+  request: { query: communicationsHistoryParamsSchema },
+  responses: {
+    200: {
+      description: "Auditable delivery history",
+      content: json(communicationsHistoryResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/communications/deliveries/{deliveryId}/retry",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: deliveryIdParamsSchema,
+    body: { required: true, content: json(retryDeliveryInputSchema) },
+  },
+  responses: {
+    200: { description: "Explicitly requeued delivery", content: json(deliveryResponseSchema) },
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,

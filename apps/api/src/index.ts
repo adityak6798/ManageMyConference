@@ -1,5 +1,7 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
+import { CommunicationsService } from "./application/communications/communications-service";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
@@ -50,12 +52,20 @@ export default {
       },
     };
     const identityDirectory = new D1IdentityDirectory(environment.DB);
+    const communications = new CommunicationsService({
+      repository: new D1CommunicationsRepository(
+        environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
+      ),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const app = createHttpApp(
       service,
       logger,
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      communications,
     );
     return Promise.resolve(app.fetch(request));
   },
