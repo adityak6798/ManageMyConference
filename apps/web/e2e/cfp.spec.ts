@@ -9,7 +9,10 @@ test("organizer publishes a typed form and an applicant receives a durable confi
   await expect(page.getByRole("heading", { name: "Build the proposal form" })).toBeVisible();
 
   await page.getByRole("button", { name: "Add field" }).click();
-  const lastField = page.locator(".cfp-field").last();
+  const lastField = page
+    .locator(".cfp-field")
+    .filter({ has: page.getByLabel("Field type") })
+    .last();
   await lastField.getByLabel("Field type").selectOption("select");
   await lastField.getByLabel("Question label").fill("Experience level");
   await lastField.getByLabel("Guidance").fill("Choose the closest match");
