@@ -6,10 +6,15 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
+import {
+  AuthenticationRequiredError,
+  CapabilityDeniedError,
+} from "../src/application/identity/actor";
 import type { PublicationRepository } from "../src/application/publishing/publication-repository";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import type { Publication } from "../src/domain/publishing/publication";
 import { createHttpApp } from "../src/transport/http/app";
+import { publicEventProjectionSchema } from "@greenroom/contracts";
 
 const safeProjection = {
   event: {
@@ -59,9 +64,14 @@ describe("publication snapshots", () => {
     };
     const service = new PublicationService(repository, () => new Date("2026-08-10T00:00:00.000Z"));
     expect((await service.publicBySlug("safe-event"))?.event.summary).toBe("Public");
-    await service.unpublish(record.eventId);
+    const organizer = await resolveSeededDemoActor("organizer");
+    expect(() => service.preview(null, record.eventId)).toThrow(AuthenticationRequiredError);
+    await expect(
+      service.publish(await resolveSeededDemoActor("reviewer"), record.eventId),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await service.unpublish(organizer, record.eventId);
     expect(await service.publicBySlug("safe-event")).toBeNull();
-    await service.publish(record.eventId);
+    await service.publish(organizer, record.eventId);
     expect((await service.publicBySlug("safe-event"))?.event.summary).toBe("PRIVATE DRAFT EDIT");
   });
 
@@ -108,11 +118,41 @@ describe("publication snapshots", () => {
 
     const response = await app.request("/api/public/events/safe-event");
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toContain("public");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.json();
     expect(body).toMatchObject({ projection: { event: { name: "Safe Event" } } });
     expect(JSON.stringify(body)).not.toMatch(/private-org|crmNotes|private@example.com/);
     expect((await app.request("/api/public/events/unknown-event")).status).toBe(404);
+  });
+
+  it("rejects route-unsafe slugs and invalid event timezones", () => {
+    expect(
+      publicEventProjectionSchema.safeParse({
+        ...safeProjection,
+        event: { ...safeProjection.event, timezone: "Not/A_Zone" },
+      }).success,
+    ).toBe(false);
+    expect(
+      publicEventProjectionSchema.safeParse({
+        ...safeProjection,
+        speakers: [{ slug: "ada lovelace", name: "Ada", bio: "Bio", headline: "Pioneer" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      publicEventProjectionSchema.safeParse({
+        ...safeProjection,
+        sessions: [
+          {
+            slug: "path/segment",
+            title: "Session",
+            abstract: "Abstract",
+            format: "Talk",
+            track: "Code",
+            speakerSlugs: [],
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it("requires organizer event scope for preview and publication mutations", async () => {

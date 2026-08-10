@@ -44,7 +44,8 @@
                           "type": "object",
                           "properties": {
                             "slug": {
-                              "type": "string"
+                              "type": "string",
+                              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                             },
                             "name": {
                               "type": "string"
@@ -111,7 +112,8 @@
                             "type": "object",
                             "properties": {
                               "slug": {
-                                "type": "string"
+                                "type": "string",
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                               },
                               "title": {
                                 "type": "string"
@@ -128,7 +130,8 @@
                               "speakerSlugs": {
                                 "type": "array",
                                 "items": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 }
                               },
                               "startsAt": {
@@ -159,7 +162,8 @@
                             "type": "object",
                             "properties": {
                               "slug": {
-                                "type": "string"
+                                "type": "string",
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                               },
                               "name": {
                                 "type": "string"
@@ -353,7 +357,8 @@
                               "type": "object",
                               "properties": {
                                 "slug": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 },
                                 "name": {
                                   "type": "string"
@@ -420,7 +425,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "title": {
                                     "type": "string"
@@ -437,7 +443,8 @@
                                   "speakerSlugs": {
                                     "type": "array",
                                     "items": {
-                                      "type": "string"
+                                      "type": "string",
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
                                   },
                                   "startsAt": {
@@ -468,7 +475,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "name": {
                                     "type": "string"
@@ -508,7 +516,8 @@
                               "type": "object",
                               "properties": {
                                 "slug": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 },
                                 "name": {
                                   "type": "string"
@@ -575,7 +584,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "title": {
                                     "type": "string"
@@ -592,7 +602,8 @@
                                   "speakerSlugs": {
                                     "type": "array",
                                     "items": {
-                                      "type": "string"
+                                      "type": "string",
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
                                   },
                                   "startsAt": {
@@ -623,7 +634,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "name": {
                                     "type": "string"
@@ -982,7 +994,8 @@
                               "type": "object",
                               "properties": {
                                 "slug": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 },
                                 "name": {
                                   "type": "string"
@@ -1049,7 +1062,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "title": {
                                     "type": "string"
@@ -1066,7 +1080,8 @@
                                   "speakerSlugs": {
                                     "type": "array",
                                     "items": {
-                                      "type": "string"
+                                      "type": "string",
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
                                   },
                                   "startsAt": {
@@ -1097,7 +1112,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "name": {
                                     "type": "string"
@@ -1137,7 +1153,8 @@
                               "type": "object",
                               "properties": {
                                 "slug": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 },
                                 "name": {
                                   "type": "string"
@@ -1204,7 +1221,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "title": {
                                     "type": "string"
@@ -1221,7 +1239,8 @@
                                   "speakerSlugs": {
                                     "type": "array",
                                     "items": {
-                                      "type": "string"
+                                      "type": "string",
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
                                   },
                                   "startsAt": {
@@ -1252,7 +1271,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "name": {
                                     "type": "string"
@@ -1611,7 +1631,8 @@
                               "type": "object",
                               "properties": {
                                 "slug": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 },
                                 "name": {
                                   "type": "string"
@@ -1678,7 +1699,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "title": {
                                     "type": "string"
@@ -1695,7 +1717,8 @@
                                   "speakerSlugs": {
                                     "type": "array",
                                     "items": {
-                                      "type": "string"
+                                      "type": "string",
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
                                   },
                                   "startsAt": {
@@ -1726,7 +1749,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "name": {
                                     "type": "string"
@@ -1766,7 +1790,8 @@
                               "type": "object",
                               "properties": {
                                 "slug": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                 },
                                 "name": {
                                   "type": "string"
@@ -1833,7 +1858,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "title": {
                                     "type": "string"
@@ -1850,7 +1876,8 @@
                                   "speakerSlugs": {
                                     "type": "array",
                                     "items": {
-                                      "type": "string"
+                                      "type": "string",
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     }
                                   },
                                   "startsAt": {
@@ -1881,7 +1908,8 @@
                                 "type": "object",
                                 "properties": {
                                   "slug": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                   },
                                   "name": {
                                     "type": "string"

@@ -73,32 +73,45 @@ export const apiErrorEnvelopeSchema = z.object({
 export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>;
 
 // @spec PRD-PUB-001
+export const routeSlugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+export const ianaTimezoneSchema = z.string().refine(
+  (value) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+      return true;
+    } catch {
+      // ERROR-INTENT: Intl signals unsupported IANA zones by throwing; schema validation returns false.
+      return false;
+    }
+  },
+  { message: "Timezone must be a valid IANA time zone" },
+);
 export const publicSpeakerSchema = z.object({
-  slug: z.string(),
+  slug: routeSlugSchema,
   name: z.string(),
   bio: z.string(),
   headline: z.string(),
   photoUrl: z.string().url().optional(),
 });
 export const publicSessionSchema = z.object({
-  slug: z.string(),
+  slug: routeSlugSchema,
   title: z.string(),
   abstract: z.string(),
   format: z.string(),
   track: z.string(),
-  speakerSlugs: z.array(z.string()),
+  speakerSlugs: z.array(routeSlugSchema),
   startsAt: z.string().datetime().optional(),
   endsAt: z.string().datetime().optional(),
   room: z.string().optional(),
 });
 export const publicEventProjectionSchema = z.object({
   event: z.object({
-    slug: z.string(),
+    slug: routeSlugSchema,
     name: z.string(),
     summary: z.string(),
     startsOn: z.string(),
     endsOn: z.string(),
-    timezone: z.string(),
+    timezone: ianaTimezoneSchema,
     venue: z.string(),
   }),
   cfp: z.object({
@@ -114,7 +127,7 @@ export const publicEventProjectionSchema = z.object({
 export type PublicEventProjectionDto = z.infer<typeof publicEventProjectionSchema>;
 export const publicEventResponseSchema = z.object({ projection: publicEventProjectionSchema });
 export const publicEventSlugParamsSchema = z.object({
-  slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  slug: routeSlugSchema,
 });
 export const publicationPreviewResponseSchema = z.object({
   publication: z.object({

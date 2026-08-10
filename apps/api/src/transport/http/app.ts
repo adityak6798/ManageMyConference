@@ -12,7 +12,6 @@ import type { EventService } from "../../application/events/event-service";
 import {
   type Actor,
   AuthenticationRequiredError,
-  type Capability,
   CapabilityDeniedError,
   requireCapability,
 } from "../../application/identity/actor";
@@ -58,21 +57,6 @@ async function readJson(request: { json(): Promise<unknown> }): Promise<unknown>
     throw new MalformedJsonError("Request body is not valid JSON");
   }
 }
-const requireOrganizerEventCapability = (
-  actor: Actor | null,
-  eventId: string,
-  capability: Capability,
-) => {
-  if (!actor) throw new AuthenticationRequiredError("Authentication is required");
-  const access = actor.eventAccess.find((candidate) => candidate.eventId === eventId);
-  if (!access) return false;
-  if (access.role !== "organizer")
-    throw new CapabilityDeniedError("Actor is not an organizer for event");
-  if (!access.capabilities.has(capability))
-    throw new CapabilityDeniedError(`Actor lacks ${capability} for event`);
-  return true;
-};
-
 // @spec PRD-IAM-001 PRD-IAM-002 PRD-EVT-001
 export function createHttpApp(
   service: EventService,
@@ -137,7 +121,7 @@ export function createHttpApp(
         envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
         404,
       );
-    context.header("cache-control", "public, max-age=60, stale-while-revalidate=300");
+    context.header("cache-control", "no-store");
     return context.json({ projection: parsed.data });
   });
   app.get("/api/publishing/events/:eventId/preview", async (context) => {
@@ -147,22 +131,7 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
         400,
       );
-    if (
-      !requireOrganizerEventCapability(
-        context.get("actor"),
-        parsed.data.eventId,
-        "events:settings:read",
-      )
-    )
-      return context.json(
-        envelope(
-          "NOT_FOUND",
-          "The requested resource was not found.",
-          context.get("correlationId"),
-        ),
-        404,
-      );
-    const publication = await publishing?.preview(parsed.data.eventId);
+    const publication = await publishing?.preview(context.get("actor"), parsed.data.eventId);
     if (!publication)
       return context.json(
         envelope(
@@ -182,25 +151,10 @@ export function createHttpApp(
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
-      if (
-        !requireOrganizerEventCapability(
-          context.get("actor"),
-          parsed.data.eventId,
-          "events:settings:update",
-        )
-      )
-        return context.json(
-          envelope(
-            "NOT_FOUND",
-            "The requested resource was not found.",
-            context.get("correlationId"),
-          ),
-          404,
-        );
       const publication =
         action === "publish"
-          ? await publishing?.publish(parsed.data.eventId)
-          : await publishing?.unpublish(parsed.data.eventId);
+          ? await publishing?.publish(context.get("actor"), parsed.data.eventId)
+          : await publishing?.unpublish(context.get("actor"), parsed.data.eventId);
       if (!publication)
         return context.json(
           envelope(

@@ -4,6 +4,7 @@ import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { D1PublicationRepository } from "../src/adapters/persistence/d1-publication-repository";
 import { PublicationService } from "../src/application/publishing/publication-service";
+import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 
 const statements = (sql: string) =>
   sql
@@ -75,7 +76,10 @@ describe("D1PublicationRepository", () => {
       new D1PublicationRepository(database),
       () => new Date("2026-08-10T00:00:00.000Z"),
     );
-    await service.publish("00000000-0000-4000-8000-000000000001");
+    await service.publish(
+      await resolveSeededDemoActor("organizer"),
+      "00000000-0000-4000-8000-000000000001",
+    );
     const stored = await database
       .prepare("SELECT published_json FROM public_event_projections WHERE event_id = ?")
       .bind("00000000-0000-4000-8000-000000000001")

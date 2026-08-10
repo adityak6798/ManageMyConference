@@ -6,11 +6,17 @@ test.use({ timezoneId: "Asia/Tokyo" });
 test("browses the same accessible published projection directly and embedded", async ({ page }) => {
   await page.goto("/events/greenroom-demo-summit");
   await expect(page.getByRole("heading", { name: "Greenroom Demo Summit" })).toBeVisible();
+  await expect(page).toHaveTitle("Greenroom Demo Summit");
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+    "content",
+    /practical gathering/,
+  );
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Schedule", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Plan your time" })).toBeVisible();
+  await expect(page).toHaveTitle("Schedule · Greenroom Demo Summit");
   await expect(page.getByText("Sep 17, 2026, 10:00 AM America/Los_Angeles")).toBeVisible();
   await page.getByRole("link", { name: "Calm systems for busy event teams" }).click();
   await expect(

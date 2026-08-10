@@ -44,6 +44,46 @@ export function PublicEventApp() {
         ),
       );
   }, [slug]);
+  useEffect(() => {
+    if (!projection) return;
+    const originalTitle = document.title;
+    const existingDescription = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    const description = existingDescription ?? document.createElement("meta");
+    const originalDescription = existingDescription?.content;
+    if (!existingDescription) {
+      description.name = "description";
+      document.head.append(description);
+    }
+    const session =
+      section === "sessions" && detail
+        ? projection.sessions.find((item) => item.slug === detail)
+        : undefined;
+    const speaker =
+      section === "speakers" && detail
+        ? projection.speakers.find((item) => item.slug === detail)
+        : undefined;
+    const titles = {
+      home: projection.event.name,
+      schedule: `Schedule · ${projection.event.name}`,
+      sessions: session
+        ? `${session.title} · ${projection.event.name}`
+        : `Sessions · ${projection.event.name}`,
+      speakers: speaker
+        ? `${speaker.name} · ${projection.event.name}`
+        : `Speakers · ${projection.event.name}`,
+      cfp: `${projection.cfp.title} · ${projection.event.name}`,
+    };
+    document.title = titles[section];
+    description.content =
+      session?.abstract ??
+      speaker?.bio ??
+      (section === "cfp" ? projection.cfp.description : projection.event.summary);
+    return () => {
+      document.title = originalTitle;
+      if (existingDescription) description.content = originalDescription ?? "";
+      else description.remove();
+    };
+  }, [detail, projection, section]);
   if (error)
     return (
       <main className="public-state">
@@ -125,7 +165,8 @@ export function PublicEventApp() {
                       <a href={`${base}/sessions/${item.slug}`}>{item.title}</a>
                     </h2>
                     <p>
-                      {item.room} · {item.track}
+                      {item.room ? `${item.room} · ` : ""}
+                      {item.track}
                     </p>
                   </article>
                 ))}
@@ -165,8 +206,8 @@ export function PublicEventApp() {
               <p>
                 <time dateTime={session.startsAt}>
                   {eventTime(session.startsAt, projection.event.timezone, "full")}
-                </time>{" "}
-                · {session.room}
+                </time>
+                {session.room ? ` · ${session.room}` : ""}
               </p>
             )}
             <h2>Speakers</h2>
