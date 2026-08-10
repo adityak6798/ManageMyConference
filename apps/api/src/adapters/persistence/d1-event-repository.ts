@@ -16,6 +16,7 @@ export interface D1PreparedStatement {
 
 export interface D1DatabasePort {
   prepare(query: string): D1PreparedStatement;
+  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
 }
 
 export class D1EventRepository implements EventRepository {

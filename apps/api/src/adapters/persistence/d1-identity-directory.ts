@@ -29,8 +29,8 @@ interface EventRoleRow {
 }
 
 const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
-  organizer: ["events:read", "events:settings:read", "events:settings:update"],
-  reviewer: ["events:read"],
+  organizer: ["events:read", "events:settings:read", "events:settings:update", "review:manage"],
+  reviewer: ["events:read", "review:evaluate"],
   speaker: ["events:read"],
   public: [],
 };
@@ -93,5 +93,19 @@ export class D1IdentityDirectory implements IdentityDirectory {
       eventAccess,
       capabilities,
     };
+  }
+
+  async isReviewerForEvent(userId: string, eventId: string): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id FROM event_roles WHERE user_id = ? AND event_id = ? AND role = 'reviewer' LIMIT 1",
+      )
+      .bind(userId, eventId)
+      .all<{ event_id: string }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to validate reviewer assignment: ${result.error ?? "unknown error"}`,
+      );
+    return result.results?.length === 1;
   }
 }

@@ -1,6 +1,9 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
+import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { EventService } from "./application/events/event-service";
+import { ReviewService } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
 
 interface Environment {
@@ -50,12 +53,20 @@ export default {
       },
     };
     const identityDirectory = new D1IdentityDirectory(environment.DB);
+    const reviewService = new ReviewService({
+      repository: new D1ReviewRepository(environment.DB),
+      proposals: new D1SubmittedProposalAdapter(environment.DB),
+      identities: identityDirectory,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const app = createHttpApp(
       service,
       logger,
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      reviewService,
     );
     return Promise.resolve(app.fetch(request));
   },

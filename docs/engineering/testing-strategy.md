@@ -9,4 +9,6 @@ Status: canonical | Owner: quality | IDs: `TST-001`–`TST-006` | Last verified:
 - `TST-005` Context checks cover canonical domain assignments, IDs, links, routing by journey/acceptance/plan/path/symbol, trust-labeled generated backlinks/index drift, table ownership, cross-domain allowlists, dependency layers, and metadata. Generated/reference-untrusted backlinks cannot satisfy canonical proof. The AST error checker enforces error handling; shared-Zod OpenAPI generation has an independent drift check.
 - `TST-006` Planned: accessibility, production smoke, evaluator, and expanded security suites gate releases or scheduled builds.
 
+`ACC-REVIEW` is exercised by review-domain unit tests, HTTP role-negative and aggregate-bias tests, D1 migration/atomic-transition persistence tests, and an organizer-to-reviewer Playwright journey. Cross-event, unassigned reviewer, unauthorized role, score validation, and conflict paths fail closed.
+
 Acceptance tests declare their `ACC-*` identifier. Prefer public interfaces over implementation details. The browser suite uses deterministic local services and retains traces/screenshots/reports on CI failure. External provider suites will use deterministic fakes in PR CI. Flaky tests are fixed or quarantined with an owner and quality gap; blind retries are forbidden.

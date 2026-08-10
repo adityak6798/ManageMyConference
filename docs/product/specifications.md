@@ -15,6 +15,8 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 - `PRD-ABS-001` Organizers filter, assign, bulk-transition, and audit submissions through configured statuses.
 - `PRD-REV-001` An evaluation plan defines criteria and scales. Reviewers see assignments, conflicts, completion, and no aggregate bias before submission.
 
+`PRD-ABS-001` status transitions are event-scoped and atomic for the complete selected set; each successful proposal transition records its transaction-current prior status, next status, actor, and occurrence time. `PRD-REV-001` organizers configure at least one uniquely identified, explicitly bounded scoring criterion and may assign a proposal once to a user who holds the reviewer role for that event. The rubric is locked once assignments exist. Reviewers can access only their own event assignments, declare a conflict, save a validated draft, and complete it. A conflicted assignment cannot be evaluated; completion is terminal and atomically persists the evaluation, aggregate outcome, and one idempotent completion event. Reviewer responses never contain aggregate outcomes; organizers receive an outcome only after at least one completed evaluation. Completion publishes version 1 of `EVT-REVIEW-COMPLETED` with organization/event/proposal/assignment scope and correlation/causation metadata.
+
 ## Speakers, content, and CRM
 
 - `PRD-SPK-001` A person has one event-scoped speaker profile linked to sessions, tasks, assets, messages, and optional CRM origin.

@@ -1,3 +1,11 @@
+DELETE FROM review_events;
+DELETE FROM review_outcomes;
+DELETE FROM review_evaluations;
+DELETE FROM review_conflicts;
+DELETE FROM review_assignments;
+DELETE FROM review_plans;
+DELETE FROM cfp_status_audit;
+DELETE FROM cfp_submissions;
 DELETE FROM event_roles;
 DELETE FROM organization_memberships;
 DELETE FROM events;
@@ -46,3 +54,14 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'seed-reviewer', 'reviewer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker'),
   ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');
+
+INSERT INTO cfp_submissions (id, organization_id, event_id, title, abstract, submitter_name, status) VALUES
+  ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'Designing for the hallway track', 'A practical guide to making conference spaces encourage useful, inclusive conversations.', 'Alex Morgan', 'under_review'),
+  ('10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'Typed boundaries at scale', 'How small explicit contracts keep large TypeScript systems understandable.', 'Jordan Lee', 'submitted'),
+  ('10000000-0000-4000-8000-000000000099', '00000000-0000-4000-8000-000000000020', '00000000-0000-4000-8000-000000000099', 'Private outside proposal', 'This proposal must never cross event boundaries.', 'Outside Author', 'submitted');
+
+INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
+  ('00000000-0000-4000-8000-000000000001', '[{"id":"relevance","name":"Relevance","description":"Fit for this audience","minScore":1,"maxScore":5},{"id":"clarity","name":"Clarity","description":"Strength and clarity of the proposal","minScore":1,"maxScore":5}]', '2026-08-09T12:00:00.000Z');
+
+INSERT INTO review_assignments (id, event_id, proposal_id, reviewer_id, created_at) VALUES
+  ('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'seed-reviewer', '2026-08-09T12:00:00.000Z');

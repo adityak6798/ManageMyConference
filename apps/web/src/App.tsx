@@ -2,6 +2,7 @@ import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
 import "./styles.css";
+import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
@@ -53,6 +54,8 @@ export function App() {
       session.actor.persona
     );
   }, [selectedEventId, session]);
+  const activeEventCapabilities =
+    session?.eventAccess.find(({ eventId }) => eventId === selectedEventId)?.capabilities ?? [];
 
   async function switchPersona(persona: Persona) {
     setBusy(true);
@@ -218,6 +221,12 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEventId && activeEventCapabilities.includes("review:manage") ? (
+              <OrganizerReviewWorkspace eventId={selectedEventId} />
+            ) : null}
+            {selectedEventId && activeEventCapabilities.includes("review:evaluate") ? (
+              <ReviewerWorkspace eventId={selectedEventId} />
+            ) : null}
             {error ? (
               <p role="alert" className="error">
                 {error}

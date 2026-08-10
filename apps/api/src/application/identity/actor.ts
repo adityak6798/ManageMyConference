@@ -2,7 +2,9 @@ export type Capability =
   | "events:read"
   | "events:create"
   | "events:settings:read"
-  | "events:settings:update";
+  | "events:settings:update"
+  | "review:manage"
+  | "review:evaluate";
 
 export interface EventAccess {
   readonly eventId: string;
@@ -26,6 +28,19 @@ export function requireCapability(actor: Actor | null, capability: Capability): 
   if (!actor) throw new AuthenticationRequiredError("Authentication is required");
   if (!actor.capabilities.has(capability)) {
     throw new CapabilityDeniedError(`Actor lacks ${capability}`);
+  }
+  return actor;
+}
+
+export function requireEventCapability(
+  actor: Actor | null,
+  eventId: string,
+  capability: Capability,
+): Actor {
+  if (!actor) throw new AuthenticationRequiredError("Authentication is required");
+  const access = actor.eventAccess.find((candidate) => candidate.eventId === eventId);
+  if (!access?.capabilities.has(capability)) {
+    throw new CapabilityDeniedError(`Actor lacks ${capability} for event`);
   }
   return actor;
 }

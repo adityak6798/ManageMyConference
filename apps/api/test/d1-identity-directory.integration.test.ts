@@ -32,6 +32,18 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(foundation)) await database.prepare(statement).run();
+    const reviewMigration = await readFile(
+      new URL("../migrations/0003_review_workflow.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(reviewMigration)) await database.prepare(statement).run();
+    for (const file of [
+      "0004_review_completion_conflict_guard.sql",
+      "0005_review_conflict_completion_guard.sql",
+    ]) {
+      const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      expect((await database.prepare(trigger).run()).success).toBe(true);
+    }
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 
