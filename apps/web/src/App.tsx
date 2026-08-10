@@ -219,7 +219,11 @@ export function App() {
                 </p>
               </section>
             )}
-            {selectedEvent && session.capabilities.includes("crm:manage") ? (
+            {selectedEvent &&
+            session.capabilities.includes("crm:manage") &&
+            session.eventAccess
+              .find(({ eventId }) => eventId === selectedEvent.id)
+              ?.capabilities.includes("crm:manage") ? (
               <CrmWorkspace eventId={selectedEvent.id} ownerId={session.actor.id} />
             ) : null}
             {error ? (

@@ -1,5 +1,5 @@
 import type { ProspectDto } from "@greenroom/contracts";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   convertProspect,
   createProspect,
@@ -8,8 +8,15 @@ import {
   updateProspect,
 } from "./api/crm";
 
+const localDateTimeValue = (instant: string | null) => {
+  if (!instant) return "";
+  const date = new Date(instant);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+
 // @spec PRD-CRM-001
 export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: string }) {
+  const loadSequence = useRef(0);
   const [prospects, setProspects] = useState<ProspectDto[]>([]),
     [filter, setFilter] = useState("all"),
     [name, setName] = useState(""),
@@ -25,10 +32,15 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
     [contactEmail, setContactEmail] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const load = useCallback(
-    async () => setProspects(await listProspects(eventId, filter)),
-    [eventId, filter],
-  );
+  const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    try {
+      const loaded = await listProspects(eventId, filter);
+      if (sequence === loadSequence.current) setProspects(loaded);
+    } catch (reason) {
+      if (sequence === loadSequence.current) throw reason;
+    }
+  }, [eventId, filter]);
   useEffect(() => {
     setError("");
     // ERROR-INTENT: React effects cannot await; the rejection renders a safe CRM error state.
@@ -39,7 +51,13 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
           : "Could not load the speaker pipeline.",
       ),
     );
+    return () => {
+      loadSequence.current += 1;
+    };
   }, [load]);
+  useEffect(() => {
+    if (eventId) setSelectedId("");
+  }, [eventId]);
   async function add(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -148,7 +166,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                   setSelectedId(prospect.id);
                   setStage(prospect.stage === "converted" ? "invited" : prospect.stage);
                   setNextAction(prospect.nextAction ?? "");
-                  setNextActionAt(prospect.nextActionAt?.slice(0, 16) ?? "");
+                  setNextActionAt(localDateTimeValue(prospect.nextActionAt));
                   setAssignedOwner(prospect.ownerId);
                 }}
               >

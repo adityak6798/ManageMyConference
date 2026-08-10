@@ -2,6 +2,10 @@
 import { expect, test } from "@playwright/test";
 
 test("organizer filters the pipeline, adds a prospect, and converts it", async ({ page }) => {
+  const future = new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000);
+  const futureLocal = new Date(future.getTime() - future.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await expect(page.getByRole("heading", { name: "Prospect pipeline" })).toBeVisible();
@@ -22,7 +26,7 @@ test("organizer filters the pipeline, adds a prospect, and converts it", async (
   await expect(page.getByRole("heading", { name: `${name} details` })).toBeVisible();
   await page.getByLabel("Stage").selectOption("engaged");
   await page.getByLabel("Next action", { exact: true }).fill("Confirm session outline");
-  await page.getByLabel("Next action due").fill("2027-08-01T12:00");
+  await page.getByLabel("Next action due").fill(futureLocal);
   await page.getByLabel("Private note").fill("Available after 2pm");
   await page.getByRole("button", { name: "Save prospect" }).click();
   await expect(page.getByText("Available after 2pm")).toBeVisible();

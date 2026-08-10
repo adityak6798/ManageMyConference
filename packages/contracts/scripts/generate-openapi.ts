@@ -171,6 +171,7 @@ registry.registerPath({
     401: errorResponse,
     403: errorResponse,
     404: errorResponse,
+    409: errorResponse,
     500: errorResponse,
   },
 });
@@ -194,6 +195,12 @@ const document = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: "3.0.3",
   info: { title: "Project Greenroom API", version: "0.1.0" },
 });
+const patchOperation = document.paths["/api/events/{eventId}/prospects/{prospectId}"]?.patch as
+  | { requestBody?: { content?: Record<string, { schema?: { minProperties?: number } }> } }
+  | undefined;
+const patchSchema = patchOperation?.requestBody?.content?.["application/json"]?.schema;
+if (!patchSchema) throw new Error("CRM prospect PATCH schema was not generated");
+patchSchema.minProperties = 1;
 const output = `${JSON.stringify(document, null, 2)}\n`;
 const artifact = fileURLToPath(new URL("../openapi.json", import.meta.url));
 if (process.argv.includes("--check")) {

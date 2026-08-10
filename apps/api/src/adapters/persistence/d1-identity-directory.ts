@@ -81,10 +81,12 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (organizationList.length) {
       capabilities.add("events:read");
       capabilities.add("events:create");
-      capabilities.add("crm:manage");
     }
     if (eventAccess.some(({ capabilities: assigned }) => assigned.has("events:read"))) {
       capabilities.add("events:read");
+    }
+    if (eventAccess.some(({ capabilities: assigned }) => assigned.has("crm:manage"))) {
+      capabilities.add("crm:manage");
     }
     return {
       id: user.id,

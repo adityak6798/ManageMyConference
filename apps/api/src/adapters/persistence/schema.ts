@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // @spec PRD-EVT-001
 export const organizations = sqliteTable(
@@ -116,7 +124,7 @@ export const crmContacts = sqliteTable(
       .references(() => crmProspects.id),
     name: text("name").notNull(),
     email: text("email").notNull(),
-    isPrimary: text("is_primary").notNull(),
+    isPrimary: integer("is_primary", { mode: "boolean" }).notNull(),
   },
   (table) => [
     check("crm_contacts_is_primary", sql`${table.isPrimary} IN (0,1)`),
@@ -132,7 +140,7 @@ export const crmActivities = sqliteTable(
       .references(() => crmProspects.id),
     kind: text("kind").notNull(),
     summary: text("summary").notNull(),
-    isPrivate: text("is_private").notNull(),
+    isPrivate: integer("is_private", { mode: "boolean" }).notNull(),
     occurredAt: text("occurred_at").notNull(),
     actorId: text("actor_id")
       .notNull()

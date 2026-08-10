@@ -2759,7 +2759,8 @@
                       "email"
                     ]
                   }
-                }
+                },
+                "minProperties": 1
               }
             }
           }
@@ -3074,6 +3075,56 @@
             }
           },
           "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {

@@ -2,9 +2,11 @@ import type { Prospect, ProspectActivity, ProspectStage } from "../../domain/crm
 import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
 import type { SpeakerConversionPort } from "../content/speaker-conversion";
 import type { CrmRepository, ProspectFilters } from "./crm-repository";
-
-export class ProspectNotFoundError extends Error {}
-export class ProspectContactRequiredError extends Error {}
+import {
+  ProspectAlreadyConvertedError,
+  ProspectContactRequiredError,
+  ProspectNotFoundError,
+} from "./errors";
 
 export interface CreateProspectCommand {
   eventId: string;
@@ -88,6 +90,8 @@ export class CrmService {
   ): Promise<Prospect> {
     const authorized = this.authorize(actor, eventId);
     const current = await this.get(authorized, eventId, prospectId);
+    if (current.speakerId)
+      throw new ProspectAlreadyConvertedError("Converted prospects are immutable");
     const now = this.dependencies.now().toISOString();
     const activity = command.activity
       ? {
@@ -122,25 +126,34 @@ export class CrmService {
     return updated;
   }
 
-  async convert(actor: Actor | null, eventId: string, prospectId: string): Promise<Prospect> {
+  async convert(
+    actor: Actor | null,
+    eventId: string,
+    prospectId: string,
+    correlationId: string,
+  ): Promise<Prospect> {
     const authorized = this.authorize(actor, eventId);
     const current = await this.get(authorized, eventId, prospectId);
     if (current.speakerId) return current;
     const primary = current.contacts.find(({ isPrimary }) => isPrimary) ?? current.contacts[0];
     if (!primary) throw new ProspectContactRequiredError("A contact is required before conversion");
+    const occurredAt = this.dependencies.now().toISOString();
     const { speakerId } = await this.dependencies.speakerConversion.createOrLink({
       eventId,
       source: { kind: "crm-prospect", id: prospectId },
       name: current.name,
       email: primary.email,
+      actorId: authorized.id,
+      occurredAt,
+      correlationId,
+      idempotencyKey: `crm-conversion:${eventId}:${prospectId}`,
     });
-    const now = this.dependencies.now().toISOString();
     return this.dependencies.repository.recordConversion(eventId, prospectId, speakerId, {
       id: this.dependencies.newId(),
       kind: "conversion",
       summary: "Converted prospect to speaker",
       private: false,
-      occurredAt: now,
+      occurredAt,
       actorId: authorized.id,
     });
   }

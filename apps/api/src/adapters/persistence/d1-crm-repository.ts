@@ -1,4 +1,5 @@
 import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
+import { ProspectAlreadyConvertedError } from "../../application/crm/errors";
 import type {
   Prospect,
   ProspectActivity,
@@ -49,55 +50,56 @@ interface ActivityRow {
 export class D1CrmRepository implements CrmRepository {
   constructor(private readonly database: D1DatabasePort) {}
   private async hydrate(rows: readonly ProspectRow[]): Promise<Prospect[]> {
-    return Promise.all(
-      rows.map(async (row) => {
-        const [contacts, activities] = await Promise.all([
-          this.database
-            .prepare(
-              "SELECT id, prospect_id, name, email, is_primary FROM crm_contacts WHERE prospect_id = ? ORDER BY is_primary DESC, id",
-            )
-            .bind(row.id)
-            .all<ContactRow>(),
-          this.database
-            .prepare(
-              "SELECT id, prospect_id, kind, summary, is_private, occurred_at, actor_id FROM crm_activities WHERE prospect_id = ? ORDER BY occurred_at, id",
-            )
-            .bind(row.id)
-            .all<ActivityRow>(),
-        ]);
-        if (!contacts.success || !activities.success)
-          throw new Error("D1 failed to hydrate CRM history");
-        return {
-          id: row.id,
-          eventId: row.event_id,
-          name: row.name,
-          stage: row.stage,
-          ownerId: row.owner_id,
-          nextAction: row.next_action,
-          nextActionAt: row.next_action_at,
-          contacts: (contacts.results ?? []).map(
-            (item): ProspectContact => ({
-              id: item.id,
-              name: item.name,
-              email: item.email,
-              isPrimary: !!item.is_primary,
-            }),
-          ),
-          activities: (activities.results ?? []).map((item) => ({
-            id: item.id,
-            kind: item.kind,
-            summary: item.summary,
-            private: !!item.is_private,
-            occurredAt: item.occurred_at,
-            actorId: item.actor_id,
-          })),
-          speakerId: row.speaker_id,
-          convertedAt: row.converted_at,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        };
-      }),
-    );
+    if (!rows.length) return [];
+    const placeholders = rows.map(() => "?").join(",");
+    const ids = rows.map(({ id }) => id);
+    const [contacts, activities] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT id, prospect_id, name, email, is_primary FROM crm_contacts WHERE prospect_id IN (${placeholders}) ORDER BY prospect_id, is_primary DESC, id`,
+        )
+        .bind(...ids)
+        .all<ContactRow>(),
+      this.database
+        .prepare(
+          `SELECT id, prospect_id, kind, summary, is_private, occurred_at, actor_id FROM crm_activities WHERE prospect_id IN (${placeholders}) ORDER BY prospect_id, occurred_at, id`,
+        )
+        .bind(...ids)
+        .all<ActivityRow>(),
+    ]);
+    if (!contacts.success || !activities.success)
+      throw new Error("D1 failed to hydrate CRM history");
+    const contactRows = Map.groupBy(contacts.results ?? [], ({ prospect_id }) => prospect_id);
+    const activityRows = Map.groupBy(activities.results ?? [], ({ prospect_id }) => prospect_id);
+    return rows.map((row) => ({
+      id: row.id,
+      eventId: row.event_id,
+      name: row.name,
+      stage: row.stage,
+      ownerId: row.owner_id,
+      nextAction: row.next_action,
+      nextActionAt: row.next_action_at,
+      contacts: (contactRows.get(row.id) ?? []).map(
+        (item): ProspectContact => ({
+          id: item.id,
+          name: item.name,
+          email: item.email,
+          isPrimary: !!item.is_primary,
+        }),
+      ),
+      activities: (activityRows.get(row.id) ?? []).map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        summary: item.summary,
+        private: !!item.is_private,
+        occurredAt: item.occurred_at,
+        actorId: item.actor_id,
+      })),
+      speakerId: row.speaker_id,
+      convertedAt: row.converted_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
   async list(eventId: string, filters: ProspectFilters) {
     const clauses = ["event_id = ?"],
@@ -169,7 +171,7 @@ export class D1CrmRepository implements CrmRepository {
     const statements: D1Statement[] = [
       this.database
         .prepare(
-          "UPDATE crm_prospects SET stage=?,owner_id=?,next_action=?,next_action_at=?,updated_at=? WHERE id=? AND event_id=?",
+          "UPDATE crm_prospects SET stage=?,owner_id=?,next_action=?,next_action_at=?,updated_at=? WHERE id=? AND event_id=? AND speaker_id IS NULL",
         )
         .bind(
           prospect.stage,
@@ -181,21 +183,49 @@ export class D1CrmRepository implements CrmRepository {
           prospect.eventId,
         ),
     ];
-    if (activity) statements.push(this.activityStatement(prospect.id, activity));
+    if (activity) {
+      statements.push(
+        this.database
+          .prepare(
+            "INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_prospects WHERE id=? AND event_id=? AND speaker_id IS NULL)",
+          )
+          .bind(
+            activity.id,
+            prospect.id,
+            activity.kind,
+            activity.summary,
+            activity.private ? 1 : 0,
+            activity.occurredAt,
+            activity.actorId,
+            prospect.id,
+            prospect.eventId,
+          ),
+      );
+    }
     if (contact) {
       if (contact.isPrimary) {
         statements.push(
           this.database
-            .prepare("UPDATE crm_contacts SET is_primary=0 WHERE prospect_id=?")
-            .bind(prospect.id),
+            .prepare(
+              "UPDATE crm_contacts SET is_primary=0 WHERE prospect_id=? AND EXISTS (SELECT 1 FROM crm_prospects WHERE id=? AND event_id=? AND speaker_id IS NULL)",
+            )
+            .bind(prospect.id, prospect.id, prospect.eventId),
         );
       }
       statements.push(
         this.database
           .prepare(
-            "INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) VALUES (?,?,?,?,?)",
+            "INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_prospects WHERE id=? AND event_id=? AND speaker_id IS NULL)",
           )
-          .bind(contact.id, prospect.id, contact.name, contact.email, contact.isPrimary ? 1 : 0),
+          .bind(
+            contact.id,
+            prospect.id,
+            contact.name,
+            contact.email,
+            contact.isPrimary ? 1 : 0,
+            prospect.id,
+            prospect.eventId,
+          ),
       );
     }
     const results = await this.database.batch(statements);
@@ -204,11 +234,30 @@ export class D1CrmRepository implements CrmRepository {
       throw new Error(
         `D1 failed to update prospect atomically: ${failed.error ?? "unknown error"}`,
       );
+    const current = await this.findById(prospect.eventId, prospect.id);
+    if (current?.speakerId)
+      throw new ProspectAlreadyConvertedError("Converted prospects cannot be updated");
   }
   private activityStatement(prospectId: string, activity: ProspectActivity) {
+    if (activity.kind === "conversion") {
+      // ERROR-INTENT: concurrent conversion retries intentionally suppress only the partial unique-index conflict for this prospect.
+      return this.database
+        .prepare(
+          "INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id) VALUES (?,?,?,?,?,?,?) ON CONFLICT(prospect_id) WHERE kind='conversion' DO NOTHING",
+        )
+        .bind(
+          activity.id,
+          prospectId,
+          activity.kind,
+          activity.summary,
+          activity.private ? 1 : 0,
+          activity.occurredAt,
+          activity.actorId,
+        );
+    }
     return this.database
       .prepare(
-        "INSERT OR IGNORE INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id) VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id) VALUES (?,?,?,?,?,?,?)",
       )
       .bind(
         activity.id,

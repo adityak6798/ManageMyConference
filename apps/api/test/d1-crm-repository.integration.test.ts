@@ -108,5 +108,12 @@ describe("D1 CRM persistence", () => {
       .bind(prospect.id)
       .all();
     expect(activities.results).toHaveLength(1);
+    const persisted = await repository.findById(eventId, prospect.id);
+    if (!persisted) throw new Error("Converted prospect was not persisted");
+    await expect(repository.update({ ...persisted, stage: "contacted" })).rejects.toThrow();
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: "converted",
+      speakerId: existingSpeakerId,
+    });
   });
 });

@@ -13,6 +13,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
 import {
   ProspectContactRequiredError,
+  ProspectAlreadyConvertedError,
   ProspectNotFoundError,
   type CrmService,
 } from "../../application/crm/public";
@@ -300,7 +301,12 @@ export function createHttpApp(
         400,
       );
     return context.json({
-      prospect: await crm.convert(context.get("actor"), path.data.eventId, path.data.prospectId),
+      prospect: await crm.convert(
+        context.get("actor"),
+        path.data.eventId,
+        path.data.prospectId,
+        context.get("correlationId"),
+      ),
     });
   });
   app.notFound((context) =>
@@ -331,6 +337,11 @@ export function createHttpApp(
     if (error instanceof ProspectContactRequiredError)
       return context.json(
         envelope("VALIDATION_FAILED", "A contact is required before conversion.", correlationId),
+        409,
+      );
+    if (error instanceof ProspectAlreadyConvertedError)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Converted prospects cannot be changed.", correlationId),
         409,
       );
     logger.error(

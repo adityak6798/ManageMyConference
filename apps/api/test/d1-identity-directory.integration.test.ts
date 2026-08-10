@@ -62,6 +62,11 @@ describe("D1IdentityDirectory", () => {
       .prepare("DELETE FROM event_roles WHERE user_id = ?")
       .bind("seed-organizer")
       .run();
+    await expect(directory.findByPersona("organizer")).resolves.toMatchObject({
+      organizations: expect.any(Array),
+      eventAccess: [],
+      capabilities: new Set(["events:read", "events:create"]),
+    });
     await database
       .prepare("DELETE FROM organization_memberships WHERE user_id = ?")
       .bind("seed-organizer")
@@ -70,6 +75,13 @@ describe("D1IdentityDirectory", () => {
       organizations: [],
       eventAccess: [],
       capabilities: new Set(),
+    });
+    await database
+      .prepare("UPDATE event_roles SET role='organizer' WHERE user_id='seed-reviewer'")
+      .run();
+    await expect(directory.findByPersona("reviewer")).resolves.toMatchObject({
+      organizations: [],
+      capabilities: new Set(["events:read", "crm:manage"]),
     });
   });
 });

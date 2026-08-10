@@ -45,8 +45,21 @@ describe("content speaker conversion", () => {
         source: { kind: "crm-prospect" as const, id: "10000000-0000-4000-8000-000000000001" },
         name: "Existing",
         email: "same@example.test",
+        actorId: "seed-organizer",
+        occurredAt: "2026-08-10T12:00:00.000Z",
+        correlationId: "speaker-link-test",
+        idempotencyKey: "crm-conversion:link-test",
       };
     await expect(adapter.createOrLink(command)).resolves.toEqual({ speakerId });
     await expect(adapter.createOrLink(command)).resolves.toEqual({ speakerId });
+    const racingSource = {
+      kind: "crm-prospect" as const,
+      id: "10000000-0000-4000-8000-000000000002",
+    };
+    const raced = await Promise.all([
+      adapter.createOrLink({ ...command, source: racingSource, email: "race-one@example.test" }),
+      adapter.createOrLink({ ...command, source: racingSource, email: "race-two@example.test" }),
+    ]);
+    expect(raced[0]?.speakerId).toBe(raced[1]?.speakerId);
   });
 });

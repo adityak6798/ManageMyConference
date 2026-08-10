@@ -1,7 +1,8 @@
 // @acceptance ACC-CRM
 import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
-import { CrmService, ProspectContactRequiredError } from "../src/application/crm/crm-service";
+import { CrmService } from "../src/application/crm/crm-service";
+import { ProspectContactRequiredError } from "../src/application/crm/errors";
 import {
   CapabilityDeniedError,
   type Actor,
@@ -80,20 +81,27 @@ describe("ACC-CRM prospect lifecycle", () => {
       activity: { kind: "note", summary: "Do not publish", private: true },
     });
     const [first, second] = await Promise.all([
-      service.convert(organizer, eventId, prospect.id),
-      service.convert(organizer, eventId, prospect.id),
+      service.convert(organizer, eventId, prospect.id, "conversion-correlation"),
+      service.convert(organizer, eventId, prospect.id, "conversion-correlation"),
     ]);
     expect(first.speakerId).toBe(second.speakerId);
-    expect((await service.convert(organizer, eventId, prospect.id)).speakerId).toBe(
-      first.speakerId,
-    );
+    expect(
+      (await service.convert(organizer, eventId, prospect.id, "conversion-correlation")).speakerId,
+    ).toBe(first.speakerId);
     expect(createOrLink).toHaveBeenCalledWith({
       eventId,
       source: { kind: "crm-prospect", id: prospect.id },
       name: "Ada Rivera",
       email: "ada@example.test",
+      actorId: organizer.id,
+      occurredAt: "2026-08-10T12:00:00.000Z",
+      correlationId: "conversion-correlation",
+      idempotencyKey: `crm-conversion:${eventId}:${prospect.id}`,
     });
     expect(JSON.stringify(createOrLink.mock.calls)).not.toContain("Do not publish");
+    await expect(
+      service.update(organizer, eventId, prospect.id, { stage: "contacted" }),
+    ).rejects.toThrow("Converted prospects are immutable");
   });
 
   it("rejects unauthenticated, unauthorized, cross-event, and contactless conversion", async () => {
@@ -117,7 +125,12 @@ describe("ACC-CRM prospect lifecycle", () => {
       updatedAt: "2026-08-10T12:00:00.000Z",
     });
     await expect(
-      service.convert(organizer, eventId, "50000000-0000-4000-8000-000000000001"),
+      service.convert(
+        organizer,
+        eventId,
+        "50000000-0000-4000-8000-000000000001",
+        "conversion-correlation",
+      ),
     ).rejects.toBeInstanceOf(ProspectContactRequiredError);
   });
 });

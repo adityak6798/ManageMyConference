@@ -30,6 +30,7 @@ export class D1SpeakerConversion implements SpeakerConversionPort {
     if (!existing.success) throw new Error("D1 failed to resolve speaker provenance");
     if (existing.results?.[0]) return { speakerId: existing.results[0].id };
     const candidate = this.newId();
+    // ERROR-INTENT: an event/email conflict means content already owns the canonical speaker to link below.
     const result = await this.database
       .prepare("INSERT OR IGNORE INTO speaker_profiles (id,event_id,name,email) VALUES (?,?,?,?)")
       .bind(candidate, command.eventId, command.name, command.email)
@@ -42,6 +43,7 @@ export class D1SpeakerConversion implements SpeakerConversionPort {
       .all<SpeakerRow>();
     const speakerId = created.results?.[0]?.id;
     if (!speakerId) throw new Error("D1 conversion did not produce a speaker");
+    // ERROR-INTENT: a provenance conflict means a concurrent conversion already established the canonical link.
     const linked = await this.database
       .prepare(
         "INSERT OR IGNORE INTO speaker_conversion_sources (event_id,source_kind,source_id,speaker_id) VALUES (?,?,?,?)",
@@ -50,6 +52,15 @@ export class D1SpeakerConversion implements SpeakerConversionPort {
       .run();
     if (!linked.success)
       throw new Error(`D1 failed to link speaker provenance: ${linked.error ?? "unknown error"}`);
-    return { speakerId };
+    const canonical = await this.database
+      .prepare(
+        "SELECT speaker_id AS id FROM speaker_conversion_sources WHERE event_id=? AND source_kind=? AND source_id=? LIMIT 1",
+      )
+      .bind(command.eventId, command.source.kind, command.source.id)
+      .all<SpeakerRow>();
+    const canonicalSpeakerId = canonical.results?.[0]?.id;
+    if (!canonical.success || !canonicalSpeakerId)
+      throw new Error("D1 conversion did not persist speaker provenance");
+    return { speakerId: canonicalSpeakerId };
   }
 }

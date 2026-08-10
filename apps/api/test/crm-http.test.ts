@@ -92,6 +92,15 @@ describe("ACC-CRM HTTP", () => {
     await expect(converted.json()).resolves.toMatchObject({
       prospect: { stage: "converted", speakerId: expect.any(String) },
     });
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/prospects/${prospect.id}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ stage: "contacted" }),
+        })
+      ).status,
+    ).toBe(409);
   });
 
   it("denies every non-organizer and cross-event request before lookup", async () => {
