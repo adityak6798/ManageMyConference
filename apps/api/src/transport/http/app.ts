@@ -3,6 +3,7 @@ import {
   createEventInputSchema,
   demoSessionInputSchema,
   eventIdParamsSchema,
+  publicationPreviewResponseSchema,
   publicEventProjectionSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
@@ -11,6 +12,7 @@ import type { EventService } from "../../application/events/event-service";
 import {
   type Actor,
   AuthenticationRequiredError,
+  type Capability,
   CapabilityDeniedError,
   requireCapability,
 } from "../../application/identity/actor";
@@ -56,6 +58,20 @@ async function readJson(request: { json(): Promise<unknown> }): Promise<unknown>
     throw new MalformedJsonError("Request body is not valid JSON");
   }
 }
+const requireOrganizerEventCapability = (
+  actor: Actor | null,
+  eventId: string,
+  capability: Capability,
+) => {
+  if (!actor) throw new AuthenticationRequiredError("Authentication is required");
+  const access = actor.eventAccess.find((candidate) => candidate.eventId === eventId);
+  if (!access) return false;
+  if (access.role !== "organizer")
+    throw new CapabilityDeniedError("Actor is not an organizer for event");
+  if (!access.capabilities.has(capability))
+    throw new CapabilityDeniedError(`Actor lacks ${capability} for event`);
+  return true;
+};
 
 // @spec PRD-IAM-001 PRD-IAM-002 PRD-EVT-001
 export function createHttpApp(
@@ -125,7 +141,6 @@ export function createHttpApp(
     return context.json({ projection: parsed.data });
   });
   app.get("/api/publishing/events/:eventId/preview", async (context) => {
-    const actor = requireCapability(context.get("actor"), "events:settings:read");
     const parsed = eventIdParamsSchema.safeParse(context.req.param());
     if (!parsed.success)
       return context.json(
@@ -133,8 +148,10 @@ export function createHttpApp(
         400,
       );
     if (
-      !actor.eventAccess.some(
-        ({ eventId, role }) => eventId === parsed.data.eventId && role === "organizer",
+      !requireOrganizerEventCapability(
+        context.get("actor"),
+        parsed.data.eventId,
+        "events:settings:read",
       )
     )
       return context.json(
@@ -155,11 +172,10 @@ export function createHttpApp(
         ),
         404,
       );
-    return context.json({ publication });
+    return context.json(publicationPreviewResponseSchema.parse({ publication }));
   });
   for (const action of ["publish", "unpublish"] as const)
     app.post(`/api/publishing/events/:eventId/${action}`, async (context) => {
-      const actor = requireCapability(context.get("actor"), "events:settings:update");
       const parsed = eventIdParamsSchema.safeParse(context.req.param());
       if (!parsed.success)
         return context.json(
@@ -167,8 +183,10 @@ export function createHttpApp(
           400,
         );
       if (
-        !actor.eventAccess.some(
-          ({ eventId, role }) => eventId === parsed.data.eventId && role === "organizer",
+        !requireOrganizerEventCapability(
+          context.get("actor"),
+          parsed.data.eventId,
+          "events:settings:update",
         )
       )
         return context.json(
@@ -192,7 +210,7 @@ export function createHttpApp(
           ),
           404,
         );
-      return context.json({ publication });
+      return context.json(publicationPreviewResponseSchema.parse({ publication }));
     });
   app.post("/api/demo-session", async (context) => {
     if (!auth.demoMode)

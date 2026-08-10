@@ -48,3 +48,44 @@ export interface Publication {
   readonly published: PublicEventProjection | null;
   readonly publishedAt: string | null;
 }
+
+// Publication snapshots deliberately copy only public contract fields. This is the privacy
+// boundary between upstream draft material and publishing-owned storage.
+export const allowlistPublicProjection = (
+  projection: PublicEventProjection,
+): PublicEventProjection => ({
+  event: {
+    slug: projection.event.slug,
+    name: projection.event.name,
+    summary: projection.event.summary,
+    startsOn: projection.event.startsOn,
+    endsOn: projection.event.endsOn,
+    timezone: projection.event.timezone,
+    venue: projection.event.venue,
+  },
+  cfp: {
+    title: projection.cfp.title,
+    description: projection.cfp.description,
+    opensAt: projection.cfp.opensAt,
+    closesAt: projection.cfp.closesAt,
+    submissionUrl: projection.cfp.submissionUrl,
+  },
+  sessions: projection.sessions.map((session) => ({
+    slug: session.slug,
+    title: session.title,
+    abstract: session.abstract,
+    format: session.format,
+    track: session.track,
+    speakerSlugs: [...session.speakerSlugs],
+    ...(session.startsAt ? { startsAt: session.startsAt } : {}),
+    ...(session.endsAt ? { endsAt: session.endsAt } : {}),
+    ...(session.room ? { room: session.room } : {}),
+  })),
+  speakers: projection.speakers.map((speaker) => ({
+    slug: speaker.slug,
+    name: speaker.name,
+    bio: speaker.bio,
+    headline: speaker.headline,
+    ...(speaker.photoUrl ? { photoUrl: speaker.photoUrl } : {}),
+  })),
+});

@@ -1,6 +1,6 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-09
+Status: canonical | Owner: quality | Last verified: 2026-08-10
 
 | Acceptance ID | Journey | Required evidence | State |
 |---|---|---|---|

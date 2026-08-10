@@ -22,6 +22,12 @@ const route = () => {
 
 const dates = (projection: PublicEventProjectionDto) =>
   `${projection.event.startsOn}–${projection.event.endsOn}`;
+const eventTime = (value: string, timezone: string, dateStyle: "medium" | "long" | "full") =>
+  `${new Date(value).toLocaleString("en-US", {
+    dateStyle,
+    timeStyle: "short",
+    timeZone: timezone,
+  })} ${timezone}`;
 
 // @spec PRD-PUB-001
 export function PublicEventApp() {
@@ -103,16 +109,17 @@ export function PublicEventApp() {
           <>
             <p className="kicker">Published schedule</p>
             <h1>Plan your time</h1>
+            <p>All times are shown in {projection.event.timezone}.</p>
+            {projection.sessions.every(({ startsAt }) => !startsAt) && (
+              <p className="empty">The published schedule does not have timed sessions yet.</p>
+            )}
             <div className="cards">
               {projection.sessions
                 .filter(({ startsAt }) => startsAt)
                 .map((item) => (
                   <article key={item.slug}>
                     <time dateTime={item.startsAt}>
-                      {new Date(item.startsAt ?? "").toLocaleString([], {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
+                      {eventTime(item.startsAt ?? "", projection.event.timezone, "medium")}
                     </time>
                     <h2>
                       <a href={`${base}/sessions/${item.slug}`}>{item.title}</a>
@@ -129,6 +136,9 @@ export function PublicEventApp() {
           <>
             <p className="kicker">Program</p>
             <h1>Sessions</h1>
+            {projection.sessions.length === 0 && (
+              <p className="empty">No sessions have been published yet.</p>
+            )}
             <div className="cards">
               {projection.sessions.map((item) => (
                 <article key={item.slug}>
@@ -154,10 +164,7 @@ export function PublicEventApp() {
             {session.startsAt && (
               <p>
                 <time dateTime={session.startsAt}>
-                  {new Date(session.startsAt).toLocaleString([], {
-                    dateStyle: "full",
-                    timeStyle: "short",
-                  })}
+                  {eventTime(session.startsAt, projection.event.timezone, "full")}
                 </time>{" "}
                 · {session.room}
               </p>
@@ -177,6 +184,9 @@ export function PublicEventApp() {
           <>
             <p className="kicker">People</p>
             <h1>Speakers</h1>
+            {projection.speakers.length === 0 && (
+              <p className="empty">No speakers have been published yet.</p>
+            )}
             <div className="cards speaker-grid">
               {projection.speakers.map((item) => (
                 <article key={item.slug}>
@@ -205,10 +215,7 @@ export function PublicEventApp() {
             <p>
               Submissions close{" "}
               <time dateTime={projection.cfp.closesAt}>
-                {new Date(projection.cfp.closesAt).toLocaleString([], {
-                  dateStyle: "long",
-                  timeStyle: "short",
-                })}
+                {eventTime(projection.cfp.closesAt, projection.event.timezone, "long")}
               </time>
               .
             </p>
