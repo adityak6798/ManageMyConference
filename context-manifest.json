@@ -48,6 +48,7 @@
       "plans": ["PLAN-001"],
       "index": "docs/architecture/README.md",
       "paths": [
+        ".agents/extra-skills/bootstrap-harness",
         ".agents/skills/ship-it",
         "tools",
         ".github",

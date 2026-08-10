@@ -11,6 +11,8 @@ This repository is a context system for humans and agents. Start here, follow li
 5. Run `npm run check` before handing work off.
 6. When implementation is ready to publish, use the repo-local [Ship It skill](.agents/skills/ship-it/SKILL.md).
 
+To reuse this repository's harness approach in another codebase, start with the optional [Bootstrap Harness skill](.agents/extra-skills/bootstrap-harness/SKILL.md).
+
 ## Non-negotiable boundaries
 
 - Dependencies point `domain -> application -> adapters/transport`; see [architecture](ARCHITECTURE.md).
@@ -29,5 +31,6 @@ This repository is a context system for humans and agents. Start here, follow li
 - `npm run reset` — deterministic seed reset.
 - `npm test` — automated tests.
 - `$ship-it` — take implementation-ready work through doc sync, skeptical review, PR CI, and automated-review triage.
+- `bootstrap-harness` — establish the reusable docs, context, boundaries, reference slice, and CI foundation for a repository.
 
 If navigation fails, use the direct indexes in `docs/`; search remains allowed for investigation.

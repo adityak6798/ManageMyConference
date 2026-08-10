@@ -14,7 +14,7 @@ Shared Zod schemas own every current request and response shape: event mutations
 - `API-COMMS-*`, `API-INTEGRATION-*`: templates, outbox, attempts, projection state.
 - `API-PUBLIC-*`: published hub, schedule, sessions, speakers, and CFP/embed reads.
 
-The event reference routes use expiring signed HttpOnly demo-session cookies and enforce actor capability in the application service, returning distinct 401 and 403 envelopes. `/api/demo-session` is an internal harness route: it is available only with `DEMO_MODE=true`, returns 404 otherwise, and is rejected by production runtime configuration. Event scope/tenancy expands when organizations and multiple events are implemented. Idempotency for repeatable mutations and stable cursor pagination/filtering remain interface requirements for relevant future routes. Errors follow [`ARC-ERR-001`](../architecture/error-observability.md).
+The event reference routes use expiring signed HttpOnly demo-session cookies and enforce actor capability in the application service, returning distinct 401 and 403 envelopes. `/api/demo-session` is an internal harness route: it is available only with `DEMO_MODE=true` and `ENVIRONMENT=development`, returns 404 when demo mode is disabled, and fails closed for missing, misspelled, or non-development environments. Event scope/tenancy expands when organizations and multiple events are implemented. Idempotency for repeatable mutations and stable cursor pagination/filtering remain interface requirements for relevant future routes. Errors follow [`ARC-ERR-001`](../architecture/error-observability.md).
 
 ## Domain events
 
