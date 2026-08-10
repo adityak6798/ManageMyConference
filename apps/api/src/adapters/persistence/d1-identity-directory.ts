@@ -29,7 +29,7 @@ interface EventRoleRow {
 }
 
 const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
-  organizer: ["events:read", "events:settings:read", "events:settings:update"],
+  organizer: ["events:read", "events:settings:read", "events:settings:update", "agenda:manage"],
   reviewer: ["events:read"],
   speaker: ["events:read"],
   public: [],
@@ -81,6 +81,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (organizationList.length) {
       capabilities.add("events:read");
       capabilities.add("events:create");
+      capabilities.add("agenda:manage");
     }
     if (eventAccess.some(({ capabilities: assigned }) => assigned.has("events:read"))) {
       capabilities.add("events:read");

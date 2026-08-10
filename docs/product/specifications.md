@@ -24,7 +24,7 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 
 ## Agenda, communications, integrations, public
 
-- `PRD-AGD-001` The agenda manages rooms, tracks, timeslots, and sessions; speaker, room, and overlap conflicts are explicit.
+- `PRD-AGD-001` The agenda manages event-scoped rooms, tracks, timeslots, and placements over sessions supplied by the content application query. A placement may be added, moved, or removed in a private draft. Overlapping placements explicitly identify every shared room, speaker, or session and give a resolution; a conflicted draft cannot be published. Publication is an organizer-only, auditable action that creates a numbered immutable snapshot. Only the latest snapshot—not subsequent draft edits—is available through the public schedule projection.
 - `PRD-COM-001` Templates and triggers enqueue immutable delivery attempts with retry and terminal state; sent history is auditable.
 - `PRD-INT-001` SQL is canonical. Airtable and Accelevents receive versioned outbound projections through typed ports.
 - `PRD-PUB-001` Only published projections are public. Event hub, schedule, sessions, speakers, and CFP have direct and embeddable views.

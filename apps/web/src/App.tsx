@@ -2,11 +2,12 @@ import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
 import "./styles.css";
+import { AgendaWorkspace } from "./AgendaWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 const navByRole: Record<Persona, string[]> = {
-  organizer: ["Overview", "Event settings", "People", "Publishing"],
+  organizer: ["Overview", "Agenda", "Event settings", "People", "Publishing"],
   reviewer: ["Review assignments"],
   speaker: ["Speaker tasks", "My sessions"],
   public: ["Published event"],
@@ -218,6 +219,12 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEvent &&
+            session.eventAccess
+              .find(({ eventId }) => eventId === selectedEvent.id)
+              ?.capabilities.includes("agenda:manage") ? (
+              <AgendaWorkspace eventId={selectedEvent.id} onError={setError} />
+            ) : null}
             {error ? (
               <p role="alert" className="error">
                 {error}

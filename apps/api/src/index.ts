@@ -1,5 +1,8 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
+import { AgendaService } from "./application/agenda/agenda-service";
+import { FixtureSchedulableContentQuery } from "./application/content/public";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
@@ -35,6 +38,24 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const now = () => new Date();
+    const content = new FixtureSchedulableContentQuery(
+      new Map([
+        [
+          "00000000-0000-4000-8000-000000000001",
+          [
+            { id: "session-opening", title: "Opening the greenroom", speakerIds: ["speaker-alex"] },
+            { id: "session-systems", title: "Systems that scale", speakerIds: ["speaker-blair"] },
+            {
+              id: "session-workshop",
+              title: "Hands-on production clinic",
+              speakerIds: ["speaker-blair"],
+            },
+          ],
+        ],
+      ]),
+    );
+    const agenda = new AgendaService(new D1AgendaRepository(environment.DB, now), now, content);
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -56,6 +77,7 @@ export default {
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      agenda,
     );
     return Promise.resolve(app.fetch(request));
   },

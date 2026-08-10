@@ -16,6 +16,12 @@ import {
   eventIdParamsSchema,
   healthResponseSchema,
   sessionResponseSchema,
+  agendaIdParamsSchema,
+  agendaPlacementSchema,
+  agendaResourcesSchema,
+  agendaDraftSchema,
+  publishedScheduleSchema,
+  publicScheduleSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -38,6 +44,109 @@ registry.registerPath({
   responses: {
     200: { description: "Current identity and capabilities", content: json(sessionResponseSchema) },
     401: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/agenda",
+  security: [{ sessionCookie: [] }],
+  request: { params: agendaIdParamsSchema },
+  responses: {
+    200: {
+      description: "Organizer agenda draft and conflicts",
+      content: json(z.object({ agenda: agendaDraftSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/events/{eventId}/agenda/resources",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: agendaIdParamsSchema,
+    body: { required: true, content: json(agendaResourcesSchema) },
+  },
+  responses: {
+    200: {
+      description: "Configured rooms, tracks, and timeslots",
+      content: json(z.object({ agenda: agendaDraftSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    409: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/events/{eventId}/agenda/placements/{placementId}",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: agendaIdParamsSchema.extend({ placementId: z.string() }),
+    body: { required: true, content: json(agendaPlacementSchema) },
+  },
+  responses: {
+    200: {
+      description: "Updated draft and conflicts",
+      content: json(z.object({ agenda: agendaDraftSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/events/{eventId}/agenda/placements/{placementId}",
+  security: [{ sessionCookie: [] }],
+  request: { params: agendaIdParamsSchema.extend({ placementId: z.string() }) },
+  responses: {
+    204: { description: "Placement removed" },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/agenda/publications",
+  security: [{ sessionCookie: [] }],
+  request: { params: agendaIdParamsSchema },
+  responses: {
+    201: {
+      description: "Auditable immutable schedule publication",
+      content: json(z.object({ schedule: publicScheduleSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    409: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/public/events/{eventId}/schedule",
+  request: { params: agendaIdParamsSchema },
+  responses: {
+    200: {
+      description: "Latest public-safe published schedule",
+      content: json(z.object({ schedule: publishedScheduleSchema })),
+    },
+    400: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // @spec PRD-EVT-001
 export const organizations = sqliteTable(
@@ -75,5 +75,35 @@ export const eventRoles = sqliteTable(
     primaryKey({ columns: [table.eventId, table.userId, table.role] }),
     check("event_roles_role", sql`${table.role} IN ('organizer', 'reviewer', 'speaker', 'public')`),
     index("event_roles_user_id_idx").on(table.userId),
+  ],
+);
+
+// @spec PRD-AGD-001
+export const agendaDrafts = sqliteTable("agenda_drafts", {
+  eventId: text("event_id")
+    .primaryKey()
+    .notNull()
+    .references(() => events.id),
+  draftJson: text("draft_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const agendaPublications = sqliteTable(
+  "agenda_publications",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    version: integer("version").notNull(),
+    publishedAt: text("published_at").notNull(),
+    publishedBy: text("published_by")
+      .notNull()
+      .references(() => users.id),
+    scheduleJson: text("schedule_json").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.eventId, table.version] }),
+    check("agenda_publications_version", sql`${table.version} > 0`),
+    index("agenda_publications_latest_idx").on(table.eventId, table.version),
   ],
 );

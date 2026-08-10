@@ -10,7 +10,7 @@ Status: canonical | Owner: quality | Last verified: 2026-08-09
 | `ACC-REVIEW` | `JNY-003` | reviewer/organizer E2E + auth negatives | planned |
 | `ACC-SPEAKER` | `JNY-004`, `JNY-005` | portal/task/asset/calendar E2E | planned |
 | `ACC-CRM` | `JNY-008` | prospect-to-speaker E2E | planned |
-| `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | planned |
+| `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | passed locally 2026-08-10 for resource/placement management, conflict boundaries, authorization, immutable publication, typed API/D1 storage, deterministic reset, organizer UI, public projection isolation, Playwright, full check, and production builds; durable schedule-event outbox delivery remains follow-up |
 | `ACC-PUBLIC` | `JNY-007` | public/embed projection E2E + a11y | planned |
 | `ACC-INTEGRATION` | `JNY-009` (`communications-integrations`) | communication outbox + adapter contracts + retry/terminal E2E | planned |
 
