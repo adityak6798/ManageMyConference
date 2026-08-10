@@ -42,6 +42,15 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
+    const agenda = await readFile(
+      new URL("../migrations/0003_agenda.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of agenda
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
       repository.list({
@@ -100,6 +109,15 @@ describe("D1EventRepository", () => {
       "utf8",
     );
     for (const statement of foundation
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const agendaMigration = await readFile(
+      new URL("../migrations/0003_agenda.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of agendaMigration
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))
