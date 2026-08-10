@@ -10,6 +10,7 @@ import {
   apiErrorEnvelopeSchema,
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
+  configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
   createEventInputSchema,
   createEventResponseSchema,
@@ -19,12 +20,15 @@ import {
   eventIdParamsSchema,
   healthResponseSchema,
   organizerReviewWorkspaceSchema,
+  proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewerQueueSchema,
   reviewAssignmentParamsSchema,
   reviewEventParamsSchema,
+  reviewOrganizerQuerySchema,
+  reviewPlanResponseSchema,
   saveEvaluationInputSchema,
   evaluationResponseSchema,
   declareConflictInputSchema,
@@ -59,7 +63,7 @@ registry.registerPath({
   method: "get",
   path: "/api/events/{eventId}/review/organizer",
   security: [{ sessionCookie: [] }],
-  request: { params: reviewEventParamsSchema },
+  request: { params: reviewEventParamsSchema, query: reviewOrganizerQuerySchema },
   responses: {
     200: {
       description: "Organizer triage, plan, assignments, audit, and outcomes",
@@ -80,7 +84,26 @@ registry.registerPath({
     body: { required: true, content: json(configureReviewPlanInputSchema) },
   },
   responses: {
-    200: { description: "Saved evaluation plan" },
+    200: { description: "Saved evaluation plan", content: json(reviewPlanResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/events/{eventId}/review/statuses",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: reviewEventParamsSchema,
+    body: { required: true, content: json(configureProposalStatusesInputSchema) },
+  },
+  responses: {
+    200: {
+      description: "Saved event proposal statuses",
+      content: json(proposalStatusesResponseSchema),
+    },
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,

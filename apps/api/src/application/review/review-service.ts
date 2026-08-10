@@ -1,4 +1,7 @@
-import type { SubmittedProposalInterface } from "../cfp/submitted-proposal-interface";
+import {
+  ProposalStatusConfigurationError,
+  type SubmittedProposalInterface,
+} from "../cfp/submitted-proposal-interface";
 import type { ProposalStatus } from "../cfp/submitted-proposal-interface";
 import { type Actor, CapabilityDeniedError, requireEventCapability } from "../identity/actor";
 import type {
@@ -23,7 +26,7 @@ export class ReviewNotFoundError extends Error {}
 export interface ReviewServiceDependencies {
   repository: ReviewRepository;
   proposals: SubmittedProposalInterface;
-  identities: Pick<IdentityDirectory, "isReviewerForEvent">;
+  identities: Pick<IdentityDirectory, "isReviewerForEvent" | "listReviewersForEvent">;
   newId: () => string;
   now: () => Date;
 }
@@ -42,14 +45,40 @@ export class ReviewService {
 
   async organizerWorkspace(actor: Actor | null, eventId: string, status?: ProposalStatus) {
     this.organizer(actor, eventId);
-    const [proposals, plan, assignments, outcomes, audit] = await Promise.all([
+    const [proposals, plan, assignments, outcomes, audit, statuses, reviewers] = await Promise.all([
       this.dependencies.proposals.list(eventId, status),
       this.dependencies.repository.getPlan(eventId),
       this.dependencies.repository.listAssignments(eventId),
       this.dependencies.repository.listOutcomes(eventId),
       this.dependencies.proposals.listAudit(eventId),
+      this.dependencies.proposals.listStatuses(eventId),
+      this.dependencies.identities.listReviewersForEvent(eventId),
     ]);
-    return { proposals, plan, assignments, outcomes, audit };
+    return { proposals, plan, assignments, outcomes, audit, statuses, reviewers };
+  }
+
+  async configureStatuses(
+    actor: Actor | null,
+    eventId: string,
+    statuses: readonly { key: string; label: string; sortOrder: number }[],
+  ) {
+    this.organizer(actor, eventId);
+    const keys = new Set(statuses.map(({ key }) => key));
+    if (keys.size !== statuses.length)
+      throw new ReviewValidationError({ statuses: ["Status keys must be unique"] });
+    const proposals = await this.dependencies.proposals.list(eventId);
+    if (proposals.some(({ status }) => !keys.has(status)))
+      throw new ReviewValidationError({
+        statuses: ["Configured statuses must include every status currently in use"],
+      });
+    try {
+      await this.dependencies.proposals.saveStatuses(eventId, statuses);
+    } catch (error) {
+      if (error instanceof ProposalStatusConfigurationError)
+        throw new ReviewValidationError({ statuses: [error.message] });
+      throw error;
+    }
+    return statuses;
   }
 
   async configurePlan(
@@ -76,7 +105,13 @@ export class ReviewService {
         criteria: ["The rubric is locked after reviewer assignments are created"],
       });
     const plan = { eventId, criteria, updatedAt: this.dependencies.now().toISOString() };
-    await this.dependencies.repository.savePlan(plan);
+    try {
+      await this.dependencies.repository.savePlan(plan);
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ criteria: [error.message] });
+      throw error;
+    }
     return plan;
   }
 
@@ -112,7 +147,13 @@ export class ReviewService {
         reviewerId,
         createdAt: now,
       }));
-    return this.dependencies.repository.createAssignments(assignments);
+    try {
+      return await this.dependencies.repository.createAssignments(assignments);
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ plan: [error.message] });
+      throw error;
+    }
   }
 
   async bulkTransition(
@@ -122,14 +163,20 @@ export class ReviewService {
     toStatus: ProposalStatus,
   ) {
     const authorized = this.organizer(actor, eventId);
-    return this.dependencies.proposals.transitionAtomically({
-      eventId,
-      proposalIds: [...new Set(proposalIds)],
-      toStatus,
-      actorId: authorized.id,
-      occurredAt: this.dependencies.now().toISOString(),
-      auditIds: proposalIds.map(() => this.dependencies.newId()),
-    });
+    try {
+      return await this.dependencies.proposals.transitionAtomically({
+        eventId,
+        proposalIds: [...new Set(proposalIds)],
+        toStatus,
+        actorId: authorized.id,
+        occurredAt: this.dependencies.now().toISOString(),
+        auditIds: proposalIds.map(() => this.dependencies.newId()),
+      });
+    } catch (error) {
+      if (error instanceof ProposalStatusConfigurationError)
+        throw new ReviewValidationError({ toStatus: [error.message] });
+      throw error;
+    }
   }
 
   async reviewerQueue(actor: Actor | null, eventId: string) {
@@ -203,7 +250,11 @@ export class ReviewService {
       const score = scoreMap.get(criterion.id);
       return score === undefined || score < criterion.minScore || score > criterion.maxScore;
     });
-    if (invalid.length || scoreMap.size !== plan.criteria.length)
+    if (
+      invalid.length ||
+      scoreMap.size !== plan.criteria.length ||
+      input.scores.length !== plan.criteria.length
+    )
       throw new ReviewValidationError({
         scores: ["Provide one in-range score for every evaluation criterion"],
       });

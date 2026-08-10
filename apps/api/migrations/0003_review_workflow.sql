@@ -5,9 +5,17 @@ CREATE TABLE cfp_submissions (
   title TEXT NOT NULL,
   abstract TEXT NOT NULL,
   submitter_name TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('submitted', 'under_review', 'reviewed', 'withdrawn'))
+  status TEXT NOT NULL
 );
 CREATE INDEX cfp_submissions_event_status_idx ON cfp_submissions(event_id, status);
+
+CREATE TABLE cfp_statuses (
+  event_id TEXT NOT NULL REFERENCES events(id),
+  key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  PRIMARY KEY(event_id, key)
+);
 
 CREATE TABLE cfp_status_audit (
   id TEXT PRIMARY KEY NOT NULL,

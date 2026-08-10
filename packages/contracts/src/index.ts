@@ -75,7 +75,21 @@ export const apiErrorEnvelopeSchema = z.object({
 export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>;
 
 // @spec PRD-ABS-001 PRD-REV-001
-export const proposalStatusSchema = z.enum(["submitted", "under_review", "reviewed", "withdrawn"]);
+export const proposalStatusSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[a-z0-9_-]+$/);
+export const proposalStatusDefinitionSchema = z.object({
+  key: proposalStatusSchema,
+  label: z.string().trim().min(1).max(80),
+  sortOrder: z.number().int().nonnegative(),
+});
+export const configureProposalStatusesInputSchema = z.object({
+  statuses: z.array(proposalStatusDefinitionSchema).min(1).max(20),
+});
+export const reviewOrganizerQuerySchema = z.object({ status: proposalStatusSchema.optional() });
 export const reviewEventParamsSchema = z.object({ eventId: z.string().uuid() });
 export const reviewAssignmentParamsSchema = z.object({
   eventId: z.string().uuid(),
@@ -146,12 +160,15 @@ export const reviewOutcomeSchema = z.object({
   averageScore: z.number(),
   updatedAt: z.string().datetime(),
 });
+export const reviewerOptionSchema = z.object({ id: z.string(), name: z.string() });
 export const organizerReviewWorkspaceSchema = z.object({
   proposals: z.array(proposalSchema),
   plan: reviewPlanSchema.nullable(),
   assignments: z.array(reviewAssignmentSchema),
   outcomes: z.array(reviewOutcomeSchema),
   audit: z.array(proposalAuditSchema),
+  statuses: z.array(proposalStatusDefinitionSchema),
+  reviewers: z.array(reviewerOptionSchema),
 });
 export const reviewConflictSchema = z.object({
   assignmentId: z.string().uuid(),
@@ -190,6 +207,9 @@ export const reviewAssignmentsResponseSchema = z.object({
 export const proposalTransitionResponseSchema = z.object({
   proposals: z.array(proposalSchema),
   mode: z.literal("atomic"),
+});
+export const proposalStatusesResponseSchema = z.object({
+  statuses: z.array(proposalStatusDefinitionSchema),
 });
 export const reviewConflictResponseSchema = z.object({ conflict: reviewConflictSchema });
 export const evaluationResponseSchema = z.object({ evaluation: evaluationSchema });

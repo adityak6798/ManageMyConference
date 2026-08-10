@@ -108,4 +108,15 @@ export class D1IdentityDirectory implements IdentityDirectory {
       );
     return result.results?.length === 1;
   }
+  async listReviewersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT u.id, u.name FROM users u JOIN event_roles r ON r.user_id = u.id WHERE r.event_id = ? AND r.role = 'reviewer' ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to list event reviewers: ${result.error ?? "unknown error"}`);
+    return result.results ?? [];
+  }
 }

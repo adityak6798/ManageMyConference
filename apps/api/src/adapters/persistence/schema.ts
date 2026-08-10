@@ -116,6 +116,16 @@ export const cfpStatusAudit = sqliteTable(
   },
   (table) => [index("cfp_status_audit_event_idx").on(table.eventId, table.occurredAt)],
 );
+export const cfpStatuses = sqliteTable(
+  "cfp_statuses",
+  {
+    eventId: text("event_id").notNull(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.eventId, table.key] })],
+);
 export const reviewPlans = sqliteTable("review_plans", {
   eventId: text("event_id").primaryKey().notNull(),
   criteriaJson: text("criteria_json").notNull(),

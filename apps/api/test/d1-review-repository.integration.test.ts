@@ -27,9 +27,13 @@ describe("review D1 persistence", () => {
       "0003_review_workflow.sql",
       "0004_review_completion_conflict_guard.sql",
       "0005_review_conflict_completion_guard.sql",
+      "0006_review_assignment_requires_plan.sql",
+      "0007_review_plan_lock.sql",
+      "0008_cfp_transition_status_guard.sql",
+      "0009_cfp_status_in_use_guard.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
-      if (file.startsWith("0004_") || file.startsWith("0005_")) {
+      if (/^000[4-9]_/.test(file)) {
         expect((await database.prepare(sql).run()).success).toBe(true);
         continue;
       }
@@ -53,6 +57,16 @@ describe("review D1 persistence", () => {
       proposals.transitionAtomically({
         eventId,
         proposalIds: [proposalId],
+        toStatus: "not_configured",
+        actorId: "seed-organizer",
+        occurredAt: "2026-08-10T11:59:00.000Z",
+        auditIds: ["30000000-0000-4000-8000-000000000000"],
+      }),
+    ).rejects.toThrow("configured proposal status");
+    await expect(
+      proposals.transitionAtomically({
+        eventId,
+        proposalIds: [proposalId],
         toStatus: "under_review",
         actorId: "seed-organizer",
         occurredAt: "2026-08-10T12:00:00.000Z",
@@ -62,10 +76,34 @@ describe("review D1 persistence", () => {
     await expect(proposals.listAudit(eventId)).resolves.toMatchObject([
       { proposalId, fromStatus: "submitted", toStatus: "under_review" },
     ]);
+    await expect(
+      proposals.saveStatuses(eventId, [
+        { key: "submitted", label: "Submitted", sortOrder: 0 },
+        { key: "reviewed", label: "Reviewed", sortOrder: 1 },
+      ]),
+    ).rejects.toThrow("currently in use");
     await expect(reviews.getPlan(eventId)).resolves.toMatchObject({
       criteria: expect.arrayContaining([expect.objectContaining({ id: "relevance" })]),
     });
     await expect(reviews.listAssignments(eventId, "seed-reviewer")).resolves.toHaveLength(1);
+    await expect(
+      reviews.savePlan({
+        eventId,
+        criteria: [{ id: "changed", name: "Changed", description: "", minScore: 1, maxScore: 5 }],
+        updatedAt: "2026-08-10T12:15:00.000Z",
+      }),
+    ).rejects.toThrow("locked");
+    await expect(
+      reviews.createAssignments([
+        {
+          id: "20000000-0000-4000-8000-000000000003",
+          eventId: "00000000-0000-4000-8000-000000000002",
+          proposalId: "10000000-0000-4000-8000-000000000003",
+          reviewerId: "seed-reviewer",
+          createdAt: "2026-08-10T12:15:00.000Z",
+        },
+      ]),
+    ).rejects.toThrow("required");
     const completedAt = "2026-08-10T12:30:00.000Z";
     const evaluation = {
       assignmentId: "20000000-0000-4000-8000-000000000001",

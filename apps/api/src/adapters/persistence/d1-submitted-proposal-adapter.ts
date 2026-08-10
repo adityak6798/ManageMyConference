@@ -1,8 +1,9 @@
-import type {
-  ProposalStatus,
-  ProposalStatusAudit,
-  SubmittedProposal,
-  SubmittedProposalInterface,
+import {
+  ProposalStatusConfigurationError,
+  type ProposalStatus,
+  type ProposalStatusAudit,
+  type SubmittedProposal,
+  type SubmittedProposalInterface,
 } from "../../application/cfp/submitted-proposal-interface";
 interface D1Result<T> {
   results?: T[];
@@ -37,6 +38,7 @@ type AuditRow = {
   actor_id: string;
   occurred_at: string;
 };
+type StatusRow = { key: string; label: string; sort_order: number };
 const proposal = (row: ProposalRow): SubmittedProposal => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -81,10 +83,60 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
       throw new Error(`D1 failed to find proposal: ${result.error ?? "unknown error"}`);
     return result.results?.[0] ? proposal(result.results[0]) : null;
   }
+  async listStatuses(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT key, label, sort_order FROM cfp_statuses WHERE event_id = ? ORDER BY sort_order, key",
+      )
+      .bind(eventId)
+      .all<StatusRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to list proposal statuses: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map((row) => ({
+      key: row.key,
+      label: row.label,
+      sortOrder: row.sort_order,
+    }));
+  }
+  async saveStatuses(
+    eventId: string,
+    statuses: readonly { key: string; label: string; sortOrder: number }[],
+  ) {
+    const placeholders = statuses.map(() => "?").join(", ");
+    let results: D1Result<unknown>[];
+    try {
+      results = await this.database.batch([
+        ...statuses.map((status) =>
+          this.database
+            .prepare(
+              "INSERT INTO cfp_statuses (event_id, key, label, sort_order) VALUES (?, ?, ?, ?) ON CONFLICT(event_id, key) DO UPDATE SET label = excluded.label, sort_order = excluded.sort_order",
+            )
+            .bind(eventId, status.key, status.label, status.sortOrder),
+        ),
+        this.database
+          .prepare(`DELETE FROM cfp_statuses WHERE event_id = ? AND key NOT IN (${placeholders})`)
+          .bind(eventId, ...statuses.map(({ key }) => key)),
+      ]);
+    } catch (error) {
+      if (String(error).includes("CFP_STATUS_IN_USE"))
+        throw new ProposalStatusConfigurationError(
+          "Configured statuses must include every status currently in use",
+        );
+      throw error;
+    }
+    if (results.some(({ error }) => error?.includes("CFP_STATUS_IN_USE")))
+      throw new ProposalStatusConfigurationError(
+        "Configured statuses must include every status currently in use",
+      );
+    if (results.some((result) => !result.success))
+      throw new Error("D1 failed to save proposal statuses");
+  }
   async transitionAtomically(
     input: Parameters<SubmittedProposalInterface["transitionAtomically"]>[0],
   ) {
     if (!input.proposalIds.length) return [];
+    if (!(await this.listStatuses(input.eventId)).some(({ key }) => key === input.toStatus))
+      throw new ProposalStatusConfigurationError("Choose a configured proposal status");
     const current = await Promise.all(input.proposalIds.map((id) => this.find(input.eventId, id)));
     if (current.some((item) => !item)) throw new Error("Atomic proposal transition failed");
     const statements = (current as SubmittedProposal[]).flatMap((item, index) => [
@@ -104,7 +156,16 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
         .prepare("UPDATE cfp_submissions SET status = ? WHERE event_id = ? AND id = ?")
         .bind(input.toStatus, input.eventId, item.id),
     ]);
-    const results = await this.database.batch(statements);
+    let results: D1Result<unknown>[];
+    try {
+      results = await this.database.batch(statements);
+    } catch (error) {
+      if (String(error).includes("CFP_STATUS_NOT_CONFIGURED"))
+        throw new ProposalStatusConfigurationError("Choose a configured proposal status");
+      throw error;
+    }
+    if (results.some(({ error }) => error?.includes("CFP_STATUS_NOT_CONFIGURED")))
+      throw new ProposalStatusConfigurationError("Choose a configured proposal status");
     if (results.some((result) => !result.success))
       throw new Error("Atomic proposal transition failed");
     return (current as SubmittedProposal[]).map((item) => ({ ...item, status: input.toStatus }));

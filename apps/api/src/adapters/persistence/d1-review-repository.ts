@@ -97,25 +97,39 @@ export class D1ReviewRepository implements ReviewRepository {
       : null;
   }
   async savePlan(plan: EvaluationPlan) {
-    const result = await this.database
-      .prepare(
-        "INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET criteria_json = excluded.criteria_json, updated_at = excluded.updated_at",
-      )
-      .bind(plan.eventId, JSON.stringify(plan.criteria), plan.updatedAt)
-      .run();
+    let result: D1Result<unknown>;
+    try {
+      result = await this.database
+        .prepare(
+          "INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET criteria_json = excluded.criteria_json, updated_at = excluded.updated_at",
+        )
+        .bind(plan.eventId, JSON.stringify(plan.criteria), plan.updatedAt)
+        .run();
+    } catch (error) {
+      if (String(error).includes("REVIEW_PLAN_LOCKED"))
+        throw new ReviewStateConflictError("Review plan is locked");
+      throw error;
+    }
     this.ensure(result, "save review plan");
   }
   async createAssignments(assignments: readonly ReviewAssignment[]) {
     if (!assignments.length) return [];
-    const results = await this.database.batch(
-      assignments.map((item) =>
-        this.database
-          .prepare(
-            "INSERT OR IGNORE INTO review_assignments (id, event_id, proposal_id, reviewer_id, created_at) VALUES (?, ?, ?, ?, ?)",
-          )
-          .bind(item.id, item.eventId, item.proposalId, item.reviewerId, item.createdAt),
-      ),
-    );
+    let results: D1Result<unknown>[];
+    try {
+      results = await this.database.batch(
+        assignments.map((item) =>
+          this.database
+            .prepare(
+              "INSERT OR IGNORE INTO review_assignments (id, event_id, proposal_id, reviewer_id, created_at) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(item.id, item.eventId, item.proposalId, item.reviewerId, item.createdAt),
+        ),
+      );
+    } catch (error) {
+      if (String(error).includes("REVIEW_PLAN_REQUIRED"))
+        throw new ReviewStateConflictError("Review plan is required");
+      throw error;
+    }
     if (results.some((result) => !result.success))
       throw new Error("D1 failed to create review assignments");
     const persisted = await this.listAssignments(assignments[0]?.eventId as string);

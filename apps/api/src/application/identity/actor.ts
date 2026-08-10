@@ -38,8 +38,10 @@ export function requireEventCapability(
   capability: Capability,
 ): Actor {
   if (!actor) throw new AuthenticationRequiredError("Authentication is required");
-  const access = actor.eventAccess.find((candidate) => candidate.eventId === eventId);
-  if (!access?.capabilities.has(capability)) {
+  const authorized = actor.eventAccess.some(
+    (candidate) => candidate.eventId === eventId && candidate.capabilities.has(capability),
+  );
+  if (!authorized) {
     throw new CapabilityDeniedError(`Actor lacks ${capability} for event`);
   }
   return actor;

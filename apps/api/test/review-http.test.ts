@@ -37,6 +37,8 @@ const build = () => {
     identities: {
       isReviewerForEvent: async (userId, scopedEventId) =>
         userId === "seed-reviewer" && scopedEventId === eventId,
+      listReviewersForEvent: async (scopedEventId) =>
+        scopedEventId === eventId ? [{ id: "seed-reviewer", name: "Ravi Reviewer" }] : [],
     },
     newId: ids,
     now: () => new Date("2026-08-10T12:00:00.000Z"),
@@ -104,6 +106,19 @@ describe("review HTTP API", () => {
     expect(await transition.json()).toMatchObject({
       mode: "atomic",
       proposals: [{ status: "under_review" }],
+    });
+  });
+
+  it("returns validation feedback for an unconfigured transition status", async () => {
+    const response = await build().request(`/api/events/${eventId}/review/transitions`, {
+      method: "POST",
+      headers: await cookie("organizer"),
+      body: JSON.stringify({ proposalIds: [proposalId], toStatus: "not_configured" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { toStatus: [expect.any(String)] } },
     });
   });
 });

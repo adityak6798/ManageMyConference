@@ -4,6 +4,7 @@ import {
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
   configureReviewPlanInputSchema,
+  configureProposalStatusesInputSchema,
   declareConflictInputSchema,
   demoSessionInputSchema,
   eventIdParamsSchema,
@@ -261,6 +262,33 @@ export function createHttpApp(
         context.get("actor"),
         params.data.eventId,
         parsed.data.criteria,
+      ),
+    });
+  });
+  app.put("/api/events/:eventId/review/statuses", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = configureProposalStatusesInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The status configuration is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      statuses: await reviewService.configureStatuses(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.statuses,
       ),
     });
   });

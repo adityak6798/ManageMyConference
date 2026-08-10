@@ -4,10 +4,12 @@ import {
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
   configureReviewPlanInputSchema,
+  configureProposalStatusesInputSchema,
   evaluationResponseSchema,
   organizerReviewWorkspaceSchema,
   type OrganizerReviewWorkspaceDto,
   proposalTransitionResponseSchema,
+  proposalStatusesResponseSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewPlanResponseSchema,
@@ -38,11 +40,25 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-export async function getOrganizerReview(eventId: string): Promise<OrganizerReviewWorkspaceDto> {
+export async function getOrganizerReview(
+  eventId: string,
+  status?: string,
+): Promise<OrganizerReviewWorkspaceDto> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
   return decode(
-    await fetch(`/api/events/${eventId}/review/organizer`),
+    await fetch(`/api/events/${eventId}/review/organizer${query}`),
     organizerReviewWorkspaceSchema,
   );
+}
+export async function configureProposalStatuses(
+  eventId: string,
+  input: z.input<typeof configureProposalStatusesInputSchema>,
+) {
+  const response = await fetch(`/api/events/${eventId}/review/statuses`, {
+    ...json(configureProposalStatusesInputSchema.parse(input)),
+    method: "PUT",
+  });
+  return decode(response, proposalStatusesResponseSchema);
 }
 export async function configureReviewPlan(
   eventId: string,

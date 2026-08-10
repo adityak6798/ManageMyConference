@@ -1,4 +1,10 @@
-export type ProposalStatus = "submitted" | "under_review" | "reviewed" | "withdrawn";
+export type ProposalStatus = string;
+export class ProposalStatusConfigurationError extends Error {}
+export interface ProposalStatusDefinition {
+  readonly key: string;
+  readonly label: string;
+  readonly sortOrder: number;
+}
 
 export interface SubmittedProposal {
   readonly id: string;
@@ -23,6 +29,7 @@ export interface ProposalStatusAudit {
 export interface SubmittedProposalQuery {
   list(eventId: string, status?: ProposalStatus): Promise<readonly SubmittedProposal[]>;
   find(eventId: string, proposalId: string): Promise<SubmittedProposal | null>;
+  listStatuses(eventId: string): Promise<readonly ProposalStatusDefinition[]>;
 }
 
 export interface SubmittedProposalCommands {
@@ -35,6 +42,7 @@ export interface SubmittedProposalCommands {
     auditIds: readonly string[];
   }): Promise<readonly SubmittedProposal[]>;
   listAudit(eventId: string): Promise<readonly ProposalStatusAudit[]>;
+  saveStatuses(eventId: string, statuses: readonly ProposalStatusDefinition[]): Promise<void>;
 }
 
 export type SubmittedProposalInterface = SubmittedProposalQuery & SubmittedProposalCommands;

@@ -5,4 +5,5 @@ import type { DemoPersona } from "./demo-session";
 export interface IdentityDirectory {
   findByPersona(persona: DemoPersona): Promise<Actor | null>;
   isReviewerForEvent(userId: string, eventId: string): Promise<boolean>;
+  listReviewersForEvent(eventId: string): Promise<readonly { id: string; name: string }[]>;
 }

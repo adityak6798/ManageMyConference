@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import { requireEventCapability } from "../src/application/identity/actor";
 import { ReviewConflictError, ReviewService } from "../src/application/review/review-service";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -27,6 +28,8 @@ const build = () => {
     identities: {
       isReviewerForEvent: async (userId, scopedEventId) =>
         userId === "seed-reviewer" && scopedEventId === eventId,
+      listReviewersForEvent: async (scopedEventId) =>
+        scopedEventId === eventId ? [{ id: "seed-reviewer", name: "Ravi Reviewer" }] : [],
     },
     newId: () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
     now: () => new Date("2026-08-10T12:00:00.000Z"),
@@ -35,6 +38,17 @@ const build = () => {
 };
 
 describe("review workflow", () => {
+  it("authorizes a capability granted by any role on the event", async () => {
+    const organizer = await resolveSeededDemoActor("organizer");
+    const actor = {
+      ...organizer,
+      eventAccess: [
+        { eventId, role: "organizer" as const, capabilities: new Set(["review:manage"] as const) },
+        { eventId, role: "reviewer" as const, capabilities: new Set(["review:evaluate"] as const) },
+      ],
+    };
+    expect(requireEventCapability(actor, eventId, "review:evaluate")).toBe(actor);
+  });
   it("configures, audits, assigns, drafts, completes, and emits an outcome", async () => {
     const { service, repository } = build();
     const organizer = await resolveSeededDemoActor("organizer");
@@ -85,6 +99,22 @@ describe("review workflow", () => {
         assignment?.id as string,
         { scores: [{ criterionId: "fit", score: 4 }], notes: "", complete: false },
         "correlation-draft",
+      ),
+    ).rejects.toThrow("invalid");
+    await expect(
+      service.saveEvaluation(
+        reviewer,
+        eventId,
+        assignment?.id as string,
+        {
+          scores: [
+            { criterionId: "fit", score: 2 },
+            { criterionId: "fit", score: 3 },
+          ],
+          notes: "Duplicate criterion",
+          complete: false,
+        },
+        "correlation-duplicate",
       ),
     ).rejects.toThrow("invalid");
     await expect(

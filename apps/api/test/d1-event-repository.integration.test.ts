@@ -116,6 +116,10 @@ describe("D1EventRepository", () => {
     for (const file of [
       "0004_review_completion_conflict_guard.sql",
       "0005_review_conflict_completion_guard.sql",
+      "0006_review_assignment_requires_plan.sql",
+      "0007_review_plan_lock.sql",
+      "0008_cfp_transition_status_guard.sql",
+      "0009_cfp_status_in_use_guard.sql",
     ]) {
       const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       expect((await database.prepare(trigger).run()).success).toBe(true);

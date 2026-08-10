@@ -2,6 +2,7 @@ import type { OrganizerReviewWorkspaceDto, ReviewerQueueDto } from "@greenroom/c
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   assignReviewer,
+  configureProposalStatuses,
   configureReviewPlan,
   declareReviewConflict,
   getOrganizerReview,
@@ -20,8 +21,14 @@ const message = (error: unknown) =>
 export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const [data, setData] = useState<OrganizerReviewWorkspaceDto | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [filter, setFilter] = useState("");
+  const [targetStatus, setTargetStatus] = useState("under_review");
+  const [reviewerId, setReviewerId] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => setData(await getOrganizerReview(eventId)), [eventId]);
+  const load = useCallback(
+    async () => setData(await getOrganizerReview(eventId, filter || undefined)),
+    [eventId, filter],
+  );
   useEffect(() => {
     setData(null);
     setSelected([]);
@@ -29,6 +36,13 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     // ERROR-INTENT: React effects cannot await; the rejection renders in this workspace.
     void load().catch((reason: unknown) => setError(message(reason)));
   }, [load]);
+  useEffect(() => {
+    const firstStatus = data?.statuses[0];
+    if (!firstStatus) return;
+    if (!data.statuses.some(({ key }) => key === targetStatus)) {
+      setTargetStatus(firstStatus.key);
+    }
+  }, [data?.statuses, targetStatus]);
   async function act(action: () => Promise<unknown>) {
     setError(null);
     try {
@@ -53,30 +67,62 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     <section aria-labelledby="triage-title">
       <p className="eyebrow">Organizer review</p>
       <h2 id="triage-title">Abstract triage</h2>
+      <div className="form-row">
+        <label>
+          Filter status
+          <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+            <option value="">All statuses</option>
+            {data.statuses.map((status) => (
+              <option key={status.key} value={status.key}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Transition to
+          <select value={targetStatus} onChange={(event) => setTargetStatus(event.target.value)}>
+            {data.statuses.map((status) => (
+              <option key={status.key} value={status.key}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Reviewer
+          <select value={reviewerId} onChange={(event) => setReviewerId(event.target.value)}>
+            <option value="">Choose reviewer</option>
+            {data.reviewers.map((reviewer) => (
+              <option key={reviewer.id} value={reviewer.id}>
+                {reviewer.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="review-toolbar">
         <button
           type="button"
-          disabled={!selected.length}
+          disabled={!selected.length || !data.statuses.length}
           onClick={() => {
             // ERROR-INTENT: React event handlers cannot await; act renders any failure.
             void act(() =>
-              transitionProposals(eventId, { proposalIds: selected, toStatus: "under_review" }),
+              transitionProposals(eventId, { proposalIds: selected, toStatus: targetStatus }),
             );
           }}
         >
-          Move to under review
+          Move to {data.statuses.find(({ key }) => key === targetStatus)?.label ?? "status"}
         </button>
         <button
           type="button"
-          disabled={!selected.length}
+          disabled={!selected.length || !reviewerId}
           onClick={() => {
             // ERROR-INTENT: React event handlers cannot await; act renders any failure.
-            void act(() =>
-              assignReviewer(eventId, { proposalIds: selected, reviewerId: "seed-reviewer" }),
-            );
+            void act(() => assignReviewer(eventId, { proposalIds: selected, reviewerId }));
           }}
         >
-          Assign Ravi Reviewer
+          Assign selected reviewer
         </button>
       </div>
       <ul className="proposal-list">
@@ -111,18 +157,86 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         ))}
       </ul>
       <RubricForm eventId={eventId} data={data} onSaved={load} onError={setError} />
+      <StatusForm eventId={eventId} data={data} onSaved={load} onError={setError} />
       <h3>Status audit</h3>
-      <p className="empty">
-        {data.audit.length
-          ? `${data.audit.length} audited transition${data.audit.length === 1 ? "" : "s"}`
-          : "No status changes yet."}
-      </p>
+      {data.audit.length ? (
+        <ul>
+          {data.audit.map((entry) => (
+            <li key={entry.id}>
+              <strong>
+                {data.proposals.find(({ id }) => id === entry.proposalId)?.title ??
+                  entry.proposalId}
+              </strong>
+              : {entry.fromStatus} → {entry.toStatus} by {entry.actorId} at{" "}
+              {new Date(entry.occurredAt).toLocaleString()}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="empty">No status changes yet.</p>
+      )}
       {error ? (
         <p role="alert" className="error">
           {error}
         </p>
       ) : null}
     </section>
+  );
+}
+
+function StatusForm({
+  eventId,
+  data,
+  onSaved,
+  onError,
+}: {
+  eventId: string;
+  data: OrganizerReviewWorkspaceDto;
+  onSaved: () => Promise<void>;
+  onError: (value: string) => void;
+}) {
+  const [labels, setLabels] = useState(data.statuses.map(({ label }) => label).join(", "));
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const statuses = labels
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean)
+      .map((label, sortOrder) => ({
+        key: label
+          .toLowerCase()
+          .replaceAll(/[^a-z0-9]+/g, "_")
+          .replace(/^_|_$/g, ""),
+        label,
+        sortOrder,
+      }));
+    try {
+      await configureProposalStatuses(eventId, { statuses });
+      await onSaved();
+    } catch (reason) {
+      // ERROR-INTENT: The status form reports the handled failure through its parent alert.
+      onError(message(reason));
+    }
+  }
+  return (
+    <form
+      onSubmit={(event) => {
+        /* ERROR-INTENT: React form handlers cannot await; submit reports failures. */ void submit(
+          event,
+        );
+      }}
+    >
+      <h3>Proposal statuses</h3>
+      <label htmlFor="status-labels">Ordered status labels</label>
+      <div className="form-row">
+        <input
+          id="status-labels"
+          value={labels}
+          onChange={(event) => setLabels(event.target.value)}
+        />
+        <button type="submit">Save statuses</button>
+      </div>
+    </form>
   );
 }
 
@@ -249,7 +363,10 @@ function EvaluationCard({
   );
   const [scores, setScores] = useState<Record<string, number>>(initial);
   async function save(complete: boolean) {
-    if (!item.plan) return;
+    if (!item.plan) {
+      onError("The organizer must configure an evaluation plan before scores can be saved.");
+      return;
+    }
     try {
       await saveReviewEvaluation(eventId, item.assignment.id, {
         scores: item.plan.criteria.map((criterion) => ({
@@ -275,6 +392,11 @@ function EvaluationCard({
         <p className="denied">Conflict declared: {item.conflict.reason}</p>
       ) : (
         <>
+          {!item.plan ? (
+            <p role="alert" className="denied">
+              The organizer has not configured an evaluation plan yet.
+            </p>
+          ) : null}
           {item.plan?.criteria.map((criterion) => (
             <label key={criterion.id}>
               {criterion.name}
@@ -303,6 +425,7 @@ function EvaluationCard({
           <div className="review-toolbar">
             <button
               type="button"
+              disabled={!item.plan}
               onClick={() => {
                 // ERROR-INTENT: React event handlers cannot await; save renders failures through onError.
                 void save(false);
@@ -312,6 +435,7 @@ function EvaluationCard({
             </button>
             <button
               type="button"
+              disabled={!item.plan}
               onClick={() => {
                 // ERROR-INTENT: React event handlers cannot await; save renders failures through onError.
                 void save(true);

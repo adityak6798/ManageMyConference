@@ -6,6 +6,7 @@ DELETE FROM review_assignments;
 DELETE FROM review_plans;
 DELETE FROM cfp_status_audit;
 DELETE FROM cfp_submissions;
+DELETE FROM cfp_statuses;
 DELETE FROM event_roles;
 DELETE FROM organization_memberships;
 DELETE FROM events;
@@ -50,6 +51,7 @@ INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES
 
 INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'organizer'),
+  ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'reviewer'),
   ('00000000-0000-4000-8000-000000000002', 'seed-organizer', 'organizer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-reviewer', 'reviewer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker'),
@@ -58,7 +60,16 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
 INSERT INTO cfp_submissions (id, organization_id, event_id, title, abstract, submitter_name, status) VALUES
   ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'Designing for the hallway track', 'A practical guide to making conference spaces encourage useful, inclusive conversations.', 'Alex Morgan', 'under_review'),
   ('10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'Typed boundaries at scale', 'How small explicit contracts keep large TypeScript systems understandable.', 'Jordan Lee', 'submitted'),
+  ('10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000002', 'Workshop proposal', 'A proposal for the secondary event without a configured review plan.', 'Taylor Kim', 'submitted'),
   ('10000000-0000-4000-8000-000000000099', '00000000-0000-4000-8000-000000000020', '00000000-0000-4000-8000-000000000099', 'Private outside proposal', 'This proposal must never cross event boundaries.', 'Outside Author', 'submitted');
+
+INSERT INTO cfp_statuses (event_id, key, label, sort_order) VALUES
+  ('00000000-0000-4000-8000-000000000001', 'submitted', 'Submitted', 0),
+  ('00000000-0000-4000-8000-000000000001', 'under_review', 'Under review', 1),
+  ('00000000-0000-4000-8000-000000000001', 'reviewed', 'Reviewed', 2),
+  ('00000000-0000-4000-8000-000000000001', 'withdrawn', 'Withdrawn', 3),
+  ('00000000-0000-4000-8000-000000000002', 'submitted', 'Submitted', 0),
+  ('00000000-0000-4000-8000-000000000099', 'submitted', 'Submitted', 0);
 
 INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
   ('00000000-0000-4000-8000-000000000001', '[{"id":"relevance","name":"Relevance","description":"Fit for this audience","minScore":1,"maxScore":5},{"id":"clarity","name":"Clarity","description":"Strength and clarity of the proposal","minScore":1,"maxScore":5}]', '2026-08-09T12:00:00.000Z');

@@ -54,8 +54,13 @@ export function App() {
       session.actor.persona
     );
   }, [selectedEventId, session]);
-  const activeEventCapabilities =
-    session?.eventAccess.find(({ eventId }) => eventId === selectedEventId)?.capabilities ?? [];
+  const activeEventCapabilities = [
+    ...new Set(
+      session?.eventAccess
+        .filter(({ eventId }) => eventId === selectedEventId)
+        .flatMap(({ capabilities }) => capabilities) ?? [],
+    ),
+  ];
 
   async function switchPersona(persona: Persona) {
     setBusy(true);

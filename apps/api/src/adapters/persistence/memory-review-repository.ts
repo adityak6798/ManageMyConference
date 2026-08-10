@@ -23,9 +23,18 @@ export class MemoryReviewRepository implements ReviewRepository {
     return this.plans.get(eventId) ?? null;
   }
   async savePlan(plan: EvaluationPlan) {
+    const existing = this.plans.get(plan.eventId);
+    if (
+      [...this.assignments.values()].some(({ eventId }) => eventId === plan.eventId) &&
+      existing &&
+      JSON.stringify(existing.criteria) !== JSON.stringify(plan.criteria)
+    )
+      throw new ReviewStateConflictError("Review plan is locked");
     this.plans.set(plan.eventId, plan);
   }
   async createAssignments(assignments: readonly ReviewAssignment[]) {
+    if (assignments.some(({ eventId }) => !this.plans.has(eventId)))
+      throw new ReviewStateConflictError("Review plan is required");
     for (const assignment of assignments) this.assignments.set(assignment.id, assignment);
     return assignments;
   }
