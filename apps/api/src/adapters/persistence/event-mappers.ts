@@ -2,6 +2,7 @@ import type { Event } from "../../domain/events/event";
 
 export interface EventRow {
   id: string;
+  organization_id: string;
   name: string;
   timezone: string;
   created_at: string;
@@ -9,6 +10,7 @@ export interface EventRow {
 
 export const eventToRow = (event: Event): EventRow => ({
   id: event.id,
+  organization_id: event.organizationId,
   name: event.name,
   timezone: event.timezone,
   created_at: event.createdAt,
@@ -16,6 +18,7 @@ export const eventToRow = (event: Event): EventRow => ({
 
 export const rowToEvent = (row: EventRow): Event => ({
   id: row.id,
+  organizationId: row.organization_id,
   name: row.name,
   timezone: row.timezone,
   createdAt: row.created_at,

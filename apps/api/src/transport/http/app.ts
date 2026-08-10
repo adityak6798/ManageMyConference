@@ -2,6 +2,7 @@ import {
   type ApiErrorEnvelope,
   createEventInputSchema,
   demoSessionInputSchema,
+  eventIdParamsSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
@@ -21,11 +22,12 @@ export interface StructuredLogger {
   error(fields: Record<string, unknown>, message: string): void;
 }
 type Variables = { correlationId: string; actor: Actor | null; operation: string };
-export interface RuntimeAuthConfig {
-  demoMode: boolean;
-  sessionSecret?: string;
-  now?: () => number;
-}
+type ActorResolver = (
+  persona: "organizer" | "reviewer" | "speaker" | "public",
+) => Promise<Actor | null>;
+export type RuntimeAuthConfig =
+  | { demoMode: true; sessionSecret: string; now?: () => number; resolveActor: ActorResolver }
+  | { demoMode: false; now?: () => number };
 class MalformedJsonError extends Error {}
 const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -65,15 +67,14 @@ export function createHttpApp(
     const correlationId =
       supplied && correlationPattern.test(supplied) ? supplied : crypto.randomUUID();
     context.set("correlationId", correlationId);
-    const sessionSecret = auth.demoMode ? auth.sessionSecret : undefined;
-    if (auth.demoMode && !sessionSecret) throw new Error("Demo mode requires SESSION_SECRET");
     context.set(
       "actor",
-      sessionSecret
+      auth.demoMode
         ? await resolveDemoSession(
             getCookie(context, "greenroom_session"),
-            sessionSecret,
+            auth.sessionSecret,
             (auth.now ?? Date.now)(),
+            auth.resolveActor,
           )
         : null,
     );
@@ -120,7 +121,6 @@ export function createHttpApp(
         400,
       );
     const sessionSecret = auth.sessionSecret;
-    if (!sessionSecret) throw new Error("Demo mode requires SESSION_SECRET");
     const now = (auth.now ?? Date.now)();
     setCookie(
       context,
@@ -135,6 +135,20 @@ export function createHttpApp(
       },
     );
     return context.json({ persona: parsed.data.persona });
+  });
+  app.get("/api/session", (context) => {
+    const actor = context.get("actor");
+    if (!actor) throw new AuthenticationRequiredError("Authentication is required");
+    return context.json({
+      actor: { id: actor.id, name: actor.name, persona: actor.persona },
+      organizations: actor.organizations,
+      eventAccess: actor.eventAccess.map((access) => ({
+        eventId: access.eventId,
+        role: access.role,
+        capabilities: [...access.capabilities],
+      })),
+      capabilities: [...actor.capabilities],
+    });
   });
   app.get("/api/events", async (context) =>
     context.json({ events: (await service.list(context.get("actor"))).map(eventToDto) }),
@@ -160,6 +174,26 @@ export function createHttpApp(
       },
       201,
     );
+  });
+  app.get("/api/events/:eventId", async (context) => {
+    requireCapability(context.get("actor"), "events:read");
+    const parsed = eventIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const event = await service.get(context.get("actor"), parsed.data.eventId);
+    if (!event)
+      return context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    return context.json({ event: eventToDto(event) });
   });
   app.notFound((context) =>
     context.json(

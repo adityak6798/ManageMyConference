@@ -1,17 +1,69 @@
 import type { Actor } from "./actor";
 
 const encoder = new TextEncoder();
+const demoOrganization = { id: "00000000-0000-4000-8000-000000000010" };
+const primaryEventId = "00000000-0000-4000-8000-000000000001";
+const secondaryEventId = "00000000-0000-4000-8000-000000000002";
 const personas = {
   organizer: {
     id: "seed-organizer",
+    name: "Olivia Organizer",
     persona: "organizer",
-    capabilities: ["events:read", "events:create"],
+    organizations: [demoOrganization],
+    eventAccess: [primaryEventId, secondaryEventId].map((eventId) => ({
+      eventId,
+      role: "organizer" as const,
+      capabilities: ["events:read", "events:settings:read", "events:settings:update"] as const,
+    })),
+    capabilities: ["events:read", "events:create"] as const,
   },
-  reviewer: { id: "seed-reviewer", persona: "reviewer", capabilities: [] },
-  speaker: { id: "seed-speaker", persona: "speaker", capabilities: [] },
+  reviewer: {
+    id: "seed-reviewer",
+    name: "Ravi Reviewer",
+    persona: "reviewer",
+    organizations: [],
+    eventAccess: [
+      {
+        eventId: primaryEventId,
+        role: "reviewer" as const,
+        capabilities: ["events:read"] as const,
+      },
+    ],
+    capabilities: ["events:read"] as const,
+  },
+  speaker: {
+    id: "seed-speaker",
+    name: "Sam Speaker",
+    persona: "speaker",
+    organizations: [],
+    eventAccess: [
+      { eventId: primaryEventId, role: "speaker" as const, capabilities: ["events:read"] as const },
+    ],
+    capabilities: ["events:read"] as const,
+  },
+  public: {
+    id: "seed-public",
+    name: "Pat Attendee",
+    persona: "public",
+    organizations: [],
+    eventAccess: [{ eventId: primaryEventId, role: "public" as const, capabilities: [] as const }],
+    capabilities: [] as const,
+  },
 } as const;
 
 export type DemoPersona = keyof typeof personas;
+
+export const resolveSeededDemoActor = async (persona: DemoPersona): Promise<Actor> => {
+  const seed = personas[persona];
+  return {
+    ...seed,
+    capabilities: new Set(seed.capabilities),
+    eventAccess: seed.eventAccess.map((access) => ({
+      ...access,
+      capabilities: new Set(access.capabilities),
+    })),
+  };
+};
 
 const hex = (bytes: ArrayBuffer) =>
   [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -43,6 +95,7 @@ export async function resolveDemoSession(
   token: string | undefined,
   secret: string,
   now: number,
+  resolveActor: (persona: DemoPersona) => Promise<Actor | null>,
 ): Promise<Actor | null> {
   if (!token) return null;
   const [persona, expiryText, suppliedSignature, extra] = token.split(".");
@@ -60,6 +113,5 @@ export async function resolveDemoSession(
     encoder.encode(`${persona}.${expiresAt}`),
   );
   if (!valid) return null;
-  const seed = personas[persona as DemoPersona];
-  return { ...seed, capabilities: new Set(seed.capabilities) };
+  return resolveActor(persona as DemoPersona);
 }

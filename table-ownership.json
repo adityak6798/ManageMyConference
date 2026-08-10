@@ -1,6 +1,10 @@
 {
   "schemaVersion": 1,
   "tables": {
-    "events": "events"
+    "organizations": "events",
+    "events": "events",
+    "users": "identity-access",
+    "organization_memberships": "identity-access",
+    "event_roles": "identity-access"
   }
 }

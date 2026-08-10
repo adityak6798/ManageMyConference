@@ -2,7 +2,7 @@
 
 Status: canonical | Owner: architecture | Last verified: 2026-08-09
 
-Shared Zod schemas own every current request and response shape: event mutations/lists, demo session, health, and the standard error envelope. They generate [`packages/contracts/openapi.json`](../../packages/contracts/openapi.json), and CI rejects drift. The OpenAPI document covers health, the internal demo-cookie route, event routes, cookie security, and implemented success/error statuses. Domain types own business semantics. Drizzle declares the event storage schema, while an immutable SQL migration owns deployed history and the D1 adapter owns persistence behavior. Explicit tested mappers connect transport, domain, and storage models.
+Shared Zod schemas own every current request and response shape: event mutations/lists/basic metadata, current session/capabilities, demo session, health, and the standard error envelope. They generate [`packages/contracts/openapi.json`](../../packages/contracts/openapi.json), and CI rejects drift. The OpenAPI document covers health, the internal demo-cookie route, session and event routes, cookie security, and implemented success/error statuses. Domain types own business semantics. Drizzle declares intended storage, immutable SQL migrations own deployed history, and the D1 adapter owns persistence behavior. Explicit tested mappers connect transport, domain, and storage models.
 
 ## Route groups
 
@@ -14,7 +14,9 @@ Shared Zod schemas own every current request and response shape: event mutations
 - `API-COMMS-*`, `API-INTEGRATION-*`: templates, outbox, attempts, projection state.
 - `API-PUBLIC-*`: published hub, schedule, sessions, speakers, and CFP/embed reads.
 
-The event reference routes use expiring signed HttpOnly demo-session cookies and enforce actor capability in the application service, returning distinct 401 and 403 envelopes. `/api/demo-session` is an internal harness route: it is available only with `DEMO_MODE=true` and `ENVIRONMENT=development`, returns 404 when demo mode is disabled, and fails closed for missing, misspelled, or non-development environments. Event scope/tenancy expands when organizations and multiple events are implemented. Idempotency for repeatable mutations and stable cursor pagination/filtering remain interface requirements for relevant future routes. Errors follow [`ARC-ERR-001`](../architecture/error-observability.md).
+`GET /api/session` returns the current actor, organization memberships, event roles, and capabilities. `GET /api/events` returns only events visible through those memberships or assignments; `POST /api/events` requires an explicit `organizationId`, and `GET /api/events/{eventId}` applies tenant scope and returns the same 404 for missing and inaccessible events. These routes use expiring signed HttpOnly demo-session cookies and application-layer capability enforcement. `/api/demo-session` is an internal harness route: it is available only with `DEMO_MODE=true` and `ENVIRONMENT=development`, returns 404 when demo mode is disabled, and fails closed for missing, misspelled, or non-development environments. Idempotency for repeatable mutations and stable cursor pagination/filtering remain interface requirements for relevant future routes. Errors follow [`ARC-ERR-001`](../architecture/error-observability.md).
+
+Migration `0002_identity_event_foundation.sql` preserves pre-foundation events under a stable imported organization and assigns the seeded organizer membership/event roles before adding organization scope. Deterministic reset replaces that imported state with the role-complete local fixture.
 
 ## Domain events
 

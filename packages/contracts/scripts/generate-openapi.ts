@@ -1,7 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { OpenAPIRegistry, OpenApiGeneratorV3 } from "@asteasolutions/zod-to-openapi";
-import type { ZodType } from "zod";
+import {
+  extendZodWithOpenApi,
+  OpenAPIRegistry,
+  OpenApiGeneratorV3,
+} from "@asteasolutions/zod-to-openapi";
+import { z, type ZodType } from "zod";
 import {
   apiErrorEnvelopeSchema,
   createEventInputSchema,
@@ -9,8 +13,12 @@ import {
   demoSessionInputSchema,
   demoSessionResponseSchema,
   eventListResponseSchema,
+  eventIdParamsSchema,
   healthResponseSchema,
+  sessionResponseSchema,
 } from "../src/index";
+
+extendZodWithOpenApi(z);
 
 const registry = new OpenAPIRegistry();
 const json = (schema: ZodType) => ({ "application/json": { schema } });
@@ -22,6 +30,16 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
   type: "apiKey",
   in: "cookie",
   name: "greenroom_session",
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/session",
+  security: [{ sessionCookie: [] }],
+  responses: {
+    200: { description: "Current identity and capabilities", content: json(sessionResponseSchema) },
+    401: errorResponse,
+    500: errorResponse,
+  },
 });
 registry.registerPath({
   method: "get",
@@ -42,6 +60,23 @@ registry.registerPath({
       content: json(demoSessionResponseSchema),
     },
     400: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: {
+      description: "Event identity and basic metadata",
+      content: json(createEventResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
     404: errorResponse,
     500: errorResponse,
   },

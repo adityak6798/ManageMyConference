@@ -7,6 +7,8 @@ import {
   demoSessionResponseSchema,
   type EventDto,
   eventListResponseSchema,
+  type SessionDto,
+  sessionResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
 
@@ -27,7 +29,7 @@ async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
 }
 
 export async function startDemoSession(
-  persona: "organizer" | "reviewer" | "speaker",
+  persona: "organizer" | "reviewer" | "speaker" | "public",
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
   const response = await fetcher("/api/demo-session", {
@@ -36,6 +38,10 @@ export async function startDemoSession(
     body: JSON.stringify({ persona }),
   });
   await decode(response, demoSessionResponseSchema);
+}
+
+export async function getSession(fetcher: typeof fetch = fetch): Promise<SessionDto> {
+  return decode(await fetcher("/api/session"), sessionResponseSchema);
 }
 
 export async function listEvents(fetcher: typeof fetch = fetch): Promise<EventDto[]> {

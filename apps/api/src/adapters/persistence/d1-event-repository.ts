@@ -24,21 +24,63 @@ export class D1EventRepository implements EventRepository {
   async create(event: Event): Promise<void> {
     const row = eventToRow(event);
     const result = await this.database
-      .prepare("INSERT INTO events (id, name, timezone, created_at) VALUES (?, ?, ?, ?)")
-      .bind(row.id, row.name, row.timezone, row.created_at)
+      .prepare(
+        "INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(row.id, row.organization_id, row.name, row.timezone, row.created_at)
       .run();
     if (!result.success) {
       throw new Error(`D1 failed to create event: ${result.error ?? "unknown error"}`);
     }
   }
 
-  async list(): Promise<readonly Event[]> {
+  async list(scope: {
+    organizationIds: readonly string[];
+    eventIds: readonly string[];
+  }): Promise<readonly Event[]> {
+    const organizationIds = [...new Set(scope.organizationIds)];
+    const eventIds = [...new Set(scope.eventIds)];
+    if (organizationIds.length === 0 && eventIds.length === 0) return [];
+    const organizationPlaceholders = organizationIds.map(() => "?").join(", ");
+    const eventPlaceholders = eventIds.map(() => "?").join(", ");
+    const clauses = [
+      ...(organizationIds.length ? [`organization_id IN (${organizationPlaceholders})`] : []),
+      ...(eventIds.length ? [`id IN (${eventPlaceholders})`] : []),
+    ];
     const result = await this.database
-      .prepare("SELECT id, name, timezone, created_at FROM events ORDER BY created_at")
+      .prepare(
+        `SELECT id, organization_id, name, timezone, created_at FROM events WHERE ${clauses.join(" OR ")} ORDER BY created_at`,
+      )
+      .bind(...organizationIds, ...eventIds)
       .all<EventRow>();
     if (!result.success) {
       throw new Error(`D1 failed to list events: ${result.error ?? "unknown error"}`);
     }
     return (result.results ?? []).map(rowToEvent);
+  }
+
+  async findById(
+    eventId: string,
+    scope: { organizationIds: readonly string[]; eventIds: readonly string[] },
+  ): Promise<Event | null> {
+    const organizationIds = [...new Set(scope.organizationIds)];
+    const eventIds = [...new Set(scope.eventIds)];
+    if (organizationIds.length === 0 && eventIds.length === 0) return null;
+    const clauses = [
+      ...(organizationIds.length
+        ? [`organization_id IN (${organizationIds.map(() => "?").join(", ")})`]
+        : []),
+      ...(eventIds.length ? [`id IN (${eventIds.map(() => "?").join(", ")})`] : []),
+    ];
+    const result = await this.database
+      .prepare(
+        `SELECT id, organization_id, name, timezone, created_at FROM events WHERE id = ? AND (${clauses.join(" OR ")}) LIMIT 1`,
+      )
+      .bind(eventId, ...organizationIds, ...eventIds)
+      .all<EventRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to find event: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row ? rowToEvent(row) : null;
   }
 }

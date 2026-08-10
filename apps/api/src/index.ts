@@ -1,4 +1,5 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
+import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
@@ -20,10 +21,9 @@ export function runtimeAuth(
     (!environment.SESSION_SECRET || environment.SESSION_SECRET === "local-development-secret")
   )
     throw new Error("Demo mode requires a non-default SESSION_SECRET binding");
-  return {
-    demoMode,
-    ...(environment.SESSION_SECRET ? { sessionSecret: environment.SESSION_SECRET } : {}),
-  };
+  if (demoMode)
+    return { demoMode: true as const, sessionSecret: environment.SESSION_SECRET as string };
+  return { demoMode: false as const };
 }
 
 // @spec PRD-EVT-001 ARC-OBS-001
@@ -49,7 +49,14 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
-    const app = createHttpApp(service, logger, auth);
+    const identityDirectory = new D1IdentityDirectory(environment.DB);
+    const app = createHttpApp(
+      service,
+      logger,
+      auth.demoMode
+        ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
+        : auth,
+    );
     return Promise.resolve(app.fetch(request));
   },
 };
