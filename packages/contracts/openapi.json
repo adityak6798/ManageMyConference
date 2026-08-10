@@ -2113,6 +2113,9 @@
                           "type": "string",
                           "format": "date-time"
                         },
+                        "publishedBy": {
+                          "type": "string"
+                        },
                         "agenda": {
                           "type": "object",
                           "properties": {
@@ -2259,6 +2262,7 @@
                         "eventId",
                         "version",
                         "publishedAt",
+                        "publishedBy",
                         "agenda"
                       ]
                     }
@@ -2616,9 +2620,6 @@
                           "type": "string",
                           "format": "date-time"
                         },
-                        "publishedBy": {
-                          "type": "string"
-                        },
                         "agenda": {
                           "type": "object",
                           "properties": {
@@ -2765,7 +2766,6 @@
                         "eventId",
                         "version",
                         "publishedAt",
-                        "publishedBy",
                         "agenda"
                       ]
                     }

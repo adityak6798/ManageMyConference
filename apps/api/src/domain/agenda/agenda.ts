@@ -48,7 +48,8 @@ export interface AgendaDraft {
 }
 
 const overlaps = (left: AgendaSlot, right: AgendaSlot) =>
-  left.startsAt < right.endsAt && right.startsAt < left.endsAt;
+  Date.parse(left.startsAt) < Date.parse(right.endsAt) &&
+  Date.parse(right.startsAt) < Date.parse(left.endsAt);
 
 export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
   const slots = new Map(draft.slots.map((slot) => [slot.id, slot]));

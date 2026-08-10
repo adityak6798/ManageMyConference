@@ -115,6 +115,18 @@ describe("agenda conflicts and publication", () => {
     };
     expect(conflictsFor(adjacent)).toEqual([]);
   });
+  it("compares instants across different ISO fractional precision", () => {
+    const [first, second] = draft.slots;
+    if (!first || !second) throw new Error("Fixture slots are required");
+    const variant = {
+      ...draft,
+      slots: [
+        { ...first, startsAt: "2026-09-01T16:00:00Z", endsAt: "2026-09-01T17:00:00Z" },
+        { ...second, startsAt: "2026-09-01T16:00:00.500Z", endsAt: "2026-09-01T17:00:00.500Z" },
+      ],
+    };
+    expect(conflictsFor(variant)).not.toEqual([]);
+  });
   it("blocks conflicts, then publishes an immutable version without leaking later drafts", async () => {
     const repository = new MemoryAgendaRepository([draft]);
     const service = new AgendaService(
@@ -126,6 +138,7 @@ describe("agenda conflicts and publication", () => {
     await service.remove(organizer, eventId, "place-b");
     const published = await service.publish(organizer, eventId);
     expect(published).toMatchObject({ version: 1, publishedBy: "organizer" });
+    expect(published.agenda).not.toHaveProperty("conflicts");
     const secondPlacement = draft.placements[1];
     if (!secondPlacement) throw new Error("Fixture placement is required");
     await service.place(organizer, eventId, {
@@ -137,6 +150,48 @@ describe("agenda conflicts and publication", () => {
     expect(publicSchedule?.agenda.placements).toHaveLength(1);
     expect(publicSchedule).not.toHaveProperty("publishedBy");
     expect((await service.draft(organizer, eventId)).placements).toHaveLength(2);
+  });
+  it("allows organization owners to initialize a newly created event", async () => {
+    const organizationOwner = { ...organizer, eventAccess: [] };
+    const service = new AgendaService(
+      new MemoryAgendaRepository(),
+      () => new Date(),
+      content,
+      async () => true,
+    );
+    await expect(
+      service.configure(organizationOwner, eventId, {
+        rooms: draft.rooms,
+        tracks: draft.tracks,
+        slots: draft.slots,
+      }),
+    ).resolves.toMatchObject({ eventId });
+  });
+  it("does not treat read-only cross-tenant event access as ownership", async () => {
+    const foreignEventId = "00000000-0000-4000-8000-000000000099";
+    const organizationOwnerWithForeignRead = {
+      ...organizer,
+      eventAccess: [
+        {
+          eventId: foreignEventId,
+          role: "reviewer" as const,
+          capabilities: new Set(["events:read" as const]),
+        },
+      ],
+    };
+    const service = new AgendaService(
+      new MemoryAgendaRepository(),
+      () => new Date(),
+      content,
+      async (actor) => actor.organizations.some(({ id }) => id === "outside-organization"),
+    );
+    await expect(
+      service.configure(organizationOwnerWithForeignRead, foreignEventId, {
+        rooms: draft.rooms,
+        tracks: draft.tracks,
+        slots: draft.slots,
+      }),
+    ).rejects.toThrow("Agenda access denied");
   });
   it("fails cross-event operations before mutation", async () => {
     const service = new AgendaService(

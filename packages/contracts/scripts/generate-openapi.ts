@@ -126,7 +126,7 @@ registry.registerPath({
   responses: {
     201: {
       description: "Auditable immutable schedule publication",
-      content: json(z.object({ schedule: publicScheduleSchema })),
+      content: json(z.object({ schedule: publishedScheduleSchema })),
     },
     400: errorResponse,
     401: errorResponse,
@@ -143,7 +143,7 @@ registry.registerPath({
   responses: {
     200: {
       description: "Latest public-safe published schedule",
-      content: json(z.object({ schedule: publishedScheduleSchema })),
+      content: json(z.object({ schedule: publicScheduleSchema })),
     },
     400: errorResponse,
     404: errorResponse,

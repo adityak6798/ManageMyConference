@@ -62,7 +62,7 @@ export const agendaResourcesSchema = z
       )
       .superRefine((slots, context) => {
         for (const [index, slot] of slots.entries())
-          if (slot.startsAt >= slot.endsAt)
+          if (Date.parse(slot.startsAt) >= Date.parse(slot.endsAt))
             context.addIssue({
               code: z.ZodIssueCode.custom,
               path: [index, "endsAt"],

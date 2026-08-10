@@ -1,5 +1,5 @@
 import type { AgendaDraftDto } from "@greenroom/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getAgenda,
   publishAgenda,
@@ -20,11 +20,18 @@ export function AgendaWorkspace({
   const [agenda, setAgenda] = useState<AgendaDraftDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [published, setPublished] = useState<string | null>(null);
+  const mounted = useRef(true);
   useEffect(() => {
+    mounted.current = true;
+    let active = true;
+    setAgenda(null);
     // ERROR-INTENT: React effects cannot await; failures are rendered by the parent boundary.
     void getAgenda(eventId)
-      .then(setAgenda)
+      .then((loaded) => {
+        if (active) setAgenda(loaded);
+      })
       .catch((error: unknown) => {
+        if (!active) return;
         if (error instanceof ApiError && error.envelope.error.code === "NOT_FOUND") {
           // ERROR-INTENT: The initialization promise updates this workspace or its visible error.
           void saveAgendaResources(eventId, {
@@ -32,14 +39,22 @@ export function AgendaWorkspace({
             tracks: [{ id: crypto.randomUUID(), name: "General", color: "#6257d9" }],
             slots: [],
           })
-            .then(setAgenda)
-            .catch((reason: unknown) =>
-              onError(reason instanceof Error ? reason.message : "Agenda initialization failed."),
+            .then((loaded) => {
+              if (active) setAgenda(loaded);
+            })
+            .catch(
+              (reason: unknown) =>
+                active &&
+                onError(reason instanceof Error ? reason.message : "Agenda initialization failed."),
             );
           return;
         }
         onError(error instanceof Error ? error.message : "Agenda failed to load.");
       });
+    return () => {
+      active = false;
+      mounted.current = false;
+    };
   }, [eventId, onError]);
   if (!agenda)
     return (
@@ -58,12 +73,14 @@ export function AgendaWorkspace({
     setBusy(true);
     setPublished(null);
     try {
-      setAgenda(await action());
+      const updated = await action();
+      if (mounted.current) setAgenda(updated);
     } catch (error) {
       // ERROR-INTENT: The workspace renders this expected API failure through its parent alert.
-      onError(error instanceof Error ? error.message : "Agenda update failed.");
+      if (mounted.current)
+        onError(error instanceof Error ? error.message : "Agenda update failed.");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   const saveResources = (resources: Pick<AgendaDraftDto, "rooms" | "tracks" | "slots">) =>
@@ -82,11 +99,17 @@ export function AgendaWorkspace({
             setBusy(true);
             // ERROR-INTENT: React event handlers cannot await; publication success/failure is rendered.
             void publishAgenda(eventId)
-              .then((schedule) => setPublished(`Published version ${schedule.version}`))
-              .catch((error: unknown) =>
-                onError(error instanceof Error ? error.message : "Publication failed."),
+              .then((schedule) => {
+                if (mounted.current) setPublished(`Published version ${schedule.version}`);
+              })
+              .catch(
+                (error: unknown) =>
+                  mounted.current &&
+                  onError(error instanceof Error ? error.message : "Publication failed."),
               )
-              .finally(() => setBusy(false));
+              .finally(() => {
+                if (mounted.current) setBusy(false);
+              });
           }}
         >
           Publish schedule
@@ -105,7 +128,9 @@ export function AgendaWorkspace({
           </strong>
           <ul>
             {agenda.conflicts.map((conflict) => (
-              <li key={`${conflict.kind}-${conflict.placementId}`}>
+              <li
+                key={`${conflict.kind}-${conflict.placementId}-${conflict.conflictingPlacementId}-${conflict.resourceId}`}
+              >
                 {conflict.kind.replaceAll("_", " ").toLowerCase()}: {conflict.message}
               </li>
             ))}

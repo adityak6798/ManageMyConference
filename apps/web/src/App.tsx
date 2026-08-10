@@ -220,10 +220,15 @@ export function App() {
               </section>
             )}
             {selectedEvent &&
-            session.eventAccess
+            (session.eventAccess
               .find(({ eventId }) => eventId === selectedEvent.id)
-              ?.capabilities.includes("agenda:manage") ? (
-              <AgendaWorkspace eventId={selectedEvent.id} onError={setError} />
+              ?.capabilities.includes("agenda:manage") ||
+              session.organizations.some(({ id }) => id === selectedEvent.organizationId)) ? (
+              <AgendaWorkspace
+                key={selectedEvent.id}
+                eventId={selectedEvent.id}
+                onError={setError}
+              />
             ) : null}
             {error ? (
               <p role="alert" className="error">

@@ -86,6 +86,7 @@ export const agendaDrafts = sqliteTable("agenda_drafts", {
     .references(() => events.id),
   draftJson: text("draft_json").notNull(),
   updatedAt: text("updated_at").notNull(),
+  revision: integer("revision").notNull().default(0),
 });
 
 export const agendaPublications = sqliteTable(

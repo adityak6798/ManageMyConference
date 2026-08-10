@@ -55,7 +55,15 @@ export default {
         ],
       ]),
     );
-    const agenda = new AgendaService(new D1AgendaRepository(environment.DB, now), now, content);
+    const agenda = new AgendaService(
+      new D1AgendaRepository(environment.DB, now),
+      now,
+      content,
+      async (actor, eventId) => {
+        const event = await service.get(actor, eventId);
+        return Boolean(event && actor.organizations.some(({ id }) => id === event.organizationId));
+      },
+    );
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.

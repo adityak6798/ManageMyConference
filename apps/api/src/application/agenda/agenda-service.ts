@@ -17,18 +17,25 @@ export class AgendaService {
     private readonly repository: AgendaRepository,
     private readonly now: () => Date,
     private readonly content: SchedulableContentQuery,
+    private readonly canManageEvent: (
+      actor: Actor,
+      eventId: string,
+    ) => Promise<boolean> = async () => false,
   ) {}
 
-  private organizer(actor: Actor | null, eventId: string): Actor {
+  private async organizer(actor: Actor | null, eventId: string): Promise<Actor> {
     const authorized = requireCapability(actor, "agenda:manage");
     const access = authorized.eventAccess.find(({ eventId: id }) => id === eventId);
-    if (!access?.capabilities.has("agenda:manage"))
+    if (
+      !access?.capabilities.has("agenda:manage") &&
+      !(await this.canManageEvent(authorized, eventId))
+    )
       throw new CapabilityDeniedError("Agenda access denied");
     return authorized;
   }
 
   async draft(actor: Actor | null, eventId: string) {
-    this.organizer(actor, eventId);
+    await this.organizer(actor, eventId);
     const draft = await this.repository.getDraft(eventId);
     if (!draft) throw new AgendaNotFoundError("Agenda not found");
     const composed = { ...draft, sessions: await this.content.forEvent(eventId) };
@@ -36,7 +43,7 @@ export class AgendaService {
   }
 
   async place(actor: Actor | null, eventId: string, placement: Placement) {
-    this.organizer(actor, eventId);
+    await this.organizer(actor, eventId);
     const draft = await this.draft(actor, eventId);
     if (!draft) throw new AgendaNotFoundError("Agenda not found");
     if (!draft.sessions.some(({ id }) => id === placement.sessionId))
@@ -56,45 +63,31 @@ export class AgendaService {
     eventId: string,
     resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">,
   ) {
-    this.organizer(actor, eventId);
-    const current = await this.repository.getDraft(eventId);
-    const placements = current?.placements ?? [];
-    if (
-      placements.some(
-        (placement) =>
-          !resources.rooms.some(({ id }) => id === placement.roomId) ||
-          !resources.tracks.some(({ id }) => id === placement.trackId) ||
-          !resources.slots.some(({ id }) => id === placement.slotId),
-      )
-    )
+    await this.organizer(actor, eventId);
+    if (!(await this.repository.saveResources(eventId, resources)))
       throw new AgendaResourceInUseError("Remove affected placements before deleting resources");
-    await this.repository.saveDraft({
-      eventId,
-      ...resources,
-      sessions: [],
-      placements,
-    });
     return this.draft(actor, eventId);
   }
 
   async remove(actor: Actor | null, eventId: string, placementId: string) {
-    this.organizer(actor, eventId);
+    await this.organizer(actor, eventId);
     await this.repository.removePlacement(eventId, placementId);
   }
 
   async publish(actor: Actor | null, eventId: string): Promise<PublishedSchedule> {
-    const authorized = this.organizer(actor, eventId);
+    const authorized = await this.organizer(actor, eventId);
     const draft = await this.draft(actor, eventId);
     if (!draft) throw new AgendaNotFoundError("Agenda not found");
     const conflicts = conflictsFor(draft);
     if (conflicts.length) throw new AgendaConflictError(conflicts);
     const previous = await this.repository.getPublished(eventId);
+    const { conflicts: _computedConflicts, ...agenda } = draft;
     const schedule = {
       eventId,
       version: (previous?.version ?? 0) + 1,
       publishedAt: this.now().toISOString(),
       publishedBy: authorized.id,
-      agenda: structuredClone(draft),
+      agenda: structuredClone(agenda),
     };
     await this.repository.publish(schedule);
     return schedule;

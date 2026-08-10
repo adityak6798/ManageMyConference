@@ -11,6 +11,10 @@ export interface PublishedSchedule {
 export interface AgendaRepository {
   getDraft(eventId: string): Promise<AgendaDraft | null>;
   saveDraft(draft: AgendaDraft): Promise<void>;
+  saveResources(
+    eventId: string,
+    resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">,
+  ): Promise<boolean>;
   savePlacement(eventId: string, placement: Placement): Promise<void>;
   removePlacement(eventId: string, placementId: string): Promise<void>;
   publish(schedule: PublishedSchedule): Promise<void>;

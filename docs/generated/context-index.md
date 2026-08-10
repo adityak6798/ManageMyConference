@@ -18,6 +18,7 @@
 
 ### `ACC-AGENDA`
 - `test` / `repository-fact`: [apps/api/test/agenda-service.test.ts](../../apps/api/test/agenda-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-agenda-repository.integration.test.ts](../../apps/api/test/d1-agenda-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)

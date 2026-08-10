@@ -17,6 +17,21 @@ export class MemoryAgendaRepository implements AgendaRepository {
   async saveDraft(draft: AgendaDraft) {
     this.drafts.set(draft.eventId, structuredClone(draft));
   }
+  async saveResources(eventId: string, resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">) {
+    const current = this.drafts.get(eventId);
+    const placements = current?.placements ?? [];
+    if (
+      placements.some(
+        (placement) =>
+          !resources.rooms.some(({ id }) => id === placement.roomId) ||
+          !resources.tracks.some(({ id }) => id === placement.trackId) ||
+          !resources.slots.some(({ id }) => id === placement.slotId),
+      )
+    )
+      return false;
+    this.drafts.set(eventId, { eventId, ...resources, sessions: [], placements });
+    return true;
+  }
   async savePlacement(eventId: string, placement: Placement) {
     const draft = this.drafts.get(eventId);
     if (!draft) return;
