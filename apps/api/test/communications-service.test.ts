@@ -13,7 +13,7 @@ const organizer: Actor = {
   name: "Organizer",
   persona: "organizer",
   organizations: [{ id: organizationId }],
-  eventAccess: [],
+  eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["events:read"]) }],
   capabilities: new Set(["communications:manage"]),
 };
 
@@ -23,6 +23,10 @@ const harness = (behavior: "success" | "timeout" | "malformed" | "terminal" = "s
   const repository = new MemoryCommunicationsRepository();
   const service = new CommunicationsService({
     repository,
+    eventDirectory: {
+      belongsToOrganization: async (candidateEventId, candidateOrganizationId) =>
+        candidateEventId === eventId && candidateOrganizationId === organizationId,
+    },
     newId: () => `id-${++id}`,
     now: () => now,
   });
@@ -124,5 +128,88 @@ describe("communications outbox", () => {
       version: 3,
       deliveryId: delivery.id,
     });
+  });
+
+  it("rejects cross-tenant event references and incomplete projection triggers", async () => {
+    const test = harness();
+    await expect(
+      test.service.trigger(organizer, {
+        organizationId,
+        eventId: "00000000-0000-4000-8000-000000000099",
+        idempotencyKey: "outside",
+        triggerType: "projection.requested",
+        channel: "airtable",
+        recipientRef: "session:outside",
+        payload: {},
+        projectionVersion: 1,
+      }),
+    ).rejects.toThrow("Event access denied");
+    const otherOrganizationId = "00000000-0000-4000-8000-000000000020";
+    const otherEventId = "00000000-0000-4000-8000-000000000002";
+    const multiOrganizationActor: Actor = {
+      ...organizer,
+      organizations: [{ id: organizationId }, { id: otherOrganizationId }],
+      eventAccess: [
+        ...organizer.eventAccess,
+        { eventId: otherEventId, role: "organizer", capabilities: new Set(["events:read"]) },
+      ],
+    };
+    await expect(
+      test.service.trigger(multiOrganizationActor, {
+        organizationId,
+        eventId: otherEventId,
+        idempotencyKey: "crossed-pair",
+        triggerType: "projection.requested",
+        channel: "airtable",
+        recipientRef: "session:crossed",
+        payload: {},
+        projectionVersion: 1,
+      }),
+    ).rejects.toThrow("Event organization access denied");
+    await expect(
+      test.service.trigger(organizer, {
+        organizationId,
+        eventId,
+        idempotencyKey: "missing-version",
+        triggerType: "projection.requested",
+        channel: "airtable",
+        recipientRef: "session:1",
+        payload: {},
+      }),
+    ).rejects.toThrow("requires a version");
+  });
+
+  it("normalizes thrown provider failures and reclaims abandoned leases", async () => {
+    const test = harness();
+    const delivery = await templateAndTrigger(test);
+    const throwing = {
+      deliver: async () => {
+        throw new Error("socket closed");
+      },
+    };
+    const worker = new OutboxWorker(
+      test.repository,
+      { email: throwing, airtable: throwing, accelevents: throwing },
+      { newId: () => crypto.randomUUID(), now: () => new Date("2026-08-10T12:00:00.000Z") },
+    );
+    await worker.runOne();
+    expect(await test.repository.attempts(delivery.id)).toEqual([
+      expect.objectContaining({
+        outcome: "retryable_failure",
+        errorCode: "UNEXPECTED_PROVIDER_ERROR",
+      }),
+    ]);
+
+    await test.repository.retry(delivery.id, organizationId, "2026-08-10T12:00:00.000Z");
+    await test.repository.leaseNext("2026-08-10T12:00:00.000Z", "abandoned");
+    await expect(
+      test.repository.leaseNext("2026-08-10T12:04:59.000Z", "too-soon"),
+    ).resolves.toBeNull();
+    await expect(
+      test.repository.leaseNext("2026-08-10T12:05:00.000Z", "reclaimed"),
+    ).resolves.toMatchObject({ id: delivery.id, leaseToken: "reclaimed" });
+    await expect(
+      test.repository.retry(delivery.id, organizationId, "2026-08-10T12:05:00.000Z"),
+    ).rejects.toThrow("currently leased");
   });
 });

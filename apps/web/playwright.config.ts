@@ -13,7 +13,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `GREENROOM_API_PORT=${apiPort} npm run dev --workspace @greenroom/api`,
+      command: `npm run setup:local && npm run reset && GREENROOM_API_PORT=${apiPort} npm run dev --workspace @greenroom/api`,
       cwd: "../..",
       url: `http://127.0.0.1:${apiPort}/health`,
       reuseExistingServer: !process.env.CI,

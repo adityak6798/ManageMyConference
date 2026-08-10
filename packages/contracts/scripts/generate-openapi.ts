@@ -161,7 +161,7 @@ registry.registerPath({
   security: [{ sessionCookie: [] }],
   request: {
     params: deliveryIdParamsSchema,
-    body: { required: true, content: json(retryDeliveryInputSchema) },
+    query: retryDeliveryInputSchema,
   },
   responses: {
     200: { description: "Explicitly requeued delivery", content: json(deliveryResponseSchema) },

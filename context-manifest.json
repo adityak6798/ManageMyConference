@@ -13,7 +13,8 @@
       "apps/api/src/application/identity/actor.ts",
       "apps/api/src/application/identity/demo-session.ts",
       "apps/api/src/application/identity/identity-directory.ts",
-      "apps/api/src/application/communications/communications-service.ts"
+      "apps/api/src/application/communications/communications-service.ts",
+      "apps/web/src/api/communications.ts"
     ],
     "compositionRoots": ["apps/api/src/index.ts"],
     "layerPaths": {
@@ -99,8 +100,10 @@
         "apps/web/src/App.tsx",
         "apps/web/src/api/events.ts",
         "apps/web/src/main.tsx",
-        "apps/web/test",
-        "apps/web/e2e"
+        "apps/web/test/App.test.tsx",
+        "apps/web/test/error-fallback.test.tsx",
+        "apps/web/test/setup.ts",
+        "apps/web/e2e/reference-slice.spec.ts"
       ]
     },
     {
@@ -164,7 +167,10 @@
         "apps/api/test/communications-http.test.ts",
         "apps/api/test/communications-service.test.ts",
         "apps/api/test/d1-communications-repository.integration.test.ts",
-        "apps/api/migrations/0003_communications_outbox.sql"
+        "apps/api/migrations/0003_communications_outbox.sql",
+        "apps/web/src/api/communications.ts",
+        "apps/web/test/communications.test.tsx",
+        "apps/web/e2e/communications.spec.ts"
       ]
     },
     {

@@ -2,10 +2,12 @@ import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
 import { CommunicationsService } from "./application/communications/communications-service";
+import { DeterministicProvider } from "./adapters/providers/deterministic-provider";
+import { OutboxWorker } from "./application/communications/outbox-worker";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
-interface Environment {
+export interface Environment {
   DB: D1DatabasePort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
@@ -26,6 +28,23 @@ export function runtimeAuth(
   if (demoMode)
     return { demoMode: true as const, sessionSecret: environment.SESSION_SECRET as string };
   return { demoMode: false as const };
+}
+
+const communicationsRepository = (environment: Environment) =>
+  new D1CommunicationsRepository(
+    environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
+  );
+
+export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
+  const provider = new DeterministicProvider();
+  const worker = new OutboxWorker(
+    communicationsRepository(environment),
+    { email: provider, airtable: provider, accelevents: provider },
+    { newId: () => crypto.randomUUID(), now: () => new Date() },
+  );
+  let processed = 0;
+  while (processed < limit && (await worker.runOne())) processed += 1;
+  return processed;
 }
 
 // @spec PRD-EVT-001 ARC-OBS-001
@@ -53,9 +72,8 @@ export default {
     };
     const identityDirectory = new D1IdentityDirectory(environment.DB);
     const communications = new CommunicationsService({
-      repository: new D1CommunicationsRepository(
-        environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
-      ),
+      repository: communicationsRepository(environment),
+      eventDirectory: service,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -68,5 +86,8 @@ export default {
       communications,
     );
     return Promise.resolve(app.fetch(request));
+  },
+  scheduled(_controller: unknown, environment: Environment): Promise<void> {
+    return drainOutbox(environment).then(() => undefined);
   },
 };

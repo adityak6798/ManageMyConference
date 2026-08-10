@@ -1793,6 +1793,9 @@
                     "delivery": {
                       "type": "object",
                       "properties": {
+                        "id": {
+                          "type": "string"
+                        },
                         "organizationId": {
                           "type": "string",
                           "format": "uuid"
@@ -1802,9 +1805,7 @@
                           "format": "uuid"
                         },
                         "idempotencyKey": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 200
+                          "type": "string"
                         },
                         "triggerType": {
                           "type": "string",
@@ -1823,16 +1824,9 @@
                             "accelevents"
                           ]
                         },
-                        "recipientRef": {
+                        "templateId": {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 500
-                        },
-                        "payload": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
+                          "nullable": true
                         },
                         "templateVersion": {
                           "type": "integer",
@@ -1840,18 +1834,20 @@
                           "minimum": 0,
                           "exclusiveMinimum": true
                         },
+                        "recipientRef": {
+                          "type": "string"
+                        },
+                        "payload": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
                         "projectionVersion": {
                           "type": "integer",
                           "nullable": true,
                           "minimum": 0,
                           "exclusiveMinimum": true
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "templateId": {
-                          "type": "string",
-                          "nullable": true
                         },
                         "state": {
                           "type": "string",
@@ -1884,17 +1880,17 @@
                         }
                       },
                       "required": [
+                        "id",
                         "organizationId",
                         "eventId",
                         "idempotencyKey",
                         "triggerType",
                         "channel",
+                        "templateId",
+                        "templateVersion",
                         "recipientRef",
                         "payload",
-                        "templateVersion",
                         "projectionVersion",
-                        "id",
-                        "templateId",
                         "state",
                         "attemptCount",
                         "nextAttemptAt",
@@ -2157,6 +2153,9 @@
                           "delivery": {
                             "type": "object",
                             "properties": {
+                              "id": {
+                                "type": "string"
+                              },
                               "organizationId": {
                                 "type": "string",
                                 "format": "uuid"
@@ -2166,9 +2165,7 @@
                                 "format": "uuid"
                               },
                               "idempotencyKey": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 200
+                                "type": "string"
                               },
                               "triggerType": {
                                 "type": "string",
@@ -2187,16 +2184,9 @@
                                   "accelevents"
                                 ]
                               },
-                              "recipientRef": {
+                              "templateId": {
                                 "type": "string",
-                                "minLength": 1,
-                                "maxLength": 500
-                              },
-                              "payload": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "nullable": true
-                                }
+                                "nullable": true
                               },
                               "templateVersion": {
                                 "type": "integer",
@@ -2204,18 +2194,20 @@
                                 "minimum": 0,
                                 "exclusiveMinimum": true
                               },
+                              "recipientRef": {
+                                "type": "string"
+                              },
+                              "payload": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "nullable": true
+                                }
+                              },
                               "projectionVersion": {
                                 "type": "integer",
                                 "nullable": true,
                                 "minimum": 0,
                                 "exclusiveMinimum": true
-                              },
-                              "id": {
-                                "type": "string"
-                              },
-                              "templateId": {
-                                "type": "string",
-                                "nullable": true
                               },
                               "state": {
                                 "type": "string",
@@ -2248,17 +2240,17 @@
                               }
                             },
                             "required": [
+                              "id",
                               "organizationId",
                               "eventId",
                               "idempotencyKey",
                               "triggerType",
                               "channel",
+                              "templateId",
+                              "templateVersion",
                               "recipientRef",
                               "payload",
-                              "templateVersion",
                               "projectionVersion",
-                              "id",
-                              "templateId",
                               "state",
                               "attemptCount",
                               "nextAttemptAt",
@@ -2554,27 +2546,17 @@
             "required": true,
             "name": "deliveryId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "organizationId",
+            "in": "query"
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "organizationId": {
-                    "type": "string",
-                    "format": "uuid"
-                  }
-                },
-                "required": [
-                  "organizationId"
-                ]
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Explicitly requeued delivery",
@@ -2586,6 +2568,9 @@
                     "delivery": {
                       "type": "object",
                       "properties": {
+                        "id": {
+                          "type": "string"
+                        },
                         "organizationId": {
                           "type": "string",
                           "format": "uuid"
@@ -2595,9 +2580,7 @@
                           "format": "uuid"
                         },
                         "idempotencyKey": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 200
+                          "type": "string"
                         },
                         "triggerType": {
                           "type": "string",
@@ -2616,16 +2599,9 @@
                             "accelevents"
                           ]
                         },
-                        "recipientRef": {
+                        "templateId": {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 500
-                        },
-                        "payload": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
+                          "nullable": true
                         },
                         "templateVersion": {
                           "type": "integer",
@@ -2633,18 +2609,20 @@
                           "minimum": 0,
                           "exclusiveMinimum": true
                         },
+                        "recipientRef": {
+                          "type": "string"
+                        },
+                        "payload": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
                         "projectionVersion": {
                           "type": "integer",
                           "nullable": true,
                           "minimum": 0,
                           "exclusiveMinimum": true
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "templateId": {
-                          "type": "string",
-                          "nullable": true
                         },
                         "state": {
                           "type": "string",
@@ -2677,17 +2655,17 @@
                         }
                       },
                       "required": [
+                        "id",
                         "organizationId",
                         "eventId",
                         "idempotencyKey",
                         "triggerType",
                         "channel",
+                        "templateId",
+                        "templateVersion",
                         "recipientRef",
                         "payload",
-                        "templateVersion",
                         "projectionVersion",
-                        "id",
-                        "templateId",
                         "state",
                         "attemptCount",
                         "nextAttemptAt",

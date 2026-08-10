@@ -17,11 +17,13 @@ Provider calls originate from outbox workers, not open database transactions. Ad
 
 Workers durably lease eligible `queued` or `retrying` rows before making a provider call. They then append an attempt and transition the delivery in one atomic storage batch. Retryable failures use bounded exponential backoff; malformed responses and provider rejections are terminal. A successful Airtable or Accelevents attempt updates idempotent projection state without making provider data canonical.
 
+The deployed Worker invokes the outbox from a one-minute scheduled trigger, drains at most 100 eligible deliveries per invocation, and reclaims a lease after five minutes when a prior invocation terminates unexpectedly. Provider exceptions are normalized into retryable attempts. Manual recovery cannot clear an active lease.
+
 The organizer recovery procedure is:
 
 1. Inspect `GET /api/communications/history?organizationId={organizationId}&eventId={eventId}` and its ordered attempt history.
 2. Correct the referenced template, recipient, credential, or canonical source data as indicated by the normalized error code.
-3. Submit `POST /api/communications/deliveries/{deliveryId}/retry` with the owning `organizationId`.
+3. Submit `POST /api/communications/deliveries/{deliveryId}/retry?organizationId={organizationId}`.
 4. Reinspect history until a new immutable attempt is `succeeded` or yields a new actionable failure.
 
 The retry action never deletes or rewrites prior attempts. Only an organizer in the owning organization has `communications:manage`; denial occurs before request-body parsing.

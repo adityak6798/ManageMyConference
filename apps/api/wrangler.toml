@@ -7,3 +7,6 @@ binding = "DB"
 database_name = "greenroom-local"
 database_id = "local-development"
 migrations_dir = "migrations"
+
+[triggers]
+crons = ["* * * * *"]

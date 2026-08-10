@@ -19,6 +19,10 @@ async function setup() {
   const now = () => new Date("2026-08-10T12:00:00.000Z");
   const communications = new CommunicationsService({
     repository: new MemoryCommunicationsRepository(),
+    eventDirectory: {
+      belongsToOrganization: async (candidateEventId, candidateOrganizationId) =>
+        candidateEventId === eventId && candidateOrganizationId === organizationId,
+    },
     newId: () => `comm-${++id}`,
     now,
   });
@@ -98,5 +102,26 @@ describe("communications HTTP acceptance", () => {
       body: "{",
     });
     expect(response.status).toBe(403);
+  });
+
+  it("rejects invalid projection semantics at the HTTP contract", async () => {
+    const { app, headers } = await setup();
+    const response = await app.request("/api/communications/deliveries", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        organizationId,
+        eventId,
+        idempotencyKey: "invalid",
+        triggerType: "projection.requested",
+        channel: "airtable",
+        recipientRef: "session:1",
+        payload: {},
+      }),
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { fieldErrors: { projectionVersion: expect.any(Array) } },
+    });
   });
 });

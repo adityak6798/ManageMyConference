@@ -1,4 +1,4 @@
-import type { DeliveryProvider } from "./ports";
+import type { DeliveryProvider, ProviderResult } from "./ports";
 import type { CommunicationsRepository } from "./ports";
 
 const retryDelayMs = (attempt: number) => Math.min(60_000, 1_000 * 2 ** Math.max(0, attempt - 1));
@@ -21,7 +21,13 @@ export class OutboxWorker {
 
     // The durable lease is committed before this provider call; no DB transaction is open here.
     const startedAt = this.dependencies.now().toISOString();
-    const result = await this.providers[delivery.channel].deliver(delivery);
+    let result: ProviderResult;
+    try {
+      result = await this.providers[delivery.channel].deliver(delivery);
+    } catch {
+      // ERROR-INTENT: Provider details are untrusted; normalize the failure into an auditable retry.
+      result = { kind: "retryable" as const, code: "UNEXPECTED_PROVIDER_ERROR" };
+    }
     const completedAt = this.dependencies.now().toISOString();
     const sequence = delivery.attemptCount + 1;
     const state =

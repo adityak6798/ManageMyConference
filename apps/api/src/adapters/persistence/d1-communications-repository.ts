@@ -7,7 +7,7 @@ import type {
 } from "../../domain/communications/delivery";
 interface Statement {
   bind(...values: unknown[]): Statement;
-  run(): Promise<{ success: boolean; error?: string }>;
+  run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
   all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
 }
 type Database = {
@@ -176,11 +176,12 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     return result.results?.[0] ? deliveryFromRow(result.results[0]) : null;
   }
   async leaseNext(now: string, leaseToken: string) {
+    const staleBefore = new Date(new Date(now).getTime() - 5 * 60_000).toISOString();
     const claimed = await this.database
       .prepare(
-        "UPDATE communication_deliveries SET lease_token = ?, updated_at = ? WHERE id = (SELECT id FROM communication_deliveries WHERE state IN ('queued', 'retrying') AND next_attempt_at <= ? AND lease_token IS NULL ORDER BY next_attempt_at, created_at LIMIT 1) AND lease_token IS NULL",
+        "UPDATE communication_deliveries SET lease_token = ?, updated_at = ? WHERE id = (SELECT id FROM communication_deliveries WHERE state IN ('queued', 'retrying') AND next_attempt_at <= ? AND (lease_token IS NULL OR updated_at <= ?) ORDER BY next_attempt_at, created_at LIMIT 1) AND (lease_token IS NULL OR updated_at <= ?)",
       )
-      .bind(leaseToken, now, now)
+      .bind(leaseToken, now, now, staleBefore, staleBefore)
       .run();
     this.ensure(claimed, "lease delivery");
     const result = await this.database
@@ -232,7 +233,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       statements.push(
         this.database
           .prepare(
-            "INSERT INTO outbound_projection_state (destination, event_id, resource_ref, version, delivery_id, projected_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(destination, event_id, resource_ref) DO UPDATE SET version = excluded.version, delivery_id = excluded.delivery_id, projected_at = excluded.projected_at WHERE excluded.version >= outbound_projection_state.version",
+            "INSERT INTO outbound_projection_state (destination, event_id, resource_ref, version, delivery_id, projected_at) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM communication_attempts WHERE id = ? AND delivery_id = ?) ON CONFLICT(destination, event_id, resource_ref) DO UPDATE SET version = excluded.version, delivery_id = excluded.delivery_id, projected_at = excluded.projected_at WHERE excluded.version >= outbound_projection_state.version",
           )
           .bind(
             projection.destination,
@@ -241,19 +242,24 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
             projection.version,
             projection.deliveryId,
             projection.projectedAt,
+            attempt.id,
+            attempt.deliveryId,
           ),
       );
     const results = await this.database.batch(statements);
     for (const result of results) this.ensure(result, "complete delivery atomically");
+    const recorded = await this.attempts(attempt.deliveryId);
+    if (!recorded.some(({ id }) => id === attempt.id)) throw new Error("Delivery lease lost");
   }
   async retry(deliveryId: string, organizationId: string, now: string) {
     const result = await this.database
       .prepare(
-        "UPDATE communication_deliveries SET state = 'queued', next_attempt_at = ?, lease_token = NULL, updated_at = ? WHERE id = ? AND organization_id = ? AND state IN ('retrying', 'terminal')",
+        "UPDATE communication_deliveries SET state = 'queued', next_attempt_at = ?, updated_at = ? WHERE id = ? AND organization_id = ? AND state IN ('retrying', 'terminal') AND lease_token IS NULL",
       )
       .bind(now, now, deliveryId, organizationId)
       .run();
     this.ensure(result, "retry delivery");
+    if ((result.meta?.changes ?? 0) !== 1) throw new Error("Delivery is not recoverable");
     const delivery = await this.get(deliveryId);
     if (!delivery || delivery.organizationId !== organizationId || delivery.state !== "queued")
       throw new Error("Delivery is not recoverable");

@@ -71,18 +71,45 @@ export const createTemplateInputSchema = z.object({
   subject: z.string().max(200).nullable(),
   body: z.string().min(1).max(100_000),
 });
-export const triggerDeliveryInputSchema = z.object({
-  organizationId: z.string().uuid(),
-  eventId: z.string().uuid(),
-  idempotencyKey: z.string().trim().min(1).max(200),
-  triggerType: triggerTypeSchema,
-  channel: deliveryChannelSchema,
-  recipientRef: z.string().trim().min(1).max(500),
-  payload: z.record(z.unknown()),
-  templateKey: z.string().trim().min(1).max(80).optional(),
-  templateVersion: z.number().int().positive().optional(),
-  projectionVersion: z.number().int().positive().optional(),
-});
+export const triggerDeliveryInputSchema = z
+  .object({
+    organizationId: z.string().uuid(),
+    eventId: z.string().uuid(),
+    idempotencyKey: z.string().trim().min(1).max(200),
+    triggerType: triggerTypeSchema,
+    channel: deliveryChannelSchema,
+    recipientRef: z.string().trim().min(1).max(500),
+    payload: z.record(z.unknown()),
+    templateKey: z.string().trim().min(1).max(80).optional(),
+    templateVersion: z.number().int().positive().optional(),
+    projectionVersion: z.number().int().positive().optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.channel === "email" && !input.templateKey)
+      context.addIssue({
+        code: "custom",
+        path: ["templateKey"],
+        message: "Email delivery requires a template",
+      });
+    if (input.channel === "email" && input.triggerType === "projection.requested")
+      context.addIssue({
+        code: "custom",
+        path: ["triggerType"],
+        message: "Projection triggers require a projection provider",
+      });
+    if (input.channel !== "email" && input.triggerType !== "projection.requested")
+      context.addIssue({
+        code: "custom",
+        path: ["triggerType"],
+        message: "Projection providers require a projection trigger",
+      });
+    if (input.channel !== "email" && input.projectionVersion === undefined)
+      context.addIssue({
+        code: "custom",
+        path: ["projectionVersion"],
+        message: "Projection delivery requires a version",
+      });
+  });
 export const communicationsHistoryParamsSchema = z.object({
   organizationId: z.string().uuid(),
   eventId: z.string().uuid(),
@@ -93,10 +120,17 @@ export const messageTemplateSchema = createTemplateInputSchema.extend({
   id: z.string(),
   createdAt: z.string().datetime(),
 });
-export const deliverySchema = triggerDeliveryInputSchema.omit({ templateKey: true }).extend({
+export const deliverySchema = z.object({
   id: z.string(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  idempotencyKey: z.string(),
+  triggerType: triggerTypeSchema,
+  channel: deliveryChannelSchema,
   templateId: z.string().nullable(),
   templateVersion: z.number().int().positive().nullable(),
+  recipientRef: z.string(),
+  payload: z.record(z.unknown()),
   projectionVersion: z.number().int().positive().nullable(),
   state: deliveryStateSchema,
   attemptCount: z.number().int().nonnegative(),
@@ -124,6 +158,8 @@ export const communicationsHistoryResponseSchema = z.object({
 });
 export type CreateTemplateInput = z.infer<typeof createTemplateInputSchema>;
 export type TriggerDeliveryInput = z.infer<typeof triggerDeliveryInputSchema>;
+export type DeliveryDto = z.infer<typeof deliverySchema>;
+export type CommunicationsHistoryDto = z.infer<typeof communicationsHistoryResponseSchema>;
 
 export const apiErrorCodeSchema = z.enum([
   "UNAUTHORIZED",

@@ -60,11 +60,12 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
   }
 
   async leaseNext(now: string, leaseToken: string): Promise<Delivery | null> {
+    const staleBefore = new Date(new Date(now).getTime() - 5 * 60_000).toISOString();
     const delivery = [...this.deliveries.values()]
       .filter(
         (item) =>
           (item.state === "queued" || item.state === "retrying") &&
-          !item.leaseToken &&
+          (!item.leaseToken || item.updatedAt <= staleBefore) &&
           item.nextAttemptAt <= now,
       )
       .sort((left, right) => left.nextAttemptAt.localeCompare(right.nextAttemptAt))[0];
@@ -101,6 +102,7 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     const delivery = this.deliveries.get(deliveryId);
     if (!delivery || delivery.organizationId !== organizationId)
       throw new Error("Delivery not found");
+    if (delivery.leaseToken) throw new Error("Delivery is currently leased");
     if (delivery.state !== "terminal" && delivery.state !== "retrying")
       throw new Error("Delivery is not recoverable");
     const retried = { ...delivery, state: "queued" as const, nextAttemptAt: now, updatedAt: now };

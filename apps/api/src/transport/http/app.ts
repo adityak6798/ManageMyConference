@@ -266,8 +266,8 @@ export function createHttpApp(
     requireCapability(context.get("actor"), "communications:manage");
     if (!communications) throw new Error("Communications service is not configured");
     const params = deliveryIdParamsSchema.safeParse(context.req.param());
-    const body = retryDeliveryInputSchema.safeParse(await readJson(context.req));
-    if (!params.success || !body.success)
+    const query = retryDeliveryInputSchema.safeParse(context.req.query());
+    if (!params.success || !query.success)
       return context.json(
         envelope(
           "VALIDATION_FAILED",
@@ -279,7 +279,7 @@ export function createHttpApp(
     return context.json({
       delivery: await communications.retry(
         context.get("actor"),
-        body.data.organizationId,
+        query.data.organizationId,
         params.data.deliveryId,
       ),
     });

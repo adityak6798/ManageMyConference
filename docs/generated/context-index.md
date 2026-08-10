@@ -52,6 +52,8 @@
 - `test` / `repository-fact`: [apps/api/test/communications-http.test.ts](../../apps/api/test/communications-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-service.test.ts](../../apps/api/test/communications-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-communications-repository.integration.test.ts](../../apps/api/test/d1-communications-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/communications.spec.ts](../../apps/web/e2e/communications.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/communications.test.tsx](../../apps/web/test/communications.test.tsx)
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 

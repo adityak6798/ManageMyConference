@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { D1CommunicationsRepository } from "../src/adapters/persistence/d1-communications-repository";
+import apiWorker, { type Environment } from "../src/index";
 
 const statements = (sql: string) =>
   sql
@@ -87,5 +88,33 @@ describe("D1CommunicationsRepository", () => {
       attemptCount: 1,
       leaseToken: null,
     });
+  });
+
+  it("executes queued work through the deployed scheduled entrypoint", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "scheduled-communications-test" },
+    });
+    const database = await runtime.getD1Database("DB");
+    for (const migration of [
+      "0001_create_events.sql",
+      "0002_identity_event_foundation.sql",
+      "0003_communications_outbox.sql",
+    ]) {
+      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
+      for (const statement of statements(sql)) await database.prepare(statement).run();
+    }
+    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
+    for (const statement of statements(reset)) await database.prepare(statement).run();
+
+    await apiWorker.scheduled({}, { DB: database } as Environment);
+
+    const row = await database
+      .prepare(
+        "SELECT state, attempt_count FROM communication_deliveries WHERE id = 'delivery-queued'",
+      )
+      .first<{ state: string; attempt_count: number }>();
+    expect(row).toEqual({ state: "succeeded", attempt_count: 1 });
   });
 });

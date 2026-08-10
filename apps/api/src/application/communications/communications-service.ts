@@ -10,6 +10,9 @@ import type { CommunicationsRepository } from "./ports";
 
 export interface CommunicationsDependencies {
   repository: CommunicationsRepository;
+  eventDirectory: {
+    belongsToOrganization(eventId: string, organizationId: string): Promise<boolean>;
+  };
   newId(): string;
   now(): Date;
 }
@@ -22,6 +25,15 @@ export class CommunicationsService {
     if (!authorized.organizations.some(({ id }) => id === organizationId))
       throw new CapabilityDeniedError("Organization access denied");
     return authorized;
+  }
+
+  private async event(actor: Actor, eventId: string, organizationId: string): Promise<void> {
+    if (
+      !actor.eventAccess.some((access) => access.eventId === eventId && access.role === "organizer")
+    )
+      throw new CapabilityDeniedError("Event access denied");
+    if (!(await this.dependencies.eventDirectory.belongsToOrganization(eventId, organizationId)))
+      throw new CapabilityDeniedError("Event organization access denied");
   }
 
   // @spec PRD-COM-001
@@ -54,7 +66,8 @@ export class CommunicationsService {
       projectionVersion?: number | undefined;
     },
   ): Promise<Delivery> {
-    this.organization(actor, input.organizationId);
+    const authorized = this.organization(actor, input.organizationId);
+    await this.event(authorized, input.eventId, input.organizationId);
     const template = input.templateKey
       ? await this.dependencies.repository.findTemplate(
           input.organizationId,
@@ -65,6 +78,14 @@ export class CommunicationsService {
     if (input.templateKey && !template) throw new Error("Template version not found");
     if (input.channel === "email" && !template)
       throw new Error("Email delivery requires a template");
+    if (template && template.channel !== input.channel)
+      throw new Error("Template channel does not match delivery channel");
+    if (input.channel === "email" && input.triggerType === "projection.requested")
+      throw new Error("Projection triggers require a projection provider");
+    if (input.channel !== "email" && input.triggerType !== "projection.requested")
+      throw new Error("Projection providers require a projection trigger");
+    if (input.channel !== "email" && input.projectionVersion === undefined)
+      throw new Error("Projection delivery requires a version");
     const now = this.dependencies.now().toISOString();
     return this.dependencies.repository.enqueue({
       id: this.dependencies.newId(),
@@ -88,7 +109,8 @@ export class CommunicationsService {
   }
 
   async history(actor: Actor | null, organizationId: string, eventId: string) {
-    this.organization(actor, organizationId);
+    const authorized = this.organization(actor, organizationId);
+    await this.event(authorized, eventId, organizationId);
     const deliveries = await this.dependencies.repository.list(organizationId, eventId);
     return Promise.all(
       deliveries.map(async (delivery) => ({

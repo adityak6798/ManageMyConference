@@ -1,12 +1,17 @@
-import type { EventDto, SessionDto } from "@greenroom/contracts";
+import type { CommunicationsHistoryDto, EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
+import {
+  CommunicationsApiError,
+  getCommunicationsHistory,
+  retryDelivery,
+} from "./api/communications";
 import "./styles.css";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 const navByRole: Record<Persona, string[]> = {
-  organizer: ["Overview", "Event settings", "People", "Publishing"],
+  organizer: ["Overview", "Event settings", "People", "Communications", "Publishing"],
   reviewer: ["Review assignments"],
   speaker: ["Speaker tasks", "My sessions"],
   public: ["Published event"],
@@ -14,6 +19,8 @@ const navByRole: Record<Persona, string[]> = {
 
 function readableError(error: unknown): string {
   if (error instanceof ApiError)
+    return `${error.message} Reference: ${error.envelope.error.correlationId}`;
+  if (error instanceof CommunicationsApiError)
     return `${error.message} Reference: ${error.envelope.error.correlationId}`;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
@@ -27,6 +34,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<CommunicationsHistoryDto["history"] | null>(null);
 
   const loadShell = useCallback(async () => {
     const currentSession = await getSession();
@@ -36,6 +44,7 @@ export function App() {
     setSession(currentSession);
     setEvents(loadedEvents);
     setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
+    setHistory(null);
   }, []);
 
   useEffect(() => {
@@ -79,6 +88,35 @@ export function App() {
       setEvents(await listEvents());
       setSelectedEventId(event.id);
       setName("");
+    } catch (reason: unknown) {
+      setError(readableError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inspectHistory() {
+    const organizationId = selectedEvent?.organizationId;
+    if (!organizationId || !selectedEventId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setHistory(await getCommunicationsHistory(organizationId, selectedEventId));
+    } catch (reason: unknown) {
+      setError(readableError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recover(deliveryId: string) {
+    const organizationId = selectedEvent?.organizationId;
+    if (!organizationId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await retryDelivery(organizationId, deliveryId);
+      setHistory(await getCommunicationsHistory(organizationId, selectedEventId));
     } catch (reason: unknown) {
       setError(readableError(reason));
     } finally {
@@ -218,6 +256,59 @@ export function App() {
                 </p>
               </section>
             )}
+            {session.capabilities.includes("communications:manage") && selectedEvent ? (
+              <section id="communications" aria-labelledby="communications-title">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">Delivery operations</p>
+                    <h2 id="communications-title">Communications history</h2>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      // ERROR-INTENT: React event handlers cannot await; inspectHistory renders failures.
+                      void inspectHistory();
+                    }}
+                  >
+                    Inspect delivery history
+                  </button>
+                </div>
+                {history ? (
+                  <ul className="delivery-history">
+                    {history.map(({ delivery, attempts }) => (
+                      <li key={delivery.id}>
+                        <div>
+                          <strong>{delivery.recipientRef}</strong>
+                          <span className={`delivery-state state-${delivery.state}`}>
+                            {delivery.state}
+                          </span>
+                          <small>
+                            {attempts.length} attempt{attempts.length === 1 ? "" : "s"}
+                          </small>
+                        </div>
+                        {delivery.state === "retrying" || delivery.state === "terminal" ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              // ERROR-INTENT: React event handlers cannot await; recover renders failures.
+                              void recover(delivery.id);
+                            }}
+                          >
+                            Retry {delivery.recipientRef}
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="empty">
+                    Inspect the outbox to see queued, retrying, succeeded, and terminal deliveries.
+                  </p>
+                )}
+              </section>
+            ) : null}
             {error ? (
               <p role="alert" className="error">
                 {error}
