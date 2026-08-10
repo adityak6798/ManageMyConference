@@ -3,10 +3,19 @@ import {
   createEventInputSchema,
   demoSessionInputSchema,
   eventIdParamsSchema,
+  createProspectInputSchema,
+  prospectListQuerySchema,
+  prospectPathSchema,
+  updateProspectInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
+import {
+  ProspectContactRequiredError,
+  ProspectNotFoundError,
+  type CrmService,
+} from "../../application/crm/public";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -60,6 +69,7 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
+  crm: CrmService,
 ) {
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
@@ -195,6 +205,104 @@ export function createHttpApp(
       );
     return context.json({ event: eventToDto(event) });
   });
+  app.get("/api/events/:eventId/prospects", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    const path = eventIdParamsSchema.safeParse(context.req.param());
+    const query = prospectListQuerySchema.safeParse(context.req.query());
+    if (!path.success || !query.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Prospect filters are invalid.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    const filters = {
+      ...query.data,
+      overdueBefore: query.data.overdue ? new Date().toISOString() : undefined,
+    };
+    return context.json({
+      prospects: await crm.list(context.get("actor"), path.data.eventId, filters),
+    });
+  });
+  app.post("/api/events/:eventId/prospects", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    const path = eventIdParamsSchema.safeParse(context.req.param());
+    const input = createProspectInputSchema.safeParse(await readJson(context.req));
+    if (!path.success || !input.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The prospect could not be created.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json(
+      {
+        prospect: await crm.create(context.get("actor"), {
+          eventId: path.data.eventId,
+          ...input.data,
+        }),
+      },
+      201,
+    );
+  });
+  app.get("/api/events/:eventId/prospects/:prospectId", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    const path = prospectPathSchema.safeParse(context.req.param());
+    if (!path.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Prospect identity is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospect: await crm.get(context.get("actor"), path.data.eventId, path.data.prospectId),
+    });
+  });
+  app.patch("/api/events/:eventId/prospects/:prospectId", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    const path = prospectPathSchema.safeParse(context.req.param());
+    const input = updateProspectInputSchema.safeParse(await readJson(context.req));
+    if (!path.success || !input.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The prospect could not be updated.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospect: await crm.update(
+        context.get("actor"),
+        path.data.eventId,
+        path.data.prospectId,
+        input.data,
+      ),
+    });
+  });
+  app.post("/api/events/:eventId/prospects/:prospectId/convert", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    const path = prospectPathSchema.safeParse(context.req.param());
+    if (!path.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Prospect identity is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospect: await crm.convert(context.get("actor"), path.data.eventId, path.data.prospectId),
+    });
+  });
   app.notFound((context) =>
     context.json(
       envelope("NOT_FOUND", "The requested resource was not found.", context.get("correlationId")),
@@ -214,6 +322,16 @@ export function createHttpApp(
       return context.json(
         envelope("VALIDATION_FAILED", "Request body must be valid JSON.", correlationId),
         400,
+      );
+    if (error instanceof ProspectNotFoundError)
+      return context.json(
+        envelope("NOT_FOUND", "The requested resource was not found.", correlationId),
+        404,
+      );
+    if (error instanceof ProspectContactRequiredError)
+      return context.json(
+        envelope("VALIDATION_FAILED", "A contact is required before conversion.", correlationId),
+        409,
       );
     logger.error(
       {

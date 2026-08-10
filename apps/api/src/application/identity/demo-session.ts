@@ -13,9 +13,14 @@ const personas = {
     eventAccess: [primaryEventId, secondaryEventId].map((eventId) => ({
       eventId,
       role: "organizer" as const,
-      capabilities: ["events:read", "events:settings:read", "events:settings:update"] as const,
+      capabilities: [
+        "events:read",
+        "events:settings:read",
+        "events:settings:update",
+        "crm:manage",
+      ] as const,
     })),
-    capabilities: ["events:read", "events:create"] as const,
+    capabilities: ["events:read", "events:create", "crm:manage"] as const,
   },
   reviewer: {
     id: "seed-reviewer",

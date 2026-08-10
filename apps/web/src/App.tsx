@@ -2,6 +2,7 @@ import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
 import "./styles.css";
+import { CrmWorkspace } from "./CrmWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
@@ -218,6 +219,9 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEvent && session.capabilities.includes("crm:manage") ? (
+              <CrmWorkspace eventId={selectedEvent.id} ownerId={session.actor.id} />
+            ) : null}
             {error ? (
               <p role="alert" className="error">
                 {error}

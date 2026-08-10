@@ -5,6 +5,11 @@
     "events": "events",
     "users": "identity-access",
     "organization_memberships": "identity-access",
-    "event_roles": "identity-access"
+    "event_roles": "identity-access",
+    "crm_prospects": "crm",
+    "crm_contacts": "crm",
+    "crm_activities": "crm",
+    "speaker_profiles": "content",
+    "speaker_conversion_sources": "content"
   }
 }

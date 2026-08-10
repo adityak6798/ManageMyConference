@@ -42,6 +42,15 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
+    const crm = await readFile(
+      new URL("../migrations/0003_crm_conversion.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of crm
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
       repository.list({
@@ -100,6 +109,24 @@ describe("D1EventRepository", () => {
       "utf8",
     );
     for (const statement of foundation
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const crm = await readFile(
+      new URL("../migrations/0003_crm_conversion.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of crm
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const content = await readFile(
+      new URL("../migrations/0004_content_speaker_conversion.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of content
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))

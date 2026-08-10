@@ -1,5 +1,8 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
+import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
+import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
@@ -35,6 +38,12 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const crm = new CrmService({
+      repository: new D1CrmRepository(environment.DB),
+      speakerConversion: new D1SpeakerConversion(environment.DB, () => crypto.randomUUID()),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -56,6 +65,7 @@ export default {
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      crm,
     );
     return Promise.resolve(app.fetch(request));
   },
