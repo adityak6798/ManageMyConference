@@ -1,0 +1,30 @@
+[project]
+name = "greenroom-repo-tools"
+version = "0.1.0"
+description = "Repository context and integrity tools for Project Greenroom"
+requires-python = ">=3.11"
+dependencies = ["ruff>=0.12,<1"]
+
+[project.scripts]
+greenroom-context = "greenroom_tools.context:main"
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "BLE", "S", "TRY", "UP", "RUF"]
+ignore = ["S101", "TRY003"]
+
+[tool.pytest.ini_options]
+testpaths = ["tools/tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools/greenroom_tools"]

@@ -1,0 +1,27 @@
+{
+  "name": "@greenroom/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler deploy --dry-run --outdir dist",
+    "dev": "XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler dev src/index.ts --port ${GREENROOM_API_PORT:-8787}",
+    "migrate:local": "XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler d1 migrations apply greenroom-local --local",
+    "reset": "npm run migrate:local && XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler d1 execute greenroom-local --local --file seed/reset.sql",
+    "test": "vitest run",
+    "test:d1": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@greenroom/contracts": "*",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.7.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "miniflare": "5.20260801.1-alpha",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.30.0"
+  }
+}

@@ -1,0 +1,9 @@
+name = "project-greenroom-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-08"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "greenroom-local"
+database_id = "local-development"
+migrations_dir = "migrations"

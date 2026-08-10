@@ -1,0 +1,22 @@
+{
+  "name": "@greenroom/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "openapi:generate": "node --import tsx scripts/generate-openapi.ts",
+    "openapi:check": "node --import tsx scripts/generate-openapi.ts --check",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0"
+  }
+}

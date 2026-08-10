@@ -1,0 +1,195 @@
+<!-- GENERATED: do not edit; run `npm run context -- generate`. -->
+# Generated context index
+
+| Domain | Specs | Journeys | Acceptance | Plans | Index |
+|---|---|---|---|---|---|
+| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001` | — | `ACC-HARNESS` | `PLAN-001` | [docs/architecture/README.md](../architecture/README.md) |
+| identity-access | `PRD-IAM-001`, `PRD-IAM-002` | — | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| events | `PRD-EVT-001` | — | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| review | `PRD-REV-001` | `JNY-003` | `ACC-REVIEW` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| content | `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001` | `JNY-004`, `JNY-005` | `ACC-SPEAKER` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| crm | `PRD-CRM-001` | `JNY-008` | `ACC-CRM` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| agenda | `PRD-AGD-001` | `JNY-006` | `ACC-AGENDA` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| communications-integrations | `PRD-COM-001`, `PRD-INT-001` | `JNY-009` | `ACC-INTEGRATION` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| publishing | `PRD-PUB-001` | `JNY-007` | `ACC-PUBLIC` | `PLAN-002`, `PLAN-003` | [docs/product/specifications.md](../product/specifications.md) |
+
+## Identifier backlinks
+
+### `ACC-AGENDA`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ACC-CFP`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ACC-CRM`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ACC-HARNESS`
+- `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/demo-session.test.ts](../../apps/api/test/demo-session.test.ts)
+- `test` / `repository-fact`: [apps/api/test/event-mappers.test.ts](../../apps/api/test/event-mappers.test.ts)
+- `test` / `repository-fact`: [apps/api/test/event-service.test.ts](../../apps/api/test/event-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/http.test.ts](../../apps/api/test/http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/runtime-auth.test.ts](../../apps/api/test/runtime-auth.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/error-fallback.test.tsx](../../apps/web/test/error-fallback.test.tsx)
+- `specification` / `normative`: [docs/exec-plans/completed.md](../../docs/exec-plans/completed.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `test` / `repository-fact`: [tools/tests/check-errors.test.mjs](../../tools/tests/check-errors.test.mjs)
+- `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
+
+### `ACC-INTEGRATION`
+- `specification` / `normative`: [docs/README.md](../../docs/README.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ACC-PUBLIC`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ACC-REVIEW`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ACC-SPEAKER`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `ARC-001`
+- `specification` / `normative`: [docs/architecture/system-context.md](../../docs/architecture/system-context.md)
+
+### `ARC-DOM-001`
+- `specification` / `normative`: [docs/architecture/domain-boundaries.md](../../docs/architecture/domain-boundaries.md)
+
+### `ENG-CI-001`
+- `specification` / `normative`: [docs/engineering/ci-and-release.md](../../docs/engineering/ci-and-release.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `code` / `repository-fact`: [tools/greenroom_tools/context.py](../../tools/greenroom_tools/context.py)
+- `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
+
+### `JNY-001`
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-002`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-003`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-004`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-005`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-006`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-007`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-008`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `JNY-009`
+- `specification` / `normative`: [docs/README.md](../../docs/README.md)
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+- `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
+### `PLAN-001`
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+- `specification` / `normative`: [docs/exec-plans/completed.md](../../docs/exec-plans/completed.md)
+
+### `PLAN-002`
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+
+### `PLAN-003`
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+
+### `PRD-ABS-001`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-AGD-001`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-CFP-001`
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-CFP-002`
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-CNT-001`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-COM-001`
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-CRM-001`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-EVT-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/event-repository.ts](../../apps/api/src/application/events/event-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/event-service.ts](../../apps/api/src/application/events/event-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/public.ts](../../apps/api/src/application/events/public.ts)
+- `code` / `repository-fact`: [apps/api/src/index.ts](../../apps/api/src/index.ts)
+- `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
+- `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
+
+### `PRD-IAM-001`
+- `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [tools/setup-local.mjs](../../tools/setup-local.mjs)
+
+### `PRD-IAM-002`
+- `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
+- `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-INT-001`
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-PUB-001`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-REV-001`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-SPK-001`
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+### `PRD-SPK-002`
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+
+Trust: normative metadata plus declared repository facts.

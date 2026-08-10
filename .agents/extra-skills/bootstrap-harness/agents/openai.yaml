@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrap Harness"
+  short_description: "Build an agent-readable, self-enforcing repository"
+  default_prompt: "Use $bootstrap-harness to establish a documented, testable, agent-ready repository foundation."

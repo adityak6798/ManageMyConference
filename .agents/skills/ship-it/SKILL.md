@@ -1,0 +1,92 @@
+---
+name: ship-it
+description: Take implementation-ready repository work to a review-ready pull request through scoped validation, documentation synchronization, adversarial Ralph review loops, intentional commit and push, hosted CI repair, a 15-minute automated-review observation window, review-thread triage, and transparent PR findings/outstanding-work comments. Use when the user says ship it, make this PR ready, prepare or finish a PR, run final review, or asks to take completed implementation through CI and review. Supports invocation-specific review opinions and durable repo review opinions.
+---
+
+# Ship It
+
+Move completed implementation to a truthful, review-ready draft PR. Do not merge it or mark it ready for review unless the user explicitly asks.
+
+## Start
+
+1. Read the repository instructions and inspect the worktree, branch, diff, current PR, and governing plan/spec IDs.
+2. Capture review opinions from the invocation. Also read `.agents/ship-it-review-opinions.md` when present. Treat these as explicit review criteria, not automatic implementation requirements.
+3. Confirm the changed files belong to the requested scope. Stop for unrelated or ambiguous user changes.
+4. State the intended PR scope and the high-risk behavior before mutating Git or GitHub.
+
+Read [review-loop.md](references/review-loop.md) before starting adversarial review. Read [doc-sync.md](references/doc-sync.md) before the documentation stage. Read [pr-ci-and-comments.md](references/pr-ci-and-comments.md) before publishing or writing to GitHub.
+
+## Workflow
+
+### 1. Establish implementation readiness
+
+- Identify user-visible behavior, authorization boundaries, persistence, failure states, contracts, and operational changes in the diff.
+- Run the smallest meaningful local checks first, then the repository's aggregate gate.
+- Prefer behavioral evidence over line-coverage targets or broad snapshots.
+- If implementation is not actually ready, repair in-scope defects. Report a blocker if completion needs a product or design decision.
+
+### 2. Synchronize documentation
+
+- Compare code, tests, interfaces, migrations, configuration, generated artifacts, plans, scorecards, and known gaps.
+- Update canonical sources and regenerate derived docs/artifacts.
+- Reject claims that exceed executed evidence. Distinguish local proof, configured CI, and externally verified state.
+- Run the documentation/context drift gates. Use [doc-sync.md](references/doc-sync.md).
+
+### 3. Run the skeptical Ralph loop
+
+- Give an independent skeptical reviewer the actual diff, governing documents, test evidence, and review opinions.
+- Ask for severity-ranked blocker, major, minor, and note findings. Require concrete file/behavior evidence.
+- Fix all blockers and majors that are in scope. Triage minors; fix high-value ones and record justified deferrals.
+- Re-run relevant tests and doc sync after repairs, then ask the reviewer to inspect the new state.
+- Repeat until the reviewer reports zero blockers and zero majors. Never substitute self-attestation for the independent pass.
+- Maintain a findings ledger for the PR comment using the schema in [review-loop.md](references/review-loop.md).
+
+### 4. Publish a draft PR
+
+- Create or reuse an intentional branch, stage only scoped files, commit tersely, push, and create or update a draft PR.
+- Write a PR body covering what changed, why, impact, validation, and known limitations.
+- Do not claim hosted checks passed before they finish.
+
+### 5. Reach green hosted CI
+
+- Wait for every required check to finish. Inspect job logs for failures.
+- Fix actionable failures, run the relevant local reproduction, commit, push, and wait again.
+- Before pushing a repair, repeat the affected readiness and documentation stages. Any functional code, contract, migration, authorization, or runtime-configuration repair must return through Ralph; a mechanical CI-service correction need not repeat unrelated review.
+- Rerun an unchanged job only when evidence supports an infrastructure or flaky failure; record that judgment.
+- Continue until required CI is green or a genuine external blocker is documented.
+
+### 6. Observe automated review for 15 minutes
+
+- Once the latest pushed commit has green CI, observe the PR for a full 15-minute quiet window for automated review bots.
+- Poll reviews, conversation comments, and thread-aware inline comments at intervals no longer than 60 seconds while keeping the user updated.
+- If a bot review is still pending at 15 minutes, report that explicitly; do not pretend it completed.
+- Triage every new actionable thread. Fix valid in-scope findings, explain rejected suggestions, and surface design decisions.
+- After any pushed repair, repeat affected local checks, doc sync, Ralph review, and hosted CI. Start a new 15-minute quiet window only after required CI is green on the repaired head SHA.
+
+### 7. Post transparent PR comments
+
+- Add or update one PR comment containing the triaged findings table. Include Ralph and automated-review findings, their disposition, and evidence.
+- Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, and ownership. If nothing remains, say so explicitly.
+- Use stable HTML markers so reruns update the two comments instead of creating duplicates. Follow [pr-ci-and-comments.md](references/pr-ci-and-comments.md).
+- Resolve a review thread only after its fix is pushed and validated, or after a clear documented rejection makes resolution appropriate.
+
+## Decision boundary
+
+Pause and surface choices that change public interfaces, product behavior, authorization, data ownership, migration compatibility, dependencies/runtime, privacy/security posture, or acceptance scope. Present the evidence, viable options, recommendation, and consequence of waiting.
+
+Do not pause for reversible implementation details already governed by repository standards.
+
+## Completion
+
+Call the PR review-ready only when:
+
+- scoped local validation passes;
+- canonical docs and generated artifacts agree with code;
+- Ralph reports zero blockers and zero majors;
+- required hosted CI is green;
+- the final 15-minute bot-review window is complete or honestly reported as externally pending;
+- actionable review threads are triaged;
+- findings and remaining-work comments reflect the final commit;
+- the worktree is clean and the branch is pushed.
+
+Return the PR link, final commit, checks, review verdict, thread counts, deferred work, and any decision still required from the user.
