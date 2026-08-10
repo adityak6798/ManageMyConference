@@ -35,7 +35,11 @@ export function App() {
       ? await listEvents()
       : [];
     setSession(currentSession);
-    setEvents(loadedEvents);
+    setEvents((current) => {
+      if (loadedEvents.length || currentSession.actor.persona !== "public") return loadedEvents;
+      const allowed = new Set(currentSession.eventAccess.map(({ eventId }) => eventId));
+      return current.filter(({ id }) => allowed.has(id));
+    });
     setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
   }, []);
 
@@ -60,7 +64,6 @@ export function App() {
     setError(null);
     try {
       await startDemoSession(persona);
-      setSelectedEventId("");
       await loadShell();
     } catch (reason: unknown) {
       setError(readableError(reason));

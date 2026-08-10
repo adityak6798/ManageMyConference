@@ -49,7 +49,7 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker'),
   ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');
 
-INSERT INTO cfp_forms (event_id, title, description, fields_json, status, version, published_at)
+INSERT INTO cfp_forms (event_id, title, description, fields_json, status, version, published_at, published_json)
 VALUES (
   '00000000-0000-4000-8000-000000000001',
   'Share your conference story',
@@ -57,5 +57,6 @@ VALUES (
   '[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}]',
   'open',
   1,
-  '2026-08-09T12:00:00.000Z'
+  '2026-08-09T12:00:00.000Z',
+  '{"eventId":"00000000-0000-4000-8000-000000000001","title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"status":"open","version":1,"publishedAt":"2026-08-09T12:00:00.000Z"}'
 );

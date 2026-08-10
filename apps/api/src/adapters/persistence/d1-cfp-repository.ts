@@ -1,8 +1,8 @@
 import type { CfpRepository } from "../../application/cfp/cfp-repository";
 import type { CfpForm, ProposalSubmission } from "../../domain/cfp/cfp";
-interface D1DatabasePort {
+export interface D1CfpDatabasePort {
   prepare(query: string): {
-    bind(...values: unknown[]): ReturnType<D1DatabasePort["prepare"]>;
+    bind(...values: unknown[]): ReturnType<D1CfpDatabasePort["prepare"]>;
     run<T = unknown>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
     all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
   };
@@ -16,6 +16,7 @@ type FormRow = {
   status: CfpForm["status"];
   version: number;
   published_at: string | null;
+  published_json: string | null;
 };
 type SubmissionRow = {
   id: string;
@@ -26,11 +27,11 @@ type SubmissionRow = {
   submitted_at: string;
 };
 export class D1CfpRepository implements CfpRepository {
-  constructor(private readonly database: D1DatabasePort) {}
+  constructor(private readonly database: D1CfpDatabasePort) {}
   async findForm(eventId: string) {
     const result = await this.database
       .prepare(
-        "SELECT event_id, title, description, fields_json, status, version, published_at FROM cfp_forms WHERE event_id = ? LIMIT 1",
+        "SELECT event_id, title, description, fields_json, status, version, published_at, published_json FROM cfp_forms WHERE event_id = ? LIMIT 1",
       )
       .bind(eventId)
       .all<FormRow>();
@@ -49,6 +50,16 @@ export class D1CfpRepository implements CfpRepository {
         }
       : null;
   }
+  async findPublished(eventId: string): Promise<CfpForm | null> {
+    const result = await this.database
+      .prepare("SELECT published_json FROM cfp_forms WHERE event_id = ? LIMIT 1")
+      .bind(eventId)
+      .all<{ published_json: string | null }>();
+    if (!result.success)
+      throw new Error(`D1 failed to find published CFP: ${result.error ?? "unknown error"}`);
+    const value = result.results?.[0]?.published_json;
+    return value ? (JSON.parse(value) as CfpForm) : null;
+  }
   async saveForm(form: CfpForm) {
     const result = await this.database
       .prepare(
@@ -66,6 +77,31 @@ export class D1CfpRepository implements CfpRepository {
       .run();
     if (!result.success)
       throw new Error(`D1 failed to save CFP: ${result.error ?? "unknown error"}`);
+  }
+  async savePublished(form: CfpForm, updateEditable: boolean): Promise<void> {
+    const result = await this.database
+      .prepare(
+        "UPDATE cfp_forms SET published_json = ?, title = CASE WHEN ? THEN ? ELSE title END, description = CASE WHEN ? THEN ? ELSE description END, fields_json = CASE WHEN ? THEN ? ELSE fields_json END, status = CASE WHEN ? THEN ? ELSE status END, version = CASE WHEN ? THEN ? ELSE version END, published_at = CASE WHEN ? THEN ? ELSE published_at END WHERE event_id = ?",
+      )
+      .bind(
+        JSON.stringify(form),
+        updateEditable,
+        form.title,
+        updateEditable,
+        form.description,
+        updateEditable,
+        JSON.stringify(form.fields),
+        updateEditable,
+        form.status,
+        updateEditable,
+        form.version,
+        updateEditable,
+        form.publishedAt,
+        form.eventId,
+      )
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to publish CFP: ${result.error ?? "unknown error"}`);
   }
   async findSubmission(eventId: string, key: string) {
     const result = await this.database

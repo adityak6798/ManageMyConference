@@ -76,8 +76,43 @@ describe("CFP service", () => {
     const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());
     await service.save(actor, { eventId, title: "Speak", description: "", fields });
     await expect(service.getPublished(eventId)).rejects.toBeInstanceOf(CfpUnavailableError);
+    await expect(service.changeState(actor, eventId, "close")).rejects.toThrow(
+      "Only an open CFP can be closed",
+    );
+    await expect(service.changeState(actor, eventId, "reopen")).rejects.toThrow(
+      "Only a closed CFP can be reopened",
+    );
     await expect(
       service.getForOrganizer(actor, "00000000-0000-4000-8000-000000000099"),
     ).rejects.toThrow("Organizer event access denied");
+  });
+  it("keeps the published snapshot public while a replacement draft is edited", async () => {
+    const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());
+    await service.save(actor, { eventId, title: "Published", description: "", fields });
+    await service.changeState(actor, eventId, "publish");
+    await service.save(actor, { eventId, title: "New draft", description: "", fields });
+    await expect(service.getPublished(eventId)).resolves.toMatchObject({
+      title: "Published",
+      status: "open",
+    });
+    await service.changeState(actor, eventId, "close");
+    await expect(service.getForOrganizer(actor, eventId)).resolves.toMatchObject({
+      title: "New draft",
+      status: "draft",
+    });
+    await expect(service.getPublished(eventId)).resolves.toMatchObject({
+      title: "Published",
+      status: "closed",
+    });
+    await service.changeState(actor, eventId, "reopen");
+    await expect(service.getForOrganizer(actor, eventId)).resolves.toMatchObject({
+      title: "New draft",
+      status: "draft",
+    });
+    await service.changeState(actor, eventId, "publish");
+    await expect(service.getPublished(eventId)).resolves.toMatchObject({
+      title: "New draft",
+      status: "open",
+    });
   });
 });

@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
 
 // @spec PRD-EVT-001
 export const organizations = sqliteTable(
@@ -88,8 +96,9 @@ export const cfpForms = sqliteTable("cfp_forms", {
   description: text("description").notNull(),
   fieldsJson: text("fields_json").notNull(),
   status: text("status").notNull(),
-  version: text("version").notNull(),
+  version: integer("version").notNull(),
   publishedAt: text("published_at"),
+  publishedJson: text("published_json"),
 });
 // @spec PRD-CFP-002
 export const cfpSubmissions = sqliteTable(
@@ -99,7 +108,7 @@ export const cfpSubmissions = sqliteTable(
     eventId: text("event_id")
       .notNull()
       .references(() => events.id),
-    cfpVersion: text("cfp_version").notNull(),
+    cfpVersion: integer("cfp_version").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     answersJson: text("answers_json").notNull(),
     submittedAt: text("submitted_at").notNull(),

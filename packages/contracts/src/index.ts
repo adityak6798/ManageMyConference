@@ -83,10 +83,32 @@ export const cfpFieldSchema = z.object({
   options: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
 });
 export const cfpStatusSchema = z.enum(["draft", "open", "closed"]);
+const cfpFieldsSchema = z
+  .array(cfpFieldSchema)
+  .min(1)
+  .max(40)
+  .superRefine((fields, context) => {
+    const seen = new Set<string>();
+    fields.forEach((field, index) => {
+      if (seen.has(field.id))
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Field IDs must be unique",
+        });
+      seen.add(field.id);
+      if (field.type === "select" && field.options.length === 0)
+        context.addIssue({
+          code: "custom",
+          path: [index, "options"],
+          message: "Select fields need at least one option",
+        });
+    });
+  });
 export const saveCfpInputSchema = z.object({
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().max(2000).default(""),
-  fields: z.array(cfpFieldSchema).min(1).max(40),
+  fields: cfpFieldsSchema,
 });
 export const cfpFormSchema = saveCfpInputSchema.extend({
   eventId: z.string().uuid(),

@@ -100,7 +100,7 @@
         "apps/web/src/api/events.ts",
         "apps/web/src/main.tsx",
         "apps/web/test",
-        "apps/web/e2e"
+        "apps/web/e2e/reference-slice.spec.ts"
       ]
     },
     {
@@ -116,10 +116,13 @@
         "apps/api/src/adapters/persistence/d1-cfp-repository.ts",
         "apps/api/src/adapters/persistence/memory-cfp-repository.ts",
         "apps/api/migrations/0003_cfp.sql",
+        "apps/api/migrations/0004_cfp_published_snapshot.sql",
         "apps/api/test/cfp-service.test.ts",
         "apps/api/test/cfp-http.test.ts",
+        "apps/api/test/d1-cfp-repository.integration.test.ts",
         "apps/web/src/api/cfp.ts",
-        "apps/web/src/CfpWorkspace.tsx"
+        "apps/web/src/CfpWorkspace.tsx",
+        "apps/web/e2e/cfp.spec.ts"
       ]
     },
     {

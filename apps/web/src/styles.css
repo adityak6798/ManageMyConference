@@ -90,6 +90,9 @@ textarea {
   gap: 8px;
   margin-top: 8px;
 }
+.checkbox-label input {
+  width: auto;
+}
 .identity-switcher {
   min-width: 190px;
 }

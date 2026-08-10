@@ -34,6 +34,11 @@ describe("D1IdentityDirectory", () => {
     for (const statement of statements(foundation)) await database.prepare(statement).run();
     const cfp = await readFile(new URL("../migrations/0003_cfp.sql", import.meta.url), "utf8");
     for (const statement of statements(cfp)) await database.prepare(statement).run();
+    const snapshot = await readFile(
+      new URL("../migrations/0004_cfp_published_snapshot.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(snapshot)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 

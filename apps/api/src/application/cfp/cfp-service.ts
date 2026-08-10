@@ -5,6 +5,7 @@ import type { CfpRepository } from "./cfp-repository";
 import type { SubmittedProposalReference } from "./public";
 
 export class CfpUnavailableError extends Error {}
+export class CfpStateError extends Error {}
 export class CfpValidationError extends Error {
   constructor(readonly fieldErrors: Record<string, string[]>) {
     super("Proposal validation failed");
@@ -50,20 +51,26 @@ export class CfpService {
     state: "publish" | "close" | "reopen",
   ): Promise<CfpForm> {
     organizerFor(actor, eventId);
-    const prior = await this.repository.findForm(eventId);
-    if (!prior) throw new CfpUnavailableError("Create the CFP before changing its state");
-    const status = state === "close" ? "closed" : "open";
-    const form = {
-      ...prior,
-      status,
-      publishedAt: prior.publishedAt ?? this.now().toISOString(),
-    } as CfpForm;
-    await this.repository.saveForm(form);
+    const draft = await this.repository.findForm(eventId);
+    if (!draft) throw new CfpUnavailableError("Create the CFP before changing its state");
+    const published = await this.repository.findPublished(eventId);
+    if (state === "close" && published?.status !== "open")
+      throw new CfpStateError("Only an open CFP can be closed");
+    if (state === "reopen" && published?.status !== "closed")
+      throw new CfpStateError("Only a closed CFP can be reopened");
+    const source = state === "publish" ? draft : published;
+    if (!source) throw new CfpUnavailableError("Publish the CFP before changing its state");
+    const form: CfpForm = {
+      ...source,
+      status: state === "close" ? "closed" : "open",
+      publishedAt: source.publishedAt ?? this.now().toISOString(),
+    };
+    await this.repository.savePublished(form, state === "publish" || draft.status !== "draft");
     return form;
   }
   async getPublished(eventId: string): Promise<CfpForm> {
-    const form = await this.repository.findForm(eventId);
-    if (!form || form.status === "draft") throw new CfpUnavailableError("The CFP is not published");
+    const form = await this.repository.findPublished(eventId);
+    if (!form) throw new CfpUnavailableError("The CFP is not published");
     return form;
   }
   async submit(

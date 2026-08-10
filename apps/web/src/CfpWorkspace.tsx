@@ -28,21 +28,35 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
+  const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
+    let current = true;
+    setForm(null);
+    setFields(starter);
+    setTitle("Call for proposals");
+    setDescription("");
+    setAnswers({});
+    setSubmissionKey(crypto.randomUUID());
     setNotice("");
     setErrors({});
     // ERROR-INTENT: React effects cannot await; the handlers render load failures.
     void loadCfp(eventId, organizer)
       .then((loaded) => {
+        if (!current) return;
         setForm(loaded);
         setTitle(loaded.title);
         setDescription(loaded.description);
         setFields([...loaded.fields]);
       })
       .catch((reason: unknown) => {
+        if (!current) return;
         if (!(reason instanceof CfpApiError && reason.envelope.error.code === "NOT_FOUND"))
           setNotice(message(reason));
       });
+    return () => {
+      current = false;
+    };
   }, [eventId, organizer]);
   const persist = async () => {
     try {
@@ -67,13 +81,17 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setErrors({});
+    setSubmitting(true);
     try {
-      const result = await submitProposal(eventId, answers, crypto.randomUUID());
+      const result = await submitProposal(eventId, answers, submissionKey);
       setNotice(`Proposal received. Confirmation: ${result.confirmationId}`);
+      setSubmissionKey(crypto.randomUUID());
     } catch (reason) {
       // ERROR-INTENT: Field errors and the notice render the submission failure.
       if (reason instanceof CfpApiError) setErrors(reason.envelope.error.fieldErrors ?? {});
       setNotice(message(reason));
+    } finally {
+      setSubmitting(false);
     }
   };
   const renderFields = (editable: boolean) =>
@@ -86,17 +104,94 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
         {field.guidance && <small>{field.guidance}</small>}
         {editable ? (
           <>
-            <input
-              id={`cfp-${field.id}`}
-              value={field.label}
-              onChange={(e) =>
-                setFields(
-                  fields.map((item) =>
-                    item.id === field.id ? { ...item, label: e.target.value } : item,
-                  ),
-                )
-              }
-            />
+            <label>
+              Field type
+              <select
+                value={field.type}
+                onChange={(event) =>
+                  setFields(
+                    fields.map((item) =>
+                      item.id === field.id
+                        ? {
+                            ...item,
+                            type: event.target.value as CfpField["type"],
+                            options: event.target.value === "select" ? item.options : [],
+                          }
+                        : item,
+                    ),
+                  )
+                }
+              >
+                <option value="short_text">Short text</option>
+                <option value="long_text">Long text</option>
+                <option value="email">Email</option>
+                <option value="select">Select</option>
+              </select>
+            </label>
+            <label>
+              Question label
+              <input
+                id={`cfp-${field.id}`}
+                value={field.label}
+                onChange={(e) =>
+                  setFields(
+                    fields.map((item) =>
+                      item.id === field.id ? { ...item, label: e.target.value } : item,
+                    ),
+                  )
+                }
+              />
+            </label>
+            <label>
+              Guidance
+              <input
+                value={field.guidance}
+                onChange={(event) =>
+                  setFields(
+                    fields.map((item) =>
+                      item.id === field.id ? { ...item, guidance: event.target.value } : item,
+                    ),
+                  )
+                }
+              />
+            </label>
+            {field.type === "select" && (
+              <label>
+                Options (comma separated)
+                <input
+                  value={field.options.join(", ")}
+                  onChange={(event) =>
+                    setFields(
+                      fields.map((item) =>
+                        item.id === field.id
+                          ? {
+                              ...item,
+                              options: event.target.value
+                                .split(",")
+                                .map((value) => value.trim())
+                                .filter(Boolean),
+                            }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+            )}
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={field.required}
+                onChange={(event) =>
+                  setFields(
+                    fields.map((item) =>
+                      item.id === field.id ? { ...item, required: event.target.checked } : item,
+                    ),
+                  )
+                }
+              />{" "}
+              Required
+            </label>
             <div className="field-actions">
               <button
                 type="button"
@@ -109,6 +204,12 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                 }}
               >
                 Move up
+              </button>
+              <button
+                type="button"
+                onClick={() => setFields(fields.filter((item) => item.id !== field.id))}
+              >
+                Remove
               </button>
               <button
                 type="button"
@@ -241,7 +342,9 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
           {form?.status === "open" ? (
             <>
               {renderFields(false)}
-              <button type="submit">Submit proposal</button>
+              <button type="submit" disabled={submitting}>
+                {submitting ? "Submitting…" : "Submit proposal"}
+              </button>
             </>
           ) : (
             <p className="empty">Submissions are closed.</p>

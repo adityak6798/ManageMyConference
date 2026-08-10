@@ -12,6 +12,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
 import {
   type CfpService,
+  CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
 } from "../../application/cfp/public";
@@ -340,6 +341,8 @@ export function createHttpApp(
         ),
         400,
       );
+    if (error instanceof CfpStateError)
+      return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 400);
     if (error instanceof CfpUnavailableError)
       return context.json(envelope("NOT_FOUND", error.message, correlationId), 404);
     logger.error(

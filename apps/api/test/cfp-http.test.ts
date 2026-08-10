@@ -61,6 +61,15 @@ describe("CFP HTTP journey", () => {
         await app.request(`${path}/state`, {
           method: "POST",
           headers: cookie,
+          body: JSON.stringify({ state: "close" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await app.request(`${path}/state`, {
+          method: "POST",
+          headers: cookie,
           body: JSON.stringify({ state: "publish" }),
         })
       ).status,
@@ -88,6 +97,23 @@ describe("CFP HTTP journey", () => {
     const second = await request();
     expect(first.status).toBe(201);
     expect(await second.json()).toEqual(await first.json());
+  });
+  it("rejects duplicate field IDs and selects without options", async () => {
+    const { app, cookie } = await setup();
+    for (const fields of [
+      [
+        { id: "same", type: "short_text", label: "One" },
+        { id: "same", type: "email", label: "Two" },
+      ],
+      [{ id: "choice", type: "select", label: "Choose", required: true, options: [] }],
+    ]) {
+      const response = await app.request(`/api/events/${eventId}/cfp`, {
+        method: "PUT",
+        headers: cookie,
+        body: JSON.stringify({ title: "Invalid", fields }),
+      });
+      expect(response.status).toBe(400);
+    }
   });
   it("rejects unauthorized and cross-event organizer access", async () => {
     const { app } = await setup();
