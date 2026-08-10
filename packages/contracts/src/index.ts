@@ -71,3 +71,43 @@ export const apiErrorEnvelopeSchema = z.object({
 });
 
 export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>;
+
+// @spec PRD-CFP-001 PRD-CFP-002
+export const cfpFieldTypeSchema = z.enum(["short_text", "long_text", "email", "select"]);
+export const cfpFieldSchema = z.object({
+  id: z.string().min(1).max(80),
+  type: cfpFieldTypeSchema,
+  label: z.string().trim().min(1).max(120),
+  guidance: z.string().trim().max(500).default(""),
+  required: z.boolean().default(false),
+  options: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+});
+export const cfpStatusSchema = z.enum(["draft", "open", "closed"]);
+export const saveCfpInputSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).default(""),
+  fields: z.array(cfpFieldSchema).min(1).max(40),
+});
+export const cfpFormSchema = saveCfpInputSchema.extend({
+  eventId: z.string().uuid(),
+  status: cfpStatusSchema,
+  version: z.number().int().positive(),
+  publishedAt: z.string().datetime().nullable(),
+});
+export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
+export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close", "reopen"]) });
+export const submitProposalInputSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(120),
+  answers: z.record(z.string()),
+});
+export const proposalConfirmationSchema = z.object({
+  confirmationId: z.string().uuid(),
+  submittedAt: z.string().datetime(),
+});
+export const proposalConfirmationResponseSchema = z.object({
+  submission: proposalConfirmationSchema,
+});
+export type CfpField = z.infer<typeof cfpFieldSchema>;
+export type CfpFormDto = z.infer<typeof cfpFormSchema>;
+export type SaveCfpInput = z.infer<typeof saveCfpInputSchema>;
+export type SubmitProposalInput = z.infer<typeof submitProposalInputSchema>;

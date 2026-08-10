@@ -21,6 +21,8 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-CFP`
+- `test` / `repository-fact`: [apps/api/test/cfp-http.test.ts](../../apps/api/test/cfp-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/cfp-service.test.ts](../../apps/api/test/cfp-service.test.ts)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -143,10 +145,16 @@
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 
 ### `PRD-CFP-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/cfp/cfp-service.ts](../../apps/api/src/application/cfp/cfp-service.ts)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-CFP-002`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/cfp/cfp-service.ts](../../apps/api/src/application/cfp/cfp-service.ts)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-CNT-001`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

@@ -2,6 +2,7 @@ import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
 import "./styles.css";
+import { CfpWorkspace } from "./CfpWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
@@ -189,6 +190,9 @@ export function App() {
                 <p className="empty">This identity has no event workspace assigned.</p>
               )}
             </section>
+            {selectedEvent ? (
+              <CfpWorkspace eventId={selectedEvent.id} organizer={activeRole === "organizer"} />
+            ) : null}
             {session.capabilities.includes("events:create") ? (
               <section aria-labelledby="create-title">
                 <h2 id="create-title">Create an event</h2>

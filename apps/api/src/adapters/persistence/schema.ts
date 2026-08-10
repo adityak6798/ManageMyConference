@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 // @spec PRD-EVT-001
 export const organizations = sqliteTable(
@@ -75,5 +75,40 @@ export const eventRoles = sqliteTable(
     primaryKey({ columns: [table.eventId, table.userId, table.role] }),
     check("event_roles_role", sql`${table.role} IN ('organizer', 'reviewer', 'speaker', 'public')`),
     index("event_roles_user_id_idx").on(table.userId),
+  ],
+);
+
+// @spec PRD-CFP-001
+export const cfpForms = sqliteTable("cfp_forms", {
+  eventId: text("event_id")
+    .primaryKey()
+    .notNull()
+    .references(() => events.id),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  fieldsJson: text("fields_json").notNull(),
+  status: text("status").notNull(),
+  version: text("version").notNull(),
+  publishedAt: text("published_at"),
+});
+// @spec PRD-CFP-002
+export const cfpSubmissions = sqliteTable(
+  "cfp_submissions",
+  {
+    id: text("id").primaryKey().notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    cfpVersion: text("cfp_version").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    answersJson: text("answers_json").notNull(),
+    submittedAt: text("submitted_at").notNull(),
+  },
+  (table) => [
+    unique("cfp_submissions_event_id_idempotency_key_unique").on(
+      table.eventId,
+      table.idempotencyKey,
+    ),
+    index("cfp_submissions_event_id_idx").on(table.eventId),
   ],
 );
