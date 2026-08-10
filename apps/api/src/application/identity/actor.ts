@@ -1,8 +1,21 @@
-export type Capability = "events:read" | "events:create";
+export type Capability =
+  | "events:read"
+  | "events:create"
+  | "events:settings:read"
+  | "events:settings:update";
+
+export interface EventAccess {
+  readonly eventId: string;
+  readonly role: "organizer" | "reviewer" | "speaker" | "public";
+  readonly capabilities: ReadonlySet<Capability>;
+}
 
 export interface Actor {
   readonly id: string;
-  readonly persona: "organizer" | "reviewer" | "speaker";
+  readonly name: string;
+  readonly persona: "organizer" | "reviewer" | "speaker" | "public";
+  readonly organizations: readonly { id: string }[];
+  readonly eventAccess: readonly EventAccess[];
   readonly capabilities: ReadonlySet<Capability>;
 }
 

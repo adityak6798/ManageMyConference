@@ -5,7 +5,7 @@
 |---|---|---|---|---|---|
 | platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001` | — | `ACC-HARNESS` | `PLAN-001` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | — | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| events | `PRD-EVT-001` | — | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| events | `PRD-EVT-001` | — | `ACC-IDENTITY-EVENTS` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | review | `PRD-REV-001` | `JNY-003` | `ACC-REVIEW` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | content | `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001` | `JNY-004`, `JNY-005` | `ACC-SPEAKER` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -35,8 +35,6 @@
 - `test` / `repository-fact`: [apps/api/test/event-service.test.ts](../../apps/api/test/event-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/http.test.ts](../../apps/api/test/http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/runtime-auth.test.ts](../../apps/api/test/runtime-auth.test.ts)
-- `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
-- `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/error-fallback.test.tsx](../../apps/web/test/error-fallback.test.tsx)
 - `specification` / `normative`: [docs/exec-plans/completed.md](../../docs/exec-plans/completed.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
@@ -44,11 +42,18 @@
 - `test` / `repository-fact`: [tools/tests/check-errors.test.mjs](../../tools/tests/check-errors.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 
+### `ACC-IDENTITY-EVENTS`
+- `test` / `repository-fact`: [apps/api/test/d1-identity-directory.integration.test.ts](../../apps/api/test/d1-identity-directory.integration.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
 ### `ACC-INTEGRATION`
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-PUBLIC`
+- `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -155,6 +160,7 @@
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 
 ### `PRD-EVT-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
 - `code` / `repository-fact`: [apps/api/src/application/events/event-repository.ts](../../apps/api/src/application/events/event-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/application/events/event-service.ts](../../apps/api/src/application/events/event-service.ts)
@@ -166,11 +172,16 @@
 - `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-IAM-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/identity/identity-directory.ts](../../apps/api/src/application/identity/identity-directory.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
+- `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `code` / `repository-fact`: [tools/setup-local.mjs](../../tools/setup-local.mjs)
 
 ### `PRD-IAM-002`
+- `code` / `repository-fact`: [apps/api/src/application/identity/identity-directory.ts](../../apps/api/src/application/identity/identity-directory.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)

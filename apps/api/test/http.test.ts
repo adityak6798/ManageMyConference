@@ -2,7 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { EventService } from "../src/application/events/event-service";
-import { createDemoSession } from "../src/application/identity/demo-session";
+import {
+  createDemoSession,
+  resolveSeededDemoActor,
+} from "../src/application/identity/demo-session";
 import { createHttpApp, type StructuredLogger } from "../src/transport/http/app";
 
 const secret = "test-session-secret";
@@ -18,16 +21,38 @@ const createTestApp = () => {
       demoMode: true,
       sessionSecret: secret,
       now: () => 1_000,
+      resolveActor: resolveSeededDemoActor,
     }),
     logger,
   };
 };
-const cookieFor = async (persona: "organizer" | "reviewer") => ({
+const cookieFor = async (persona: "organizer" | "reviewer" | "speaker" | "public") => ({
   cookie: `greenroom_session=${await createDemoSession(persona, secret, 2_000)}`,
 });
 
 describe("events HTTP transport", () => {
-  it("distinguishes unauthenticated from forbidden and logs denials", async () => {
+  it("returns the seeded identity, memberships, event roles, and capabilities", async () => {
+    const { app } = createTestApp();
+    const organizer = await app.request("/api/session", { headers: await cookieFor("organizer") });
+    expect(organizer.status).toBe(200);
+    await expect(organizer.json()).resolves.toMatchObject({
+      actor: { id: "seed-organizer", persona: "organizer" },
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010" }],
+      eventAccess: expect.arrayContaining([expect.objectContaining({ role: "organizer" })]),
+      capabilities: expect.arrayContaining(["events:create"]),
+    });
+    const publicSession = await app.request("/api/session", { headers: await cookieFor("public") });
+    await expect(publicSession.json()).resolves.toMatchObject({
+      actor: { persona: "public" },
+      organizations: [],
+      eventAccess: [expect.objectContaining({ role: "public" })],
+    });
+    expect((await app.request("/api/events", { headers: await cookieFor("public") })).status).toBe(
+      403,
+    );
+  });
+
+  it("distinguishes unauthenticated access and scopes reviewer events", async () => {
     const { app, logger } = createTestApp();
     const unauthenticated = await app.request("/api/events", {
       headers: { "x-correlation-id": "test-correlation" },
@@ -36,10 +61,10 @@ describe("events HTTP transport", () => {
     await expect(unauthenticated.json()).resolves.toMatchObject({
       error: { code: "UNAUTHORIZED", correlationId: "test-correlation" },
     });
-    const forbidden = await app.request("/api/events", { headers: await cookieFor("reviewer") });
-    expect(forbidden.status).toBe(403);
-    await expect(forbidden.json()).resolves.toMatchObject({ error: { code: "FORBIDDEN" } });
-    expect(logger.warn).toHaveBeenCalledTimes(2);
+    const reviewer = await app.request("/api/events", { headers: await cookieFor("reviewer") });
+    expect(reviewer.status).toBe(200);
+    await expect(reviewer.json()).resolves.toEqual({ events: [] });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 
   it("denies event mutations before persistence", async () => {
@@ -54,6 +79,7 @@ describe("events HTTP transport", () => {
       demoMode: true,
       sessionSecret: secret,
       now: () => 1_000,
+      resolveActor: resolveSeededDemoActor,
     });
     const request = (headers: Record<string, string>) =>
       app.request("/api/events", {
@@ -99,7 +125,11 @@ describe("events HTTP transport", () => {
     const created = await app.request("/api/events", {
       method: "POST",
       headers,
-      body: JSON.stringify({ name: "Greenroom Summit", timezone: "America/Los_Angeles" }),
+      body: JSON.stringify({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        name: "Greenroom Summit",
+        timezone: "America/Los_Angeles",
+      }),
     });
     expect(created.status).toBe(201);
     const reloaded = await app.request("/api/events", { headers });
@@ -146,6 +176,7 @@ describe("events HTTP transport", () => {
       demoMode: true,
       sessionSecret: secret,
       now: () => 1_000,
+      resolveActor: resolveSeededDemoActor,
     });
     for (const name of ["   ", "x".repeat(121)]) {
       const response = await app.request("/api/events", {
@@ -155,7 +186,11 @@ describe("events HTTP transport", () => {
           "content-type": "application/json",
           "x-correlation-id": "validation-correlation",
         },
-        body: JSON.stringify({ name, timezone: "UTC" }),
+        body: JSON.stringify({
+          organizationId: "00000000-0000-4000-8000-000000000010",
+          name,
+          timezone: "UTC",
+        }),
       });
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toMatchObject({
@@ -210,6 +245,63 @@ describe("events HTTP transport", () => {
     });
   });
 
+  it("validates and tenant-scopes event identity queries without enumeration", async () => {
+    const repository = new MemoryEventRepository();
+    await repository.create({
+      id: "00000000-0000-4000-8000-000000000001",
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      name: "Assigned Summit",
+      timezone: "UTC",
+      createdAt: "2026-08-09T12:00:00.000Z",
+    });
+    await repository.create({
+      id: "00000000-0000-4000-8000-000000000099",
+      organizationId: "00000000-0000-4000-8000-000000000099",
+      name: "Outside Summit",
+      timezone: "UTC",
+      createdAt: "2026-08-09T12:00:00.000Z",
+    });
+    const service = new EventService({
+      repository,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = createHttpApp(service, logger, {
+      demoMode: true,
+      sessionSecret: secret,
+      now: () => 1_000,
+      resolveActor: resolveSeededDemoActor,
+    });
+
+    expect(
+      (await app.request("/api/events/not-a-uuid", { headers: await cookieFor("organizer") }))
+        .status,
+    ).toBe(400);
+    expect((await app.request("/api/events/not-a-uuid")).status).toBe(401);
+    expect(
+      (
+        await app.request("/api/events/00000000-0000-4000-8000-000000000001", {
+          headers: await cookieFor("speaker"),
+        })
+      ).status,
+    ).toBe(200);
+    for (const persona of ["organizer", "speaker"] as const) {
+      const hidden = await app.request("/api/events/00000000-0000-4000-8000-000000000099", {
+        headers: await cookieFor(persona),
+      });
+      expect(hidden.status).toBe(404);
+      await expect(hidden.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+    }
+    expect(
+      (
+        await app.request("/api/events/00000000-0000-4000-8000-000000000001", {
+          headers: await cookieFor("public"),
+        })
+      ).status,
+    ).toBe(403);
+  });
+
   it("logs unexpected failures exactly once with request dimensions", async () => {
     const service = new EventService({
       repository: {
@@ -224,6 +316,7 @@ describe("events HTTP transport", () => {
       demoMode: true,
       sessionSecret: secret,
       now: () => 1_000,
+      resolveActor: resolveSeededDemoActor,
     });
     const response = await app.request("/api/events", {
       headers: { ...(await cookieFor("organizer")), "x-correlation-id": "failure-correlation" },

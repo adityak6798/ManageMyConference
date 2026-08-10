@@ -19,3 +19,7 @@ Prospect/contact/activity → conversion command → content-owned speaker ident
 Canonical change → transactional outbox → versioned projection mapper → fake/live adapter → success or retryable/terminal failure → audit state. Provider data never overwrites SQL implicitly.
 
 Every flow carries organization/event scope, actor, timestamp, correlation ID, and idempotency key where commands can repeat.
+
+## Identity and event shell (`ARC-FLOW-005`)
+
+Signed session → seeded identity → organization memberships/event roles → current-session capabilities → tenant-scoped event list → active event selection → role-aware navigation. Event creation carries an explicit organization ID and verifies membership before persistence. Object queries apply the actor scope before returning either data or the non-enumerating not-found response.

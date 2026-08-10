@@ -8,10 +8,16 @@ export class MemoryEventRepository implements EventRepository {
     this.events.set(event.id, event);
   }
 
-  async list(): Promise<readonly Event[]> {
-    return [...this.events.values()].sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt),
-    );
+  async list(scope: {
+    organizationIds: readonly string[];
+    eventIds: readonly string[];
+  }): Promise<readonly Event[]> {
+    return [...this.events.values()]
+      .filter(
+        (event) =>
+          scope.organizationIds.includes(event.organizationId) || scope.eventIds.includes(event.id),
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
   reset(): void {

@@ -2,7 +2,7 @@
 
 Status: canonical | Owner: developer experience | ID: `ENG-DEV-001` | Last verified: 2026-08-09
 
-The current scaffold provides install/start, local D1 migration/reset, and the same aggregate check entrypoint used by CI. The API defaults to port `8787` and accepts `GREENROOM_API_PORT`; Vite defaults to `5173` and accepts `GREENROOM_WEB_PORT`. Worktree ports are not auto-allocated. Seeded demo personas establish expiring signed HttpOnly sessions for organizer, reviewer, and speaker behavior; they exercise the same application authorization as ordinary requests. Demo auth is harness-only and requires both `DEMO_MODE=true` and the exact `ENVIRONMENT=development`; missing, misspelled, and non-development environments fail closed. R2 setup is planned.
+The current scaffold provides install/start, local D1 migration/reset, and the same aggregate check entrypoint used by CI. The API defaults to port `8787` and accepts `GREENROOM_API_PORT`; Vite defaults to `5173` and accepts `GREENROOM_WEB_PORT`. Worktree ports are not auto-allocated. Seeded demo personas establish expiring signed HttpOnly sessions for organizer, reviewer, speaker, and public behavior; they exercise the same application authorization as ordinary requests. Demo auth is harness-only and requires both `DEMO_MODE=true` and the exact `ENVIRONMENT=development`; missing, misspelled, and non-development environments fail closed. R2 setup is planned.
 
 Implemented commands:
 

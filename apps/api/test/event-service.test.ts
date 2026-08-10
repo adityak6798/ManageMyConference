@@ -6,7 +6,10 @@ import { type Actor, CapabilityDeniedError } from "../src/application/identity/a
 
 const organizer = {
   id: "seed-organizer",
+  name: "Olivia Organizer",
   persona: "organizer" as const,
+  organizations: [{ id: "00000000-0000-4000-8000-000000000010", name: "Greenroom Labs" }],
+  eventAccess: [],
   capabilities: new Set(["events:read" as const, "events:create" as const]),
 };
 
@@ -19,11 +22,16 @@ describe("EventService", () => {
       now: () => new Date("2026-08-09T12:00:00.000Z"),
     });
 
-    await service.create(organizer, { name: "Greenroom Summit", timezone: "America/Los_Angeles" });
+    await service.create(organizer, {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      name: "Greenroom Summit",
+      timezone: "America/Los_Angeles",
+    });
 
     await expect(service.list(organizer)).resolves.toEqual([
       {
         id: "123e4567-e89b-12d3-a456-426614174000",
+        organizationId: "00000000-0000-4000-8000-000000000010",
         name: "Greenroom Summit",
         timezone: "America/Los_Angeles",
         createdAt: "2026-08-09T12:00:00.000Z",
@@ -37,7 +45,14 @@ describe("EventService", () => {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
-    const reviewer: Actor = { id: "reviewer", persona: "reviewer", capabilities: new Set() };
+    const reviewer: Actor = {
+      id: "reviewer",
+      name: "Reviewer",
+      persona: "reviewer",
+      organizations: [],
+      eventAccess: [],
+      capabilities: new Set(),
+    };
     expect(() => service.list(reviewer)).toThrow(CapabilityDeniedError);
   });
 
@@ -48,8 +63,51 @@ describe("EventService", () => {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
-    await service.create(organizer, { name: "Temporary", timezone: "UTC" });
+    await service.create(organizer, {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      name: "Temporary",
+      timezone: "UTC",
+    });
     repository.reset();
     await expect(service.list(organizer)).resolves.toEqual([]);
+  });
+
+  it("never exposes an event outside the actor's organization or event assignment", async () => {
+    const repository = new MemoryEventRepository();
+    const service = new EventService({
+      repository,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    await service.create(organizer, {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      name: "Visible",
+      timezone: "UTC",
+    });
+    const outsider: Actor = {
+      id: "outsider",
+      name: "Outside Reviewer",
+      persona: "reviewer",
+      organizations: [],
+      eventAccess: [],
+      capabilities: new Set(["events:read"]),
+    };
+    await expect(service.list(outsider)).resolves.toEqual([]);
+    await expect(service.get(outsider, "123e4567-e89b-12d3-a456-426614174000")).resolves.toBeNull();
+  });
+
+  it("denies creation in an organization the organizer does not belong to", async () => {
+    const service = new EventService({
+      repository: new MemoryEventRepository(),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    await expect(
+      service.create(organizer, {
+        organizationId: "00000000-0000-4000-8000-000000000099",
+        name: "Leaked",
+        timezone: "UTC",
+      }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
   });
 });

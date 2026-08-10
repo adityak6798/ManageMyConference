@@ -4,9 +4,9 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 
 ## Events and access
 
-- `PRD-EVT-001` One organization owns many events; event settings and records never leak across events.
-- `PRD-IAM-001` Roles are organizer, reviewer, speaker, and public. Demo switching changes an authenticated seeded identity; it does not bypass authorization.
-- `PRD-IAM-002` Denial returns the standard error contract and the UI presents a safe, actionable state.
+- `PRD-EVT-001` One organization owns many events. Every event command names its organization or event scope, repositories constrain reads to the actor's organization memberships or event assignments, and event settings and records never leak across events. Organizers may create and switch among events in organizations they belong to.
+- `PRD-IAM-001` Roles are organizer, reviewer, speaker, and public. The current-session query returns the authenticated identity, organization memberships, event roles, and capabilities used by the application shell. Development-only demo switching changes to a signed, expiring seeded identity; it does not bypass application authorization.
+- `PRD-IAM-002` Unauthenticated and unauthorized requests remain distinct, use the correlation-aware standard error contract, and reveal no inaccessible object details. The UI provides explicit loading, empty, denied, and recoverable error states, with navigation derived from the active event role.
 
 ## CFP, abstracts, and review
 
