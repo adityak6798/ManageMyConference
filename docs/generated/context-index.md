@@ -70,7 +70,11 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-PUBLIC`
+- `test` / `repository-fact`: [apps/api/test/d1-publication-repository.integration.test.ts](../../apps/api/test/d1-publication-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/publication.test.ts](../../apps/api/test/publication.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/public-event.spec.ts](../../apps/web/e2e/public-event.spec.ts)
 - `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
+- `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -255,8 +259,16 @@
 - `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-PUB-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-publication-repository.ts](../../apps/api/src/adapters/persistence/d1-publication-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/publication-repository.ts](../../apps/api/src/application/publishing/publication-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/publication-service.ts](../../apps/api/src/application/publishing/publication-service.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/publishing/publication.ts](../../apps/api/src/domain/publishing/publication.ts)
+- `code` / `repository-fact`: [apps/web/src/PublicEventApp.tsx](../../apps/web/src/PublicEventApp.tsx)
+- `code` / `repository-fact`: [apps/web/src/api/publication.ts](../../apps/web/src/api/publication.ts)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-REV-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-review-repository.ts](../../apps/api/src/adapters/persistence/d1-review-repository.ts)

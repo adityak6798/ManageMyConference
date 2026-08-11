@@ -11,7 +11,7 @@ import type {
   SpeakerProfile,
   SpeakerTask,
 } from "../../domain/content/content";
-import type { AgendaContentQuery } from "../../application/content/public";
+import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   run<T = unknown>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
@@ -27,7 +27,9 @@ export interface ContentDatabasePort {
 type Row = Record<string, string | null>;
 const parse = <T>(value: string | null | undefined) => JSON.parse(value ?? "[]") as T;
 
-export class D1ContentRepository implements ContentRepository, AgendaContentQuery {
+export class D1ContentRepository
+  implements ContentRepository, AgendaContentQuery, PublishingContentQuery
+{
   constructor(private readonly database: ContentDatabasePort) {}
   async listSchedulableSessions(eventId: string) {
     const workspace = await this.workspace(eventId);
@@ -37,6 +39,45 @@ export class D1ContentRepository implements ContentRepository, AgendaContentQuer
       speakerProfileIds,
       tracks,
     }));
+  }
+  async publishedEventContent(eventId: string) {
+    const workspace = await this.workspace(eventId);
+    const sessions = workspace.sessions
+      .filter(({ publicationState }) => publicationState === "published")
+      .map(({ id, title, abstract, format, speakerProfileIds, tags, tracks }) => ({
+        id,
+        title,
+        abstract,
+        format,
+        speakerProfileIds,
+        tags,
+        tracks,
+      }));
+    const speakerIds = new Set(sessions.flatMap(({ speakerProfileIds }) => speakerProfileIds));
+    return {
+      sessions,
+      speakers: workspace.speakers
+        .filter(({ id }) => speakerIds.has(id))
+        .map(({ id, name, bio, pronouns, organization, photoAssetId }) => ({
+          id,
+          name,
+          bio,
+          pronouns,
+          organization,
+          ...(photoAssetId ? { photoAssetId } : {}),
+        })),
+      assets: workspace.assets
+        .filter(
+          ({ speakerProfileId, visibility }) =>
+            speakerIds.has(speakerProfileId) && visibility === "publishable",
+        )
+        .map(({ id, speakerProfileId, name, contentType }) => ({
+          id,
+          speakerProfileId,
+          name,
+          contentType,
+        })),
+    };
   }
   private async rows(query: string, ...values: unknown[]): Promise<Row[]> {
     const result = await this.database

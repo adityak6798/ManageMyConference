@@ -75,6 +75,9 @@ import {
   retryDeliveryInputSchema,
   templateResponseSchema,
   triggerDeliveryInputSchema,
+  publicEventResponseSchema,
+  publicEventSlugParamsSchema,
+  publicationPreviewResponseSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -90,6 +93,37 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
   in: "cookie",
   name: "greenroom_session",
 });
+registry.registerPath({
+  method: "get",
+  path: "/api/public/events/{slug}",
+  request: { params: publicEventSlugParamsSchema },
+  responses: {
+    200: {
+      description: "Immutable public event snapshot",
+      content: json(publicEventResponseSchema),
+    },
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+for (const action of ["preview", "publish", "unpublish"] as const)
+  registry.registerPath({
+    method: action === "preview" ? "get" : "post",
+    path: `/api/publishing/events/{eventId}/${action}`,
+    security: [{ sessionCookie: [] }],
+    request: { params: eventIdParamsSchema },
+    responses: {
+      200: {
+        description: `Publication ${action}`,
+        content: json(publicationPreviewResponseSchema),
+      },
+      400: errorResponse,
+      401: errorResponse,
+      403: errorResponse,
+      404: errorResponse,
+      500: errorResponse,
+    },
+  });
 registry.registerPath({
   method: "get",
   path: "/api/session",

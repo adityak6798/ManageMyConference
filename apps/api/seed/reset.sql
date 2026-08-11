@@ -1,3 +1,4 @@
+DELETE FROM public_event_projections;
 DELETE FROM outbound_projection_state;
 DELETE FROM communication_attempts;
 DELETE FROM communication_deliveries;
@@ -103,7 +104,7 @@ INSERT INTO agenda_publications (event_id, version, published_at, published_by, 
 INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id) VALUES
 ('10000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','seed-speaker','proposal-person-sam','Sam Speaker','sam@example.test','Builds humane conference tools.','they/them','Greenroom Labs',NULL);
 INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,speaker_profile_ids,tags,tracks,publication_state,schedule_starts_at,schedule_ends_at,schedule_location) VALUES
-('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','accepted-proposal-001','Designing the calm conference','A practical guide to reducing operational noise.','45-minute talk','["10000000-0000-4000-8000-000000000001"]','["operations"]','["Product"]','ready','2026-09-15T17:00:00.000Z','2026-09-15T17:45:00.000Z','Main Stage');
+('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','accepted-proposal-001','Designing the calm conference','A practical guide to reducing operational noise.','45-minute talk','["10000000-0000-4000-8000-000000000001"]','["operations"]','["Product"]','published','2026-09-15T17:00:00.000Z','2026-09-15T17:45:00.000Z','Main Stage');
 INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES
 ('30000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Confirm profile details','2026-08-20T23:59:00.000Z','open',NULL),
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
@@ -137,7 +138,7 @@ VALUES (
   'open',
   1,
   '2026-08-09T12:00:00.000Z',
-  '{"eventId":"00000000-0000-4000-8000-000000000001","title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"status":"open","version":1,"publishedAt":"2026-08-09T12:00:00.000Z","publishedStatus":"open"}'
+  '{"eventId":"00000000-0000-4000-8000-000000000001","title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","status":"open","version":1,"publishedAt":"2026-08-09T12:00:00.000Z","publishedStatus":"open"}'
 );
 
 INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES
@@ -149,3 +150,13 @@ INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) VALUES
 INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id) VALUES
   ('70000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','email','Introductory outreach sent',0,'2026-08-05T12:00:00.000Z','seed-organizer'),
   ('70000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000002','note','Interested in the responsible AI track',1,'2026-08-06T12:00:00.000Z','seed-organizer');
+
+INSERT INTO public_event_projections (event_id, slug, state, draft_json, published_json, published_at)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  'greenroom-demo-summit',
+  'published',
+  '{"event":{"eventId":"00000000-0000-4000-8000-000000000001","slug":"greenroom-demo-summit","name":"Greenroom Demo Summit","summary":"A practical gathering for people building thoughtful, inclusive events.","startsOn":"2026-09-17","endsOn":"2026-09-18","timezone":"America/Los_Angeles","venue":"Harbor Conference Center, Oakland"},"cfp":{"title":"Share what you learned","description":"Submit a practical session for organizers, speakers, and community builders.","status":"open","publishedAt":"2026-08-01T16:00:00.000Z","submissionUrl":"/events/greenroom-demo-summit/cfp"},"sessions":[{"slug":"calm-systems","title":"Calm systems for busy event teams","abstract":"Design operational systems that make the right next action obvious without hiding important context.","format":"Talk","track":"Operations","speakerSlugs":["maya-chen"],"startsAt":"2026-09-17T17:00:00.000Z","endsAt":"2026-09-17T17:45:00.000Z","room":"Cedar Hall"},{"slug":"accessible-by-default","title":"Accessible by default","abstract":"A hands-on guide to making conference experiences work for more attendees from the first sketch.","format":"Workshop","track":"Experience","speakerSlugs":["jordan-bell"],"startsAt":"2026-09-17T18:15:00.000Z","endsAt":"2026-09-17T19:15:00.000Z","room":"Bay Studio"}],"speakers":[{"slug":"maya-chen","name":"Maya Chen","headline":"Community systems designer","bio":"Maya helps growing communities build humane operational practices."},{"slug":"jordan-bell","name":"Jordan Bell","headline":"Accessibility lead","bio":"Jordan works with event teams to create inclusive digital and physical experiences."}]}',
+  '{"event":{"eventId":"00000000-0000-4000-8000-000000000001","slug":"greenroom-demo-summit","name":"Greenroom Demo Summit","summary":"A practical gathering for people building thoughtful, inclusive events.","startsOn":"2026-09-17","endsOn":"2026-09-18","timezone":"America/Los_Angeles","venue":"Harbor Conference Center, Oakland"},"cfp":{"title":"Share what you learned","description":"Submit a practical session for organizers, speakers, and community builders.","status":"open","publishedAt":"2026-08-01T16:00:00.000Z","submissionUrl":"/events/greenroom-demo-summit/cfp"},"sessions":[{"slug":"calm-systems","title":"Calm systems for busy event teams","abstract":"Design operational systems that make the right next action obvious without hiding important context.","format":"Talk","track":"Operations","speakerSlugs":["maya-chen"],"startsAt":"2026-09-17T17:00:00.000Z","endsAt":"2026-09-17T17:45:00.000Z","room":"Cedar Hall"},{"slug":"accessible-by-default","title":"Accessible by default","abstract":"A hands-on guide to making conference experiences work for more attendees from the first sketch.","format":"Workshop","track":"Experience","speakerSlugs":["jordan-bell"],"startsAt":"2026-09-17T18:15:00.000Z","endsAt":"2026-09-17T19:15:00.000Z","room":"Bay Studio"}],"speakers":[{"slug":"maya-chen","name":"Maya Chen","headline":"Community systems designer","bio":"Maya helps growing communities build humane operational practices."},{"slug":"jordan-bell","name":"Jordan Bell","headline":"Accessibility lead","bio":"Jordan works with event teams to create inclusive digital and physical experiences."}]}',
+  '2026-08-10T20:00:00.000Z'
+);

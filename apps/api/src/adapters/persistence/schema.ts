@@ -535,3 +535,20 @@ export const outboundProjectionState = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.destination, table.eventId, table.resourceRef] })],
 );
+
+// @spec PRD-PUB-001
+export const publicEventProjections = sqliteTable(
+  "public_event_projections",
+  {
+    eventId: text("event_id")
+      .primaryKey()
+      .notNull()
+      .references(() => events.id),
+    slug: text("slug").notNull().unique(),
+    state: text("state").notNull(),
+    draftJson: text("draft_json").notNull(),
+    publishedJson: text("published_json"),
+    publishedAt: text("published_at"),
+  },
+  (table) => [index("public_event_projections_slug_state_idx").on(table.slug, table.state)],
+);

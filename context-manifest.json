@@ -25,7 +25,10 @@
       "apps/api/src/application/content/speaker-conversion.ts",
       "apps/web/src/CrmWorkspace.tsx",
       "apps/api/src/application/agenda/public.ts",
-      "apps/web/src/AgendaWorkspace.tsx"
+      "apps/web/src/AgendaWorkspace.tsx",
+      "apps/api/src/application/publishing/publication-service.ts",
+      "apps/web/src/PublicEventApp.tsx",
+      "apps/web/src/api/cfp.ts"
     ],
     "compositionRoots": ["apps/api/src/index.ts", "apps/web/src/App.tsx"],
     "layerPaths": {
@@ -266,7 +269,17 @@
       "acceptance": ["ACC-PUBLIC"],
       "plans": ["PLAN-002", "PLAN-003"],
       "index": "docs/product/specifications.md",
-      "paths": []
+      "paths": [
+        "apps/api/src/domain/publishing",
+        "apps/api/src/application/publishing",
+        "apps/api/src/adapters/persistence/d1-publication-repository.ts",
+        "apps/api/migrations/0020_public_event_projections.sql",
+        "apps/api/test/publication.test.ts",
+        "apps/api/test/d1-publication-repository.integration.test.ts",
+        "apps/web/src/PublicEventApp.tsx",
+        "apps/web/src/api/publication.ts",
+        "apps/web/e2e/public-event.spec.ts"
+      ]
     }
   ],
   "symbols": {
@@ -284,6 +297,7 @@
     "CrmContentQuery": "apps/api/src/application/content/public.ts",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
-    "ReviewRepository": "apps/api/src/application/review/review-repository.ts"
+    "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
+    "PublicationService": "apps/api/src/application/publishing/publication-service.ts"
   }
 }

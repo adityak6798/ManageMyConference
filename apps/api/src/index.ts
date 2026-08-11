@@ -12,11 +12,13 @@ import { ContentService } from "./application/content/content-service";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
-import { CfpService } from "./application/cfp/cfp-service";
+import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
+import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
 import { CommunicationsService } from "./application/communications/communications-service";
+import { PublicationService } from "./application/publishing/publication-service";
 import { OutboxWorker } from "./application/communications/outbox-worker";
 import { createHttpApp } from "./transport/http/app";
 
@@ -132,6 +134,29 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const publishing = new PublicationService(new D1PublicationRepository(environment.DB), {
+      event: async (actor, eventId) => {
+        const event = await service.get(actor, eventId);
+        return event ? { name: event.name, timezone: event.timezone } : null;
+      },
+      cfp: async (eventId) => {
+        let form: Awaited<ReturnType<CfpService["getPublished"]>>;
+        try {
+          form = await cfpService.getPublished(eventId);
+        } catch (error) {
+          if (error instanceof CfpUnavailableError) return null;
+          throw error;
+        }
+        return {
+          title: form.title,
+          description: form.description,
+          status: form.status === "closed" ? "closed" : "open",
+          publishedAt: form.publishedAt,
+        };
+      },
+      content: contentRepository,
+      schedule: (eventId) => agenda.published(eventId),
+    });
     const app = createHttpApp(
       service,
       logger,
@@ -144,6 +169,7 @@ export default {
       crm,
       agenda,
       communications,
+      publishing,
     );
     return Promise.resolve(app.fetch(request));
   },

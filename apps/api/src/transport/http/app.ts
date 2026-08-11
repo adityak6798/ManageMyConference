@@ -38,6 +38,8 @@ import {
   submitProposalInputSchema,
   retryDeliveryInputSchema,
   triggerDeliveryInputSchema,
+  publicEventProjectionSchema,
+  publicationPreviewResponseSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
@@ -81,6 +83,7 @@ import {
   requireEventCapability,
 } from "../../application/identity/actor";
 import { createDemoSession, resolveDemoSession } from "../../application/identity/demo-session";
+import type { PublicationService } from "../../application/publishing/publication-service";
 import { createEventInputToCommand, eventToDto } from "./event-mappers";
 
 export interface StructuredLogger {
@@ -127,12 +130,18 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
-  reviewOrCfpService?: ReviewService | CfpService | CrmService | CommunicationsService,
+  reviewOrCfpService?:
+    | ReviewService
+    | CfpService
+    | CrmService
+    | CommunicationsService
+    | PublicationService,
   cfpServiceArgument?: CfpService,
   content?: ContentService,
   crmArgument?: CrmService,
   agenda?: AgendaService,
   communicationsArgument?: CommunicationsService,
+  publishingArgument?: PublicationService,
 ) {
   const reviewService =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -149,6 +158,9 @@ export function createHttpApp(
   const communications =
     communicationsArgument ??
     (reviewOrCfpService && "createTemplate" in reviewOrCfpService ? reviewOrCfpService : undefined);
+  const publishing =
+    publishingArgument ??
+    (reviewOrCfpService && "publicBySlug" in reviewOrCfpService ? reviewOrCfpService : undefined);
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
     const supplied = context.req.header("x-correlation-id");
@@ -192,6 +204,64 @@ export function createHttpApp(
       logFormat: "structured-json",
     }),
   );
+  app.get("/api/public/events/:slug", async (context) => {
+    const slug = context.req.param("slug");
+    if (!publishing || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+      return context.json(
+        envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
+        404,
+      );
+    const parsed = publicEventProjectionSchema.safeParse(await publishing.publicBySlug(slug));
+    if (!parsed.success)
+      return context.json(
+        envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
+        404,
+      );
+    context.header("cache-control", "no-store");
+    return context.json({ projection: parsed.data });
+  });
+  app.get("/api/publishing/events/:eventId/preview", async (context) => {
+    const parsed = eventIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const publication = await publishing?.preview(context.get("actor"), parsed.data.eventId);
+    if (!publication)
+      return context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    return context.json(publicationPreviewResponseSchema.parse({ publication }));
+  });
+  for (const action of ["publish", "unpublish"] as const)
+    app.post(`/api/publishing/events/:eventId/${action}`, async (context) => {
+      const parsed = eventIdParamsSchema.safeParse(context.req.param());
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const publication =
+        action === "publish"
+          ? await publishing?.publish(context.get("actor"), parsed.data.eventId)
+          : await publishing?.unpublish(context.get("actor"), parsed.data.eventId);
+      if (!publication)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      return context.json(publicationPreviewResponseSchema.parse({ publication }));
+    });
   app.post("/api/demo-session", async (context) => {
     if (!auth.demoMode)
       return context.json(
