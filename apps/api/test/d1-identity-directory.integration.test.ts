@@ -32,6 +32,11 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(foundation)) await database.prepare(statement).run();
+    const content = await readFile(
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(content)) await database.prepare(statement).run();
     for (const file of [
       "0003_cfp.sql",
       "0004_cfp_published_snapshot.sql",
@@ -69,7 +74,16 @@ describe("D1IdentityDirectory", () => {
           capabilities: expect.any(Set),
         },
       ]),
-      capabilities: new Set(["events:read", "events:create"]),
+      capabilities: new Set([
+        "events:read",
+        "events:create",
+        "events:settings:read",
+        "events:settings:update",
+        "content:read",
+        "content:manage",
+        "review:manage",
+        "review:evaluate",
+      ]),
     });
     await directory.grantOrganizer("00000000-0000-4000-8000-000000000002", "seed-reviewer");
     await expect(directory.findByPersona("reviewer")).resolves.toMatchObject({
@@ -78,6 +92,15 @@ describe("D1IdentityDirectory", () => {
           eventId: "00000000-0000-4000-8000-000000000002",
           role: "organizer",
         }),
+      ]),
+      capabilities: new Set([
+        "events:read",
+        "events:settings:read",
+        "events:settings:update",
+        "content:read",
+        "content:manage",
+        "review:manage",
+        "review:evaluate",
       ]),
     });
 

@@ -104,6 +104,15 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
+    const contentMigration = await readFile(
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of contentMigration
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     for (const file of [
       "0003_cfp.sql",
       "0004_cfp_published_snapshot.sql",

@@ -1,5 +1,7 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ContentWorkspace } from "./ContentWorkspace";
+import { ContentApiError } from "./api/content";
 import {
   ApiError,
   createEvent,
@@ -22,7 +24,7 @@ const navByRole: Record<Persona, string[]> = {
 };
 
 function readableError(error: unknown): string {
-  if (error instanceof ApiError)
+  if (error instanceof ApiError || error instanceof ContentApiError)
     return `${error.message} Reference: ${error.envelope.error.correlationId}`;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
@@ -50,6 +52,7 @@ export function App() {
       loadedEvents.some(({ id }) => id === current) ? current : loadedEvents[0]?.id || "",
     );
   }, []);
+  const reportError = useCallback((reason: unknown) => setError(readableError(reason)), []);
 
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
@@ -61,10 +64,12 @@ export function App() {
   const selectedEvent = events.find(({ id }) => id === selectedEventId);
   const activeRole = useMemo<Persona>(() => {
     if (!session) return "public";
-    return (
-      session.eventAccess.find(({ eventId }) => eventId === selectedEventId)?.role ??
-      session.actor.persona
-    );
+    const roles = session.eventAccess
+      .filter(({ eventId }) => eventId === selectedEventId)
+      .map(({ role }) => role);
+    if (roles.includes("organizer")) return "organizer";
+    if (roles.includes("speaker")) return "speaker";
+    return roles[0] ?? session.actor.persona;
   }, [selectedEventId, session]);
   const activeEventCapabilities = [
     ...new Set(
@@ -244,6 +249,9 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEventId && (activeRole === "organizer" || activeRole === "speaker") ? (
+              <ContentWorkspace eventId={selectedEventId} role={activeRole} onError={reportError} />
+            ) : null}
             {selectedEventId && activeEventCapabilities.includes("review:manage") ? (
               <OrganizerReviewWorkspace
                 key={`${selectedEventId}:${session.actor.id}:organizer-review`}

@@ -71,6 +71,61 @@ textarea {
   font: inherit;
 }
 textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+.section-heading,
+.task-row,
+.metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.metric-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.metric-row span {
+  background: #eef7f1;
+  border-radius: 999px;
+  padding: 8px 12px;
+}
+.content-card {
+  border-top: 1px solid #e2e8e2;
+  padding: 18px 0;
+}
+.content-card h3 {
+  margin: 8px 0;
+}
+.pill {
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  background: #ecefed;
+}
+.pill.ready,
+.pill.published {
+  background: #d9f3e4;
+  color: #12643e;
+}
+.task-row {
+  border-top: 1px solid #e2e8e2;
+  padding: 14px 0;
+}
+.task-row small {
+  display: block;
+  margin-top: 5px;
+  color: #5e6d62;
+}
+.download {
+  display: inline-block;
+  margin-top: 12px;
+  color: #12643e;
+  font-weight: 750;
   width: 100%;
   min-height: 90px;
   resize: vertical;

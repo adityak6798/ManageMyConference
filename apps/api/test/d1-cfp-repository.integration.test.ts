@@ -48,6 +48,11 @@ describe("D1CfpRepository", () => {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       expect((await database.prepare(sql).run()).success).toBe(true);
     }
+    const contentSql = await readFile(
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(contentSql)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);

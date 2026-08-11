@@ -30,9 +30,16 @@ interface EventRoleRow {
 }
 
 const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
-  organizer: ["events:read", "events:settings:read", "events:settings:update", "review:manage"],
+  organizer: [
+    "events:read",
+    "events:settings:read",
+    "events:settings:update",
+    "content:read",
+    "content:manage",
+    "review:manage",
+  ],
   reviewer: ["events:read", "review:evaluate"],
-  speaker: ["events:read"],
+  speaker: ["events:read", "content:read"],
   public: [],
 };
 
@@ -83,9 +90,8 @@ export class D1IdentityDirectory implements IdentityDirectory {
       capabilities.add("events:read");
       capabilities.add("events:create");
     }
-    if (eventAccess.some(({ capabilities: assigned }) => assigned.has("events:read"))) {
-      capabilities.add("events:read");
-    }
+    for (const access of eventAccess)
+      for (const capability of access.capabilities) capabilities.add(capability);
     return {
       id: user.id,
       name: user.name,

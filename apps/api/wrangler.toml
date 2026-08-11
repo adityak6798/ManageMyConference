@@ -7,3 +7,7 @@ binding = "DB"
 database_name = "greenroom-local"
 database_id = "local-development"
 migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "greenroom-assets"

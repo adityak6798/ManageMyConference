@@ -71,6 +71,10 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-SPEAKER`
+- `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-service.test.ts](../../apps/api/test/content-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-content-repository.integration.test.ts](../../apps/api/test/d1-content-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/speaker-portal.spec.ts](../../apps/web/e2e/speaker-portal.spec.ts)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -169,8 +173,12 @@
 - `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-CNT-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/web/src/ContentWorkspace.tsx](../../apps/web/src/ContentWorkspace.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-COM-001`
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
@@ -223,9 +231,18 @@
 - `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-SPK-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/web/src/ContentWorkspace.tsx](../../apps/web/src/ContentWorkspace.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-SPK-002`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/storage/r2-asset-storage.ts](../../apps/api/src/adapters/storage/r2-asset-storage.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/web/src/ContentWorkspace.tsx](../../apps/web/src/ContentWorkspace.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 Trust: normative metadata plus declared repository facts.

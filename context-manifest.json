@@ -14,6 +14,8 @@
       "apps/api/src/application/identity/actor.ts",
       "apps/api/src/application/identity/demo-session.ts",
       "apps/api/src/application/identity/identity-directory.ts",
+      "apps/api/src/application/content/content-service.ts",
+      "apps/api/src/application/content/public.ts",
       "apps/api/src/application/cfp/submitted-proposal-interface.ts",
       "apps/api/src/application/review/review-service.ts",
       "apps/api/src/application/review/review-repository.ts"
@@ -166,7 +168,20 @@
       "acceptance": ["ACC-SPEAKER"],
       "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
-      "paths": []
+      "paths": [
+        "apps/api/src/domain/content",
+        "apps/api/src/application/content",
+        "apps/api/src/adapters/persistence/d1-content-repository.ts",
+        "apps/api/src/adapters/persistence/memory-content-repository.ts",
+        "apps/api/src/adapters/storage",
+        "apps/api/migrations/0014_content_speaker_portal.sql",
+        "apps/api/test/content-service.test.ts",
+        "apps/api/test/content-http.test.ts",
+        "apps/api/test/d1-content-repository.integration.test.ts",
+        "apps/web/src/ContentWorkspace.tsx",
+        "apps/web/src/api/content.ts",
+        "apps/web/e2e/speaker-portal.spec.ts"
+      ]
     },
     {
       "id": "crm",
@@ -211,6 +226,11 @@
     "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
     "createHttpApp": "apps/api/src/transport/http/app.ts",
     "App": "apps/web/src/App.tsx",
+    "ContentService": "apps/api/src/application/content/content-service.ts",
+    "AgendaContentQuery": "apps/api/src/application/content/public.ts",
+    "PublishingContentQuery": "apps/api/src/application/content/public.ts",
+    "CrmContentQuery": "apps/api/src/application/content/public.ts",
+    "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
     "ReviewRepository": "apps/api/src/application/review/review-repository.ts"
   }

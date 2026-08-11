@@ -3,6 +3,8 @@ export type Capability =
   | "events:create"
   | "events:settings:read"
   | "events:settings:update"
+  | "content:read"
+  | "content:manage"
   | "review:manage"
   | "review:evaluate";
 

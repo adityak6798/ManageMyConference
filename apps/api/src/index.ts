@@ -1,5 +1,8 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
+import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
+import { ContentService } from "./application/content/content-service";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
@@ -10,6 +13,7 @@ import { createHttpApp } from "./transport/http/app";
 
 interface Environment {
   DB: D1DatabasePort;
+  ASSETS: R2BucketPort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
   ENVIRONMENT?: string;
@@ -41,6 +45,12 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
       grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
+    });
+    const content = new ContentService({
+      repository: new D1ContentRepository(environment.DB),
+      assetStorage: new R2AssetStorage(environment.ASSETS),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
     });
     const cfpService = new CfpService(
       new D1CfpRepository(environment.DB),
@@ -77,6 +87,7 @@ export default {
         : auth,
       reviewService,
       cfpService,
+      content,
     );
     return Promise.resolve(app.fetch(request));
   },

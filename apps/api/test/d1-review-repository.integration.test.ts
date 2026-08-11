@@ -35,6 +35,7 @@ describe("review D1 persistence", () => {
       "0011_cfp_transition_status_guard.sql",
       "0012_cfp_status_in_use_guard.sql",
       "0013_cfp_submission_default_status.sql",
+      "0014_content_speaker_portal.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       if (/^(000[789]|001[0-3])_/.test(file)) {
