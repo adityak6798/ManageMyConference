@@ -3,18 +3,34 @@ import { describe, expect, it } from "vitest";
 import { D1SubmittedProposalAdapter } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
-import { requireEventCapability } from "../src/application/identity/actor";
+import {
+  AuthenticationRequiredError,
+  CapabilityDeniedError,
+  requireEventCapability,
+} from "../src/application/identity/actor";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import { ProposalNotAcceptedError, ProposalNotFoundError } from "../src/application/review/public";
 import {
   ReviewConflictError,
+  ReviewNotFoundError,
   ReviewService,
   ReviewValidationError,
 } from "../src/application/review/review-service";
 
+/** The rejection itself, so a test can assert on the typed error's own fields. */
+const refusalOf = async (work: Promise<unknown>) =>
+  work.then(
+    () => null,
+    (error: unknown) => error,
+  );
+
 const eventId = "00000000-0000-4000-8000-000000000001";
 const proposalId = "10000000-0000-4000-8000-000000000001";
-const build = () => {
+const build = (options: { reviewers?: readonly { id: string; name: string }[] } = {}) => {
+  // The people identity-access reports as reviewers of this event. The seeded organizer holds
+  // the reviewer role on the demo event too, which is exactly how she came to be offered as an
+  // assignable reviewer of her own event.
+  const reviewers = options.reviewers ?? [{ id: "seed-reviewer", name: "Ravi Reviewer" }];
   let id = 0;
   const repository = new MemoryReviewRepository();
   const proposals = new MemorySubmittedProposalAdapter([
@@ -34,9 +50,8 @@ const build = () => {
     proposals,
     identities: {
       isReviewerForEvent: async (userId, scopedEventId) =>
-        userId === "seed-reviewer" && scopedEventId === eventId,
-      listReviewersForEvent: async (scopedEventId) =>
-        scopedEventId === eventId ? [{ id: "seed-reviewer", name: "Ravi Reviewer" }] : [],
+        scopedEventId === eventId && reviewers.some(({ id: reviewerId }) => reviewerId === userId),
+      listReviewersForEvent: async (scopedEventId) => (scopedEventId === eventId ? reviewers : []),
     },
     events: {
       get: async () => ({
@@ -319,12 +334,17 @@ describe("review workflow", () => {
     expect(advertised).toEqual(["submitted", "accepted", "declined"]);
     // Storage is the single source of truth: reading the workspace stored what it advertised.
     expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toEqual(advertised);
-    // And every status the workspace offered is one a transition accepts, which is the exact
-    // sequence that used to answer 400 for `accepted`.
-    for (const toStatus of advertised)
+    // Every status the workspace offers is reachable — but not all of them by the same route.
+    // A pipeline step is a transition; the two reserved outcomes are a decision, which is what
+    // records who decided. Reaching any of them used to answer 400, which is what this pins.
+    for (const toStatus of advertised.filter((key) => key === "submitted"))
       await expect(
         service.bulkTransition(organizer, eventId, [proposalId], toStatus),
       ).resolves.toMatchObject([{ status: toStatus }]);
+    for (const outcome of ["accepted", "declined"] as const)
+      await expect(
+        service.decide(organizer, eventId, [proposalId], outcome),
+      ).resolves.toMatchObject({ proposals: [{ status: outcome }] });
     // Deciding still heals storage for an event that never went through the workspace.
     await proposals.saveStatuses(eventId, [{ key: "declined", label: "Declined", sortOrder: 0 }]);
     await expect(
@@ -423,5 +443,210 @@ describe("review workflow", () => {
         "correlation",
       ),
     ).rejects.toBeInstanceOf(ReviewConflictError);
+  });
+  /*
+   * Triage may only offer reviewers who can actually open the queue.
+   *
+   * The seeded organizer holds the reviewer role on her own event, so "Assign selection to"
+   * listed "Olivia Organizer" first. Choosing her succeeded and produced work nobody could
+   * ever do: the organizer console has no reviewer queue, there is no unassign, and the click
+   * locked the rubric for good. The list no longer offers her, and `assign` refuses the same
+   * identity so a request that did not come from the list cannot do it either.
+   */
+  it("never offers the signed-in organizer as an assignable reviewer of her own event", async () => {
+    const organizer = await resolveSeededDemoActor("organizer");
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    const { service } = build({
+      reviewers: [
+        { id: organizer.id, name: "Olivia Organizer" },
+        { id: reviewer.id, name: "Ravi Reviewer" },
+      ],
+    });
+    await service.configurePlan(organizer, eventId, [
+      { id: "fit", name: "Fit", description: "", minScore: 1, maxScore: 5 },
+    ]);
+
+    const workspace = await service.organizerWorkspace(organizer, eventId);
+    expect(workspace.reviewers).toEqual([{ id: reviewer.id, name: "Ravi Reviewer" }]);
+    /*
+     * Withheld from the *assignable* list, still present in the directory.
+     *
+     * The two are different questions. Triage resolves an existing assignment's name out of
+     * what the workspace sends, so answering "who is already assigned?" from the shortened
+     * list printed a raw user id in the Reviewers column for every assignment the signed-in
+     * organizer could not have made herself — the exact co-organizer case this separates.
+     */
+    expect(workspace.reviewerDirectory).toEqual([
+      { id: organizer.id, name: "Olivia Organizer" },
+      { id: reviewer.id, name: "Ravi Reviewer" },
+    ]);
+
+    await expect(
+      service.assign(organizer, eventId, [proposalId], organizer.id),
+    ).rejects.toBeInstanceOf(ReviewValidationError);
+    // Nothing was recorded, so the rubric is not locked by a mistake that cannot be undone.
+    expect((await service.organizerWorkspace(organizer, eventId)).assignments).toEqual([]);
+    await expect(
+      service.configurePlan(organizer, eventId, [
+        { id: "fit", name: "Fit", description: "Audience fit", minScore: 1, maxScore: 5 },
+      ]),
+    ).resolves.toMatchObject({ eventId });
+
+    // Everyone else on the list still works, and they can open what they were given.
+    const [assignment] = await service.assign(organizer, eventId, [proposalId], reviewer.id);
+    expect(assignment).toBeDefined();
+    expect(await service.reviewerQueue(reviewer, eventId)).toHaveLength(1);
+  });
+
+  /*
+   * The server-side half of the "Move selection to → Accepted" defect.
+   *
+   * The triage select stopped offering the two reserved keys, but the route behind it still
+   * took them: a transition to `accepted` answered 200 and wrote exactly the half-state the UI
+   * fix exists to prevent — the board turns green, the Accepted count rises, and no decision is
+   * stored, so no session or speaker exists and the content domain refuses the very abstract the
+   * board says is in the programme. A dropdown that no longer lists it is not a rule.
+   */
+  it("refuses a transition into a reserved decision status and names the route that records one", async () => {
+    const { service, repository } = build();
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    for (const toStatus of ["accepted", "declined"] as const) {
+      const refusal = await refusalOf(
+        service.bulkTransition(organizer, eventId, [proposalId], toStatus),
+      );
+      expect(refusal, toStatus).toBeInstanceOf(ReviewValidationError);
+      // The refusal is actionable: it names the route that does record an outcome, rather than
+      // leaving the caller to guess that a status they can see is not a status they may set.
+      expect((refusal as ReviewValidationError).fields.toStatus?.join(" "), toStatus).toContain(
+        `/api/events/${eventId}/review/decisions`,
+      );
+      // Nothing moved, nothing was audited, and nothing was recorded.
+      const workspace = await service.organizerWorkspace(organizer, eventId);
+      expect(workspace.proposals, toStatus).toMatchObject([
+        { id: proposalId, status: "submitted" },
+      ]);
+      expect(workspace.audit, toStatus).toEqual([]);
+      await expect(repository.findDecision(eventId, proposalId)).resolves.toBeNull();
+    }
+
+    // Pipeline steps are untouched — this refuses the two reserved keys, not bulk transitions.
+    await expect(
+      service.bulkTransition(organizer, eventId, [proposalId], "under_review"),
+    ).resolves.toMatchObject([{ status: "under_review" }]);
+    // And the route the refusal names does the thing the transition could not.
+    await service.decide(organizer, eventId, [proposalId], "accepted");
+    await expect(repository.findDecision(eventId, proposalId)).resolves.toMatchObject({
+      outcome: "accepted",
+      decidedBy: organizer.id,
+    });
+  });
+
+  /*
+   * A mis-assignment has to be undoable.
+   *
+   * Assigning is one click and it used to be permanent: the abstract stayed with whoever was
+   * named, and — because the rubric locks on the existence of *any* assignment — the evaluation
+   * criteria froze for the whole event with no way back. This is the undo, and the one state it
+   * refuses.
+   */
+  it("removes an assignment with its unfinished work, releases the rubric lock, and refuses once it has been scored", async () => {
+    const { service, repository } = build();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    const criteria = (name: string) => [
+      { id: "fit", name, description: "Audience fit", minScore: 1, maxScore: 5 },
+    ];
+    await service.configurePlan(organizer, eventId, criteria("Fit"));
+    const [assignment] = await service.assign(organizer, eventId, [proposalId], reviewer.id);
+    const assignmentId = assignment?.id as string;
+    // A half-written score and a declared conflict both describe this assignment.
+    await service.saveEvaluation(
+      reviewer,
+      eventId,
+      assignmentId,
+      { scores: [{ criterionId: "fit", score: 3 }], notes: "Half written", complete: false },
+      "correlation-draft",
+    );
+    await service.declareConflict(reviewer, eventId, assignmentId, "Prior collaboration");
+    // While it exists the rubric cannot be edited at all — that is the second failure.
+    await expect(
+      service.configurePlan(organizer, eventId, criteria("Renamed")),
+    ).rejects.toBeInstanceOf(ReviewValidationError);
+
+    await expect(service.unassign(organizer, eventId, assignmentId)).resolves.toMatchObject({
+      id: assignmentId,
+      proposalId,
+      reviewerId: reviewer.id,
+    });
+
+    // Gone from both surfaces, and the unfinished work goes with it rather than being left
+    // pointing at an assignment id that no longer resolves.
+    expect((await service.organizerWorkspace(organizer, eventId)).assignments).toEqual([]);
+    expect(await service.reviewerQueue(reviewer, eventId)).toEqual([]);
+    await expect(repository.getEvaluation(assignmentId, reviewer.id)).resolves.toBeNull();
+    await expect(repository.getConflict(assignmentId, reviewer.id)).resolves.toBeNull();
+    // And the lock that assignment was holding is released.
+    await expect(
+      service.configurePlan(organizer, eventId, criteria("Renamed")),
+    ).resolves.toMatchObject({ eventId });
+
+    // A completed evaluation is not unfinished work: its score is counted in this abstract's
+    // aggregate and it has emitted EVT-REVIEW-COMPLETED, so removing the assignment under it
+    // would restate a number an organizer has already read.
+    const [second] = await service.assign(organizer, eventId, [proposalId], reviewer.id);
+    const scoredId = second?.id as string;
+    await service.saveEvaluation(
+      reviewer,
+      eventId,
+      scoredId,
+      { scores: [{ criterionId: "fit", score: 4 }], notes: "", complete: true },
+      "correlation-complete",
+    );
+    const refusal = await refusalOf(service.unassign(organizer, eventId, scoredId));
+    expect(refusal).toBeInstanceOf(ReviewValidationError);
+    expect((refusal as ReviewValidationError).fields.assignmentId?.join(" ")).toContain(
+      "already completed their evaluation",
+    );
+    // The refusal changed nothing: the assignment, the score and the aggregate all survive.
+    expect((await service.organizerWorkspace(organizer, eventId)).assignments).toHaveLength(1);
+    await expect(repository.getEvaluation(scoredId, reviewer.id)).resolves.toMatchObject({
+      state: "completed",
+    });
+    expect((await service.organizerWorkspace(organizer, eventId)).outcomes).toMatchObject([
+      { proposalId, completedEvaluationCount: 1 },
+    ]);
+  });
+
+  it("lets only an organizer of this event unassign, and answers the same way for an id it cannot see", async () => {
+    const { service } = build();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    await service.configurePlan(organizer, eventId, [
+      { id: "fit", name: "Fit", description: "", minScore: 1, maxScore: 5 },
+    ]);
+    const [assignment] = await service.assign(organizer, eventId, [proposalId], reviewer.id);
+    const assignmentId = assignment?.id as string;
+
+    // The reviewer holding it cannot hand it back — declaring a conflict is their exit, and it
+    // leaves the record intact.
+    await expect(service.unassign(reviewer, eventId, assignmentId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    await expect(service.unassign(null, eventId, assignmentId)).rejects.toBeInstanceOf(
+      AuthenticationRequiredError,
+    );
+    // An id that does not exist and a real id belonging to another event are the same answer,
+    // so this cannot be used to probe another event's assignments (`ARC-AUTH-001`).
+    await expect(
+      service.unassign(organizer, eventId, "00000000-0000-4000-8000-0000000000ff"),
+    ).rejects.toBeInstanceOf(ReviewNotFoundError);
+    await expect(
+      service.unassign(organizer, "00000000-0000-4000-8000-000000000002", assignmentId),
+    ).rejects.toBeInstanceOf(ReviewNotFoundError);
+
+    // None of them removed anything.
+    expect((await service.organizerWorkspace(organizer, eventId)).assignments).toHaveLength(1);
+    expect(await service.reviewerQueue(reviewer, eventId)).toHaveLength(1);
   });
 });

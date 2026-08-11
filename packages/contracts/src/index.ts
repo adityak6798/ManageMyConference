@@ -388,6 +388,19 @@ export const contentSessionSchema = z.object({
   tags: z.array(z.string()),
   tracks: z.array(z.string()),
   publicationState: z.enum(["draft", "ready", "published"]),
+  /*
+   * Where the event's published agenda places this session — never a stored property of the
+   * session. It is resolved from the agenda publication in force on every read, and is absent
+   * while that publication does not place this session (including before any schedule is
+   * published at all).
+   *
+   * It follows the **agenda** publication, which is not the same clock as
+   * `/api/public/events/{slug}/schedule`: that serves the **site** publication, frozen when the
+   * organizer last published the event page. Publishing the agenda alone moves this field and
+   * leaves the public page where it was, so the two disagree until the site is republished.
+   * That window is the rule (`PRD-PUB-001`), not a defect — but they are not interchangeable,
+   * and an earlier version of this comment claimed they always agree.
+   */
   schedule: z
     .object({
       startsAt: z.string().datetime(),
@@ -659,7 +672,20 @@ export const organizerReviewWorkspaceSchema = z.object({
   outcomes: z.array(reviewOutcomeSchema),
   audit: z.array(proposalAuditSchema),
   statuses: z.array(proposalStatusDefinitionSchema),
+  /**
+   * Who this organizer may hand an abstract to — the assignable list, which excludes the
+   * signed-in organizer because the console has no reviewer queue for her to open.
+   */
   reviewers: z.array(reviewerOptionSchema),
+  /**
+   * Every reviewer of the event, whoever is signed in: the directory an *existing* assignment's
+   * name is resolved through. Who may be assigned and who is already assigned are two different
+   * questions, and answering the second from `reviewers` printed a raw user id (`seed-organizer`)
+   * in the Reviewers column for anyone the assignable list withholds. Optional so a client
+   * written against the pre-directory shape still parses this response; the server always sends
+   * it.
+   */
+  reviewerDirectory: z.array(reviewerOptionSchema).optional(),
   // Optional so a client written against the pre-decision shape still parses this response;
   // the server always sends it.
   decisions: z.array(proposalDecisionSchema).optional(),
@@ -697,6 +723,14 @@ export const reviewerQueueSchema = z.object({ assignments: z.array(reviewerQueue
 export const reviewPlanResponseSchema = z.object({ plan: reviewPlanSchema });
 export const reviewAssignmentsResponseSchema = z.object({
   assignments: z.array(reviewAssignmentSchema),
+});
+/**
+ * The assignment that was removed, echoed back so the caller can name it in what it announces.
+ * Removing an assignment is how a mis-assignment is corrected — and, when it was the last one,
+ * how the rubric stops being locked by it.
+ */
+export const reviewAssignmentRemovalResponseSchema = z.object({
+  assignment: reviewAssignmentSchema,
 });
 export const proposalTransitionResponseSchema = z.object({
   proposals: z.array(proposalSchema),

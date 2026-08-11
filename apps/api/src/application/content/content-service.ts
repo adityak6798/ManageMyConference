@@ -6,6 +6,7 @@ import {
   type SpeakerProfile,
   type SpeakerTask,
 } from "../../domain/content/content";
+import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
 import type { AcceptedProposalQuery } from "../review/public";
 import type { SpeakerConversionPort } from "./speaker-conversion";
@@ -49,11 +50,48 @@ export class SpeakerPhotoInvalidError extends Error {
   }
 }
 
+/**
+ * A session as content projects it: the stored session plus where the agenda puts it.
+ *
+ * `schedule` is present only while the event's *published agenda* places this session, and it
+ * is recomputed on every read. Nothing writes it, which is the whole point: there is one copy
+ * of a session's time, so nothing here can go stale against the agenda that owns it.
+ *
+ * Which of the three clocks this is matters, and `PRD-PUB-001` keeps them apart deliberately:
+ *
+ * - the agenda **draft** — the organizer's board, moved by every drag. Never read here. A
+ *   session dropped into a slot has no `schedule` until the agenda is published.
+ * - the agenda **publication** — the numbered immutable snapshot the organizer committed to.
+ *   This is what `schedule` is, read live through `ContentAgendaInterface` on every request.
+ * - the **site** publication — the public projection frozen when the organizer published the
+ *   event page, which is what `/api/public/events/{slug}/schedule` and the event hub serve.
+ *
+ * Publishing the agenda moves the second immediately and leaves the third where it was, so
+ * the speaker portal and the `.ics` can be one site publication ahead of the public programme
+ * until the organizer publishes the site as well. That window is the rule, not a defect: a
+ * speaker is told the time their organizer committed to, and the public surface only ever
+ * changes when somebody deliberately republishes it.
+ */
+export interface ScheduledContentSession extends ContentSession {
+  readonly schedule?: SessionSchedule;
+}
+
+/** The content workspace as it leaves the application layer, with schedules resolved. */
+export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
+  readonly sessions: readonly ScheduledContentSession[];
+}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   assetStorage: AssetStoragePort;
   /** The review domain's answer to "may this proposal become content?". */
   proposals: AcceptedProposalQuery;
+  /**
+   * The agenda domain's answer to "when does this session happen?", and the way a withdrawn
+   * session leaves the board. Required, not optional: a session's time has exactly one source,
+   * and a composition that cannot reach it would otherwise quietly invent "unscheduled".
+   */
+  agenda: ContentAgendaInterface;
   /** Idempotent speaker provisioning, shared with CRM conversion (`ARC-FLOW-003`). */
   speakerConversion: SpeakerConversionPort;
   /**
@@ -157,7 +195,7 @@ export class ContentService {
     command: AcceptContentCommand,
     correlationId: string,
     conflictRetries = 2,
-  ): Promise<ContentWorkspace> {
+  ): Promise<ContentWorkspaceView> {
     const authorized = requireCapability(actor, "content:manage");
     if (!hasEventRole(authorized, command.eventId, "organizer"))
       throw new CapabilityDeniedError("Organizer event access required");
@@ -214,7 +252,28 @@ export class ContentService {
         throw error;
       }
     }
-    return this.dependencies.repository.workspace(command.eventId);
+    return this.projected(command.eventId);
+  }
+
+  /**
+   * The stored workspace with every session's time resolved from the agenda.
+   *
+   * One place asks, so no caller can forget to. `publishedSessionSchedules` is a single read of
+   * the snapshot in force; a session it does not name has no `schedule` at all rather than an
+   * empty or stale one.
+   */
+  private async projected(eventId: string, userId?: string): Promise<ContentWorkspaceView> {
+    const [workspace, schedules] = await Promise.all([
+      this.dependencies.repository.workspace(eventId, userId),
+      this.dependencies.agenda.publishedSessionSchedules(eventId),
+    ]);
+    return {
+      ...workspace,
+      sessions: workspace.sessions.map((session) => {
+        const schedule = schedules.get(session.id);
+        return schedule ? { ...session, schedule } : session;
+      }),
+    };
   }
 
   private async resolveSpeaker(
@@ -251,13 +310,13 @@ export class ContentService {
     return profile;
   }
 
-  async workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspace> {
+  async workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspaceView> {
     const authorized = requireCapability(actor, "content:read");
     const isOrganizer = hasEventRole(authorized, eventId, "organizer");
     const isSpeaker = hasEventRole(authorized, eventId, "speaker");
     if (!isOrganizer && !isSpeaker)
       throw new CapabilityDeniedError("Content workspace access denied");
-    return this.dependencies.repository.workspace(eventId, isOrganizer ? undefined : authorized.id);
+    return this.projected(eventId, isOrganizer ? undefined : authorized.id);
   }
 
   async updateMyProfile(
@@ -355,7 +414,7 @@ export class ContentService {
     actor: Actor | null,
     taskId: string,
     eventId: string,
-  ): Promise<ContentWorkspace> {
+  ): Promise<ContentWorkspaceView> {
     const authorized = requireCapability(actor, "content:read");
     if (!hasEventRole(authorized, eventId, "speaker"))
       throw new CapabilityDeniedError("Speaker task access denied");
@@ -426,6 +485,35 @@ export class ContentService {
     const updated = { ...session, ...input };
     await this.dependencies.repository.updateSession(updated);
     return updated;
+  }
+
+  /**
+   * Take a session out of the programme entirely.
+   *
+   * The affordance the decline dialog names. Declining an abstract that was already accepted
+   * records the reversal, but the session it created is content's own object and only content
+   * can remove it — before this existed the dialog sent organizers hunting for a control the
+   * product had never built.
+   *
+   * Organizer-only, like every other write to somebody else's session. The agenda is told
+   * first, through its public application interface: a placement outliving its session is a
+   * `MISSING_SESSION` conflict that blocks the next schedule publication, whereas a session
+   * that outlives the attempt to unplace it is merely still on the board. Order the two writes
+   * the other way and a failure in between leaves the worse of the two states.
+   *
+   * The speaker profile, its tasks, and its uploads all survive: the person may be speaking in
+   * another session, and deleting their work because one talk was withdrawn would be a second
+   * destructive surprise. Publication snapshots are immutable, so the session leaves the public
+   * page at the next publish, which is what the confirmation says.
+   */
+  async withdrawSession(actor: Actor | null, sessionId: string): Promise<ContentWorkspaceView> {
+    const authorized = requireCapability(actor, "content:manage");
+    const session = await this.dependencies.repository.findSession(sessionId);
+    if (!session || !hasEventRole(authorized, session.eventId, "organizer"))
+      throw new CapabilityDeniedError("Organizer session access denied");
+    await this.dependencies.agenda.unscheduleSession(authorized, session.eventId, session.id);
+    await this.dependencies.repository.deleteSession(session.id);
+    return this.projected(session.eventId);
   }
 
   /**
@@ -600,6 +688,21 @@ export class ContentService {
 
   /**
    * The speaker's scheduled sessions as an RFC 5545 iCalendar stream.
+   *
+   * "Scheduled" means placed on the event's **published agenda**, which is where every start,
+   * end, and location below comes from. A session the organizer has moved on the board but not
+   * yet published keeps its published time until the agenda is published again. A session with
+   * no published placement produces no VEVENT at all — an absent entry is honest, an invented
+   * one is not — and a speaker with no placed session gets no document, which the route answers
+   * as a 404.
+   *
+   * This file is *not* the public programme, and the two can legitimately disagree. It tracks
+   * the agenda publication live; `/api/public/events/{slug}/schedule` serves the site snapshot
+   * frozen at the last site publication (see `ScheduledContentSession` above and `PRD-PUB-001`).
+   * Republishing the agenda alone therefore moves a speaker's calendar entry before the public
+   * page agrees, and the two reconverge when the organizer publishes the site. Nobody may write
+   * code — or a comment — that assumes these two are the same bytes; the invariant that does
+   * hold is that this document always equals the agenda publication in force at read time.
    *
    * VCALENDAR carries the two REQUIRED properties, PRODID (3.7.3) and VERSION (3.7.4), plus
    * CALSCALE (3.7.1) stated explicitly even though GREGORIAN is its default. METHOD (3.7.2) is

@@ -13,6 +13,7 @@ import {
   proposalTransitionResponseSchema,
   recordProposalDecisionInputSchema,
   type ReviewerQueueDto,
+  reviewAssignmentRemovalResponseSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewerQueueSchema,
@@ -82,6 +83,20 @@ export async function assignReviewer(
       json(assignReviewersInputSchema.parse(input)),
     ),
     reviewAssignmentsResponseSchema,
+  );
+}
+/**
+ * Remove one review assignment.
+ *
+ * The undo for an assignment that went to the wrong person. It is also what unlocks the
+ * evaluation rubric, which stays frozen while any assignment exists — so the failure mode this
+ * repairs is not only "the wrong reviewer has it" but "the criteria can never be edited again".
+ * Refused once that reviewer has completed their evaluation.
+ */
+export async function removeReviewAssignment(eventId: string, assignmentId: string) {
+  return decode(
+    await fetch(`/api/events/${eventId}/review/assignments/${assignmentId}`, { method: "DELETE" }),
+    reviewAssignmentRemovalResponseSchema,
   );
 }
 export async function transitionProposals(

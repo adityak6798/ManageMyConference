@@ -82,7 +82,30 @@
   width: auto;
   min-width: 160px;
 }
-
+/* Deciding is a different kind of act from moving a status, so it is separated from the
+   pipeline controls rather than reading as a third dropdown. It is a fieldset named by a
+   legend, not a <label> pointing at one control, so it gives up the browser's own chrome and
+   takes the label styling by hand. */
+.triage-decide {
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 var(--s-5);
+  border: 0;
+  border-left: 1px solid var(--line);
+}
+.triage-decide .group-label {
+  padding: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+/* The pipeline hint says where Accepted and Declined went, so it sits under the select
+   rather than competing with it for the row. */
+.triage-actions .field > .hint {
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
 .triage-feedback .notice {
   margin: var(--s-4) var(--s-5) 0;
 }
@@ -123,6 +146,31 @@
 .triage-table tbody tr.is-open,
 .triage-table tbody tr.is-open:hover {
   background: var(--green-50);
+}
+
+/* Each assigned reviewer sits on their own line with the control that takes the
+   assignment back, so "who has this" and "undo that" read as one fact per person
+   rather than as a comma-separated string with a stray button after it. */
+.assigned-reviewers {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assigned-reviewers li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.assigned-reviewers .assigned-name {
+  white-space: nowrap;
+}
+/* The detail panel states the assignment under a term label, so the list starts
+   flush with the other rows of that block. */
+.detail-reviewers .assigned-reviewers {
+  margin-top: 2px;
 }
 
 /* The decision column carries a recorded outcome above its two controls, so the
@@ -202,6 +250,26 @@
   max-width: var(--measure);
   color: var(--muted);
   font-size: var(--text-sm);
+}
+/* A decision over a selection names every abstract it would decide: the organizer is
+   authorizing content, so what is in the set has to be readable before they confirm. */
+.decision-list {
+  list-style: none;
+  display: grid;
+  gap: var(--s-2);
+  max-height: 14rem;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.decision-list .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 .decision-errors {
   list-style: none;
@@ -338,6 +406,14 @@
 }
 .status-row {
   grid-template-columns: minmax(180px, 1fr) auto;
+}
+/* The reserved statuses carry an explanation where the other rows carry Remove, so the
+   column keeps its width and the row keeps its shape. */
+.status-reserved {
+  align-self: center;
+  max-width: 28ch;
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 .rubric-row-actions {
   display: flex;
@@ -510,6 +586,11 @@
   .triage-bulk,
   .triage-actions {
     gap: var(--s-3);
+  }
+  /* Stacked, the divider would read as a rule across the panel rather than beside it. */
+  .triage-decide {
+    padding-left: 0;
+    border-left: 0;
   }
   .triage-action-row select,
   .criterion-input select {

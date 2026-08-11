@@ -60,6 +60,14 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await page.getByRole("link", { name: /Publishing/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
 
+  /*
+   * Each card announces into its own live region, because a confirmation that renders a
+   * page away from the button that produced it is one nobody sees. So every assertion
+   * below names the region it expects to hear from rather than "the page's status".
+   */
+  const publicationStatus = page.getByRole("region", { name: "Publication" }).getByRole("status");
+  const scheduleEmbed = page.getByRole("region", { name: "Schedule", exact: true });
+
   // ---- nothing published yet -----------------------------------------------
   await expect(page.getByText("Not published")).toBeVisible();
   await expect(page.getByText("Draft only")).toBeVisible();
@@ -75,7 +83,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
 
   // ---- preview composes without publishing ---------------------------------
   await page.getByRole("button", { name: "Preview" }).click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(publicationStatus).toContainText(
     "Preview recomposed from the current draft. Nothing has been published.",
   );
   const previewPanel = page.getByRole("region", { name: "Preview" });
@@ -90,7 +98,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
 
   // ---- publish -------------------------------------------------------------
   await page.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(publicationStatus).toContainText(
     "Published. Visitors see this snapshot; later draft edits stay invisible until you publish again.",
   );
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
@@ -103,8 +111,21 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await expect(previewPanel.getByText("No snapshot has been taken")).toHaveCount(0);
 
   // ---- the embed snippets address the routes that now exist ----------------
-  await page.getByRole("button", { name: "Copy snippet for the Schedule embed" }).click();
-  await expect(page.getByRole("status")).toContainText("Schedule embed snippet copied");
+  /*
+   * Located on either accessible name it can carry. Confirming the copy is what *changes*
+   * that name — the button becomes "Copied the Schedule embed snippet" for two seconds — so
+   * a locator pinned to the resting name cannot see the state this asserts.
+   */
+  const copySnippet = scheduleEmbed.getByRole("button", {
+    name: /^(Copy snippet for the Schedule embed|Copied the Schedule embed snippet)$/,
+  });
+  await copySnippet.click();
+  // The click changes the button under the pointer, and the confirmation lands inside the
+  // embed card the button belongs to. Both used to be invisible: the only feedback was a
+  // message ~970px higher, in the Publication card, above the top of the window.
+  await expect(copySnippet).toHaveText("Copied");
+  await expect(scheduleEmbed.getByRole("status")).toContainText("Schedule embed snippet copied");
+  await expect(publicationStatus).not.toContainText("copied to the clipboard");
   const snippet = await page.evaluate(() => navigator.clipboard.readText());
   expect(snippet).toContain(`/embed/events/${slug}/schedule`);
   expect(snippet).toMatch(/^<iframe src="http/);
@@ -131,7 +152,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
     `/events/${slug}`,
   );
   await page.getByRole("button", { name: "Unpublish" }).click();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(publicationStatus).toContainText(
     "Unpublished. The public page and both embeds now return the not-published response.",
   );
   await expect(page.getByText("Taken down")).toBeVisible();

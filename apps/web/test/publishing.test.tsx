@@ -107,6 +107,19 @@ function renderWorkspace() {
   return render(<PublishingWorkspace eventId={eventId} eventName="Greenroom Summit" canPublish />);
 }
 
+/** jsdom has no clipboard; every copy path is driven through this stub. */
+function stubClipboard<T extends (text: string) => Promise<unknown>>(writeText: T) {
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  return writeText;
+}
+
+/** The `.publishing-embed` section a control belongs to — the panel that owns it. */
+function embedPanelOf(control: HTMLElement) {
+  const panel = control.closest(".publishing-embed");
+  if (!(panel instanceof HTMLElement)) throw new Error("the control is not inside an embed panel");
+  return panel;
+}
+
 describe("PublishingWorkspace", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
@@ -150,8 +163,7 @@ describe("PublishingWorkspace", () => {
 
   it("copies the schedule snippet to the clipboard and announces it", async () => {
     stubPublishing({});
-    const writeText = vi.fn((_text: string) => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const writeText = stubClipboard(vi.fn((_text: string) => Promise.resolve()));
     renderWorkspace();
 
     // Each embed view names its own control, so this cannot silently target the other one.
@@ -166,6 +178,84 @@ describe("PublishingWorkspace", () => {
     expect(
       await screen.findByText("Schedule embed snippet copied to the clipboard."),
     ).toHaveAttribute("role", "status");
+  });
+
+  /*
+   * The embed controls sit at the bottom of a long page while the panel's other live
+   * region sits in the Publication card at the top: in the browser the confirmation
+   * rendered 967px above the button that produced it, off screen, and so did "copying was
+   * blocked". jsdom cannot measure pixels, so these pin the structural property that
+   * distance was made of — the message belongs to the section that owns the control — plus
+   * the change under the pointer that makes a copy legible without reading anything.
+   */
+  it("announces a copy inside the panel that owns the button, not in the card at the top", async () => {
+    stubPublishing({});
+    stubClipboard(vi.fn(() => Promise.resolve()));
+    const { container } = renderWorkspace();
+
+    const button = await screen.findByRole("button", {
+      name: "Copy snippet for the Schedule embed",
+    });
+    const panel = embedPanelOf(button);
+    fireEvent.click(button);
+
+    const message = await within(panel).findByText(
+      "Schedule embed snippet copied to the clipboard.",
+    );
+    expect(message).toHaveAttribute("role", "status");
+    // Not in the Publication card, which is where it used to land.
+    expect(container.querySelector(".publishing-foot")?.textContent).not.toContain("copied");
+    // And not in the other embed panel either: the two sections do not share a region.
+    const speakers = embedPanelOf(
+      screen.getByRole("button", { name: "Copy snippet for the Speakers embed" }),
+    );
+    expect(within(speakers).queryByText(/copied to the clipboard/)).toBeNull();
+    // The button under the pointer says so itself, for as long as it takes to read.
+    expect(button).toHaveTextContent("Copied");
+    expect(button).toHaveAccessibleName("Copied the Schedule embed snippet");
+  });
+
+  it("announces a copied embed URL in its own panel too", async () => {
+    stubPublishing({});
+    const writeText = stubClipboard(vi.fn((_text: string) => Promise.resolve()));
+    renderWorkspace();
+
+    const button = await screen.findByRole("button", { name: "Copy URL for the Speakers embed" });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]?.[0]).toBe(`${origin}/embed/events/${slug}/speakers`);
+    expect(
+      await within(embedPanelOf(button)).findByText("Speakers embed URL copied to the clipboard."),
+    ).toHaveAttribute("role", "status");
+    expect(button).toHaveTextContent("Copied");
+  });
+
+  it("keeps a refused copy beside the button and hands over the selected snippet", async () => {
+    stubPublishing({});
+    // Any non-secure origin, or a denied permission, rejects exactly like this.
+    stubClipboard(vi.fn(() => Promise.reject(new Error("Write permission denied."))));
+    const { container } = renderWorkspace();
+
+    const button = await screen.findByRole("button", {
+      name: "Copy snippet for the Schedule embed",
+    });
+    const panel = embedPanelOf(button);
+    fireEvent.click(button);
+
+    const refusal = await within(panel).findByRole("alert");
+    expect(refusal).toHaveTextContent("Copying was blocked by the browser.");
+    expect(container.querySelector(".publishing-foot")?.textContent).not.toContain("blocked");
+    // A copy that failed must not be indistinguishable from one that worked.
+    expect(button).toHaveTextContent("Copy snippet");
+    expect(within(panel).queryByRole("button", { name: /^Copied/ })).toBeNull();
+    // The refusal is actionable rather than merely stated: the field is focused, and
+    // focusing it selects the whole snippet, so one keystroke still copies it.
+    const snippet = within(panel).getByLabelText<HTMLTextAreaElement>(
+      "Paste this into the host page",
+    );
+    expect(document.activeElement).toBe(snippet);
+    expect([snippet.selectionStart, snippet.selectionEnd]).toEqual([0, snippet.value.length]);
   });
 
   it("composes the publication payload on Preview without publishing anything", async () => {

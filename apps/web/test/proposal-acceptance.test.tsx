@@ -252,9 +252,11 @@ describe("accepting a triaged proposal", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("The acceptance decision was recorded");
     expect(alert).toHaveTextContent("The speaker identity could not be created");
-    expect(alert).toHaveTextContent("Confirm again to finish acceptance");
-    // Confirm doubles as retry: re-posting the same decision heals server-side.
-    expect(screen.getByRole("button", { name: "Confirm acceptance" })).toBeEnabled();
+    expect(alert).toHaveTextContent("Retry session creation to finish it");
+    // Re-posting the same decision heals server-side, so the action survives — but it says
+    // which half it would retry rather than repeating the label that already ran.
+    expect(screen.getByRole("button", { name: "Retry session creation" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Confirm acceptance" })).toBeNull();
   });
 
   it("refuses to offer an acceptance that could never produce a speaker", async () => {
@@ -371,13 +373,11 @@ describe("who sees the submitter", () => {
 });
 
 describe("sessions and speakers workspace", () => {
-  const onError = vi.fn();
-
   function renderOrganizer(workspace: unknown = emptyContent) {
     const sent = stubApi((url) =>
       url.endsWith(`/api/events/${eventId}/content`) ? jsonResponse(workspace) : undefined,
     );
-    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} />);
     return sent;
   }
 
@@ -446,7 +446,7 @@ describe("sessions and speakers workspace", () => {
         );
       return undefined;
     });
-    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} />);
 
     const subject = await screen.findByLabelText<HTMLInputElement>("Record a communication");
     expect(subject.value).toBe("");
@@ -487,10 +487,12 @@ describe("sessions and speakers workspace", () => {
     stubApi((url) =>
       url.endsWith(`/api/events/${eventId}/content`) ? jsonResponse(unscheduled) : undefined,
     );
-    render(<ContentWorkspace eventId={eventId} role={SPEAKER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={SPEAKER} />);
 
-    // The export answers 404 with no VEVENT to write, so the link is not offered yet.
-    expect(await screen.findByText("Downloadable once a session has a time.")).toBeInTheDocument();
+    // The export answers 404 with no VEVENT to write, so the link is not offered yet. The
+    // sentence that says so belongs to ContentWorkspace; what this pins is that one is shown
+    // in place of the download.
+    expect(await screen.findByText(/^Downloadable once/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Download calendar/ })).toBeNull();
   });
 });
@@ -553,6 +555,11 @@ describe("the decision column on a row that is already decided", () => {
     // Declining does not delete content, so the organizer is told what survives the reversal.
     expect(screen.getByText(/a session and a speaker already exist for it/)).toBeVisible();
     expect(screen.getByText(/does not remove them/)).toBeVisible();
+    // ...and it names the control by the word actually printed on the other screen. The row
+    // action in Sessions & speakers reads "Withdraw"; this sentence used to send the organizer
+    // looking for a "delete the session" button that does not exist there.
+    expect(screen.getByText(/use Withdraw in Sessions & speakers/)).toBeVisible();
+    expect(document.body.textContent).not.toContain("delete the session");
 
     // Escape is the dialog's own affordance and must put it away.
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
@@ -565,5 +572,138 @@ describe("the decision column on a row that is already decided", () => {
       screen.getByRole("button", { name: "Accept instead Typed boundaries at scale" }),
     );
     expect(screen.queryByText(/a session and a speaker already exist/)).toBeNull();
+  });
+});
+
+/*
+ * The Reviewers column, and the undo it never had.
+ *
+ * Two separate defects meet in this cell. `reviewers` is the *assignable* list and withholds the
+ * signed-in organizer, so resolving an existing assignment's name through it printed a raw user
+ * id for anyone that list holds back — a co-organizer's assignment showed up as "seed-organizer".
+ * And assigning was one click and permanent: there was no control and no route to take it back,
+ * so an abstract sat with somebody who could not open it, and the evaluation rubric — which locks
+ * on the existence of any assignment at all — stayed frozen for the whole event.
+ */
+describe("the Reviewers column", () => {
+  const assignmentId = "77777777-7777-4777-8777-777777777777";
+  const assigned = {
+    id: assignmentId,
+    eventId,
+    proposalId,
+    // A co-organizer who also holds the reviewer role: exactly the identity the assignable list
+    // withholds from whoever is looking at triage.
+    reviewerId: "seed-organizer",
+    createdAt: "2026-08-11T09:00:00.000Z",
+  };
+  const plan = {
+    eventId,
+    criteria: [
+      {
+        id: "fit",
+        name: "Audience fit",
+        description: "Overall strength for this event",
+        minScore: 1,
+        maxScore: 5,
+      },
+    ],
+    updatedAt: "2026-08-01T09:00:00.000Z",
+  };
+  /** What the server sends: two lists, because they answer two different questions. */
+  const withAssignment = (overrides: Json = {}) =>
+    organizerWorkspace({
+      plan,
+      assignments: [assigned],
+      reviewers: [{ id: "seed-reviewer", name: "Ravi Reviewer" }],
+      reviewerDirectory: [
+        { id: "seed-organizer", name: "Olivia Organizer" },
+        { id: "seed-reviewer", name: "Ravi Reviewer" },
+      ],
+      ...overrides,
+    });
+  const rowFor = async () =>
+    (await screen.findByRole("button", { name: "Typed boundaries at scale" })).closest(
+      "tr",
+    ) as HTMLElement;
+
+  it("names an assigned reviewer the assignable list withholds", async () => {
+    stubApi((url) =>
+      url.includes("/review/organizer") ? jsonResponse(withAssignment()) : undefined,
+    );
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    const row = await rowFor();
+    expect(within(row).getByText("Olivia Organizer")).toBeInTheDocument();
+    // The user id is what this cell printed while one list answered both questions.
+    expect(row.textContent).not.toContain("seed-organizer");
+  });
+
+  it("takes the assignment back and says the rubric is editable again", async () => {
+    let removed = false;
+    const sent = stubApi((url) => {
+      if (url.includes("/review/organizer"))
+        return jsonResponse(removed ? withAssignment({ assignments: [] }) : withAssignment());
+      if (url.endsWith(`/review/assignments/${assignmentId}`)) {
+        removed = true;
+        return jsonResponse({ assignment: assigned });
+      }
+      return undefined;
+    });
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    // While the assignment stands the rubric is a read-only summary with no way back.
+    expect(
+      await screen.findByText(/Reviewers are already assigned, so the criteria are locked/),
+    ).toBeInTheDocument();
+    const row = await rowFor();
+    fireEvent.click(
+      within(row).getByRole("button", {
+        name: "Unassign Olivia Organizer from Typed boundaries at scale",
+      }),
+    );
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({
+      url: `/api/events/${eventId}/review/assignments/${assignmentId}`,
+      method: "DELETE",
+    });
+    const status = await screen.findByText(/Olivia Organizer is no longer reviewing/);
+    expect(status).toHaveAttribute("role", "status");
+    // The consequence an organizer would never guess at: the lock this assignment held is the
+    // reason the criteria could not be edited, and removing the last one releases it.
+    expect(status).toHaveTextContent("the evaluation criteria unlock");
+    expect(within(await rowFor()).getByText("Unassigned")).toBeInTheDocument();
+    // (The setup panel is a closed <details>, so this asserts presence rather than visibility.)
+    expect(screen.getByRole("button", { name: "Save rubric" })).toBeInTheDocument();
+  });
+
+  it("announces the server's reason rather than its envelope when the removal is refused", async () => {
+    const sent = stubApi((url) => {
+      if (url.includes("/review/organizer")) return jsonResponse(withAssignment());
+      if (url.endsWith(`/review/assignments/${assignmentId}`))
+        return jsonResponse(
+          failure("VALIDATION_FAILED", "The review request is invalid.", {
+            assignmentId: [
+              "This reviewer has already completed their evaluation, and that score is counted in the abstract's aggregate.",
+            ],
+          }),
+          400,
+        );
+      return undefined;
+    });
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    fireEvent.click(
+      within(await rowFor()).getByRole("button", { name: /^Unassign Olivia Organizer/ }),
+    );
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const alert = await screen.findByRole("alert");
+    // "The review request is invalid." is the envelope's own line and is not something an
+    // organizer can act on; the sentence that is lives in the field errors.
+    expect(alert).toHaveTextContent("already completed their evaluation");
+    expect(alert).not.toHaveTextContent("The review request is invalid");
+    // Nothing was removed, so the reviewer is still named on the row.
+    expect(within(await rowFor()).getByText("Olivia Organizer")).toBeInTheDocument();
   });
 });

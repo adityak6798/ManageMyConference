@@ -21,6 +21,11 @@
  * this file converts them to instants in the event's zone, and nothing anywhere invents
  * a date: an event with no slots yet defaults to the next whole hour on its own clock,
  * which is a suggestion the operator can overwrite before anything is sent.
+ *
+ * Every outcome lands where the action was taken. Success and failure share one live
+ * region under the toolbar, and anything about a single room, track, or timeslot is
+ * repeated inside that row. The parent's `onError` is reserved for a failure to *load*,
+ * which is the only failure that leaves no workspace to report it in.
  */
 
 import type { AgendaDraftDto, EventDto } from "@greenroom/contracts";
@@ -218,7 +223,7 @@ function isViewId(value: string | null): value is ViewId {
  * `keys[index]` translates that back into the row whose inputs produced it, so the
  * message lands under those inputs instead of in the workspace-wide alert.
  */
-function rowErrors(fieldErrors: Record<string, string[]>, keys: string[]) {
+function errorsByRow(fieldErrors: Record<string, string[]>, keys: string[]) {
   const rows: Record<string, string> = {};
   for (const [path, messages] of Object.entries(fieldErrors)) {
     const [group, index] = path.split(".");
@@ -229,6 +234,23 @@ function rowErrors(fieldErrors: Record<string, string[]>, keys: string[]) {
     rows[key] = existing ? `${existing} ${messages.join(" ")}` : messages.join(" ");
   }
   return rows;
+}
+
+/**
+ * Why a room, track, or timeslot cannot be removed, or null when it can be.
+ *
+ * The API refuses a removal that would orphan a placement (`AgendaResourceInUseError`),
+ * and the board is holding the very placements that decide it — so the row can say what
+ * will happen before the button is pressed, instead of only reporting it afterwards.
+ * The button itself stays live: this view is a snapshot, the placements may have moved
+ * since it was read, and only the API knows. A refused click then announces under the
+ * toolbar and repeats itself in the row, so the answer arrives either way.
+ */
+function inUseNote(held: number, resource: "room" | "track" | "time slot"): string | null {
+  if (!held) return null;
+  return held === 1
+    ? `Holds 1 scheduled session. Move or unschedule it before removing this ${resource}.`
+    : `Holds ${held} scheduled sessions. Move or unschedule them before removing this ${resource}.`;
 }
 
 /**
@@ -264,7 +286,9 @@ export function AgendaWorkspace({
   // Typed-but-unsaved timeslot rows, keyed by slot id (and `NEW_SLOT` for the one that
   // has no id yet). A row with no entry here simply shows what the server holds.
   const [slotForms, setSlotForms] = useState<Record<string, SlotForm>>({});
-  const [slotErrors, setSlotErrors] = useState<Record<string, string>>({});
+  // Why one row was refused, keyed the same way plus room and track ids: a refusal about
+  // a single resource belongs in that resource's row, not in a page-wide notice.
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   // "Now" is read once per mount so the suggested start cannot slide out from under an
   // operator who is mid-edit; it is only ever a default, and it is theirs to overwrite.
   const [openedAt] = useState(() => Date.now());
@@ -284,7 +308,7 @@ export function AgendaWorkspace({
     setAgenda(null);
     // Half-typed times belong to the event they were typed for, never to the next one.
     setSlotForms({});
-    setSlotErrors({});
+    setRowErrors({});
     // ERROR-INTENT: React effects cannot await; failures are rendered by the parent boundary.
     void getAgenda(eventId)
       .then((loaded) => {
@@ -444,35 +468,55 @@ export function AgendaWorkspace({
     window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
   }
 
+  /** Drops one row's refusal, because the action it was about has now succeeded. */
+  function clearRowError(key: string) {
+    setRowErrors((current) =>
+      current[key] === undefined
+        ? current
+        : Object.fromEntries(Object.entries(current).filter(([id]) => id !== key)),
+    );
+  }
+
   /**
    * `focusId` is applied only once the new draft is on screen: the element it names
    * (the card that just moved) does not exist until then.
+   *
+   * `row` names the room, track, or timeslot the action was about, if any. A refusal
+   * always reaches the live region under the toolbar — the same place the success would
+   * have gone — and a refusal about one row is repeated inside that row.
    */
   async function act(
     action: () => Promise<Draft>,
     describe: (updated: Draft) => string,
-    focusId?: string,
+    { focusId, row }: { focusId?: string | undefined; row?: string | undefined } = {},
   ) {
     setBusy(true);
     try {
       const updated = await action();
       if (!mounted.current) return;
       setAgenda(updated);
+      if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
       if (focusId) setPendingFocus(focusId);
     } catch (error) {
-      // ERROR-INTENT: The workspace renders this expected API failure through its parent alert.
-      if (mounted.current)
-        onError(error instanceof Error ? error.message : "Agenda update failed.");
+      if (!mounted.current) return;
+      const message = error instanceof Error ? error.message : "Agenda update failed.";
+      feedback.announce("error", message);
+      if (row) setRowErrors((current) => ({ ...current, [row]: message }));
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
 
-  const saveResources = (resources: Pick<Draft, "rooms" | "tracks" | "slots">, done: string) =>
+  const saveResources = (
+    resources: Pick<Draft, "rooms" | "tracks" | "slots">,
+    done: string,
+    row?: string,
+  ) =>
     act(
       () => saveAgendaResources(eventId, resources),
       () => done,
+      { row },
     );
 
   /**
@@ -481,10 +525,16 @@ export function AgendaWorkspace({
    * per-field errors, and those have to land on the row that caused them instead of in
    * the workspace-wide alert. `keys` names the row that owns each entry of `slots`, so a
    * `slots.2.endsAt` from the API can be traced back to the inputs the operator sees.
+   *
+   * `row` names the one row this submission is *about* — the row whose Save, Remove, or
+   * Add was pressed. Every other row on screen may be holding times the operator typed
+   * and has not sent yet, and those are unsaved work: they survive this response, which
+   * is only an answer about `row`.
    */
   async function saveSlots(
     slots: Slot[],
     done: string,
+    row: string,
     keys: string[] = slots.map(({ id }) => id),
   ) {
     setBusy(true);
@@ -496,24 +546,33 @@ export function AgendaWorkspace({
       });
       if (!mounted.current) return;
       setAgenda(updated);
-      // The server's draft is now the truth for every row, including the ones the
-      // operator was part-way through; leaving stale edits on screen would lie.
-      setSlotForms({});
-      setSlotErrors({});
+      // Answered: this row's draft and its refusal both go. Drafts belonging to slots
+      // that no longer exist go with them; the rest is still the operator's to save.
+      const live = new Set(updated.slots.map(({ id }) => id));
+      const settled = (key: string) => key === row || (key !== NEW_SLOT && !live.has(key));
+      setSlotForms((current) =>
+        Object.fromEntries(Object.entries(current).filter(([key]) => !settled(key))),
+      );
+      setRowErrors((current) =>
+        Object.fromEntries(Object.entries(current).filter(([key]) => !settled(key))),
+      );
       feedback.announce("success", done);
     } catch (error) {
       if (!mounted.current) return;
       const fields = error instanceof AgendaApiError ? error.envelope.error.fieldErrors : undefined;
-      const rows = fields ? rowErrors(fields, keys) : {};
+      const rows = fields ? errorsByRow(fields, keys) : {};
       const rejected = Object.values(rows);
       if (rejected.length) {
-        setSlotErrors(rows);
+        setRowErrors((current) => ({ ...current, ...rows }));
         feedback.announce("error", `Timeslot not saved. ${rejected.join(" ")}`);
         return;
       }
-      // ERROR-INTENT: anything the API did not attach to a row is a workspace-level
-      // failure, and the parent alert is where this workspace reports those.
-      onError(error instanceof Error ? error.message : "Timeslot update failed.");
+      // Anything the API did not attach to a field is still about the row the operator
+      // pressed — a timeslot that cannot be removed while it holds a session, say — so
+      // it announces under the toolbar and is repeated in that row.
+      const message = error instanceof Error ? error.message : "Timeslot update failed.";
+      feedback.announce("error", message);
+      setRowErrors((current) => ({ ...current, [row]: message }));
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -521,7 +580,7 @@ export function AgendaWorkspace({
 
   /** Refuses a row before anything is sent, and says why where the operator is looking. */
   function refuseSlot(key: string, message: string): null {
-    setSlotErrors((current) => ({ ...current, [key]: message }));
+    setRowErrors((current) => ({ ...current, [key]: message }));
     feedback.announce("error", message);
     return null;
   }
@@ -545,11 +604,7 @@ export function AgendaWorkspace({
     // Retyping a row answers the refusal it is carrying, so the message and the
     // `aria-invalid` that goes with it are dropped rather than left contradicting the
     // values now on screen; the next submit decides again.
-    setSlotErrors((current) =>
-      current[key] === undefined
-        ? current
-        : Object.fromEntries(Object.entries(current).filter(([id]) => id !== key)),
-    );
+    clearRowError(key);
     setSlotForms((current) => ({ ...current, [key]: { ...saved, ...current[key], ...patch } }));
   };
 
@@ -627,7 +682,7 @@ export function AgendaWorkspace({
           ? `“${source.title}” placed in ${where}, and it now has ${created.length} conflict${created.length === 1 ? "" : "s"}. Open the Conflicts view.`
           : `“${source.title}” placed in ${where}.`;
       },
-      `agenda-placement-${id}`,
+      { focusId: `agenda-placement-${id}` },
     );
   }
 
@@ -642,7 +697,7 @@ export function AgendaWorkspace({
         return getAgenda(eventId);
       },
       () => `“${title}” moved back to Unscheduled.`,
-      `agenda-session-${placement.sessionId}`,
+      { focusId: `agenda-session-${placement.sessionId}` },
     );
   }
 
@@ -1296,8 +1351,13 @@ export function AgendaWorkspace({
                   feedback.announce("success", `Published version ${schedule.version}`);
               })
               .catch((error: unknown) => {
+                // A refused publication is news about this button, and the live region
+                // sits directly under it.
                 if (mounted.current)
-                  onError(error instanceof Error ? error.message : "Publication failed.");
+                  feedback.announce(
+                    "error",
+                    error instanceof Error ? error.message : "Publication failed.",
+                  );
               })
               .finally(() => {
                 if (mounted.current) setBusy(false);
@@ -1457,49 +1517,72 @@ export function AgendaWorkspace({
       <details className="agenda-resources">
         <summary>Manage rooms, tracks, and times</summary>
         <h3>Rooms</h3>
-        {draft.rooms.map((room) => (
-          <div className="resource-row" key={room.id}>
-            <span className="name">{room.name}</span>
-            <button
-              type="button"
-              className="secondary small"
-              onClick={() => {
-                const name = window.prompt("Room name", room.name);
-                if (name?.trim())
+        {draft.rooms.map((room) => {
+          const note = inUseNote(
+            draft.placements.filter((placement) => placement.roomId === room.id).length,
+            "room",
+          );
+          const error = rowErrors[room.id];
+          return (
+            <div className="resource-row" key={room.id}>
+              <span className="name">{room.name}</span>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => {
+                  const name = window.prompt("Room name", room.name);
+                  if (name?.trim())
+                    // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
+                    void saveResources(
+                      {
+                        rooms: draft.rooms.map((item) =>
+                          item.id === room.id ? { ...item, name: name.trim() } : item,
+                        ),
+                        tracks: draft.tracks,
+                        slots: draft.slots,
+                      },
+                      "Room renamed.",
+                      room.id,
+                    );
+                }}
+              >
+                Rename
+              </button>
+              {/* The note says why this will be refused, but the button stays live: this
+                  view can be a few seconds old, and only the API knows what is placed
+                  right now. Its refusal lands under the toolbar and in this row. */}
+              <button
+                type="button"
+                className="secondary small"
+                aria-describedby={note ? `agenda-room-note-${room.id}` : undefined}
+                onClick={() =>
                   // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
                   void saveResources(
                     {
-                      rooms: draft.rooms.map((item) =>
-                        item.id === room.id ? { ...item, name: name.trim() } : item,
-                      ),
+                      rooms: draft.rooms.filter(({ id }) => id !== room.id),
                       tracks: draft.tracks,
                       slots: draft.slots,
                     },
-                    "Room renamed.",
-                  );
-              }}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              className="secondary small"
-              onClick={() =>
-                // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
-                void saveResources(
-                  {
-                    rooms: draft.rooms.filter(({ id }) => id !== room.id),
-                    tracks: draft.tracks,
-                    slots: draft.slots,
-                  },
-                  "Room removed.",
-                )
-              }
-            >
-              Remove
-            </button>
-          </div>
-        ))}
+                    "Room removed.",
+                    room.id,
+                  )
+                }
+              >
+                Remove
+              </button>
+              {note ? (
+                <p className="resource-note" id={`agenda-room-note-${room.id}`}>
+                  {note}
+                </p>
+              ) : null}
+              {error ? (
+                <p className="error-text" id={`agenda-room-error-${room.id}`}>
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
         <button
           type="button"
           className="secondary small"
@@ -1522,52 +1605,72 @@ export function AgendaWorkspace({
           Add room
         </button>
         <h3>Tracks</h3>
-        {draft.tracks.map((track) => (
-          <div className="resource-row" key={track.id}>
-            <span className="name">
-              <span className="agenda-track-swatch" style={{ background: track.color }} />
-              {track.name}
-            </span>
-            <button
-              type="button"
-              className="secondary small"
-              onClick={() => {
-                const name = window.prompt("Track name", track.name);
-                if (name?.trim())
+        {draft.tracks.map((track) => {
+          const note = inUseNote(
+            draft.placements.filter((placement) => placement.trackId === track.id).length,
+            "track",
+          );
+          const error = rowErrors[track.id];
+          return (
+            <div className="resource-row" key={track.id}>
+              <span className="name">
+                <span className="agenda-track-swatch" style={{ background: track.color }} />
+                {track.name}
+              </span>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => {
+                  const name = window.prompt("Track name", track.name);
+                  if (name?.trim())
+                    // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
+                    void saveResources(
+                      {
+                        rooms: draft.rooms,
+                        tracks: draft.tracks.map((item) =>
+                          item.id === track.id ? { ...item, name: name.trim() } : item,
+                        ),
+                        slots: draft.slots,
+                      },
+                      "Track renamed.",
+                      track.id,
+                    );
+                }}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                aria-describedby={note ? `agenda-track-note-${track.id}` : undefined}
+                onClick={() =>
                   // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
                   void saveResources(
                     {
                       rooms: draft.rooms,
-                      tracks: draft.tracks.map((item) =>
-                        item.id === track.id ? { ...item, name: name.trim() } : item,
-                      ),
+                      tracks: draft.tracks.filter(({ id }) => id !== track.id),
                       slots: draft.slots,
                     },
-                    "Track renamed.",
-                  );
-              }}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              className="secondary small"
-              onClick={() =>
-                // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
-                void saveResources(
-                  {
-                    rooms: draft.rooms,
-                    tracks: draft.tracks.filter(({ id }) => id !== track.id),
-                    slots: draft.slots,
-                  },
-                  "Track removed.",
-                )
-              }
-            >
-              Remove
-            </button>
-          </div>
-        ))}
+                    "Track removed.",
+                    track.id,
+                  )
+                }
+              >
+                Remove
+              </button>
+              {note ? (
+                <p className="resource-note" id={`agenda-track-note-${track.id}`}>
+                  {note}
+                </p>
+              ) : null}
+              {error ? (
+                <p className="error-text" id={`agenda-track-error-${track.id}`}>
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
         <button
           type="button"
           className="secondary small"
@@ -1598,7 +1701,11 @@ export function AgendaWorkspace({
         {allSlots.map((slot) => {
           const saved = slotInputs(slot);
           const form = slotForms[slot.id] ?? saved;
-          const error = slotErrors[slot.id];
+          const error = rowErrors[slot.id];
+          const note = inUseNote(
+            draft.placements.filter((placement) => placement.slotId === slot.id).length,
+            "time slot",
+          );
           const changed = form.start !== saved.start || form.end !== saved.end;
           // The row is named by what it currently *holds*, so every control inside it
           // says which timeslot it belongs to without repeating a visible label.
@@ -1616,6 +1723,7 @@ export function AgendaWorkspace({
                 void saveSlots(
                   draft.slots.map((item) => (item.id === slot.id ? { ...item, ...times } : item)),
                   "Timeslot updated.",
+                  slot.id,
                 );
               }}
             >
@@ -1658,16 +1766,23 @@ export function AgendaWorkspace({
                 type="button"
                 className="secondary small"
                 disabled={busy}
+                aria-describedby={note ? `agenda-slot-note-${slot.id}` : undefined}
                 onClick={() =>
                   // ERROR-INTENT: React event handlers cannot await; saveSlots renders both outcomes.
                   void saveSlots(
                     draft.slots.filter(({ id }) => id !== slot.id),
                     "Timeslot removed.",
+                    slot.id,
                   )
                 }
               >
                 Remove<span className="visually-hidden"> {belongsTo}</span>
               </button>
+              {note ? (
+                <p className="resource-note" id={`agenda-slot-note-${slot.id}`}>
+                  {note}
+                </p>
+              ) : null}
               {error ? (
                 <p className="error-text" id={`agenda-slot-error-${slot.id}`}>
                   {error}
@@ -1685,7 +1800,7 @@ export function AgendaWorkspace({
             if (!times) return;
             const created = { id: crypto.randomUUID(), ...times };
             // ERROR-INTENT: React event handlers cannot await; saveSlots renders both outcomes.
-            void saveSlots([...draft.slots, created], "Timeslot added.", [
+            void saveSlots([...draft.slots, created], "Timeslot added.", NEW_SLOT, [
               ...draft.slots.map(({ id }) => id),
               NEW_SLOT,
             ]);
@@ -1698,8 +1813,8 @@ export function AgendaWorkspace({
               type="datetime-local"
               value={newSlotForm.start}
               disabled={busy}
-              aria-invalid={slotErrors[NEW_SLOT] ? true : undefined}
-              aria-describedby={slotErrors[NEW_SLOT] ? "agenda-new-slot-error" : undefined}
+              aria-invalid={rowErrors[NEW_SLOT] ? true : undefined}
+              aria-describedby={rowErrors[NEW_SLOT] ? "agenda-new-slot-error" : undefined}
               onChange={(changedInput) =>
                 editSlotForm(NEW_SLOT, newSlotForm, { start: changedInput.target.value })
               }
@@ -1712,8 +1827,8 @@ export function AgendaWorkspace({
               type="datetime-local"
               value={newSlotForm.end}
               disabled={busy}
-              aria-invalid={slotErrors[NEW_SLOT] ? true : undefined}
-              aria-describedby={slotErrors[NEW_SLOT] ? "agenda-new-slot-error" : undefined}
+              aria-invalid={rowErrors[NEW_SLOT] ? true : undefined}
+              aria-describedby={rowErrors[NEW_SLOT] ? "agenda-new-slot-error" : undefined}
               onChange={(changedInput) =>
                 editSlotForm(NEW_SLOT, newSlotForm, { end: changedInput.target.value })
               }
@@ -1723,9 +1838,9 @@ export function AgendaWorkspace({
             <IconPlus size={13} />
             Add timeslot
           </button>
-          {slotErrors[NEW_SLOT] ? (
+          {rowErrors[NEW_SLOT] ? (
             <p className="error-text" id="agenda-new-slot-error">
-              {slotErrors[NEW_SLOT]}
+              {rowErrors[NEW_SLOT]}
             </p>
           ) : null}
         </form>

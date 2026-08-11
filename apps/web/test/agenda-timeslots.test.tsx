@@ -46,6 +46,23 @@ const withSlot = {
   ],
 };
 
+/** Two rows, so a save of one can be watched for what it does to the other. */
+const withTwoSlots = {
+  ...emptyDraft,
+  slots: [
+    {
+      id: "slot-morning",
+      startsAt: "2026-09-01T16:00:00.000Z",
+      endsAt: "2026-09-01T17:00:00.000Z",
+    },
+    {
+      id: "slot-midday",
+      startsAt: "2026-09-01T17:00:00.000Z",
+      endsAt: "2026-09-01T18:00:00.000Z",
+    },
+  ],
+};
+
 type Sent = { url: string; method: string; body: unknown };
 
 /** Serves the given draft, records writes, and answers them with `reply`. */
@@ -63,6 +80,30 @@ function stubFetch(draft: unknown, reply?: () => Response) {
         });
       if (reply && method !== "GET") return Promise.resolve(reply());
       return Promise.resolve(new Response(JSON.stringify({ agenda: draft }), { status: 200 }));
+    }),
+  );
+  return sent;
+}
+
+/**
+ * As `stubFetch`, but the stored draft actually changes: a write is answered with the
+ * resources it carried. Anything asserted about a row *after* a save is then asserted
+ * against a server that really did save, which is the only way to tell a retained edit
+ * apart from a stale render.
+ */
+function stubStoringFetch(initial: typeof withTwoSlots) {
+  const sent: Sent[] = [];
+  let stored: typeof withTwoSlots = initial;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") {
+        const body = JSON.parse(String(init?.body ?? "null")) as Partial<typeof withTwoSlots>;
+        sent.push({ url: String(input), method, body });
+        stored = { ...stored, ...body };
+      }
+      return Promise.resolve(new Response(JSON.stringify({ agenda: stored }), { status: 200 }));
     }),
   );
   return sent;
@@ -221,6 +262,91 @@ describe("AgendaWorkspace timeslot editing", () => {
     expect(screen.getByLabelText<HTMLInputElement>(/^Start of /).value).toBe("2026-09-01T09:15");
     expect(screen.getByLabelText(/^End of /)).toHaveAttribute("aria-invalid", "true");
     // A field error is not a workspace failure; the page-level alert stays quiet.
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  /*
+   * Each row is a separate form with its own Save, so the times typed into the other rows
+   * are unsent work. Saving one row used to clear the whole draft map: the second row's
+   * text snapped back to the server's value and its Save greyed out, under a green
+   * "Timeslot updated." — the operator's own record that both edits had landed.
+   */
+  it("keeps every other row's typed times when one row is saved", async () => {
+    const sent = stubStoringFetch(withTwoSlots);
+    render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+
+    const starts = await screen.findAllByLabelText<HTMLInputElement>(/^Start of /);
+    // 16:00Z and 17:00Z are 12:00 and 13:00 in New York.
+    expect(starts.map((input) => input.value)).toEqual(["2026-09-01T12:00", "2026-09-01T13:00"]);
+    fireEvent.change(starts[0] as HTMLInputElement, { target: { value: "2026-09-01T09:30" } });
+    fireEvent.change(starts[1] as HTMLInputElement, { target: { value: "2026-09-01T13:45" } });
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Save / })[0] as HTMLElement);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    // Only the row that was saved is in the write; the other keeps its stored times.
+    expect(slotsOf(sent)).toEqual([
+      {
+        id: "slot-morning",
+        startsAt: "2026-09-01T13:30:00.000Z",
+        endsAt: "2026-09-01T17:00:00.000Z",
+      },
+      {
+        id: "slot-midday",
+        startsAt: "2026-09-01T17:00:00.000Z",
+        endsAt: "2026-09-01T18:00:00.000Z",
+      },
+    ]);
+    expect(await screen.findByRole("status")).toHaveTextContent("Timeslot updated.");
+
+    const after = screen.getAllByLabelText<HTMLInputElement>(/^Start of /);
+    // The saved row shows what the server now holds…
+    expect(after[0]?.value).toBe("2026-09-01T09:30");
+    // …and the row nobody saved still holds the time the operator typed into it.
+    expect(after[1]?.value).toBe("2026-09-01T13:45");
+
+    const saves = screen.getAllByRole("button", { name: /^Save / });
+    expect(saves[0]).toBeDisabled();
+    expect(saves[1]).toBeEnabled();
+
+    // Still the operator's to send: the edit survived intact, not merely on screen.
+    fireEvent.click(saves[1] as HTMLElement);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    // 13:45 Eastern is 17:45Z, and the first row keeps the value it was just saved with.
+    expect(slotsOf(sent)).toEqual([
+      {
+        id: "slot-morning",
+        startsAt: "2026-09-01T13:30:00.000Z",
+        endsAt: "2026-09-01T17:00:00.000Z",
+      },
+      {
+        id: "slot-midday",
+        startsAt: "2026-09-01T17:45:00.000Z",
+        endsAt: "2026-09-01T18:00:00.000Z",
+      },
+    ]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a typed row when a different timeslot is added or removed", async () => {
+    const sent = stubStoringFetch(withTwoSlots);
+    render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+
+    const typed = (await screen.findAllByLabelText<HTMLInputElement>(/^Start of /))[1];
+    if (!typed) throw new Error("the second timeslot row is missing");
+    fireEvent.change(typed, { target: { value: "2026-09-01T13:45" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[1]?.value).toBe(
+      "2026-09-01T13:45",
+    );
+
+    // Removing the *first* row is not an answer about the second one either.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0] as HTMLElement);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[0]?.value).toBe(
+      "2026-09-01T13:45",
+    );
     expect(onError).not.toHaveBeenCalled();
   });
 

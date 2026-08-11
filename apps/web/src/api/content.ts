@@ -170,6 +170,23 @@ export async function updateContentSession(
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
 
+/**
+ * Withdraw a session from the programme.
+ *
+ * Organizer-only, and the reverse of accepting the proposal: the session goes, and with it
+ * every agenda placement holding it, so the board is not left with a slot for a session that
+ * no longer exists. The speaker profile and their tasks and uploads stay — the same person may
+ * be speaking elsewhere — and the public page keeps the session until the organizer publishes
+ * again, because a published snapshot is immutable.
+ */
+export async function withdrawContentSession(
+  sessionId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/content-sessions/${sessionId}`, { method: "DELETE" });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
 export async function publishSpeakerAsset(
   assetId: string,
   fetcher: typeof fetch = fetch,

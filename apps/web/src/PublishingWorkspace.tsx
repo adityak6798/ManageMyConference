@@ -19,6 +19,10 @@
  *
  * Preview never mutates: it is a GET, and the copy says so, because an organizer must
  * be able to look at what publishing *would* do without doing it.
+ *
+ * Feedback belongs to the control that produced it. The Publication card's toolbar
+ * announces directly beneath itself; the embed cards, which sit a full page lower, own
+ * their own live regions rather than borrowing that one — see EmbedPanel.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -217,6 +221,154 @@ function ProjectionPreview({ projection, timezone }: { projection: Projection; t
   );
 }
 
+type Embed = {
+  id: string;
+  label: string;
+  description: string;
+  path: string;
+  url: string;
+  snippet: string;
+};
+
+/** How long the button itself reads "Copied" before returning to its normal label. */
+const COPIED_MS = 2000;
+
+/*
+ * One embed view, and the reason it is a component rather than a loop body: it owns the
+ * feedback for its own two buttons.
+ *
+ * These buttons sit at the bottom of a long page. Announcing into the panel's shared live
+ * region put every confirmation — and, worse, every "copying was blocked" failure — inside
+ * the Publication card at the top, ~970px above the pointer and off screen, so a copy that
+ * silently failed looked exactly like one that worked. Each section therefore announces
+ * under its own toolbar, and the click also changes the button under the pointer, which is
+ * the part a sighted organizer actually reads.
+ */
+function EmbedPanel({ embed, isLive }: { embed: Embed; isLive: boolean }) {
+  const feedback = useActionFeedback();
+  const { announce } = feedback;
+  const [copied, setCopied] = useState<"snippet" | "url" | null>(null);
+  const snippetRef = useRef<HTMLTextAreaElement>(null);
+  const revert = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => clearTimeout(revert.current), []);
+
+  const copy = useCallback(
+    async (kind: "snippet" | "url") => {
+      const what = `${embed.label} embed ${kind === "snippet" ? "snippet" : "URL"}`;
+      try {
+        await navigator.clipboard.writeText(kind === "snippet" ? embed.snippet : embed.url);
+        clearTimeout(revert.current);
+        setCopied(kind);
+        revert.current = setTimeout(() => setCopied(null), COPIED_MS);
+        announce("success", `${what} copied to the clipboard.`);
+      } catch {
+        // ERROR-INTENT: clipboard access is refused outside a secure context and by a
+        // denied permission. The announcement is the user-facing failure state; the
+        // button must not be left reading "Copied", and the refusal is only actionable
+        // if the text is ready to copy by hand, so the snippet field is selected for it.
+        clearTimeout(revert.current);
+        setCopied(null);
+        if (kind === "snippet") snippetRef.current?.focus();
+        announce(
+          "error",
+          kind === "snippet"
+            ? `Copying was blocked by the browser. The ${what} is selected below — copy it by hand.`
+            : `Copying was blocked by the browser. Select the ${what} printed above and copy it.`,
+        );
+      }
+    },
+    [announce, embed.label, embed.snippet, embed.url],
+  );
+
+  return (
+    <section className="publishing-embed" aria-labelledby={`embed-${embed.id}`}>
+      <div className="publishing-embed-head">
+        <h3 id={`embed-${embed.id}`}>{embed.label}</h3>
+        <p className="publishing-sub">{embed.description}</p>
+      </div>
+
+      <p className="publishing-url">
+        {isLive ? (
+          <a href={embed.path} target="_blank" rel="noreferrer">
+            {embed.url}
+          </a>
+        ) : (
+          <code>{embed.url}</code>
+        )}
+      </p>
+
+      <div className="field">
+        <label htmlFor={`snippet-${embed.id}`}>Paste this into the host page</label>
+        <textarea
+          id={`snippet-${embed.id}`}
+          ref={snippetRef}
+          className="publishing-snippet"
+          readOnly
+          rows={3}
+          value={embed.snippet}
+          onFocus={(focusEvent) => focusEvent.currentTarget.select()}
+        />
+      </div>
+
+      <div className="toolbar">
+        {/* Both views offer the same two controls, so the visible label alone would give a
+            screen reader two identical "Copy snippet" buttons with nothing to tell them
+            apart. The accessible name starts with the visible text so voice control still
+            matches it — including while the button reads "Copied". */}
+        <button
+          type="button"
+          className="secondary"
+          aria-label={
+            copied === "snippet"
+              ? `Copied the ${embed.label} embed snippet`
+              : `Copy snippet for the ${embed.label} embed`
+          }
+          onClick={() => {
+            // ERROR-INTENT: handlers cannot await; copy announces both outcomes.
+            void copy("snippet");
+          }}
+        >
+          {copied === "snippet" ? <IconCheck size={15} /> : <IconLink size={15} />}
+          {copied === "snippet" ? "Copied" : "Copy snippet"}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          aria-label={
+            copied === "url"
+              ? `Copied the ${embed.label} embed URL`
+              : `Copy URL for the ${embed.label} embed`
+          }
+          onClick={() => {
+            // ERROR-INTENT: handlers cannot await; copy announces both outcomes.
+            void copy("url");
+          }}
+        >
+          {copied === "url" ? <IconCheck size={15} /> : null}
+          {copied === "url" ? "Copied" : "Copy URL"}
+        </button>
+      </div>
+
+      {/* Always mounted, directly under the two buttons that write to it: a live region
+          that appears with its first message is one assistive technology commonly
+          misses, and a message that appears elsewhere is one everybody misses. */}
+      {feedback.node}
+
+      {isLive ? (
+        <div className="publishing-frame">
+          <iframe src={embed.path} title={`${embed.label} embed preview`} loading="lazy" />
+        </div>
+      ) : (
+        <EmptyState title="No live embed yet" icon={<IconGlobe size={20} />}>
+          Publish the event and this frame renders the real embed, exactly as a host page would
+          receive it.
+        </EmptyState>
+      )}
+    </section>
+  );
+}
+
 // @spec PRD-PUB-001
 export function PublishingWorkspace({
   eventId,
@@ -326,20 +478,6 @@ export function PublishingWorkspace({
       }
     },
     [adopt, announce, eventId],
-  );
-
-  const copy = useCallback(
-    async (text: string, what: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        announce("success", `${what} copied to the clipboard.`);
-      } catch {
-        // ERROR-INTENT: clipboard access is refused outside a secure context. The
-        // snippet stays on screen in a selectable field, so copying by hand works.
-        announce("error", `Copying was blocked by the browser. Select the ${what} and copy it.`);
-      }
-    },
-    [announce],
   );
 
   const model = useMemo(() => {
@@ -590,79 +728,7 @@ export function PublishingWorkspace({
       >
         <div className="publishing-embeds">
           {model.embeds.map((embed) => (
-            <section
-              className="publishing-embed"
-              key={embed.id}
-              aria-labelledby={`embed-${embed.id}`}
-            >
-              <div className="publishing-embed-head">
-                <h3 id={`embed-${embed.id}`}>{embed.label}</h3>
-                <p className="publishing-sub">{embed.description}</p>
-              </div>
-
-              <p className="publishing-url">
-                {model.isLive ? (
-                  <a href={embed.path} target="_blank" rel="noreferrer">
-                    {embed.url}
-                  </a>
-                ) : (
-                  <code>{embed.url}</code>
-                )}
-              </p>
-
-              <div className="field">
-                <label htmlFor={`snippet-${embed.id}`}>Paste this into the host page</label>
-                <textarea
-                  id={`snippet-${embed.id}`}
-                  className="publishing-snippet"
-                  readOnly
-                  rows={3}
-                  value={embed.snippet}
-                  onFocus={(focusEvent) => focusEvent.currentTarget.select()}
-                />
-              </div>
-
-              <div className="toolbar">
-                {/* Both views offer the same two controls, so the visible label alone
-                    would give a screen reader two identical "Copy snippet" buttons with
-                    nothing to tell them apart. The accessible name starts with the
-                    visible text so voice control still matches it. */}
-                <button
-                  type="button"
-                  className="secondary"
-                  aria-label={`Copy snippet for the ${embed.label} embed`}
-                  onClick={() => {
-                    // ERROR-INTENT: handlers cannot await; copy announces both outcomes.
-                    void copy(embed.snippet, `${embed.label} embed snippet`);
-                  }}
-                >
-                  <IconLink size={15} />
-                  Copy snippet
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  aria-label={`Copy URL for the ${embed.label} embed`}
-                  onClick={() => {
-                    // ERROR-INTENT: handlers cannot await; copy announces both outcomes.
-                    void copy(embed.url, `${embed.label} embed URL`);
-                  }}
-                >
-                  Copy URL
-                </button>
-              </div>
-
-              {model.isLive ? (
-                <div className="publishing-frame">
-                  <iframe src={embed.path} title={`${embed.label} embed preview`} loading="lazy" />
-                </div>
-              ) : (
-                <EmptyState title="No live embed yet" icon={<IconGlobe size={20} />}>
-                  Publish the event and this frame renders the real embed, exactly as a host page
-                  would receive it.
-                </EmptyState>
-              )}
-            </section>
+            <EmbedPanel key={embed.id} embed={embed} isLive={model.isLive} />
           ))}
         </div>
       </Card>

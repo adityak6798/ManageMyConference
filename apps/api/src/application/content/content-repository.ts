@@ -21,6 +21,8 @@ export interface ContentRepository {
   updateProfile(profile: SpeakerProfile): Promise<void>;
   updateTask(task: SpeakerTask): Promise<void>;
   updateSession(session: ContentSession): Promise<void>;
+  /** Remove a withdrawn session. Its speaker, their tasks, and their uploads are untouched. */
+  deleteSession(sessionId: string): Promise<void>;
   updateAsset(asset: SpeakerAsset): Promise<void>;
   addAsset(asset: SpeakerAsset): Promise<void>;
   deleteAsset(assetId: string): Promise<void>;

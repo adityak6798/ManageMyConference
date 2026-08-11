@@ -16,6 +16,15 @@ export interface ReviewRepository {
   createAssignments(assignments: readonly ReviewAssignment[]): Promise<readonly ReviewAssignment[]>;
   listAssignments(eventId: string, reviewerId?: string): Promise<readonly ReviewAssignment[]>;
   findAssignment(eventId: string, assignmentId: string): Promise<ReviewAssignment | null>;
+  /**
+   * Remove one assignment and the unfinished work hanging off it — a draft evaluation and a
+   * declared conflict, both of which describe an assignment that is going away.
+   *
+   * A *completed* evaluation is not unfinished work: it is counted in `review_outcomes` and it
+   * emitted `EVT-REVIEW-COMPLETED`, so implementations must refuse with `ReviewStateConflictError`
+   * rather than silently changing an aggregate somebody has already acted on.
+   */
+  deleteAssignment(eventId: string, assignmentId: string): Promise<void>;
   getConflict(assignmentId: string, reviewerId: string): Promise<ReviewConflict | null>;
   saveConflict(conflict: ReviewConflict): Promise<void>;
   getEvaluation(assignmentId: string, reviewerId: string): Promise<Evaluation | null>;

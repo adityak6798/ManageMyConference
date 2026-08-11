@@ -4,11 +4,14 @@ import {
   MemoryContentRepository,
   MemorySpeakerConversion,
 } from "../src/adapters/persistence/memory-content-repository";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
+import { AgendaService } from "../src/application/agenda/agenda-service";
 import { ContentService } from "../src/application/content/content-service";
+import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import { EventService } from "../src/application/events/event-service";
 import {
   createDemoSession,
@@ -123,6 +126,11 @@ const build = ({
       repository: contentRepository,
       assetStorage: new DeterministicAssetStorage(),
       proposals: review,
+      agenda: new AgendaService(
+        new MemoryAgendaRepository(),
+        () => new Date("2026-08-10T12:00:00.000Z"),
+        new FixtureSchedulableContentQuery(new Map()),
+      ),
       speakerConversion: new MemorySpeakerConversion(contentRepository, ids),
       newId: ids,
       now: () => new Date("2026-08-10T12:00:00.000Z"),
@@ -395,14 +403,24 @@ describe("review HTTP API", () => {
     );
     expect(advertised).toEqual(["submitted", "accepted", "declined"]);
 
-    // Every status the workspace offered is a status a transition accepts.
-    for (const toStatus of advertised) {
+    // Every pipeline status the workspace offered is a status a transition accepts. The two
+    // reserved ones are reachable too, but through the decision route — see the transition
+    // guard below, which is what stops a status change from faking an outcome.
+    for (const toStatus of advertised.filter((key) => key === "submitted")) {
       const response = await app.request(`/api/events/${eventId}/review/transitions`, {
         method: "POST",
         headers,
         body: JSON.stringify({ proposalIds: [proposalId], toStatus }),
       });
       expect(response.status, `${toStatus} was advertised but refused`).toBe(200);
+    }
+    for (const outcome of ["accepted", "declined"]) {
+      const response = await app.request(`/api/events/${eventId}/review/decisions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ proposalIds: [proposalId], outcome }),
+      });
+      expect(response.status, `${outcome} was advertised but could not be recorded`).toBe(201);
     }
     // And it was persisted, not projected: the stored set now carries them too.
     expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toEqual(advertised);
@@ -469,6 +487,202 @@ describe("review HTTP API", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       error: { code: "VALIDATION_FAILED", fieldErrors: { toStatus: [expect.any(String)] } },
+    });
+  });
+
+  /*
+   * `POST /review/transitions {toStatus:"accepted"}` answered 200 and wrote the decisionless
+   * status the blocker was about. The triage select stopped offering it, but a dropdown is not
+   * a rule: the board still turned green with no decision behind it, so the content domain
+   * refused the abstract its own board showed as accepted. This is the rule.
+   */
+  it("refuses a transition into a reserved decision status over HTTP and names the decisions route", async () => {
+    const { app } = build();
+    const headers = await cookie("organizer");
+
+    for (const toStatus of ["accepted", "declined"]) {
+      const response = await app.request(`/api/events/${eventId}/review/transitions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ proposalIds: [proposalId], toStatus }),
+      });
+      expect(response.status, toStatus).toBe(400);
+      const body = (await response.json()) as {
+        error: { code: string; fieldErrors?: Record<string, string[]> };
+      };
+      expect(body.error.code).toBe("VALIDATION_FAILED");
+      expect(body.error.fieldErrors?.toStatus?.join(" "), toStatus).toContain(
+        `/api/events/${eventId}/review/decisions`,
+      );
+    }
+
+    // The half-state the blocker described never happened: no status change, no decision.
+    const workspace = (await (
+      await app.request(`/api/events/${eventId}/review/organizer`, { headers })
+    ).json()) as { proposals: { id: string; status: string }[]; decisions: unknown[] };
+    expect(workspace.proposals.find(({ id }) => id === proposalId)?.status).toBe("submitted");
+    expect(workspace.decisions).toEqual([]);
+
+    // And the route the refusal names produces the whole outcome, session included.
+    const decided = await app.request(`/api/events/${eventId}/review/decisions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ proposalIds: [proposalId], outcome: "accepted" }),
+    });
+    expect(decided.status).toBe(201);
+    await expect(decided.json()).resolves.toMatchObject({
+      decisions: [{ proposalId, outcome: "accepted" }],
+      acceptances: [{ proposalId, state: "content" }],
+    });
+  });
+
+  /**
+   * A mis-assignment used to be permanent, and the same click froze the rubric for good. The
+   * route that undoes it, and the one state it refuses.
+   */
+  describe("removing a review assignment", () => {
+    const assign = async (
+      app: ReturnType<typeof build>["app"],
+      headers: Record<string, string>,
+    ) => {
+      await app.request(`/api/events/${eventId}/review/plan`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          criteria: [{ id: "fit", name: "Fit", description: "", minScore: 1, maxScore: 5 }],
+        }),
+      });
+      const created = await app.request(`/api/events/${eventId}/review/assignments`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ proposalIds: [proposalId], reviewerId: "seed-reviewer" }),
+      });
+      expect(created.status).toBe(201);
+      return ((await created.json()) as { assignments: { id: string }[] }).assignments[0]
+        ?.id as string;
+    };
+
+    it("removes it for an organizer, and the reviewer's queue loses it", async () => {
+      const { app } = build();
+      const headers = await cookie("organizer");
+      const assignmentId = await assign(app, headers);
+
+      const removed = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}`,
+        { method: "DELETE", headers },
+      );
+      expect(removed.status).toBe(200);
+      // The removed assignment is echoed back so the caller can name it in what it announces.
+      await expect(removed.json()).resolves.toMatchObject({
+        assignment: { id: assignmentId, proposalId, reviewerId: "seed-reviewer" },
+      });
+
+      await expect(
+        (await app.request(`/api/events/${eventId}/review/organizer`, { headers })).json(),
+      ).resolves.toMatchObject({ assignments: [] });
+      await expect(
+        (
+          await app.request(`/api/events/${eventId}/review/assignments`, {
+            headers: await cookie("reviewer"),
+          })
+        ).json(),
+      ).resolves.toMatchObject({ assignments: [] });
+      // With no assignment left, the rubric the assignment locked can be edited again.
+      const rewritten = await app.request(`/api/events/${eventId}/review/plan`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          criteria: [{ id: "fit", name: "Renamed", description: "", minScore: 1, maxScore: 5 }],
+        }),
+      });
+      expect(rewritten.status).toBe(200);
+    });
+
+    it("refuses the reviewer, the anonymous caller, and an id it cannot see", async () => {
+      const { app } = build();
+      const headers = await cookie("organizer");
+      const assignmentId = await assign(app, headers);
+      const remove = (path: string, requestHeaders?: Record<string, string>) =>
+        app.request(path, {
+          method: "DELETE",
+          ...(requestHeaders ? { headers: requestHeaders } : {}),
+        });
+
+      expect(
+        (await remove(`/api/events/${eventId}/review/assignments/${assignmentId}`)).status,
+      ).toBe(401);
+      expect(
+        (
+          await remove(
+            `/api/events/${eventId}/review/assignments/${assignmentId}`,
+            await cookie("reviewer"),
+          )
+        ).status,
+      ).toBe(403);
+      // An unknown id and one belonging to another event are the same answer.
+      expect(
+        (
+          await remove(
+            `/api/events/${eventId}/review/assignments/00000000-0000-4000-8000-0000000000ff`,
+            headers,
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await remove(
+            `/api/events/00000000-0000-4000-8000-000000000002/review/assignments/${assignmentId}`,
+            headers,
+          )
+        ).status,
+      ).toBe(404);
+      // A malformed path is a 400, not a 404 pretending the id was checked.
+      expect(
+        (await remove(`/api/events/${eventId}/review/assignments/not-a-uuid`, headers)).status,
+      ).toBe(400);
+
+      // None of them removed anything.
+      await expect(
+        (await app.request(`/api/events/${eventId}/review/organizer`, { headers })).json(),
+      ).resolves.toMatchObject({ assignments: [{ id: assignmentId }] });
+    });
+
+    it("refuses to remove an assignment the reviewer has already scored", async () => {
+      const { app } = build();
+      const headers = await cookie("organizer");
+      const assignmentId = await assign(app, headers);
+      const completed = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/evaluation`,
+        {
+          method: "PUT",
+          headers: await cookie("reviewer"),
+          body: JSON.stringify({
+            scores: [{ criterionId: "fit", score: 4 }],
+            notes: "",
+            complete: true,
+          }),
+        },
+      );
+      expect(completed.status).toBe(200);
+
+      const refused = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}`,
+        { method: "DELETE", headers },
+      );
+      expect(refused.status).toBe(400);
+      const body = (await refused.json()) as {
+        error: { fieldErrors?: Record<string, string[]> };
+      };
+      expect(body.error.fieldErrors?.assignmentId?.join(" ")).toContain(
+        "already completed their evaluation",
+      );
+      // The score and the aggregate it feeds both survive the refusal.
+      await expect(
+        (await app.request(`/api/events/${eventId}/review/organizer`, { headers })).json(),
+      ).resolves.toMatchObject({
+        assignments: [{ id: assignmentId }],
+        outcomes: [{ proposalId, completedEvaluationCount: 1, averageScore: 4 }],
+      });
     });
   });
 });

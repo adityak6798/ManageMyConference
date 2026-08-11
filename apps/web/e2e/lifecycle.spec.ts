@@ -119,7 +119,8 @@ test("carries one proposal from the public form to the published site", async ({
   // The organizer sees who filed it; the reviewer never will.
   await expect(detail).toContainText(email);
   await detail.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
-  await detail.getByRole("button", { name: "Assign" }).click();
+  // Exact: the panel also carries "Unassign <name> from …" once a reviewer is on it.
+  await detail.getByRole("button", { name: "Assign", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
   ).toBeVisible();

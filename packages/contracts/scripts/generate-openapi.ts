@@ -39,6 +39,7 @@ import {
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
   recordProposalDecisionInputSchema,
+  reviewAssignmentRemovalResponseSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewerQueueSchema,
@@ -213,7 +214,8 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/events/{eventId}/review/transitions",
-  description: "Atomically transitions every named proposal or applies none.",
+  description:
+    "Atomically transitions every named proposal or applies none. The reserved decision statuses are refused here: reaching `accepted`/`declined` is the effect of a recorded decision, so `POST /api/events/{eventId}/review/decisions` is what records one.",
   security: [{ sessionCookie: [] }],
   request: {
     params: reviewEventParamsSchema,
@@ -264,6 +266,25 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/events/{eventId}/review/assignments/{assignmentId}",
+  description:
+    "Removes a review assignment, together with any draft evaluation or declared conflict hanging off it. This is how a mis-assignment is corrected and how the evaluation rubric — locked while any assignment exists — is unlocked again. Refused with 400 once that reviewer has completed their evaluation, because the score is already counted in the abstract's aggregate.",
+  security: [{ sessionCookie: [] }],
+  request: { params: reviewAssignmentParamsSchema },
+  responses: {
+    200: {
+      description: "Removed reviewer assignment",
+      content: json(reviewAssignmentRemovalResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });
@@ -599,6 +620,24 @@ registry.registerPath({
     200: {
       description: "Organizer-managed session content and readiness",
       content: json(z.object({ session: contentSessionSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/content-sessions/{sessionId}",
+  description:
+    "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone, and the withdrawn session leaves the public page at the next publish because published snapshots are immutable. Answers the refreshed content workspace.",
+  security: [{ sessionCookie: [] }],
+  request: { params: contentSessionParamsSchema },
+  responses: {
+    200: {
+      description: "Content workspace with the withdrawn session removed",
+      content: json(contentWorkspaceSchema),
     },
     400: errorResponse,
     401: errorResponse,

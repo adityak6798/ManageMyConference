@@ -108,10 +108,9 @@ export const contentSessions = sqliteTable(
     speakerProfileIds: text("speaker_profile_ids").notNull(),
     tags: text("tags").notNull(),
     tracks: text("tracks").notNull(),
+    // No schedule columns: a session's time is its agenda placement, resolved through the
+    // agenda's public application interface on every read (migration 0022).
     publicationState: text("publication_state").notNull(),
-    scheduleStartsAt: text("schedule_starts_at"),
-    scheduleEndsAt: text("schedule_ends_at"),
-    scheduleLocation: text("schedule_location"),
   },
   (table) => [
     // Idempotency guard for ContentService.accept under concurrency.

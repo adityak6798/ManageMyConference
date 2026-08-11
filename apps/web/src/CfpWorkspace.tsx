@@ -402,7 +402,14 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
         announce(
           "success",
           state === "publish"
-            ? "Published. Applicants now see this version of the form."
+            ? // Publishing a closed call keeps it closed — that is the whole point of the
+              // fix that stopped a typo correction from reopening submissions. It is also
+              // the surprising half, so it is the half the announcement says out loud;
+              // "Applicants now see this version" alone reads as "the call is live again".
+              // The control that would actually reopen it is named, because it exists.
+              saved.publishedStatus === "closed"
+              ? "Published. The call remains closed to new submissions — use Reopen live CFP when you want applicants back."
+              : "Published. Applicants now see this version of the form."
             : state === "close"
               ? "The live call for proposals is closed to new submissions."
               : "The live call for proposals is open again.",

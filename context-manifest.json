@@ -95,6 +95,8 @@
         "docs/demo-runbook.md",
         "apps/web/src/AppShell.tsx",
         "apps/web/src/OverviewPage.tsx",
+        "apps/web/test/overview-dashboard.test.tsx",
+        "apps/web/test/shell-error-surface.test.tsx",
         "apps/web/src/router.ts",
         "apps/web/test/router.test.tsx",
         "apps/web/src/ui/primitives.tsx",
@@ -162,6 +164,7 @@
         "apps/web/src/api/cfp.ts",
         "apps/web/src/CfpWorkspace.tsx",
         "apps/web/test/cfp-composer.test.tsx",
+        "apps/web/test/cfp-republish-closed.test.tsx",
         "apps/web/e2e/cfp.spec.ts"
       ]
     },
@@ -192,7 +195,8 @@
         "apps/web/src/ReviewWorkspace.tsx",
         "apps/web/src/api/review.ts",
         "apps/web/e2e/review-workflow.spec.ts",
-        "apps/web/test/proposal-acceptance.test.tsx"
+        "apps/web/test/proposal-acceptance.test.tsx",
+        "apps/web/test/review-decisions.test.tsx"
       ]
     },
     {
@@ -212,12 +216,15 @@
         "apps/api/src/adapters/persistence/memory-content-repository.ts",
         "apps/api/src/adapters/storage",
         "apps/api/migrations/0014_content_speaker_portal.sql",
+        "apps/api/migrations/0022_content_session_schedule_from_agenda.sql",
         "apps/api/test/content-service.test.ts",
+        "apps/api/test/content-calendar-publication.test.ts",
         "apps/api/test/content-http.test.ts",
         "apps/api/test/d1-content-repository.integration.test.ts",
         "apps/web/src/ContentWorkspace.tsx",
         "apps/web/src/api/content.ts",
         "apps/web/test/speaker-photo.test.tsx",
+        "apps/web/test/session-withdrawal.test.tsx",
         "apps/web/e2e/speaker-portal.spec.ts"
       ]
     },
@@ -263,6 +270,7 @@
         "apps/web/src/api/agenda.ts",
         "apps/web/test/agenda-timezone.test.tsx",
         "apps/web/test/agenda-timeslots.test.tsx",
+        "apps/web/test/agenda-failure-feedback.test.tsx",
         "apps/web/e2e/agenda.spec.ts"
       ]
     },
@@ -327,6 +335,7 @@
     "App": "apps/web/src/App.tsx",
     "ContentService": "apps/api/src/application/content/content-service.ts",
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
+    "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts",
     "PublishingContentQuery": "apps/api/src/application/content/public.ts",
     "CrmContentQuery": "apps/api/src/application/content/public.ts",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",

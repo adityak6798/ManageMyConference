@@ -8,8 +8,14 @@ export class MemoryAgendaRepository implements AgendaRepository {
   private readonly drafts = new Map<string, AgendaDraft>();
   private readonly publications = new Map<string, PublishedSchedule>();
 
-  constructor(drafts: readonly AgendaDraft[] = []) {
+  constructor(
+    drafts: readonly AgendaDraft[] = [],
+    /** Snapshots already in force, so a board can start out published. */
+    publications: readonly PublishedSchedule[] = [],
+  ) {
     for (const draft of drafts) this.drafts.set(draft.eventId, structuredClone(draft));
+    for (const schedule of publications)
+      this.publications.set(schedule.eventId, structuredClone(schedule));
   }
   async getDraft(eventId: string) {
     return structuredClone(this.drafts.get(eventId) ?? null);

@@ -4,11 +4,14 @@ import {
   MemoryContentRepository,
   MemorySpeakerConversion,
 } from "../src/adapters/persistence/memory-content-repository";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
+import { AgendaService } from "../src/application/agenda/agenda-service";
 import { ContentService } from "../src/application/content/content-service";
+import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import { EventService } from "../src/application/events/event-service";
 import { ReviewService } from "../src/application/review/review-service";
 import {
@@ -48,9 +51,16 @@ function app(
   /** Events whose public page is live; an asset is public only while its event is. */
   publishedEvents: Set<string> = new Set(),
   storage: DeterministicAssetStorage = new DeterministicAssetStorage(),
+  /** The board this event starts with. A session's time comes from here and nowhere else. */
+  agendaRepository: MemoryAgendaRepository = new MemoryAgendaRepository(),
 ) {
   let id = 0;
   const newId = () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`;
+  const agenda = new AgendaService(
+    agendaRepository,
+    () => new Date("2026-08-10T12:00:00.000Z"),
+    new FixtureSchedulableContentQuery(new Map()),
+  );
   const repository = new MemoryContentRepository({
     sessions: [],
     speakers: [samProfile],
@@ -130,6 +140,7 @@ function app(
       repository,
       assetStorage: storage,
       proposals: review,
+      agenda,
       speakerConversion: new MemorySpeakerConversion(repository, newId),
       eventPublication: { isEventPublished: async (id) => publishedEvents.has(id) },
       newId,
@@ -640,5 +651,110 @@ describe("content HTTP transport", () => {
     await expect(
       (await api.request(`/api/events/${eventId}/content`, { headers: organizer })).json(),
     ).resolves.toMatchObject({ assets: [] });
+  });
+  /*
+   * A session's time, and the way a session leaves the programme.
+   *
+   * The portal and the .ics used to read `content_sessions.schedule_*`, which only the demo
+   * seed ever wrote, so a speaker was served one date while the published schedule served
+   * another and moving the session on the board changed nothing. Both now read the agenda
+   * publication in force. `DELETE /api/content-sessions/{id}` is the withdrawal the decline
+   * dialog names: it takes the session out of the programme and its placements off the board.
+   */
+  it("serves the agenda's published time and withdraws a session with its placements", async () => {
+    const board = new MemoryAgendaRepository([
+      {
+        eventId,
+        rooms: [{ id: "room-main", name: "Main stage" }],
+        tracks: [{ id: "track-platform", name: "Platform", color: "#6257d9" }],
+        slots: [
+          {
+            id: "slot-0900",
+            startsAt: "2026-09-01T16:00:00.000Z",
+            endsAt: "2026-09-01T17:00:00.000Z",
+          },
+        ],
+        sessions: [],
+        placements: [],
+      },
+    ]);
+    const api = app(new Set([eventId]), new DeterministicAssetStorage(), board);
+    const organizer = await cookie("organizer");
+    const speaker = await cookie("speaker");
+    await decide(api, organizer, { proposalIds: [submittedProposalId], outcome: "accepted" });
+    expect((await accept(api, organizer, submittedProposalId)).status).toBe(201);
+    const created = await (
+      await api.request(`/api/events/${eventId}/content`, { headers: organizer })
+    ).json();
+    const sessionId = created.sessions[0]?.id as string;
+
+    // Nothing is placed yet, so the speaker is told nothing rather than something invented.
+    expect(created.sessions[0]?.schedule).toBeUndefined();
+    expect(
+      (await api.request(`/api/events/${eventId}/speaker-calendar.ics`, { headers: speaker }))
+        .status,
+    ).toBe(404);
+
+    await board.savePlacement(eventId, {
+      id: "placement-opening",
+      sessionId,
+      roomId: "room-main",
+      trackId: "track-platform",
+      slotId: "slot-0900",
+    });
+    const placed = await board.getDraft(eventId);
+    if (!placed) throw new Error("The seeded board is missing");
+    await board.publish({
+      eventId,
+      version: 1,
+      publishedAt: "2026-08-10T20:00:00.000Z",
+      publishedBy: "seed-organizer",
+      agenda: placed,
+    });
+
+    const portal = await (
+      await api.request(`/api/events/${eventId}/content`, { headers: speaker })
+    ).json();
+    expect(portal.sessions[0]?.schedule).toEqual({
+      startsAt: "2026-09-01T16:00:00.000Z",
+      endsAt: "2026-09-01T17:00:00.000Z",
+      location: "Main stage",
+    });
+    const calendar = await api.request(`/api/events/${eventId}/speaker-calendar.ics`, {
+      headers: speaker,
+    });
+    expect(calendar.status).toBe(200);
+    // The same instant the published schedule serves, not a second answer stored elsewhere.
+    expect(await calendar.text()).toContain("DTSTART:20260901T160000Z");
+
+    // Withdrawal is the organizer's, and only the organizer's.
+    expect(
+      (
+        await api.request(`/api/content-sessions/${sessionId}`, {
+          method: "DELETE",
+          headers: speaker,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api.request("/api/content-sessions/not-a-uuid", {
+          method: "DELETE",
+          headers: organizer,
+        })
+      ).status,
+    ).toBe(400);
+
+    const withdrawn = await api.request(`/api/content-sessions/${sessionId}`, {
+      method: "DELETE",
+      headers: organizer,
+    });
+    expect(withdrawn.status).toBe(200);
+    // The response is the programme the withdrawal produced, and the speaker survives it.
+    await expect(withdrawn.json()).resolves.toMatchObject({ sessions: [], speakers: [{}] });
+    expect((await board.getDraft(eventId))?.placements).toEqual([]);
+    await expect(
+      (await api.request(`/api/events/${eventId}/content`, { headers: organizer })).json(),
+    ).resolves.toMatchObject({ sessions: [] });
   });
 });

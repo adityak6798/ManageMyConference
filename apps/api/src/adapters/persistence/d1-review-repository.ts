@@ -176,6 +176,39 @@ export class D1ReviewRepository implements ReviewRepository {
     this.ensure(result, "find review assignment");
     return result.results?.[0] ? assignment(result.results[0]) : null;
   }
+  /**
+   * Remove an assignment together with the unfinished work hanging off it.
+   *
+   * Guarded rather than checked-then-run: both deletes that could orphan a score carry a
+   * `NOT EXISTS … state = 'completed'` predicate, so an evaluation completed between the
+   * service's read and this write leaves every row in place instead of half-removing an
+   * assignment whose score is already counted. The assignment row is therefore still there
+   * afterwards, and that is what this reports as the conflict — no row count from the driver is
+   * needed to tell the two outcomes apart.
+   */
+  async deleteAssignment(eventId: string, assignmentId: string) {
+    // Every statement is scoped to an assignment of *this* event, so an id belonging to another
+    // event cannot reach that event's conflict or draft rows.
+    const owned =
+      "assignment_id IN (SELECT id FROM review_assignments WHERE id = ? AND event_id = ?)";
+    const unscored =
+      "NOT EXISTS (SELECT 1 FROM review_evaluations WHERE assignment_id = ? AND state = 'completed')";
+    const results = await this.database.batch([
+      this.database
+        .prepare(`DELETE FROM review_conflicts WHERE ${owned} AND ${unscored}`)
+        .bind(assignmentId, eventId, assignmentId),
+      this.database
+        .prepare(`DELETE FROM review_evaluations WHERE ${owned} AND state != 'completed'`)
+        .bind(assignmentId, eventId),
+      // Last, so the rows referencing it by foreign key are already gone.
+      this.database
+        .prepare(`DELETE FROM review_assignments WHERE id = ? AND event_id = ? AND ${unscored}`)
+        .bind(assignmentId, eventId, assignmentId),
+    ]);
+    for (const result of results) this.ensure(result, "remove review assignment");
+    if (await this.findAssignment(eventId, assignmentId))
+      throw new ReviewStateConflictError("Evaluation is completed");
+  }
   async getConflict(assignmentId: string, reviewerId: string) {
     const result = await this.database
       .prepare(

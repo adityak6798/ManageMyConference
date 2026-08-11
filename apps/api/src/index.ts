@@ -131,6 +131,9 @@ export default {
       repository: contentRepository,
       assetStorage: new R2AssetStorage(environment.ASSETS),
       proposals: reviewService,
+      // The agenda owns when a session happens; content asks rather than keeping a second copy,
+      // so the speaker portal, the .ics export and the published schedule cannot disagree.
+      agenda,
       speakerConversion,
       // Publishing owns "is this event public"; content asks rather than reading the
       // projection table, so unpublishing an event withdraws the assets its page exposed.

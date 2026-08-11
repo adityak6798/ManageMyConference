@@ -6,11 +6,27 @@
  * what is not on the schedule yet. The outstanding-speaker-task table is the
  * product's answer to the "who still has open onboarding work" requirement, so it
  * gets a real table rather than a counter.
+ *
+ * "Scheduled" is two different questions and this page answers both of them by name.
+ * The agenda *board* is the organizer's working draft: a session is on it as soon as
+ * it is dropped into a slot, which is the question "what still needs placing?" — the
+ * same question the board's own Unscheduled rail answers. The *published schedule* is
+ * the snapshot the organizer committed to, which is the question the speaker portal,
+ * the `.ics`, the public programme and the Schedule column of Sessions & speakers all
+ * answer, and it only moves when the agenda is published. Between those two lies a
+ * real state — placed but not published — so this page counts it rather than letting
+ * the two screens quietly disagree: the stat and the card name the board, and the gap
+ * to the published schedule is reported next to them.
+ *
+ * It composes three independent workspaces (content, review, agenda), so it degrades
+ * per source: a panel whose workspace did not answer says so on its own card and the
+ * rest of the dashboard stays usable. A dashboard that goes blank because one of its
+ * three reads failed is worse than no dashboard, because it hides the two that worked.
  */
 
 import type { EventDto } from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getAgenda } from "./api/agenda";
+import { AgendaApiError, getAgenda } from "./api/agenda";
 import { getContent } from "./api/content";
 import { getOrganizerReview } from "./api/review";
 import { useLinkProps } from "./router";
@@ -24,16 +40,55 @@ import {
 } from "./ui/icons";
 import { Card, EmptyState, Notice, PageHeader, Pill, Stat } from "./ui/primitives";
 
-type Overview = {
-  content: Awaited<ReturnType<typeof getContent>>;
-  review: Awaited<ReturnType<typeof getOrganizerReview>>;
-  agenda: Awaited<ReturnType<typeof getAgenda>>;
+type ContentData = Awaited<ReturnType<typeof getContent>>;
+type ReviewData = Awaited<ReturnType<typeof getOrganizerReview>>;
+/** Only what the dashboard reads from the board, so "no draft yet" can be expressed. */
+type AgendaData = Pick<
+  Awaited<ReturnType<typeof getAgenda>>,
+  "placements" | "conflicts" | "slots" | "rooms"
+>;
+
+/** When and where something happens, as either the board or the published snapshot says. */
+type Placed = { startsAt: string; endsAt: string; location: string };
+
+/**
+ * One source of the dashboard. `value` is the last answer that arrived — kept across a
+ * failed refresh so a transient blip never blanks a card that has real data in it —
+ * and `failed` says whether the most recent read of *this* source did not answer.
+ */
+type Panel<T> = { value: T | null; failed: boolean };
+
+type Panels = {
+  content: Panel<ContentData>;
+  review: Panel<ReviewData>;
+  agenda: Panel<AgendaData>;
+};
+
+type Dashboard = {
+  panels: Panels;
+  /** When the last read finished, whatever it returned. Drives the relative due labels. */
+  checkedAt: number | null;
+  /** When every source last answered together. Drives the freshness stamp. */
+  freshAt: number | null;
+};
+
+const IDLE: Dashboard = {
+  panels: {
+    content: { value: null, failed: false },
+    review: { value: null, failed: false },
+    agenda: { value: null, failed: false },
+  },
+  checkedAt: null,
+  freshAt: null,
 };
 
 const DECIDED = new Set(["accepted", "declined", "withdrawn"]);
 
 /** How often the dashboard re-reads its data without a manual reload. */
 const REFRESH_MS = 15_000;
+
+/** Stat value shown when the workspace behind the number did not answer. */
+const NO_VALUE = "—";
 
 /**
  * Calendar days between now and a deadline, counted in the event's timezone.
@@ -64,41 +119,127 @@ function dueLabel({ overdue, days }: { overdue: boolean; days: number }) {
   return `Due in ${days} day${days === 1 ? "" : "s"}`;
 }
 
+function clockTime(at: number) {
+  return new Date(at).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/**
+ * The agenda draft is written by the first placement, so an event nobody has scheduled
+ * yet has no draft at all and the API answers 404. That is the honest answer "nothing is
+ * placed", not a failure, and the dashboard reads it as an empty board — this page must
+ * never provision a draft to make itself renderable. Every other failure is re-thrown so
+ * the agenda panel reports itself unavailable.
+ */
+async function readAgenda(eventId: string): Promise<AgendaData> {
+  try {
+    const { placements, conflicts, slots, rooms } = await getAgenda(eventId);
+    return { placements, conflicts, slots, rooms };
+  } catch (reason: unknown) {
+    if (reason instanceof AgendaApiError && reason.envelope.error.code === "NOT_FOUND")
+      return { placements: [], conflicts: [], slots: [], rooms: [] };
+    throw reason;
+  }
+}
+
+/**
+ * Where the *working board* puts each session, keyed by session id.
+ *
+ * The browser-side mirror of the agenda domain's `placedSessionTimes`, and it has to keep
+ * agreeing with it: a placement whose slot the board no longer holds yields nothing, because
+ * a session with an unusable start is unplaced rather than placed at an unknown hour, and a
+ * removed room leaves the location empty while the hour stays true. Those are the same rules
+ * the published snapshot was built with, which is what makes the two comparable at all.
+ */
+function boardTimes(agenda: AgendaData | null): ReadonlyMap<string, Placed> {
+  if (!agenda) return new Map();
+  const slots = new Map(agenda.slots.map((slot) => [slot.id, slot]));
+  const rooms = new Map(agenda.rooms.map((room) => [room.id, room.name]));
+  const placed = new Map<string, Placed>();
+  for (const placement of agenda.placements) {
+    const slot = slots.get(placement.slotId);
+    if (!slot) continue;
+    placed.set(placement.sessionId, {
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      location: rooms.get(placement.roomId) ?? "",
+    });
+  }
+  return placed;
+}
+
+/** Absent on both sides counts as agreement; one side absent is a difference. */
+function samePlacement(left: Placed | undefined, right: Placed | undefined) {
+  if (!left || !right) return !left && !right;
+  return (
+    left.startsAt === right.startsAt &&
+    left.endsAt === right.endsAt &&
+    left.location === right.location
+  );
+}
+
+/** Keeps the previous answer when a source fails, so only its own card degrades. */
+function applyResult<T>(panel: Panel<T>, result: PromiseSettledResult<T>): Panel<T> {
+  return result.status === "fulfilled"
+    ? { value: result.value, failed: false }
+    : { value: panel.value, failed: true };
+}
+
+/** What a card says when the workspace behind it did not answer. */
+function PanelUnavailable({ what }: { what: string }) {
+  return (
+    <EmptyState title={`${what} could not be loaded`} icon={<IconWarning size={20} />}>
+      This panel is retrying on its own; the rest of the dashboard is unaffected.
+    </EmptyState>
+  );
+}
+
 export function OverviewPage({ event, query }: { event: EventDto; query: string }) {
-  const [data, setData] = useState<Overview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
+  const [dashboard, setDashboard] = useState<Dashboard>(IDLE);
   const linkProps = useLinkProps();
 
   const load = useCallback(async () => {
     // One parallel fan-out rather than a per-card waterfall: the overview is the
     // first paint an evaluator sees and it should settle in a single round trip.
-    const [content, review, agenda] = await Promise.all([
+    // Settled rather than all: each source reports for itself.
+    const [content, review, agenda] = await Promise.allSettled([
       getContent(event.id),
       getOrganizerReview(event.id),
-      getAgenda(event.id),
+      readAgenda(event.id),
     ]);
     return { content, review, agenda };
   }, [event.id]);
 
   useEffect(() => {
     let active = true;
-    setData(null);
-    setError(null);
-    setRefreshedAt(null);
+    // Polls can overlap and land out of order. Applying an older answer would both
+    // resurrect stale numbers and re-stamp them as fresh, so answers are numbered and
+    // anything that arrives behind the newest applied answer is dropped.
+    let issued = 0;
+    let applied = 0;
+    setDashboard(IDLE);
 
     const read = () => {
-      // ERROR-INTENT: effects cannot await; both outcomes are rendered below.
-      void load()
-        .then((next) => {
-          if (!active) return;
-          setData(next);
-          setRefreshedAt(Date.now());
-          setError(null);
-        })
-        .catch(() => {
-          if (active) setError("The overview could not be loaded. Reload to try again.");
+      const generation = ++issued;
+      // ERROR-INTENT: effects cannot await, and load() settles every source rather than
+      // rejecting; each source's failure is rendered by the panel that depends on it.
+      void load().then((settled) => {
+        if (!active || generation <= applied) return;
+        applied = generation;
+        const at = Date.now();
+        setDashboard((current) => {
+          const panels: Panels = {
+            content: applyResult(current.panels.content, settled.content),
+            review: applyResult(current.panels.review, settled.review),
+            agenda: applyResult(current.panels.agenda, settled.agenda),
+          };
+          const degraded = panels.content.failed || panels.review.failed || panels.agenda.failed;
+          return { panels, checkedAt: at, freshAt: degraded ? current.freshAt : at };
         });
+      });
     };
 
     read();
@@ -111,51 +252,74 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
     };
   }, [load]);
 
-  // Recomputed on every refresh so "overdue" does not go stale while the page is open.
-  const now = refreshedAt ?? Date.now();
+  const { content, review, agenda } = dashboard.panels;
+  // Recomputed on every read so "overdue" does not go stale while the page is open.
+  const now = dashboard.checkedAt ?? Date.now();
 
   const model = useMemo(() => {
-    if (!data) return null;
-    const speakerById = new Map(data.content.speakers.map((speaker) => [speaker.id, speaker]));
-    const openTasks = data.content.tasks
-      .filter((task) => task.status === "open")
-      .map((task) => ({
-        ...task,
-        speaker: speakerById.get(task.speakerProfileId),
-        due: calendarDaysUntil(task.dueAt, now, event.timezone),
-      }))
-      .sort((left, right) => left.due.days - right.due.days);
+    const speakerById = new Map(
+      (content.value?.speakers ?? []).map((speaker) => [speaker.id, speaker]),
+    );
+    const openTasks = content.value
+      ? content.value.tasks
+          .filter((task) => task.status === "open")
+          .map((task) => ({
+            ...task,
+            speaker: speakerById.get(task.speakerProfileId),
+            due: calendarDaysUntil(task.dueAt, now, event.timezone),
+          }))
+          .sort((left, right) => left.due.days - right.due.days)
+      : null;
 
-    const placedSessionIds = new Set(
-      data.agenda.placements.map((placement) => placement.sessionId),
-    );
-    const unscheduled = data.content.sessions.filter(
-      (contentSession) => !placedSessionIds.has(contentSession.id),
-    );
-    const awaiting = data.review.proposals.filter((proposal) => !DECIDED.has(proposal.status));
-    const speakersWithOpenWork = new Set(openTasks.map((task) => task.speakerProfileId));
+    // Scheduling needs both sides: which sessions exist, and which of them are placed.
+    // `session.schedule` is the *published* snapshot's answer, resolved by the content API;
+    // the board is the *draft*. Holding both here is what lets the page say which is which.
+    const board = boardTimes(agenda.value);
+    const unplaced =
+      content.value && agenda.value
+        ? content.value.sessions.filter((session) => !board.has(session.id))
+        : null;
+    // Placed and published are not the same fact, and the difference is the organizer's
+    // next action. This counts every session the two disagree about, in either direction:
+    // dropped on the board and never published, and taken off the board while the
+    // published schedule still carries it.
+    const unpublished =
+      content.value && agenda.value
+        ? content.value.sessions.filter(
+            (session) => !samePlacement(board.get(session.id), session.schedule),
+          )
+        : null;
+
+    const awaiting = review.value
+      ? review.value.proposals.filter((proposal) => !DECIDED.has(proposal.status))
+      : null;
 
     return {
       openTasks,
-      unscheduled,
+      unplaced,
+      unpublished,
       awaiting,
-      proposalCount: data.review.proposals.length,
-      speakersWithOpenWork,
-      conflicts: data.agenda.conflicts,
-      sessions: data.content.sessions,
-      speakers: data.content.speakers,
+      proposalCount: review.value?.proposals.length ?? 0,
+      speakersWithOpenWork: new Set((openTasks ?? []).map((task) => task.speakerProfileId)),
+      conflicts: agenda.value?.conflicts ?? null,
+      sessions: content.value?.sessions ?? null,
     };
-  }, [data, now, event.timezone]);
+  }, [content.value, review.value, agenda.value, now, event.timezone]);
 
-  if (error)
+  const nothingLoaded = !content.value && !review.value && !agenda.value;
+  const anyFailed = content.failed || review.failed || agenda.failed;
+
+  // Hard-fail only when there is genuinely nothing to show. One failed source over a
+  // rendered dashboard degrades its own card instead.
+  if (nothingLoaded && anyFailed)
     return (
       <>
         <PageHeader title="Overview" subtitle={event.name} />
-        <Notice tone="error">{error}</Notice>
+        <Notice tone="error">The overview could not be loaded. Reload to try again.</Notice>
       </>
     );
 
-  if (!model)
+  if (nothingLoaded)
     return (
       <>
         <PageHeader title="Overview" subtitle={event.name} />
@@ -173,7 +337,31 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       </>
     );
 
-  const overdue = model.openTasks.filter((task) => task.due.overdue).length;
+  const overdue = (model.openTasks ?? []).filter((task) => task.due.overdue).length;
+  // The sentence that reconciles the two questions. "Publish schedule" is the control on
+  // the agenda board that closes the gap, so it is named rather than described.
+  const publishGap = model.unpublished?.length
+    ? `The board and the published schedule differ on ${model.unpublished.length} session${
+        model.unpublished.length === 1 ? "" : "s"
+      }. Use Publish schedule on the agenda board to release the change.`
+    : null;
+  const summary = [
+    model.awaiting?.length
+      ? `${model.awaiting.length} proposal${model.awaiting.length === 1 ? "" : "s"} awaiting a decision`
+      : null,
+    model.unplaced?.length
+      ? `${model.unplaced.length} accepted session${model.unplaced.length === 1 ? "" : "s"} not on the agenda board`
+      : null,
+    // Named separately from the line above, because it is a different remedy: these are
+    // already placed, and only publishing the agenda moves them onto the schedule that
+    // Sessions & speakers, the speaker portal and the public programme read.
+    model.unpublished?.length
+      ? `${model.unpublished.length} board change${model.unpublished.length === 1 ? "" : "s"} not published yet`
+      : null,
+    model.conflicts?.length
+      ? `${model.conflicts.length} scheduling conflict${model.conflicts.length === 1 ? "" : "s"}`
+      : null,
+  ].filter(Boolean);
 
   return (
     <>
@@ -183,15 +371,16 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
         subtitle={`${event.name} · ${event.timezone}`}
         actions={
           // The dashboard refreshes itself, so it has to say when it last did — otherwise
-          // a stale number is indistinguishable from a current one.
-          <p className="refreshed-at" role="status">
-            {refreshedAt
-              ? `Updated ${new Date(refreshedAt).toLocaleTimeString("en-US", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}`
-              : "Updating…"}
+          // a stale number is indistinguishable from a current one. A refresh that failed
+          // over data already on screen says so here rather than replacing the page.
+          <p className={anyFailed ? "refreshed-at is-stale" : "refreshed-at"} role="status">
+            {anyFailed
+              ? dashboard.freshAt
+                ? `Could not refresh — showing data from ${clockTime(dashboard.freshAt)}`
+                : "Some panels could not be loaded"
+              : dashboard.freshAt
+                ? `Updated ${clockTime(dashboard.freshAt)}`
+                : "Updating…"}
           </p>
         }
       />
@@ -199,48 +388,58 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       <dl className="grid-auto">
         <Stat
           label="Awaiting decision"
-          value={model.awaiting.length}
-          hint={`${model.proposalCount} proposal${model.proposalCount === 1 ? "" : "s"} received`}
+          value={model.awaiting ? model.awaiting.length : NO_VALUE}
+          hint={
+            model.awaiting
+              ? `${model.proposalCount} proposal${model.proposalCount === 1 ? "" : "s"} received`
+              : "Abstracts unavailable"
+          }
           icon={<IconReview size={15} />}
         />
         <Stat
           label="Accepted sessions"
-          value={model.sessions.length}
+          value={model.sessions ? model.sessions.length : NO_VALUE}
+          hint={model.sessions ? undefined : "Sessions unavailable"}
           icon={<IconCheck size={15} />}
         />
         <Stat
           label="Speakers with open tasks"
-          value={model.speakersWithOpenWork.size}
-          hint={overdue ? `${overdue} task${overdue === 1 ? "" : "s"} overdue` : "All on track"}
+          value={model.openTasks ? model.speakersWithOpenWork.size : NO_VALUE}
+          hint={
+            model.openTasks
+              ? overdue
+                ? `${overdue} task${overdue === 1 ? "" : "s"} overdue`
+                : "All on track"
+              : "Speaker onboarding unavailable"
+          }
           icon={<IconSpeakers size={15} />}
           attention={overdue > 0}
         />
+        {/* The board's question, said in the board's words. The published schedule is the
+            other question, and its answer is the hint rather than the headline: placing a
+            session is the work this stat is counting, publishing it is the next step. */}
         <Stat
-          label="Unscheduled sessions"
-          value={model.unscheduled.length}
-          hint={model.conflicts.length ? `${model.conflicts.length} agenda conflict(s)` : undefined}
+          label="Not on the board"
+          value={model.unplaced ? model.unplaced.length : NO_VALUE}
+          hint={
+            model.unplaced
+              ? model.conflicts?.length
+                ? `${model.conflicts.length} agenda conflict(s)`
+                : model.unpublished?.length
+                  ? `${model.unpublished.length} board change(s) not published`
+                  : "The board matches the published schedule"
+              : "Agenda unavailable"
+          }
           icon={<IconCalendar size={15} />}
-          attention={model.conflicts.length > 0}
+          attention={Boolean(model.conflicts?.length)}
         />
       </dl>
 
-      {model.conflicts.length || model.unscheduled.length || model.awaiting.length ? (
-        <Notice tone={model.conflicts.length ? "warn" : "info"}>
+      {summary.length ? (
+        <Notice tone={model.conflicts?.length ? "warn" : "info"}>
           <IconWarning size={15} />
           <span>
-            {[
-              model.awaiting.length
-                ? `${model.awaiting.length} proposal${model.awaiting.length === 1 ? "" : "s"} awaiting a decision`
-                : null,
-              model.unscheduled.length
-                ? `${model.unscheduled.length} accepted session${model.unscheduled.length === 1 ? "" : "s"} still needs a time slot`
-                : null,
-              model.conflicts.length
-                ? `${model.conflicts.length} scheduling conflict${model.conflicts.length === 1 ? "" : "s"}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+            {summary.join(" · ")}
             {". "}
             <a {...linkProps(`/abstracts${query}`)}>Review abstracts</a>
             {" · "}
@@ -255,7 +454,9 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
         hint="Every open task assigned to a speaker, soonest deadline first."
         tight
       >
-        {model.openTasks.length === 0 ? (
+        {!model.openTasks ? (
+          <PanelUnavailable what="Speaker onboarding" />
+        ) : model.openTasks.length === 0 ? (
           <EmptyState title="No open onboarding tasks" icon={<IconCheck size={20} />}>
             Every accepted speaker has completed the work requested of them.
           </EmptyState>
@@ -315,7 +516,9 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
           hint="Proposals that have not been accepted or declined."
           tight
         >
-          {model.awaiting.length === 0 ? (
+          {!model.awaiting ? (
+            <PanelUnavailable what="Abstracts" />
+          ) : model.awaiting.length === 0 ? (
             <EmptyState title="Every proposal has a decision" icon={<IconCheck size={20} />} />
           ) : (
             <div className="table-wrap">
@@ -343,15 +546,33 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
           )}
         </Card>
 
-        <Card labelledBy="unscheduled" title="Not yet scheduled" tight>
-          {model.unscheduled.length === 0 ? (
+        <Card
+          labelledBy="unscheduled"
+          title="Not on the agenda board"
+          // Both halves of the answer sit in the header, so the reader gets them whichever
+          // body branch renders: an empty list means the placing is done, which is not the
+          // same as the published schedule — or the public — having caught up. The claim is
+          // withheld entirely when a source did not answer, rather than asserting agreement
+          // between two things this page failed to read.
+          hint={
+            model.unplaced
+              ? `Accepted sessions the working draft gives no slot. ${
+                  publishGap ?? "The board and the published schedule agree."
+                }`
+              : "Accepted sessions the working draft gives no slot."
+          }
+          tight
+        >
+          {!model.unplaced ? (
+            <PanelUnavailable what={content.value ? "The agenda" : "Sessions"} />
+          ) : model.unplaced.length === 0 ? (
             <EmptyState
-              title="Every accepted session has a slot"
+              title="Every accepted session is on the board"
               icon={<IconCalendar size={20} />}
             />
           ) : (
             <ul className="plain-list">
-              {model.unscheduled.map((contentSession) => (
+              {model.unplaced.map((contentSession) => (
                 <li key={contentSession.id}>
                   <strong>{contentSession.title}</strong>
                   <span className="sub">{contentSession.format}</span>

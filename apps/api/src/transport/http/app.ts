@@ -740,6 +740,26 @@ export function createHttpApp(
       ),
     });
   });
+  /*
+   * Withdraw a session from the programme.
+   *
+   * Organizer-only, and the counterpart of `POST /content/accept`: an abstract accepted by
+   * mistake, or accepted and then declined, leaves content through here. The service drops the
+   * session's agenda placements through the agenda's public application interface first, so the
+   * board is never left holding a placement for a session that no longer exists. The refreshed
+   * workspace comes back so the caller sees the programme it produced.
+   */
+  app.delete("/api/content-sessions/:sessionId", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = contentSessionParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Session ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(await content.withdrawSession(context.get("actor"), params.data.sessionId));
+  });
   app.get("/api/speaker-assets/:assetId", async (context) => {
     const params = speakerAssetParamsSchema.safeParse(context.req.param());
     if (!params.success)
@@ -993,6 +1013,36 @@ export function createHttpApp(
       },
       201,
     );
+  });
+  /**
+   * Remove one review assignment.
+   *
+   * The organizer-side undo for a mis-assignment, and the only way the evaluation rubric stops
+   * being locked by one. `DELETE` on the assignment itself rather than a verb under it, because
+   * what the organizer is doing is removing the resource `POST /review/assignments` created.
+   * Refused once the reviewer has completed their evaluation; the service says why in
+   * `fieldErrors.assignmentId`.
+   */
+  app.delete("/api/events/:eventId/review/assignments/:assignmentId", async (context) => {
+    const params = reviewAssignmentParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Assignment path is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      assignment: await reviewService.unassign(
+        context.get("actor"),
+        params.data.eventId,
+        params.data.assignmentId,
+      ),
+    });
   });
   app.post("/api/events/:eventId/review/transitions", async (context) => {
     const params = reviewEventParamsSchema.safeParse(context.req.param());

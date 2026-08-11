@@ -2,6 +2,15 @@ export type PublicationState = "draft" | "ready" | "published";
 export type TaskStatus = "open" | "complete";
 export type AssetVisibility = "private" | "publishable";
 
+/**
+ * A session content owns.
+ *
+ * There is deliberately no time on it. When and where a session happens is its placement on the
+ * agenda, resolved through the agenda's public application interface every time a session is
+ * projected (`PRD-CNT-001`). The three `schedule_*` columns this used to carry were written by
+ * nothing but the seed, so the speaker portal and the `.ics` export answered a question the
+ * agenda board had already answered differently; migration `0022` drops them.
+ */
 export interface ContentSession {
   readonly id: string;
   readonly eventId: string;
@@ -13,7 +22,6 @@ export interface ContentSession {
   readonly tags: readonly string[];
   readonly tracks: readonly string[];
   readonly publicationState: PublicationState;
-  readonly schedule?: { startsAt: string; endsAt: string; location: string };
 }
 
 export interface SpeakerProfile {

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
+import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
 import {
   type ContentDatabasePort,
   D1ContentRepository,
@@ -21,6 +22,7 @@ import {
   ContentService,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
+import { AgendaService } from "../src/application/agenda/agenda-service";
 import { ReviewService } from "../src/application/review/review-service";
 import { ProposalNotFoundError } from "../src/application/review/public";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
@@ -158,6 +160,11 @@ describe("D1ContentRepository", () => {
         repository,
         assetStorage: new DeterministicAssetStorage(),
         proposals: reviewService,
+        agenda: new AgendaService(
+          new D1AgendaRepository(database, () => new Date("2026-08-10T12:00:00.000Z")),
+          () => new Date("2026-08-10T12:00:00.000Z"),
+          repository,
+        ),
         speakerConversion: new D1SpeakerConversion(database, () => crypto.randomUUID(), identities),
         newId,
         now: () => new Date("2026-08-10T12:00:00.000Z"),

@@ -235,4 +235,37 @@ describe("App", () => {
       name: "New Summit",
     });
   });
+
+  it("points the address bar at the event it just created", async () => {
+    // The shell reads the selected event from the URL on the next load, so a URL still
+    // carrying the previous event silently undoes the switch on reload or when the link
+    // is shared. Creating an event is a selection like any other and must move it.
+    const created = { ...event, id: "223e4567-e89b-42d3-a456-426614174000", name: "New Summit" };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
+      if (url.endsWith("/api/events") && init?.method === "POST")
+        return jsonResponse({ event: created }, 201);
+      const workspace = workspaceBody(url);
+      if (workspace) return jsonResponse(workspace);
+      return jsonResponse({
+        events: fetchMock.mock.calls.some(([, options]) => options?.method === "POST")
+          ? [event, created]
+          : [event],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
+    await waitFor(() => expect(window.location.search).toBe(`?event=${eventId}`));
+    fireEvent.change(await screen.findByLabelText("Event name"), {
+      target: { value: "New Summit" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+
+    await waitFor(() => expect(window.location.search).toBe(`?event=${created.id}`));
+    // …on the route the organizer was already on, not back at the shell root.
+    expect(window.location.pathname).toBe("/settings");
+  });
 });

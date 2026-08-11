@@ -71,6 +71,13 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
 });
 
 /**
+ * Why an assignment cannot be removed once it has been scored. Named here so the service and
+ * the storage race path answer with the same sentence.
+ */
+const ASSIGNMENT_EVALUATED_REFUSAL =
+  "This reviewer has already completed their evaluation, and that score is counted in the abstract's aggregate. Remove is only offered before an evaluation is completed.";
+
+/**
  * The given statuses with every missing reserved decision status appended.
  *
  * Completion, never rejection: an organizer may relabel or reorder `accepted`/`declined` — a
@@ -118,8 +125,25 @@ export class ReviewService implements AcceptedProposalQuery {
     return completed;
   }
 
+  /**
+   * Two different questions about the same event, answered separately.
+   *
+   * `directory` is every reviewer of the event — the name an *existing* assignment is resolved
+   * through. `assignable` is who this organizer may hand a new abstract to: the directory minus
+   * themselves. The seeded organizer also holds the reviewer role, so triage offered "Olivia
+   * Organizer" as the first assignable reviewer — and assigning to her produced work nobody
+   * could ever do, because the organizer console has no reviewer queue. Withholding her is
+   * right; answering "who is already assigned?" out of that same shortened list was not, and it
+   * printed a raw user id in the Reviewers column for every assignment the viewer could not
+   * have made herself.
+   */
+  private async reviewerLists(actor: Actor, eventId: string) {
+    const directory = await this.dependencies.identities.listReviewersForEvent(eventId);
+    return { directory, assignable: directory.filter(({ id }) => id !== actor.id) };
+  }
+
   async organizerWorkspace(actor: Actor | null, eventId: string, status?: ProposalStatus) {
-    this.organizer(actor, eventId);
+    const authorized = this.organizer(actor, eventId);
     const [proposals, plan, assignments, outcomes, audit, statuses, reviewers, decisions] =
       await Promise.all([
         this.dependencies.proposals.list(eventId, status),
@@ -128,10 +152,20 @@ export class ReviewService implements AcceptedProposalQuery {
         this.dependencies.repository.listOutcomes(eventId),
         this.dependencies.proposals.listAudit(eventId),
         this.storedStatuses(eventId),
-        this.dependencies.identities.listReviewersForEvent(eventId),
+        this.reviewerLists(authorized, eventId),
         this.dependencies.repository.listDecisions(eventId),
       ]);
-    return { proposals, plan, assignments, outcomes, audit, statuses, reviewers, decisions };
+    return {
+      proposals,
+      plan,
+      assignments,
+      outcomes,
+      audit,
+      statuses,
+      reviewers: reviewers.assignable,
+      reviewerDirectory: reviewers.directory,
+      decisions,
+    };
   }
 
   async configureStatuses(
@@ -203,7 +237,15 @@ export class ReviewService implements AcceptedProposalQuery {
     proposalIds: readonly string[],
     reviewerId: string,
   ): Promise<readonly ReviewAssignment[]> {
-    this.organizer(actor, eventId);
+    const authorized = this.organizer(actor, eventId);
+    // The organizer console has no reviewer queue, so an organizer who assigns an abstract to
+    // themselves creates an evaluation nobody can open — and locks the rubric doing it. The
+    // list this request chooses from already excludes them; refusing it here is what stops a
+    // request that did not come from that list.
+    if (reviewerId === authorized.id)
+      throw new ReviewValidationError({
+        reviewerId: ["Assign this abstract to another reviewer; you cannot review your own event"],
+      });
     if (!(await this.dependencies.identities.isReviewerForEvent(reviewerId, eventId)))
       throw new ReviewValidationError({ reviewerId: ["Choose a reviewer assigned to this event"] });
     const uniqueProposalIds = [...new Set(proposalIds)];
@@ -236,6 +278,52 @@ export class ReviewService implements AcceptedProposalQuery {
     }
   }
 
+  /**
+   * Remove one review assignment.
+   *
+   * The correction a mis-assignment needs. Without it an abstract stayed with whoever was named
+   * first — including somebody with no queue to open it in — and, because the rubric locks on
+   * the existence of any assignment, a single stray click froze the evaluation criteria for the
+   * whole event with no way back.
+   *
+   * The rule: an assignment may be removed until its reviewer completes an evaluation. A draft
+   * and a declared conflict go with it, because both describe an assignment that is going away.
+   * A *completed* evaluation does not: its score is already counted in this abstract's
+   * aggregate and it has emitted `EVT-REVIEW-COMPLETED`, so dropping the assignment under it
+   * would quietly restate a number an organizer has already read. That case is refused and says
+   * so. Reviewers who should not have been given the abstract declare a conflict instead, which
+   * is the reviewer-side exit and leaves the record intact.
+   */
+  async unassign(
+    actor: Actor | null,
+    eventId: string,
+    assignmentId: string,
+  ): Promise<ReviewAssignment> {
+    this.organizer(actor, eventId);
+    const assignment = await this.dependencies.repository.findAssignment(eventId, assignmentId);
+    // An assignment belonging to another event is indistinguishable from one that does not
+    // exist, so this cannot be used to probe another event's ids (`ARC-AUTH-001`).
+    if (!assignment) throw new ReviewNotFoundError("Review assignment not found");
+    const evaluation = await this.dependencies.repository.getEvaluation(
+      assignment.id,
+      assignment.reviewerId,
+    );
+    if (evaluation?.state === "completed")
+      throw new ReviewValidationError({
+        assignmentId: [ASSIGNMENT_EVALUATED_REFUSAL],
+      });
+    try {
+      await this.dependencies.repository.deleteAssignment(eventId, assignmentId);
+    } catch (error) {
+      // Storage refuses the same case the read above refuses, for an evaluation completed
+      // between the two.
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ assignmentId: [ASSIGNMENT_EVALUATED_REFUSAL] });
+      throw error;
+    }
+    return assignment;
+  }
+
   async bulkTransition(
     actor: Actor | null,
     eventId: string,
@@ -243,6 +331,23 @@ export class ReviewService implements AcceptedProposalQuery {
     toStatus: ProposalStatus,
   ) {
     const authorized = this.organizer(actor, eventId);
+    /*
+     * The pipeline moves an abstract between triage steps; it does not decide it.
+     *
+     * `accepted` and `declined` are reserved because reaching one of them is the *effect* of a
+     * recorded decision, and it is that stored decision — not the status string — that
+     * authorizes the abstract to become a session. A transition straight into one produced
+     * exactly half of an acceptance: a green pill and a raised count, with no decision, no
+     * session, no speaker, and a content domain that then refused the abstract the board showed
+     * as Accepted. The triage UI stopped offering it; this is the same refusal for a request
+     * that did not come from the UI.
+     */
+    if (RESERVED_PROPOSAL_STATUSES.some(({ key }) => key === toStatus))
+      throw new ReviewValidationError({
+        toStatus: [
+          `“${toStatus}” is recorded by an accept or decline, not by moving an abstract into it. POST /api/events/${eventId}/review/decisions with that outcome instead: it stores who decided and when, and creates the session.`,
+        ],
+      });
     try {
       return await this.dependencies.proposals.transitionAtomically({
         eventId,

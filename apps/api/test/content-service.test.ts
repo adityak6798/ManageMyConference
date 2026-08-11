@@ -1,9 +1,13 @@
 // @acceptance ACC-SPEAKER
 import { describe, expect, it, vi } from "vitest";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import {
   MemoryContentRepository,
   MemorySpeakerConversion,
 } from "../src/adapters/persistence/memory-content-repository";
+import { AgendaService } from "../src/application/agenda/agenda-service";
+import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
+import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
 import {
@@ -18,7 +22,9 @@ import {
   ProposalNotAcceptedError,
   ProposalNotFoundError,
 } from "../src/application/review/public";
+import { CapabilityDeniedError } from "../src/application/identity/actor";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import type { AgendaDraft } from "../src/domain/agenda/agenda";
 import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -77,6 +83,8 @@ function setup(
     seedSpeaker?: boolean;
     /** Events whose public page is live. An asset is public only while its event is. */
     publishedEvents?: Set<string>;
+    /** Agenda boards this event starts with, so a withdrawal has placements to drop. */
+    drafts?: readonly AgendaDraft[];
   } = {},
 ) {
   const publishedEvents = options.publishedEvents ?? new Set([eventId]);
@@ -88,10 +96,14 @@ function setup(
   const storage = new DeterministicAssetStorage();
   let id = 0;
   const newId = () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`;
+  const agendaRepository = new MemoryAgendaRepository(options.drafts ?? []);
+  const agenda = agendaService(agendaRepository);
   return {
     repository,
     storage,
     publishedEvents,
+    agenda,
+    agendaRepository,
     service: new ContentService({
       repository,
       assetStorage: storage,
@@ -101,12 +113,59 @@ function setup(
           acceptedProposal(),
           acceptedProposal({ proposalId: "proposal-2", title: "Second session" }),
         ]),
+      agenda,
       speakerConversion: (options.speakerConversion?.(repository, newId) ??
         new MemorySpeakerConversion(repository, newId)) as SpeakerConversionPort,
       eventPublication: { isEventPublished: async (id) => publishedEvents.has(id) },
       newId,
       now: () => new Date("2026-08-10T12:00:00.000Z"),
     }),
+  };
+}
+
+/**
+ * The real agenda service over an in-memory board.
+ *
+ * The schedule content serves is the one the agenda published, so these tests cross that
+ * boundary for real rather than through a hand-written map: a placement, its slot, and its room
+ * are what produce a `DTSTART`, a `DTEND`, and a `LOCATION`.
+ */
+function agendaService(repository: MemoryAgendaRepository) {
+  return new AgendaService(
+    repository,
+    () => new Date("2026-08-10T12:00:00.000Z"),
+    new FixtureSchedulableContentQuery(new Map()),
+  );
+}
+
+/** One published agenda placing each named session in its own room and slot. */
+function publishedAgenda(
+  entries: readonly { sessionId: string; startsAt: string; endsAt: string; location: string }[],
+  version = 1,
+): PublishedSchedule {
+  return {
+    eventId,
+    version,
+    publishedAt: "2026-08-10T12:00:00.000Z",
+    publishedBy: "seed-organizer",
+    agenda: {
+      eventId,
+      rooms: entries.map((entry, index) => ({ id: `room-${index}`, name: entry.location })),
+      tracks: [{ id: "track-1", name: "Platform", color: "#6257d9" }],
+      slots: entries.map((entry, index) => ({
+        id: `slot-${index}`,
+        startsAt: entry.startsAt,
+        endsAt: entry.endsAt,
+      })),
+      sessions: [],
+      placements: entries.map((entry, index) => ({
+        id: `placement-${index}`,
+        sessionId: entry.sessionId,
+        roomId: `room-${index}`,
+        trackId: "track-1",
+        slotId: `slot-${index}`,
+      })),
+    },
   };
 }
 const calendarSpeaker = {
@@ -120,7 +179,7 @@ const calendarSpeaker = {
   pronouns: "",
   organization: "",
 };
-function scheduledSession(overrides: Partial<ContentSession> = {}): ContentSession {
+function session(overrides: Partial<ContentSession> = {}): ContentSession {
   return {
     id: "session-1",
     eventId,
@@ -132,16 +191,24 @@ function scheduledSession(overrides: Partial<ContentSession> = {}): ContentSessi
     tags: [],
     tracks: [],
     publicationState: "ready",
-    schedule: {
-      startsAt: "2026-09-15T17:00:00.000Z",
-      endsAt: "2026-09-15T17:45:00.000Z",
-      location: "Main; Stage",
-    },
     ...overrides,
   };
 }
+/** The placement the agenda published for `session-1` unless a test says otherwise. */
+const openingPlacement = {
+  sessionId: "session-1",
+  startsAt: "2026-09-15T17:00:00.000Z",
+  endsAt: "2026-09-15T17:45:00.000Z",
+  location: "Main; Stage",
+};
 function calendarService(
   sessions: ContentSession[],
+  placements: readonly {
+    sessionId: string;
+    startsAt: string;
+    endsAt: string;
+    location: string;
+  }[] = [openingPlacement],
   now = () => new Date("2026-08-10T12:00:00.000Z"),
 ) {
   const repository = new MemoryContentRepository({
@@ -151,10 +218,15 @@ function calendarService(
     assets: [],
     messages: [],
   });
+  const agendaRepository = new MemoryAgendaRepository(
+    [],
+    placements.length ? [publishedAgenda(placements)] : [],
+  );
   return new ContentService({
     repository,
     assetStorage: new DeterministicAssetStorage(),
     proposals: new FakeAcceptedProposals([]),
+    agenda: agendaService(agendaRepository),
     speakerConversion: new MemorySpeakerConversion(repository, crypto.randomUUID),
     newId: crypto.randomUUID,
     now,
@@ -528,6 +600,7 @@ describe("ContentService", () => {
       repository,
       assetStorage: storage,
       proposals: new FakeAcceptedProposals([acceptedProposal()]),
+      agenda: agendaService(new MemoryAgendaRepository()),
       speakerConversion: new MemorySpeakerConversion(repository, newId),
       newId,
       now: () => new Date("2026-08-10T12:00:00.000Z"),
@@ -636,7 +709,7 @@ describe("ContentService", () => {
     expect(workspace.messages.map(({ subject }) => subject)).toContain("Preparation reminder sent");
   });
   it("emits a complete RFC 5545 document for the speaker's scheduled sessions", async () => {
-    const service = calendarService([scheduledSession()]);
+    const service = calendarService([session()]);
     // The whole document is asserted, not fragments of it, so dropping any property RFC 5545
     // makes mandatory — PRODID, VERSION, UID, DTSTAMP, DTSTART — fails this test.
     expect(await service.calendar(await resolveSeededDemoActor("speaker"), eventId)).toBe(
@@ -660,7 +733,7 @@ describe("ContentService", () => {
   });
   it("escapes TEXT values and drops characters RFC 5545 cannot carry", async () => {
     const service = calendarService([
-      scheduledSession({ title: "Back\\slash, semi; colon\r\nsecondline\tkept" }),
+      session({ title: "Back\\slash, semi; colon\r\nsecondline\tkept" }),
     ]);
     const document = (await service.calendar(
       await resolveSeededDemoActor("speaker"),
@@ -676,7 +749,7 @@ describe("ContentService", () => {
   });
   it("folds long content lines at 75 octets without splitting a character", async () => {
     const title = "é".repeat(100);
-    const service = calendarService([scheduledSession({ title })]);
+    const service = calendarService([session({ title })]);
     const document = (await service.calendar(
       await resolveSeededDemoActor("speaker"),
       eventId,
@@ -689,28 +762,29 @@ describe("ContentService", () => {
     expect(calendarLines(document)).toContain(`SUMMARY:${title}`);
   });
   it("omits optional properties that carry no usable value", async () => {
-    const { schedule: _unscheduled, ...unscheduledSession } = scheduledSession({
-      id: "session-b",
-      title: "Unscheduled",
-    });
-    const service = calendarService([
-      scheduledSession({
-        id: "session-a",
-        title: "Instant",
-        // DTEND must be later than DTSTART, and an empty location is not worth a property.
-        schedule: {
+    const service = calendarService(
+      [
+        session({ id: "session-a", title: "Instant" }),
+        session({ id: "session-b", title: "Unscheduled" }),
+        session({ id: "session-c", title: "Unusable start" }),
+      ],
+      [
+        // DTEND must be later than DTSTART, and a room with no name is not worth a LOCATION.
+        {
+          sessionId: "session-a",
           startsAt: "2026-09-15T17:00:00.000Z",
           endsAt: "2026-09-15T17:00:00.000Z",
           location: "",
         },
-      }),
-      unscheduledSession,
-      scheduledSession({
-        id: "session-c",
-        title: "Unusable start",
-        schedule: { startsAt: "2026-09-15T17:00:00", endsAt: "", location: "" },
-      }),
-    ]);
+        // `session-b` is deliberately absent: the published agenda does not place it.
+        {
+          sessionId: "session-c",
+          startsAt: "2026-09-15T17:00:00",
+          endsAt: "",
+          location: "",
+        },
+      ],
+    );
     expect(await service.calendar(await resolveSeededDemoActor("speaker"), eventId)).toBe(
       [
         "BEGIN:VCALENDAR",
@@ -730,35 +804,161 @@ describe("ContentService", () => {
   });
   it("has no calendar at all when no session yields a component", async () => {
     const speaker = await resolveSeededDemoActor("speaker");
-    const { schedule: _dropped, ...unscheduled } = scheduledSession();
     // RFC 5545 section 3.4: `icalbody = calprops component` with `component = 1*(...)`. A
     // VCALENDAR carrying only calprops is not an iCalendar object, and Apple and Google both
     // refuse to import one, so nothing is produced rather than something unusable.
     expect(await calendarService([]).calendar(speaker, eventId)).toBeNull();
-    expect(await calendarService([unscheduled]).calendar(speaker, eventId)).toBeNull();
+    // A session the published agenda does not place has no time to export. Nothing invents one.
+    expect(await calendarService([session()], []).calendar(speaker, eventId)).toBeNull();
     expect(
-      await calendarService([
-        scheduledSession({ schedule: { startsAt: "not-a-date", endsAt: "", location: "" } }),
-      ]).calendar(speaker, eventId),
+      await calendarService(
+        [session()],
+        [{ sessionId: "session-1", startsAt: "not-a-date", endsAt: "", location: "" }],
+      ).calendar(speaker, eventId),
     ).toBeNull();
     // A zone-less local time cannot be expressed as a UTC DATE-TIME either.
     expect(
-      await calendarService([
-        scheduledSession({
-          schedule: { startsAt: "2026-09-15T17:00:00", endsAt: "", location: "" },
-        }),
-      ]).calendar(speaker, eventId),
+      await calendarService(
+        [session()],
+        [{ sessionId: "session-1", startsAt: "2026-09-15T17:00:00", endsAt: "", location: "" }],
+      ).calendar(speaker, eventId),
     ).toBeNull();
   });
   it("stamps DTSTAMP from the injected clock and stays byte-for-byte deterministic", async () => {
     const speaker = await resolveSeededDemoActor("speaker");
-    const service = calendarService([scheduledSession()]);
+    const service = calendarService([session()]);
     const first = (await service.calendar(speaker, eventId)) as string;
     expect(await service.calendar(speaker, eventId)).toBe(first);
     expect(calendarLines(first)).toContain("DTSTAMP:20260810T120000Z");
-    const later = calendarService([scheduledSession()], () => new Date("2026-08-11T09:30:15.500Z"));
+    const later = calendarService(
+      [session()],
+      [openingPlacement],
+      () => new Date("2026-08-11T09:30:15.500Z"),
+    );
     expect(calendarLines((await later.calendar(speaker, eventId)) as string)).toContain(
       "DTSTAMP:20260811T093015Z",
     );
+  });
+
+  /*
+   * The agenda is the only place a session's time comes from.
+   *
+   * `content_sessions` used to carry `schedule_starts_at/ends_at/location`, written by nothing
+   * but the demo seed: the speaker portal and this .ics answered 15 September while the agenda
+   * board, the published schedule and the public event page all said 1 September, and moving
+   * the session on the board left the download byte-identical. These two hold the fix in place.
+   */
+  it("takes a session's time and room from the agenda publication in force", async () => {
+    const speaker = await resolveSeededDemoActor("speaker");
+    const agendaRepository = new MemoryAgendaRepository();
+    const repository = new MemoryContentRepository({
+      sessions: [session({ title: "Designing the calm conference" })],
+      speakers: [calendarSpeaker],
+      tasks: [],
+      assets: [],
+      messages: [],
+    });
+    const service = new ContentService({
+      repository,
+      assetStorage: new DeterministicAssetStorage(),
+      proposals: new FakeAcceptedProposals([]),
+      agenda: agendaService(agendaRepository),
+      speakerConversion: new MemorySpeakerConversion(repository, crypto.randomUUID),
+      newId: crypto.randomUUID,
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+    });
+
+    // Nothing is published yet, so the session has no time at all — not a stale one.
+    expect((await service.workspace(speaker, eventId)).sessions[0]?.schedule).toBeUndefined();
+    expect(await service.calendar(speaker, eventId)).toBeNull();
+
+    await agendaRepository.publish(
+      publishedAgenda([
+        {
+          sessionId: "session-1",
+          startsAt: "2026-09-01T16:00:00.000Z",
+          endsAt: "2026-09-01T17:00:00.000Z",
+          location: "Main stage",
+        },
+      ]),
+    );
+    expect((await service.workspace(speaker, eventId)).sessions[0]?.schedule).toEqual({
+      startsAt: "2026-09-01T16:00:00.000Z",
+      endsAt: "2026-09-01T17:00:00.000Z",
+      location: "Main stage",
+    });
+    expect(calendarLines((await service.calendar(speaker, eventId)) as string)).toEqual(
+      expect.arrayContaining(["DTSTART:20260901T160000Z", "LOCATION:Main stage"]),
+    );
+
+    // Move the session and publish the schedule again: the portal and the download follow it.
+    await agendaRepository.publish(
+      publishedAgenda(
+        [
+          {
+            sessionId: "session-1",
+            startsAt: "2026-09-01T17:00:00.000Z",
+            endsAt: "2026-09-01T18:00:00.000Z",
+            location: "Workshop lab",
+          },
+        ],
+        2,
+      ),
+    );
+    expect((await service.workspace(speaker, eventId)).sessions[0]?.schedule).toEqual({
+      startsAt: "2026-09-01T17:00:00.000Z",
+      endsAt: "2026-09-01T18:00:00.000Z",
+      location: "Workshop lab",
+    });
+    expect(calendarLines((await service.calendar(speaker, eventId)) as string)).toEqual(
+      expect.arrayContaining(["DTSTART:20260901T170000Z", "LOCATION:Workshop lab"]),
+    );
+  });
+
+  it("withdraws a session from the programme and takes its agenda placements with it", async () => {
+    const draft = {
+      eventId,
+      rooms: [{ id: "room-main", name: "Main stage" }],
+      tracks: [{ id: "track-platform", name: "Platform", color: "#6257d9" }],
+      slots: [
+        {
+          id: "slot-0900",
+          startsAt: "2026-09-01T16:00:00.000Z",
+          endsAt: "2026-09-01T17:00:00.000Z",
+        },
+      ],
+      sessions: [],
+      placements: [],
+    };
+    const { service, repository, agendaRepository } = setup({ drafts: [draft] });
+    const organizer = await resolveSeededDemoActor("organizer");
+    const accepted = await service.accept(organizer, command, correlationId);
+    const sessionId = accepted.sessions[0]?.id ?? "";
+    await agendaRepository.savePlacement(eventId, {
+      id: "placement-opening",
+      sessionId,
+      roomId: "room-main",
+      trackId: "track-platform",
+      slotId: "slot-0900",
+    });
+
+    // A speaker cannot withdraw a session, and neither can an organizer of another event.
+    await expect(
+      service.withdrawSession(await resolveSeededDemoActor("speaker"), sessionId),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(
+      service.withdrawSession({ ...organizer, eventAccess: [] }, sessionId),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    expect(await repository.findSession(sessionId)).not.toBeNull();
+
+    const after = await service.withdrawSession(organizer, sessionId);
+    expect(after.sessions).toHaveLength(0);
+    expect(await repository.findSession(sessionId)).toBeNull();
+    // The board no longer holds a slot for a session that no longer exists.
+    expect((await agendaRepository.getDraft(eventId))?.placements).toEqual([]);
+    // The speaker, their onboarding tasks and their uploads survive: they may be speaking
+    // elsewhere, and one withdrawn talk is not a reason to delete a person's work.
+    expect(after.speakers).toHaveLength(1);
+    expect(after.tasks).toHaveLength(2);
   });
 });

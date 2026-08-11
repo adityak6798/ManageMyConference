@@ -237,5 +237,49 @@ describe("review D1 persistence", () => {
         },
       ),
     ).rejects.toThrow("conflicted");
+
+    /*
+     * Removing an assignment, against the real triggers and the real foreign keys.
+     *
+     * An organizer's undo for a mis-assignment. The SQL is guarded rather than
+     * checked-then-run, so this is the only place the guards are exercised by SQLite itself
+     * rather than by a map in memory.
+     */
+    // Every statement is scoped to an assignment of the named event, so this event's
+    // assignment named under another event's id touches nothing — not the row, and not the
+    // conflict hanging off it.
+    await reviews.deleteAssignment("00000000-0000-4000-8000-000000000002", conflictedAssignment.id);
+    await expect(reviews.findAssignment(eventId, conflictedAssignment.id)).resolves.toMatchObject({
+      id: conflictedAssignment.id,
+    });
+    await expect(
+      reviews.getConflict(conflictedAssignment.id, conflictedAssignment.reviewerId),
+    ).resolves.toMatchObject({ reason: "Existing conflict" });
+
+    // Nothing has been completed against this one, so it goes — and the conflict row hanging
+    // off it goes with it, rather than being orphaned against a key that no longer resolves.
+    await reviews.deleteAssignment(eventId, conflictedAssignment.id);
+    await expect(reviews.findAssignment(eventId, conflictedAssignment.id)).resolves.toBeNull();
+    await expect(
+      reviews.getConflict(conflictedAssignment.id, conflictedAssignment.reviewerId),
+    ).resolves.toBeNull();
+    // The scored one is refused, and nothing about it moves: the evaluation and the aggregate
+    // it feeds both survive the attempt.
+    await expect(reviews.deleteAssignment(eventId, evaluation.assignmentId)).rejects.toThrow(
+      "completed",
+    );
+    await expect(reviews.findAssignment(eventId, evaluation.assignmentId)).resolves.toMatchObject({
+      id: evaluation.assignmentId,
+    });
+    await expect(
+      reviews.getEvaluation(evaluation.assignmentId, evaluation.reviewerId),
+    ).resolves.toMatchObject({ state: "completed" });
+    await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
+      { completedEvaluationCount: 1, averageScore: 4.5 },
+    ]);
+    // An id that is not there is not an error: the caller has already been told it is gone.
+    await expect(
+      reviews.deleteAssignment(eventId, "20000000-0000-4000-8000-0000000000ff"),
+    ).resolves.toBeUndefined();
   });
 });

@@ -256,6 +256,7 @@ describe("D1PublicationRepository", () => {
       repository: contentRepository,
       assetStorage: storage,
       proposals: reviewService,
+      agenda,
       speakerConversion: new D1SpeakerConversion(
         database as never,
         () => crypto.randomUUID(),

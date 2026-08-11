@@ -354,6 +354,23 @@
   font-size: var(--text-xs);
 }
 
+/* Whatever a row has to say about itself — why a removal will be refused, or why one
+   was — spans the row's full width beneath its controls, so the sentence sits with the
+   buttons it is about instead of at the far end of the page. */
+.agenda-resources .resource-row .resource-note,
+.agenda-resources .resource-row .error-text {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-xs);
+}
+.agenda-resources .resource-row .resource-note {
+  color: var(--muted);
+}
+.agenda-resources .resource-row .error-text {
+  color: var(--danger-fg);
+  font-weight: 600;
+}
+
 /* A timeslot row is a form: two times the organizer types, then its two actions. The
    buttons sit on the inputs' baseline rather than in the middle of the labelled field,
    which is why the row aligns to the end rather than to the centre. */
@@ -370,15 +387,6 @@
 .agenda-resources .slot-row input {
   min-width: 0;
 }
-/* The reason a save was refused belongs under the inputs it is about, on its own line. */
-.agenda-resources .slot-row .error-text {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--danger-fg);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
 @media (max-width: 700px) {
   .agenda-resources .slot-row,
   .agenda-resources .slot-new {

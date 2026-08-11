@@ -179,7 +179,11 @@
   gap: var(--s-5);
 }
 
+/* Positioned so this section's own live region — .visually-hidden, and therefore
+   position:absolute, while it holds no message — is anchored to the card that owns it
+   rather than to whatever ancestor happens to be positioned. */
 .publishing-embed {
+  position: relative;
   display: grid;
   gap: var(--s-3);
   min-width: 0;
@@ -190,6 +194,14 @@
 }
 .publishing-embed-head h3 {
   font-size: var(--text-md);
+}
+
+/* The copy buttons announce into this section, immediately under their own toolbar. The
+   region is always mounted so assistive technology is watching it before the first
+   message lands; while it is silent it is .visually-hidden — position:absolute, hence
+   out of flow — so it takes no row in this grid and opens no gap under the buttons. */
+.publishing-embed > .notice {
+  margin-top: calc(-1 * var(--s-1));
 }
 
 /* The snippet is read-only evidence, not an editor: monospace, wrapped, and

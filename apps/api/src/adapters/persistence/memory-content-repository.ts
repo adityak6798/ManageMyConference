@@ -150,6 +150,9 @@ export class MemoryContentRepository
   async updateSession(session: ContentWorkspace["sessions"][number]) {
     this.sessions = this.sessions.map((item) => (item.id === session.id ? session : item));
   }
+  async deleteSession(sessionId: string) {
+    this.sessions = this.sessions.filter(({ id }) => id !== sessionId);
+  }
   async updateAsset(asset: SpeakerAsset) {
     this.assets = this.assets.map((item) => (item.id === asset.id ? asset : item));
   }

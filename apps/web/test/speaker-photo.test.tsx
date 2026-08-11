@@ -100,19 +100,16 @@ function stubApi(
   return sent;
 }
 
-const onError = vi.fn();
-
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  onError.mockReset();
 });
 
 describe("choosing a speaker headshot", () => {
   it("offers the control only for images and sends the speaker's own choice", async () => {
     let current: unknown = workspace();
     const sent = stubApi(() => current);
-    render(<ContentWorkspace eventId={eventId} role={SPEAKER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={SPEAKER} />);
 
     const uploads = await screen.findByRole("region", { name: "Private uploads" });
     // Nothing is chosen yet, and the card says what that costs on the public page.
@@ -142,12 +139,13 @@ describe("choosing a speaker headshot", () => {
     expect(
       within(uploads).getAllByText(/programme shows initials until an organizer marks this file/),
     ).toHaveLength(2);
-    expect(onError).not.toHaveBeenCalled();
+    // Nothing failed, so nothing anywhere on the page says something did.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("says the photo is public only once the file itself is publishable", async () => {
     stubApi(() => workspace({ photoAssetId: headshotId, headshotPublishable: true }));
-    render(<ContentWorkspace eventId={eventId} role={SPEAKER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={SPEAKER} />);
 
     const uploads = await screen.findByRole("region", { name: "Private uploads" });
     expect(
@@ -172,7 +170,7 @@ describe("choosing a speaker headshot", () => {
         },
       },
     });
-    render(<ContentWorkspace eventId={eventId} role={SPEAKER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={SPEAKER} />);
 
     const uploads = await screen.findByRole("region", { name: "Private uploads" });
     fireEvent.click(within(uploads).getByRole("button", { name: /Use as profile photo/ }));
@@ -186,7 +184,7 @@ describe("choosing a speaker headshot", () => {
   it("lets an organizer set and clear the headshot from the content workspace", async () => {
     let current: unknown = workspace();
     const sent = stubApi(() => current);
-    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} />);
 
     const assets = await screen.findByRole("region", { name: "Speaker assets" });
     current = workspace({ photoAssetId: headshotId });
@@ -216,13 +214,13 @@ describe("choosing a speaker headshot", () => {
         body: {},
       }),
     );
-    expect(onError).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("turns the organizer's publish control into the withdrawal that reverses it", async () => {
     let current: unknown = workspace({ photoAssetId: headshotId, headshotPublishable: true });
     const sent = stubApi(() => current);
-    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} onError={onError} />);
+    render(<ContentWorkspace eventId={eventId} role={ORGANIZER} />);
 
     const assets = await screen.findByRole("region", { name: "Speaker assets" });
     current = workspace({ photoAssetId: headshotId });

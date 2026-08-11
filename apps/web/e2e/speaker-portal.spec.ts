@@ -401,8 +401,15 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   const ics = await text(await download.createReadStream());
   expect(ics).toContain("BEGIN:VCALENDAR");
   expect(ics).toContain("SUMMARY:Designing the calm conference");
-  // The seeded session runs 2026-09-15T17:00:00Z; RFC 5545 writes that as a UTC DATE-TIME.
-  expect(ics).toContain("DTSTART:20260915T170000Z");
+  /*
+   * The instant comes from the agenda placement in force — the seeded publication puts this
+   * session in `slot-0900`, 2026-09-01T16:00:00Z — which is why it equals what the public
+   * schedule serves. It is not a column of its own: `content_sessions` used to carry one that
+   * nothing but the seed ever wrote, and this assertion pinned that fiction.
+   * RFC 5545 writes the instant as a UTC DATE-TIME.
+   */
+  expect(ics).toContain("DTSTART:20260901T160000Z");
+  expect(ics).toContain("LOCATION:Main stage");
   // RFC 5545 section 3.6.1 makes DTSTAMP mandatory in a VEVENT, and Outlook rejects it without one.
   expect(ics).toMatch(/\r\nDTSTAMP:\d{8}T\d{6}Z\r\n/);
 

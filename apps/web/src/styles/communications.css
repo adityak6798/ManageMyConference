@@ -38,6 +38,17 @@
   gap: var(--s-2);
 }
 
+/* What the skeleton becomes when the history cannot be read: the reason, then the retry.
+   The card is `tight`, so this block carries the padding the rows would have had. */
+.comms .comms-failure {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-5) var(--s-5) 0;
+}
+.comms .comms-failure .empty {
+  padding-top: var(--s-6);
+}
+
 /* The state pill gains room for its icon; the icon is what distinguishes the four
    states when colour is unavailable. */
 .comms .delivery-state {

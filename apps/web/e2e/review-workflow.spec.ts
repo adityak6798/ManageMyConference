@@ -241,11 +241,39 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
       response.url().endsWith("/review/assignments") && response.request().method() === "POST",
   );
   await typed.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
-  await typed.getByRole("button", { name: "Assign" }).click();
+  // Exact: an abstract that already has a reviewer also carries "Unassign <name> from …".
+  await typed.getByRole("button", { name: "Assign", exact: true }).click();
   expect((await assigned).ok()).toBe(true);
   await expect(
     page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
   ).toBeVisible();
+  await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toContainText(
+    "Ravi Reviewer",
+  );
+
+  // An assignment made by mistake has to be reversible: without this the rubric stays locked
+  // for the life of the event and the wrong person keeps the abstract. Driven here rather than
+  // only in jsdom because the control, the route and the refusal rule all shipped together.
+  const removed = page.waitForResponse(
+    (response) =>
+      /\/review\/assignments\/[0-9a-f-]+$/.test(response.url()) &&
+      response.request().method() === "DELETE",
+  );
+  await typed.getByRole("button", { name: /^Unassign Ravi Reviewer/ }).click();
+  expect((await removed).ok()).toBe(true);
+  await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toContainText(
+    "Unassigned",
+  );
+  // Put it back, because the assertions below this point depend on the abstract having a
+  // reviewer, and so does the next run of this spec.
+  await typed.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/review/assignments") && response.request().method() === "POST",
+    ),
+    typed.getByRole("button", { name: "Assign", exact: true }).click(),
+  ]);
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toContainText(
     "Ravi Reviewer",
   );
@@ -339,7 +367,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
     await page.getByRole("button", { name: title, exact: true }).click();
     const panel = page.getByRole("region", { name: title });
     await panel.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
-    await panel.getByRole("button", { name: "Assign" }).click();
+    await panel.getByRole("button", { name: "Assign", exact: true }).click();
     await expect(
       page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
     ).toBeVisible();
@@ -435,58 +463,76 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   ).toContainText("Not scored");
 
   /*
-   * ---- a second reviewer moves the average ---------------------------------
+   * ---- an abstract is only ever offered to somebody who can review it -------
    *
-   * Olivia Organizer holds the `reviewer` role on this event as well as `organizer`, so
-   * she is offerable in the assignment control and the assignment itself is made here
-   * through the UI. Her *evaluation* is filed through the API because the console gives
-   * one persona one home: `routesFor` (apps/web/src/App.tsx) grants `/reviews` to the
-   * reviewer persona only, and the demo directory resolves exactly one identity per
-   * persona, so no second reviewer can reach the queue in a browser. The assertion that
-   * matters — the organizer's rendered average across two reviewers — is still made on
-   * screen.
+   * This block used to hand `scored` to a second reviewer and assert the organizer's
+   * average moving from one reviewer's scores to two. That second reviewer was Olivia
+   * Organizer, who holds the `reviewer` role on this event as well as `organizer` — and
+   * assigning to her is now refused, because it produced work nobody could ever do: the
+   * organizer console has no reviewer queue, there is no unassign control, and the click
+   * permanently locked the rubric. The demo directory resolves exactly one identity per
+   * persona, so with the signed-in organizer out of the list Ravi Reviewer is this event's
+   * only assignable reviewer and a two-reviewer average is no longer reachable through the
+   * product at all — asserting one here would be asserting a state the product forbids.
+   *
+   * What is asserted instead is the rule that replaced it, on both sides of the wire, plus
+   * the aggregate arithmetic the old block existed to protect: the control offers exactly
+   * the people who can open the queue; assigning the reviewer who already filed is
+   * accepted and is idempotent rather than a second assignment that reopens their
+   * evaluation; the service refuses the organizer even when the request is written by hand
+   * and does not come from the list; and the average the organizer reads is still composed
+   * from the completed evaluations after both.
    */
   await page.getByRole("button", { name: scored, exact: true }).click();
   const panel = page.getByRole("region", { name: scored });
-  await panel.getByLabel("Assign this abstract to").selectOption({ label: "Olivia Organizer" });
-  await panel.getByRole("button", { name: "Assign" }).click();
+  const assignTo = panel.getByLabel("Assign this abstract to");
+  await expect(assignTo.getByRole("option")).toHaveText(["Choose reviewer", "Ravi Reviewer"]);
+
+  const reassigned = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/review/assignments") && response.request().method() === "POST",
+  );
+  await assignTo.selectOption({ label: "Ravi Reviewer" });
+  await panel.getByRole("button", { name: "Assign", exact: true }).click();
+  expect((await reassigned).ok()).toBe(true);
   await expect(
-    page.getByRole("status").filter({ hasText: "Olivia Organizer is now reviewing" }),
+    page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
   ).toBeVisible();
 
   const workspace = await page.request.get(`/api/events/${DEMO_EVENT}/review/organizer`);
   expect(workspace.ok()).toBe(true);
-  const { proposals, assignments } = (await workspace.json()) as {
+  const { proposals, assignments, reviewers } = (await workspace.json()) as {
     proposals: { id: string; title: string }[];
     assignments: { id: string; proposalId: string; reviewerId: string }[];
+    reviewers: { id: string; name: string }[];
   };
   const proposalId = proposals.find(({ title }) => title === scored)?.id;
-  const oliviaAssignment = assignments.find(
-    (assignment) =>
-      assignment.proposalId === proposalId && assignment.reviewerId === "seed-organizer",
-  );
-  expect(oliviaAssignment, "the assignment made above must be readable back").toBeDefined();
-  const filed = await page.request.put(
-    `/api/events/${DEMO_EVENT}/review/assignments/${oliviaAssignment?.id}/evaluation`,
-    {
-      data: {
-        scores: [
-          { criterionId: "relevance", score: 2 },
-          { criterionId: "clarity", score: 3 },
-        ],
-        notes: "Weaker fit.",
-        complete: true,
-      },
-    },
-  );
-  expect(filed.ok(), `the second evaluation was refused: ${await filed.text()}`).toBe(true);
+  expect(proposalId, "the abstract this run filed must be readable back").toBeDefined();
+  // The assignment made through the UI is readable back, and repeating it added nothing.
+  expect(
+    assignments
+      .filter((assignment) => assignment.proposalId === proposalId)
+      .map(({ reviewerId }) => reviewerId),
+  ).toEqual(["seed-reviewer"]);
+  // The console renders the control from this list, so the omission is the product's.
+  expect(reviewers.map(({ id }) => id)).not.toContain("seed-organizer");
 
-  // Four scores across two completed evaluations: (4 + 5 + 2 + 3) / 4.
+  // ...and the omission is not the list's alone: a request that never came from it is
+  // refused too, naming the field it refused rather than failing anonymously.
+  const selfAssigned = await page.request.post(`/api/events/${DEMO_EVENT}/review/assignments`, {
+    data: { proposalIds: [proposalId], reviewerId: "seed-organizer" },
+  });
+  const refusal = await selfAssigned.text();
+  expect(selfAssigned.status(), `self-assignment was accepted: ${refusal}`).toBe(400);
+  expect(refusal).toContain("you cannot review your own event");
+
+  // Two scores in one completed evaluation: (4 + 5) / 2, unmoved by either request above.
   await page.reload();
   const combined = page
     .getByRole("table")
     .first()
     .getByRole("row", { name: new RegExp(scored) });
-  await expect(combined).toContainText("3.5");
-  await expect(combined).toContainText("2 completed");
+  await expect(combined).toContainText("4.5");
+  await expect(combined).toContainText("1 completed");
+  await expect(combined.getByText("Ravi Reviewer", { exact: true })).toBeVisible();
 });

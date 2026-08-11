@@ -2,8 +2,6 @@ import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AgendaWorkspace } from "./AgendaWorkspace";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
-import { CommunicationsApiError } from "./api/communications";
-import { ContentApiError } from "./api/content";
 import {
   ApiError,
   createEvent,
@@ -39,11 +37,7 @@ import { Card, EmptyState, Notice, PageHeader } from "./ui/primitives";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 
 function readableError(error: unknown): string {
-  if (
-    error instanceof ApiError ||
-    error instanceof ContentApiError ||
-    error instanceof CommunicationsApiError
-  )
+  if (error instanceof ApiError)
     return `${error.message} Reference: ${error.envelope.error.correlationId}`;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
@@ -73,7 +67,15 @@ export function App() {
   const [events, setEvents] = useState<EventDto[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [name, setName] = useState("");
+  // The shell reports its own failures and no one else's: signing in, switching identity,
+  // creating an event. It starts and finishes each of those, so it can keep the message
+  // accurate by itself. A workspace that is mounted owns its failures — it renders them
+  // beside the control that caused them, or, when a load fails, in place of itself.
   const [error, setError] = useState<string | null>(null);
+  // The one exception, and only for a failure to *load*: until a draft arrives the agenda
+  // board has no surface of its own to render one in, so it hands the message here and the
+  // /agenda route renders it above the board. Nothing else reports to the shell.
+  const [agendaLoadFailure, setAgendaLoadFailure] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [publication, setPublication] = useState<{ slug: string; state: string } | null>(null);
@@ -101,7 +103,11 @@ export function App() {
     return currentSession;
   }, []);
 
-  const reportError = useCallback((reason: unknown) => setError(readableError(reason)), []);
+  /** Stable, so the board's load effect is not re-run by a re-render of the shell. */
+  const reportAgendaLoadFailure = useCallback(
+    (message: string) => setAgendaLoadFailure(message),
+    [],
+  );
 
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
@@ -165,7 +171,10 @@ export function App() {
   // A failure raised for one surface, or for one event, must not follow the user to the
   // next one — switching event keeps the same path, so both axes have to clear it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: clearing is keyed on the destination.
-  useEffect(() => setError(null), [path, selectedEventId]);
+  useEffect(() => {
+    setError(null);
+    setAgendaLoadFailure(null);
+  }, [path, selectedEventId]);
 
   // The public slug is server-assigned, so it has to be read rather than guessed.
   useEffect(() => {
@@ -187,6 +196,7 @@ export function App() {
   async function switchPersona(persona: Persona) {
     setBusy(true);
     setError(null);
+    setAgendaLoadFailure(null);
     try {
       await startDemoSession(persona);
       await loadShell();
@@ -225,7 +235,10 @@ export function App() {
       const [refreshedSession, refreshedEvents] = await Promise.all([getSession(), listEvents()]);
       setSession(refreshedSession);
       setEvents(refreshedEvents);
-      setSelectedEventId(created.id);
+      // Selecting an event means the switcher *and* the address bar, always: a URL still
+      // carrying the previous event silently undoes the switch on the next reload or when
+      // the link is shared. There is one way to select an event, and this is it.
+      selectEvent(created.id);
       setName("");
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -436,7 +449,6 @@ export function App() {
               key={`${selectedEventId}:${session?.actor.id}:${activeRole}`}
               eventId={selectedEventId}
               role={activeRole === "speaker" ? "speaker" : "organizer"}
-              onError={reportError}
             />
           </>
         ) : (
@@ -450,9 +462,17 @@ export function App() {
               title="Agenda"
               subtitle="Place sessions across rooms and time slots, then publish the schedule."
             />
+            {/* The board reports a failure to load, and only that: it has no grid to put
+                one in until a draft arrives. It is rendered here, above the space the
+                board would have filled, rather than at the foot of the page. */}
+            {agendaLoadFailure ? <Notice tone="error">{agendaLoadFailure}</Notice> : null}
             {/* The whole event, not only its id: the board renders every time on its
                 grid in the event's own timezone. */}
-            <AgendaWorkspace key={selectedEvent.id} event={selectedEvent} onError={setError} />
+            <AgendaWorkspace
+              key={selectedEvent.id}
+              event={selectedEvent}
+              onError={reportAgendaLoadFailure}
+            />
           </>
         ) : (
           noAccess
@@ -478,7 +498,7 @@ export function App() {
               title="Communications"
               subtitle="Outbound delivery history with queued, retrying, sent, and failed states."
             />
-            <CommunicationsWorkspace event={selectedEvent} onError={reportError} />
+            <CommunicationsWorkspace event={selectedEvent} />
           </>
         ) : (
           noAccess

@@ -50,6 +50,23 @@ export class MemoryReviewRepository implements ReviewRepository {
     const assignment = this.assignments.get(assignmentId);
     return assignment?.eventId === eventId ? assignment : null;
   }
+  async deleteAssignment(eventId: string, assignmentId: string) {
+    const assignment = this.assignments.get(assignmentId);
+    if (!assignment || assignment.eventId !== eventId) return;
+    if (
+      [...this.evaluations.values()].some(
+        (item) => item.assignmentId === assignmentId && item.state === "completed",
+      )
+    )
+      throw new ReviewStateConflictError("Evaluation is completed");
+    // The draft and the conflict describe an assignment that is going away, so they go with it
+    // rather than being left pointing at an id nothing resolves.
+    for (const [key, item] of [...this.evaluations])
+      if (item.assignmentId === assignmentId) this.evaluations.delete(key);
+    for (const [key, item] of [...this.conflicts])
+      if (item.assignmentId === assignmentId) this.conflicts.delete(key);
+    this.assignments.delete(assignmentId);
+  }
   async getConflict(assignmentId: string, reviewerId: string) {
     return this.conflicts.get(`${assignmentId}:${reviewerId}`) ?? null;
   }

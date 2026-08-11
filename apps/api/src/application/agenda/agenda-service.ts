@@ -1,7 +1,14 @@
-import { conflictsFor, type AgendaDraft, type Placement } from "../../domain/agenda/agenda";
+import {
+  conflictsFor,
+  placedSessionTimes,
+  type AgendaDraft,
+  type PlacedSessionTime,
+  type Placement,
+} from "../../domain/agenda/agenda";
 import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
 import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
 import type { AgendaContentQuery } from "../content/public";
+import type { ContentAgendaInterface } from "./public";
 
 export class AgendaConflictError extends Error {
   constructor(readonly conflicts: ReturnType<typeof conflictsFor>) {
@@ -12,7 +19,7 @@ export class AgendaNotFoundError extends Error {}
 export class AgendaResourceInUseError extends Error {}
 
 // @spec PRD-AGD-001
-export class AgendaService {
+export class AgendaService implements ContentAgendaInterface {
   constructor(
     private readonly repository: AgendaRepository,
     private readonly now: () => Date,
@@ -104,5 +111,34 @@ export class AgendaService {
     if (!schedule) return null;
     const { publishedBy: _auditOnly, ...publicSchedule } = schedule;
     return publicSchedule;
+  }
+
+  /**
+   * `ContentAgendaInterface`: when and where the published snapshot puts each session.
+   *
+   * No actor is required, for the same reason `published` needs none — the snapshot in force is
+   * what the event has already committed to publicly. Callers still authorize their own read of
+   * the sessions they are asking about.
+   */
+  async publishedSessionSchedules(
+    eventId: string,
+  ): Promise<ReadonlyMap<string, PlacedSessionTime>> {
+    const published = await this.repository.getPublished(eventId);
+    return published ? placedSessionTimes(published.agenda) : new Map();
+  }
+
+  /**
+   * `ContentAgendaInterface`: drop every draft placement of one session.
+   *
+   * Used when a session leaves the programme. Removing the placements is what keeps the board
+   * from advertising — and `conflictsFor` from reporting `MISSING_SESSION` for — a session that
+   * no longer exists. An event with no draft has nothing to remove and is not an error.
+   */
+  async unscheduleSession(actor: Actor | null, eventId: string, sessionId: string): Promise<void> {
+    await this.organizer(actor, eventId);
+    const draft = await this.repository.getDraft(eventId);
+    if (!draft) return;
+    for (const placement of draft.placements.filter((item) => item.sessionId === sessionId))
+      await this.repository.removePlacement(eventId, placement.id);
   }
 }
