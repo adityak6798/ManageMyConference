@@ -1,6 +1,6 @@
 # CI and release
 
-Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11 (working tree: commit `4a46216`)
+Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11 (working tree: commit `3630977`)
 
 ## Hosted CI status, stated plainly
 

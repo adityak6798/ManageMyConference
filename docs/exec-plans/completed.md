@@ -1,6 +1,6 @@
 # Completed execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-11 (commit `4a46216`)
+Status: canonical | Owner: delivery | Last verified: 2026-08-11 (commit `3630977`)
 
 ## `PLAN-001` Harness and reference slice
 

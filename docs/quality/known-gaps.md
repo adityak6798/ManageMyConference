@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `4a46216`)
+Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `3630977`)
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -32,6 +32,16 @@ feature-by-feature verdict.
   concurrent worktrees interfere and the interference is invisible. Owner: developer experience.
   Governing ID: `ENG-DEV-001`. Closure: concurrent worktrees start without manual port assignment,
   and readiness reports resource/provider state without secrets. Tracked by issue #28.
+
+  **Free ports are not sufficient.** Measured 2026-08-11: two `wrangler dev` instances of *this*
+  worktree on different ports (8887 for a hand-driven demo, 9087 for the suite) share one
+  `apps/api/.wrangler/state/v3/d1` SQLite file, and the browser suite then fails intermittently —
+  2 failures across 5 consecutive runs, a different single spec each time
+  (`speaker-portal`, `public-event`), none reproducible on its own. With the second instance
+  stopped and nothing else changed, 6 consecutive runs passed. The failures look like ordinary
+  assertion failures, so the cost is a developer debugging their own test rather than their
+  environment. Port isolation alone will not fix this; the local D1 (and R2) state directory has to
+  be per-instance, not only per-worktree.
 - `GAP-005` Two browser specs are inherently non-idempotent and assert the complement rather than
   the state. Completion of an evaluation and declaration of a conflict are terminal by design, so
   `review-workflow.spec.ts` files its own abstracts each run; no product affordance returns a

@@ -1,6 +1,6 @@
 # Testing strategy
 
-Status: canonical | Owner: quality | IDs: `TST-001`–`TST-006` | Last verified: 2026-08-11 (working tree: commit `4a46216`)
+Status: canonical | Owner: quality | IDs: `TST-001`–`TST-006` | Last verified: 2026-08-11 (working tree: commit `3630977`)
 
 Measured on 2026-08-11: `npm run check` exits 0 (37 tool tests; 132 API tests in 17 files; 93 web
 tests in 12 files; 20 D1 tests in 11 files; both builds), `npm run test:e2e` is 30 passing browser

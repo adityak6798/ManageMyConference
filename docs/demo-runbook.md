@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11 (working tree: commit `4a46216`)
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11 (working tree: commit `3630977`)
 
 ## What this demo is, and is not
 
@@ -46,6 +46,12 @@ place of this one, silently. Give the suite free ports of its own when anything 
 ```bash
 GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e
 ```
+
+Free ports keep the suite off *another checkout's* servers. They do **not** make it safe to run the
+suite while a second instance of **this** worktree is up: both `wrangler dev` processes open the
+same `apps/api/.wrangler/state/v3/d1` file whatever port they listen on, and the suite then fails
+intermittently — a different single spec each time, looking exactly like a flaky assertion rather
+than a shared-database problem (`GAP-004`). Stop the demo server before running the suite.
 
 ## Evaluator path
 
