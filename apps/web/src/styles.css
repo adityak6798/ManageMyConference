@@ -75,6 +75,47 @@ textarea {
   min-height: 90px;
   resize: vertical;
 }
+.review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}
+.proposal-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.proposal-list li,
+.evaluation-card {
+  border: 1px solid #dce5dc;
+  border-radius: 12px;
+  padding: 16px;
+}
+.proposal-list input {
+  width: auto;
+}
+.status-pill {
+  color: #17603e;
+  background: #e5f4ea;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.outcome {
+  font-weight: 700;
+}
+.evaluation-card + .evaluation-card {
+  margin-top: 14px;
+}
+.evaluation-card label {
+  margin-top: 12px;
+}
+button.secondary {
+  background: #5e6d62;
+}
 .cfp-field {
   border-top: 1px solid #e2e8e2;
   margin: 16px 0;
@@ -111,7 +152,7 @@ nav ul {
   margin: 18px 0 0;
   border-top: 1px solid #e2e8e2;
 }
-nav li + li {
+nav li:not(:first-child) {
   margin-top: 8px;
 }
 nav a {

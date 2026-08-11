@@ -62,6 +62,11 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-REVIEW`
+- `test` / `repository-fact`: [apps/api/test/d1-review-repository.integration.test.ts](../../apps/api/test/d1-review-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/review-http.test.ts](../../apps/api/test/review-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/review-service.test.ts](../../apps/api/test/review-service.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/review-workflow.spec.ts](../../apps/web/e2e/review-workflow.spec.ts)
+- `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -139,8 +144,13 @@
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PRD-ABS-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts](../../apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
+- `code` / `repository-fact`: [apps/web/src/ReviewWorkspace.tsx](../../apps/web/src/ReviewWorkspace.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-AGD-001`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -204,8 +214,13 @@
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 
 ### `PRD-REV-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-review-repository.ts](../../apps/api/src/adapters/persistence/d1-review-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
+- `code` / `repository-fact`: [apps/web/src/ReviewWorkspace.tsx](../../apps/web/src/ReviewWorkspace.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-SPK-001`
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)

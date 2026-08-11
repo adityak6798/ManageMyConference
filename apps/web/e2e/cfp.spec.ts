@@ -20,9 +20,9 @@ test("organizer publishes a typed form and an applicant receives a durable confi
   await lastField.getByLabel("Required").check();
   await lastField.getByRole("button", { name: "Move up" }).click();
   await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page.getByRole("status")).toContainText("Draft saved");
+  await expect(page.getByText("Draft saved.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Publish CFP" }).click();
-  await expect(page.getByRole("status")).toContainText("CFP is open");
+  await expect(page.getByText("CFP is open.", { exact: true })).toBeVisible();
   await page.getByLabel("Description").fill("A replacement draft description");
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("button", { name: "Close live CFP" })).toBeVisible();

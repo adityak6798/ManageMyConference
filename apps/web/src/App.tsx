@@ -9,6 +9,7 @@ import {
   startDemoSession,
 } from "./api/events";
 import "./styles.css";
+import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
 import { CfpWorkspace } from "./CfpWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
@@ -65,6 +66,13 @@ export function App() {
       session.actor.persona
     );
   }, [selectedEventId, session]);
+  const activeEventCapabilities = [
+    ...new Set(
+      session?.eventAccess
+        .filter(({ eventId }) => eventId === selectedEventId)
+        .flatMap(({ capabilities }) => capabilities) ?? [],
+    ),
+  ];
 
   async function switchPersona(persona: Persona) {
     setBusy(true);
@@ -236,6 +244,18 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEventId && activeEventCapabilities.includes("review:manage") ? (
+              <OrganizerReviewWorkspace
+                key={`${selectedEventId}:${session.actor.id}:organizer-review`}
+                eventId={selectedEventId}
+              />
+            ) : null}
+            {selectedEventId && activeEventCapabilities.includes("review:evaluate") ? (
+              <ReviewerWorkspace
+                key={`${selectedEventId}:${session.actor.id}:reviewer-review`}
+                eventId={selectedEventId}
+              />
+            ) : null}
             {error ? (
               <p role="alert" className="error">
                 {error}

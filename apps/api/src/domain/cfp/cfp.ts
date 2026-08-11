@@ -23,5 +23,6 @@ export interface ProposalSubmission {
   readonly cfpVersion: number;
   readonly idempotencyKey: string;
   readonly answers: Readonly<Record<string, string>>;
+  readonly fields: readonly CfpField[];
   readonly submittedAt: string;
 }

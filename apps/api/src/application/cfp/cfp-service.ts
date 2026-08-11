@@ -108,6 +108,7 @@ export class CfpService {
       cfpVersion: form.version,
       idempotencyKey,
       answers,
+      fields: form.fields,
       submittedAt: this.now().toISOString(),
     });
     if (!created) throw new CfpStateError("The CFP changed before this proposal was saved");

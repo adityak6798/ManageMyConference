@@ -6,6 +6,10 @@ import {
   D1CfpRepository,
   type D1CfpDatabasePort,
 } from "../src/adapters/persistence/d1-cfp-repository";
+import {
+  type D1ProposalDatabasePort,
+  D1SubmittedProposalAdapter,
+} from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 const statements = (sql: string) =>
   sql
     .split(";")
@@ -27,13 +31,27 @@ describe("D1CfpRepository", () => {
       "0003_cfp.sql",
       "0004_cfp_published_snapshot.sql",
       "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       for (const statement of statements(sql)) await database.prepare(statement).run();
     }
+    for (const migration of [
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
+    ]) {
+      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
+      expect((await database.prepare(sql).run()).success).toBe(true);
+    }
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);
+    const proposals = new D1SubmittedProposalAdapter(database as D1ProposalDatabasePort);
     const form = {
       eventId: "00000000-0000-4000-8000-000000000001",
       title: "CFP",
@@ -62,6 +80,7 @@ describe("D1CfpRepository", () => {
       cfpVersion: 1,
       idempotencyKey: "same-retry-key",
       answers: { title: "Talk" },
+      fields: form.fields,
       submittedAt: "2026-08-10T01:00:00.000Z",
     };
     const [first, second] = await Promise.all([
@@ -73,6 +92,52 @@ describe("D1CfpRepository", () => {
     if (!first || !second) throw new Error("Expected idempotent submissions");
     expect(first.id).toBe(second.id);
     expect(first.id).toBe(proposal.id);
+    const custom = await repository.createSubmission({
+      ...proposal,
+      id: "10000000-0000-4000-8000-000000000004",
+      idempotencyKey: "custom-review-fields",
+      answers: {
+        level: "Advanced",
+        session: "Custom session content",
+        contact: "private@example.com",
+      },
+      fields: [
+        {
+          id: "level",
+          type: "select",
+          label: "Experience level",
+          guidance: "",
+          required: true,
+          options: ["Advanced"],
+        },
+        {
+          id: "session",
+          type: "long_text",
+          label: "Session details",
+          guidance: "",
+          required: true,
+          options: [],
+        },
+        {
+          id: "contact",
+          type: "email",
+          label: "Contact email",
+          guidance: "",
+          required: true,
+          options: [],
+        },
+      ],
+    });
+    expect(custom).not.toBeNull();
+    await expect(proposals.find(form.eventId, custom?.id as string)).resolves.toMatchObject({
+      title: "Advanced",
+      abstract: "Custom session content",
+      submitterName: "Applicant",
+      answers: [
+        { fieldId: "level", label: "Experience level", value: "Advanced" },
+        { fieldId: "session", label: "Session details", value: "Custom session content" },
+      ],
+    });
     await repository.savePublished({ ...form, status: "closed", publishedStatus: "closed" }, true);
     await expect(
       repository.createSubmission({

@@ -30,8 +30,8 @@ interface EventRoleRow {
 }
 
 const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
-  organizer: ["events:read", "events:settings:read", "events:settings:update"],
-  reviewer: ["events:read"],
+  organizer: ["events:read", "events:settings:read", "events:settings:update", "review:manage"],
+  reviewer: ["events:read", "review:evaluate"],
   speaker: ["events:read"],
   public: [],
 };
@@ -95,6 +95,32 @@ export class D1IdentityDirectory implements IdentityDirectory {
       capabilities,
     };
   }
+
+  async isReviewerForEvent(userId: string, eventId: string): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id FROM event_roles WHERE user_id = ? AND event_id = ? AND role = 'reviewer' LIMIT 1",
+      )
+      .bind(userId, eventId)
+      .all<{ event_id: string }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to validate reviewer assignment: ${result.error ?? "unknown error"}`,
+      );
+    return result.results?.length === 1;
+  }
+  async listReviewersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT u.id, u.name FROM users u JOIN event_roles r ON r.user_id = u.id WHERE r.event_id = ? AND r.role = 'reviewer' ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to list event reviewers: ${result.error ?? "unknown error"}`);
+    return result.results ?? [];
+  }
+
   async grantOrganizer(eventId: string, userId: string): Promise<void> {
     const result = await this.database
       .prepare(
