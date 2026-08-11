@@ -18,7 +18,10 @@
       "apps/api/src/application/content/public.ts",
       "apps/api/src/application/cfp/submitted-proposal-interface.ts",
       "apps/api/src/application/review/review-service.ts",
-      "apps/api/src/application/review/review-repository.ts"
+      "apps/api/src/application/review/review-repository.ts",
+      "apps/api/src/application/crm/public.ts",
+      "apps/api/src/application/content/speaker-conversion.ts",
+      "apps/web/src/CrmWorkspace.tsx"
     ],
     "compositionRoots": ["apps/api/src/index.ts", "apps/web/src/App.tsx"],
     "layerPaths": {
@@ -171,6 +174,9 @@
       "paths": [
         "apps/api/src/domain/content",
         "apps/api/src/application/content",
+        "apps/api/src/adapters/content/d1-speaker-conversion.ts",
+        "apps/api/migrations/0016_crm_speaker_conversion.sql",
+        "apps/api/test/d1-speaker-conversion.integration.test.ts",
         "apps/api/src/adapters/persistence/d1-content-repository.ts",
         "apps/api/src/adapters/persistence/memory-content-repository.ts",
         "apps/api/src/adapters/storage",
@@ -190,7 +196,19 @@
       "acceptance": ["ACC-CRM"],
       "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
-      "paths": []
+      "paths": [
+        "apps/api/src/domain/crm",
+        "apps/api/src/application/crm",
+        "apps/api/src/adapters/persistence/d1-crm-repository.ts",
+        "apps/api/src/adapters/persistence/memory-crm-repository.ts",
+        "apps/api/migrations/0015_crm_conversion.sql",
+        "apps/api/test/crm-service.test.ts",
+        "apps/api/test/crm-http.test.ts",
+        "apps/api/test/d1-crm-repository.integration.test.ts",
+        "apps/web/src/CrmWorkspace.tsx",
+        "apps/web/src/api/crm.ts",
+        "apps/web/e2e/crm.spec.ts"
+      ]
     },
     {
       "id": "agenda",

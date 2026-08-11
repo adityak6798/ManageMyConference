@@ -20,11 +20,16 @@ import {
   cfpStateInputSchema,
   createEventInputSchema,
   createEventResponseSchema,
+  createProspectInputSchema,
   demoSessionInputSchema,
   demoSessionResponseSchema,
   eventListResponseSchema,
   eventIdParamsSchema,
   healthResponseSchema,
+  prospectListQuerySchema,
+  prospectListResponseSchema,
+  prospectPathSchema,
+  prospectResponseSchema,
   organizerReviewWorkspaceSchema,
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
@@ -55,6 +60,7 @@ import {
   saveCfpInputSchema,
   submitProposalInputSchema,
   proposalConfirmationResponseSchema,
+  updateProspectInputSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -538,11 +544,96 @@ registry.registerPath({
     500: errorResponse,
   },
 });
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/prospects",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema, query: prospectListQuerySchema },
+  responses: {
+    200: { description: "Event prospect pipeline", content: json(prospectListResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/prospects",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: eventIdParamsSchema,
+    body: { required: true, content: json(createProspectInputSchema) },
+  },
+  responses: {
+    201: { description: "Created prospect", content: json(prospectResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/prospects/{prospectId}",
+  security: [{ sessionCookie: [] }],
+  request: { params: prospectPathSchema },
+  responses: {
+    200: {
+      description: "Prospect with contacts and CRM history",
+      content: json(prospectResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "patch",
+  path: "/api/events/{eventId}/prospects/{prospectId}",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: prospectPathSchema,
+    body: { required: true, content: json(updateProspectInputSchema) },
+  },
+  responses: {
+    200: { description: "Updated prospect", content: json(prospectResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    409: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/prospects/{prospectId}/convert",
+  security: [{ sessionCookie: [] }],
+  request: { params: prospectPathSchema },
+  responses: {
+    200: { description: "Idempotently converted prospect", content: json(prospectResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    409: errorResponse,
+    500: errorResponse,
+  },
+});
 
 const document = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: "3.0.3",
   info: { title: "Project Greenroom API", version: "0.1.0" },
 });
+const patchOperation = document.paths["/api/events/{eventId}/prospects/{prospectId}"]?.patch as
+  | { requestBody?: { content?: Record<string, { schema?: { minProperties?: number } }> } }
+  | undefined;
+const patchSchema = patchOperation?.requestBody?.content?.["application/json"]?.schema;
+if (!patchSchema) throw new Error("CRM prospect PATCH schema was not generated");
+patchSchema.minProperties = 1;
 const output = `${JSON.stringify(document, null, 2)}\n`;
 const artifact = fileURLToPath(new URL("../openapi.json", import.meta.url));
 if (process.argv.includes("--check")) {

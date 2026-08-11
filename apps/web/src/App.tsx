@@ -13,6 +13,7 @@ import {
 import "./styles.css";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
 import { CfpWorkspace } from "./CfpWorkspace";
+import { CrmWorkspace } from "./CrmWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
@@ -263,6 +264,11 @@ export function App() {
                 key={`${selectedEventId}:${session.actor.id}:reviewer-review`}
                 eventId={selectedEventId}
               />
+            ) : null}
+            {selectedEvent &&
+            session.capabilities.includes("crm:manage") &&
+            activeEventCapabilities.includes("crm:manage") ? (
+              <CrmWorkspace eventId={selectedEvent.id} ownerId={session.actor.id} />
             ) : null}
             {error ? (
               <p role="alert" className="error">

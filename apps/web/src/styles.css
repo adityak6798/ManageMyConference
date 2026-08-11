@@ -251,6 +251,41 @@ button:disabled {
 .denied {
   border-left: 5px solid #d39a25;
 }
+.crm-toolbar {
+  max-width: 240px;
+}
+.pipeline {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.pipeline li {
+  border: 1px solid #dce5dc;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.pipeline strong,
+.pipeline span {
+  display: block;
+}
+.pipeline span {
+  color: #187c4e;
+  text-transform: capitalize;
+}
+.pipeline p {
+  margin-bottom: 0;
+}
+.converted {
+  font-weight: 700;
+}
+.crm-toolbar + .pipeline {
+  margin-top: 18px;
+}
 @media (max-width: 700px) {
   .masthead {
     align-items: stretch;

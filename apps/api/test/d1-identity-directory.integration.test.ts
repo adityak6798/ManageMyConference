@@ -42,6 +42,8 @@ describe("D1IdentityDirectory", () => {
       "0004_cfp_published_snapshot.sql",
       "0005_cfp_snapshot_status.sql",
       "0006_review_workflow.sql",
+      "0015_crm_conversion.sql",
+      "0016_crm_speaker_conversion.sql",
     ]) {
       const migrationSql = await readFile(
         new URL(`../migrations/${file}`, import.meta.url),
@@ -79,6 +81,7 @@ describe("D1IdentityDirectory", () => {
         "events:create",
         "events:settings:read",
         "events:settings:update",
+        "crm:manage",
         "content:read",
         "content:manage",
         "review:manage",
@@ -97,6 +100,7 @@ describe("D1IdentityDirectory", () => {
         "events:read",
         "events:settings:read",
         "events:settings:update",
+        "crm:manage",
         "content:read",
         "content:manage",
         "review:manage",

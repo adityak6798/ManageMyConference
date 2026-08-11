@@ -17,6 +17,7 @@ const personas = {
         "events:read",
         "events:settings:read",
         "events:settings:update",
+        "crm:manage",
         "content:read",
         "content:manage",
         "review:manage",
@@ -25,6 +26,7 @@ const personas = {
     capabilities: [
       "events:read",
       "events:create",
+      "crm:manage",
       "content:read",
       "content:manage",
       "review:manage",

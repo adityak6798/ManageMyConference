@@ -14,6 +14,7 @@ interface D1Statement {
 }
 export interface IdentityDatabasePort {
   prepare(query: string): D1Statement;
+  batch<T = unknown>(statements: D1Statement[]): Promise<D1Result<T>[]>;
 }
 
 interface UserRow {
@@ -34,6 +35,7 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
     "events:read",
     "events:settings:read",
     "events:settings:update",
+    "crm:manage",
     "content:read",
     "content:manage",
     "review:manage",
@@ -49,13 +51,12 @@ export class D1IdentityDirectory implements IdentityDirectory {
 
   async findByPersona(persona: DemoPersona): Promise<Actor | null> {
     const users = await this.database
-      .prepare("SELECT id, name, persona FROM users WHERE persona = ? ORDER BY id LIMIT 2")
-      .bind(persona)
+      .prepare("SELECT id, name, persona FROM users WHERE id = ? AND persona = ? LIMIT 1")
+      .bind(`seed-${persona}`, persona)
       .all<UserRow>();
     if (!users.success)
       throw new Error(`D1 failed to resolve identity: ${users.error ?? "unknown error"}`);
     if (!users.results?.length) return null;
-    if (users.results.length !== 1) throw new Error(`Demo persona ${persona} is not unique`);
     const user = users.results[0];
     if (!user) return null;
 
@@ -115,6 +116,17 @@ export class D1IdentityDirectory implements IdentityDirectory {
       );
     return result.results?.length === 1;
   }
+  async isSpeakerForEvent(userId: string, eventId: string): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id FROM event_roles WHERE user_id = ? AND event_id = ? AND role = 'speaker' LIMIT 1",
+      )
+      .bind(userId, eventId)
+      .all<{ event_id: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to validate speaker access: ${result.error ?? "unknown error"}`);
+    return result.results?.length === 1;
+  }
   async listReviewersForEvent(eventId: string) {
     const result = await this.database
       .prepare(
@@ -136,5 +148,23 @@ export class D1IdentityDirectory implements IdentityDirectory {
       .run();
     if (!result.success)
       throw new Error(`D1 failed to grant event organizer: ${result.error ?? "unknown error"}`);
+  }
+
+  async provisionSpeaker(userId: string, name: string, eventId: string): Promise<void> {
+    const results = await this.database.batch([
+      // ERROR-INTENT: a duplicate ID means a concurrent conversion already provisioned this identity.
+      this.database
+        .prepare("INSERT OR IGNORE INTO users (id,name,persona) VALUES (?,?,'speaker')")
+        .bind(userId, name),
+      // ERROR-INTENT: a duplicate event role means the canonical speaker already has access.
+      this.database
+        .prepare("INSERT OR IGNORE INTO event_roles (event_id,user_id,role) VALUES (?,?,'speaker')")
+        .bind(eventId, userId),
+    ]);
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(
+        `D1 failed to provision speaker identity: ${failed.error ?? "unknown error"}`,
+      );
   }
 }

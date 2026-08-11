@@ -3,6 +3,7 @@ import {
   type ApiErrorEnvelope,
   cfpStateInputSchema,
   createEventInputSchema,
+  createProspectInputSchema,
   contentSessionParamsSchema,
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
@@ -13,6 +14,8 @@ import {
   eventContentParamsSchema,
   eventIdParamsSchema,
   profileParamsSchema,
+  prospectListQuerySchema,
+  prospectPathSchema,
   proposalStatusSchema,
   reviewAssignmentParamsSchema,
   reviewEventParamsSchema,
@@ -24,6 +27,7 @@ import {
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
   uploadSpeakerAssetInputSchema,
+  updateProspectInputSchema,
   saveCfpInputSchema,
   submitProposalInputSchema,
 } from "@greenroom/contracts";
@@ -31,6 +35,12 @@ import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
 import type { ContentService } from "../../application/content/content-service";
+import {
+  type CrmService,
+  ProspectAlreadyConvertedError,
+  ProspectContactRequiredError,
+  ProspectNotFoundError,
+} from "../../application/crm/public";
 import {
   ReviewConflictError,
   ReviewNotFoundError,
@@ -97,9 +107,10 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
-  reviewOrCfpService?: ReviewService | CfpService,
+  reviewOrCfpService?: ReviewService | CfpService | CrmService,
   cfpServiceArgument?: CfpService,
   content?: ContentService,
+  crmArgument?: CrmService,
 ) {
   const reviewService =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -110,6 +121,9 @@ export function createHttpApp(
     (reviewOrCfpService && "getForOrganizer" in reviewOrCfpService
       ? reviewOrCfpService
       : undefined);
+  const crm =
+    crmArgument ??
+    (reviewOrCfpService && "convert" in reviewOrCfpService ? reviewOrCfpService : undefined);
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
     const supplied = context.req.header("x-correlation-id");
@@ -773,6 +787,113 @@ export function createHttpApp(
       201,
     );
   });
+  app.get("/api/events/:eventId/prospects", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
+    const path = eventIdParamsSchema.safeParse(context.req.param());
+    const query = prospectListQuerySchema.safeParse(context.req.query());
+    if (!path.success || !query.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Prospect filters are invalid.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospects: await crm.list(context.get("actor"), path.data.eventId, {
+        ...query.data,
+        overdueBefore: query.data.overdue ? new Date().toISOString() : undefined,
+      }),
+    });
+  });
+  app.post("/api/events/:eventId/prospects", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
+    const path = eventIdParamsSchema.safeParse(context.req.param());
+    const input = createProspectInputSchema.safeParse(await readJson(context.req));
+    if (!path.success || !input.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The prospect could not be created.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json(
+      {
+        prospect: await crm.create(context.get("actor"), {
+          eventId: path.data.eventId,
+          ...input.data,
+        }),
+      },
+      201,
+    );
+  });
+  app.get("/api/events/:eventId/prospects/:prospectId", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
+    const path = prospectPathSchema.safeParse(context.req.param());
+    if (!path.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Prospect identity is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospect: await crm.get(context.get("actor"), path.data.eventId, path.data.prospectId),
+    });
+  });
+  app.patch("/api/events/:eventId/prospects/:prospectId", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
+    const path = prospectPathSchema.safeParse(context.req.param());
+    const input = updateProspectInputSchema.safeParse(await readJson(context.req));
+    if (!path.success || !input.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The prospect could not be updated.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospect: await crm.update(
+        context.get("actor"),
+        path.data.eventId,
+        path.data.prospectId,
+        input.data,
+      ),
+    });
+  });
+  app.post("/api/events/:eventId/prospects/:prospectId/convert", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
+    const path = prospectPathSchema.safeParse(context.req.param());
+    if (!path.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Prospect identity is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      prospect: await crm.convert(
+        context.get("actor"),
+        path.data.eventId,
+        path.data.prospectId,
+        context.get("correlationId"),
+      ),
+    });
+  });
   app.notFound((context) =>
     context.json(
       envelope("NOT_FOUND", "The requested resource was not found.", context.get("correlationId")),
@@ -792,6 +913,21 @@ export function createHttpApp(
       return context.json(
         envelope("VALIDATION_FAILED", "Request body must be valid JSON.", correlationId),
         400,
+      );
+    if (error instanceof ProspectNotFoundError)
+      return context.json(
+        envelope("NOT_FOUND", "The requested resource was not found.", correlationId),
+        404,
+      );
+    if (error instanceof ProspectContactRequiredError)
+      return context.json(
+        envelope("VALIDATION_FAILED", "A contact is required before conversion.", correlationId),
+        409,
+      );
+    if (error instanceof ProspectAlreadyConvertedError)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Converted prospects cannot be changed.", correlationId),
+        409,
       );
     if (error instanceof ReviewValidationError)
       return context.json(

@@ -398,7 +398,7 @@ def check_repository() -> list[str]:
             re.DOTALL,
         ):
             schema_tables[table] = set(
-                re.findall(r'(?:text|integer|real)\("([A-Za-z_][A-Za-z0-9_]*)"\)', body)
+                re.findall(r'(?:text|integer|real)\("([A-Za-z_][A-Za-z0-9_]*)"', body)
             )
     migration_paths = sorted(path for path in all_files((".sql",)) if "migrations" in path.parts)
     migration_tables = migration_schema(migration_paths)

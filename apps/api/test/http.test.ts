@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { healthResponseSchema } from "@greenroom/contracts";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
+import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
+import { CrmService } from "../src/application/crm/crm-service";
 import { EventService } from "../src/application/events/event-service";
 import {
   createDemoSession,
@@ -10,6 +12,13 @@ import {
 import { createHttpApp, type StructuredLogger } from "../src/transport/http/app";
 
 const secret = "test-session-secret";
+const testCrm = () =>
+  new CrmService({
+    repository: new MemoryCrmRepository(),
+    speakerConversion: { createOrLink: async () => ({ speakerId: crypto.randomUUID() }) },
+    newId: () => crypto.randomUUID(),
+    now: () => new Date("2026-08-09T12:00:00.000Z"),
+  });
 const createTestApp = () => {
   const service = new EventService({
     repository: new MemoryEventRepository(),
@@ -18,12 +27,17 @@ const createTestApp = () => {
   });
   const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   return {
-    app: createHttpApp(service, logger, {
-      demoMode: true,
-      sessionSecret: secret,
-      now: () => 1_000,
-      resolveActor: resolveSeededDemoActor,
-    }),
+    app: createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      testCrm(),
+    ),
     logger,
   };
 };
@@ -87,12 +101,17 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const app = createHttpApp(service, logger, {
-      demoMode: true,
-      sessionSecret: secret,
-      now: () => 1_000,
-      resolveActor: resolveSeededDemoActor,
-    });
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      testCrm(),
+    );
     const request = (headers: Record<string, string>) =>
       app.request("/api/events", {
         method: "POST",
@@ -188,12 +207,17 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const app = createHttpApp(service, logger, {
-      demoMode: true,
-      sessionSecret: secret,
-      now: () => 1_000,
-      resolveActor: resolveSeededDemoActor,
-    });
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      testCrm(),
+    );
     for (const name of ["   ", "x".repeat(121)]) {
       const response = await app.request("/api/events", {
         method: "POST",
@@ -240,7 +264,7 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const app = createHttpApp(service, logger, { demoMode: false });
+    const app = createHttpApp(service, logger, { demoMode: false }, testCrm());
     expect((await app.request("/api/demo-session", { method: "POST", body: "{}" })).status).toBe(
       404,
     );
@@ -283,12 +307,17 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const app = createHttpApp(service, logger, {
-      demoMode: true,
-      sessionSecret: secret,
-      now: () => 1_000,
-      resolveActor: resolveSeededDemoActor,
-    });
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      testCrm(),
+    );
 
     expect(
       (await app.request("/api/events/not-a-uuid", { headers: await cookieFor("organizer") }))
@@ -329,12 +358,17 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const app = createHttpApp(service, logger, {
-      demoMode: true,
-      sessionSecret: secret,
-      now: () => 1_000,
-      resolveActor: resolveSeededDemoActor,
-    });
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      testCrm(),
+    );
     const response = await app.request("/api/events", {
       headers: { ...(await cookieFor("organizer")), "x-correlation-id": "failure-correlation" },
     });

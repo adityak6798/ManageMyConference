@@ -1,5 +1,7 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
+import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
 import { ContentService } from "./application/content/content-service";
@@ -7,6 +9,7 @@ import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository"
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
 import { CfpService } from "./application/cfp/cfp-service";
+import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
@@ -57,6 +60,16 @@ export default {
       () => crypto.randomUUID(),
       () => new Date(),
     );
+    const crm = new CrmService({
+      repository: new D1CrmRepository(environment.DB),
+      speakerConversion: new D1SpeakerConversion(
+        environment.DB,
+        () => crypto.randomUUID(),
+        identityDirectory,
+      ),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -88,6 +101,7 @@ export default {
       reviewService,
       cfpService,
       content,
+      crm,
     );
     return Promise.resolve(app.fetch(request));
   },

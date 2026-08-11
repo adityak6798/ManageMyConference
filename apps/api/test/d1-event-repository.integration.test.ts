@@ -118,6 +118,8 @@ describe("D1EventRepository", () => {
       "0004_cfp_published_snapshot.sql",
       "0005_cfp_snapshot_status.sql",
       "0006_review_workflow.sql",
+      "0015_crm_conversion.sql",
+      "0016_crm_speaker_conversion.sql",
     ]) {
       const migrationSql = await readFile(
         new URL(`../migrations/${file}`, import.meta.url),
