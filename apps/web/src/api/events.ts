@@ -48,6 +48,10 @@ export async function listEvents(fetcher: typeof fetch = fetch): Promise<EventDt
   const response = await fetcher("/api/events");
   return (await decode(response, eventListResponseSchema)).events;
 }
+export async function listPublicEvents(fetcher: typeof fetch = fetch): Promise<EventDto[]> {
+  const response = await fetcher("/api/public/events");
+  return (await decode(response, eventListResponseSchema)).events;
+}
 
 export async function createEvent(
   input: CreateEventInput,

@@ -42,15 +42,6 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
-    const crm = await readFile(
-      new URL("../migrations/0003_crm_conversion.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of crm
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
       repository.list({
@@ -113,24 +104,45 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
-    const crm = await readFile(
-      new URL("../migrations/0003_crm_conversion.sql", import.meta.url),
+    const contentMigration = await readFile(
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
       "utf8",
     );
-    for (const statement of crm
+    for (const statement of contentMigration
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
-    const content = await readFile(
-      new URL("../migrations/0004_content_speaker_conversion.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of content
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
+    for (const file of [
+      "0003_cfp.sql",
+      "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
+      "0015_crm_conversion.sql",
+      "0016_crm_speaker_conversion.sql",
+    ]) {
+      const migrationSql = await readFile(
+        new URL(`../migrations/${file}`, import.meta.url),
+        "utf8",
+      );
+      for (const statement of migrationSql
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean))
+        await database.prepare(statement).run();
+    }
+    for (const file of [
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
+    ]) {
+      const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      expect((await database.prepare(trigger).run()).success).toBe(true);
+    }
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     const statements = reset
       .split(";")

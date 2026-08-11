@@ -14,7 +14,9 @@ test("organizer filters the pipeline, adds a prospect, and converts it", async (
   await expect(page.getByText("Follow up on keynote topic")).toBeVisible();
   const name = `Browser Prospect ${Date.now()}`;
   await page.getByLabel("Prospect name").fill(name);
-  await page.getByLabel("Contact email").fill(`browser-${Date.now()}@example.test`);
+  await page
+    .getByLabel("Contact email", { exact: true })
+    .fill(`browser-${Date.now()}@example.test`);
   await page.getByLabel("First action due").fill("2026-08-01T12:00");
   await page.getByRole("button", { name: "Add prospect" }).click();
   await page.getByLabel("Pipeline view").selectOption("overdue");

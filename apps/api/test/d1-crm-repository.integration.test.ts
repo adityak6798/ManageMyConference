@@ -18,10 +18,26 @@ describe("D1 CRM persistence", () => {
     for (const file of [
       "0001_create_events.sql",
       "0002_identity_event_foundation.sql",
-      "0003_crm_conversion.sql",
-      "0004_content_speaker_conversion.sql",
+      "0003_cfp.sql",
+      "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
+      "0014_content_speaker_portal.sql",
+      "0015_crm_conversion.sql",
+      "0016_crm_speaker_conversion.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      if (/^(000[789]|001[0-3])_/.test(file)) {
+        await database.prepare(sql).run();
+        continue;
+      }
       for (const statement of sql
         .split(";")
         .map((value) => value.trim())
@@ -66,7 +82,7 @@ describe("D1 CRM persistence", () => {
       occurredAt: "2026-08-10T12:00:00.000Z",
       actorId: "seed-organizer",
     });
-    const existingSpeakerId = "40000000-0000-4000-8000-000000000001";
+    const existingSpeakerId = "10000000-0000-4000-8000-000000000001";
     await database
       .prepare(
         "CREATE TRIGGER fail_conversion_activity BEFORE INSERT ON crm_activities WHEN NEW.kind='conversion' BEGIN SELECT RAISE(FAIL, 'injected audit failure'); END",

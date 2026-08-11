@@ -6,7 +6,7 @@ CREATE TABLE crm_prospects (
   owner_id TEXT NOT NULL REFERENCES users(id),
   next_action TEXT,
   next_action_at TEXT,
-  speaker_id TEXT,
+  speaker_id TEXT REFERENCES speaker_profiles(id),
   converted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

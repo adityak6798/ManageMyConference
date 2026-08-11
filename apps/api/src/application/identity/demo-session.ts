@@ -18,9 +18,19 @@ const personas = {
         "events:settings:read",
         "events:settings:update",
         "crm:manage",
+        "content:read",
+        "content:manage",
+        "review:manage",
       ] as const,
     })),
-    capabilities: ["events:read", "events:create", "crm:manage"] as const,
+    capabilities: [
+      "events:read",
+      "events:create",
+      "crm:manage",
+      "content:read",
+      "content:manage",
+      "review:manage",
+    ] as const,
   },
   reviewer: {
     id: "seed-reviewer",
@@ -31,10 +41,10 @@ const personas = {
       {
         eventId: primaryEventId,
         role: "reviewer" as const,
-        capabilities: ["events:read"] as const,
+        capabilities: ["events:read", "review:evaluate"] as const,
       },
     ],
-    capabilities: ["events:read"] as const,
+    capabilities: ["events:read", "review:evaluate"] as const,
   },
   speaker: {
     id: "seed-speaker",
@@ -42,9 +52,13 @@ const personas = {
     persona: "speaker",
     organizations: [],
     eventAccess: [
-      { eventId: primaryEventId, role: "speaker" as const, capabilities: ["events:read"] as const },
+      {
+        eventId: primaryEventId,
+        role: "speaker" as const,
+        capabilities: ["events:read", "content:read"] as const,
+      },
     ],
-    capabilities: ["events:read"] as const,
+    capabilities: ["events:read", "content:read"] as const,
   },
   public: {
     id: "seed-public",

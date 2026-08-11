@@ -1,5 +1,5 @@
 // @acceptance ACC-HARNESS
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { EventService } from "../src/application/events/event-service";
 import { type Actor, CapabilityDeniedError } from "../src/application/identity/actor";
@@ -16,10 +16,12 @@ const organizer = {
 describe("EventService", () => {
   it("persists a new event through its repository port", async () => {
     const repository = new MemoryEventRepository();
+    const grantOrganizer = vi.fn().mockResolvedValue(undefined);
     const service = new EventService({
       repository,
       newId: () => "123e4567-e89b-12d3-a456-426614174000",
       now: () => new Date("2026-08-09T12:00:00.000Z"),
+      grantOrganizer,
     });
 
     await service.create(organizer, {
@@ -27,6 +29,10 @@ describe("EventService", () => {
       name: "Greenroom Summit",
       timezone: "America/Los_Angeles",
     });
+    expect(grantOrganizer).toHaveBeenCalledWith(
+      "123e4567-e89b-12d3-a456-426614174000",
+      "seed-organizer",
+    );
 
     await expect(service.list(organizer)).resolves.toEqual([
       {

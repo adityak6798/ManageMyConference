@@ -1,27 +1,64 @@
 import {
+  acceptContentInputSchema,
   type ApiErrorEnvelope,
+  cfpStateInputSchema,
   createEventInputSchema,
-  demoSessionInputSchema,
-  eventIdParamsSchema,
   createProspectInputSchema,
+  contentSessionParamsSchema,
+  assignReviewersInputSchema,
+  bulkProposalTransitionInputSchema,
+  configureReviewPlanInputSchema,
+  configureProposalStatusesInputSchema,
+  declareConflictInputSchema,
+  demoSessionInputSchema,
+  eventContentParamsSchema,
+  eventIdParamsSchema,
+  profileParamsSchema,
   prospectListQuerySchema,
   prospectPathSchema,
+  proposalStatusSchema,
+  reviewAssignmentParamsSchema,
+  reviewEventParamsSchema,
+  recordSpeakerMessageInputSchema,
+  requestSpeakerTaskInputSchema,
+  saveEvaluationInputSchema,
+  speakerAssetParamsSchema,
+  taskParamsSchema,
+  updateContentSessionInputSchema,
+  updateSpeakerProfileInputSchema,
+  uploadSpeakerAssetInputSchema,
   updateProspectInputSchema,
+  saveCfpInputSchema,
+  submitProposalInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
+import type { ContentService } from "../../application/content/content-service";
 import {
-  ProspectContactRequiredError,
-  ProspectAlreadyConvertedError,
-  ProspectNotFoundError,
   type CrmService,
+  ProspectAlreadyConvertedError,
+  ProspectContactRequiredError,
+  ProspectNotFoundError,
 } from "../../application/crm/public";
+import {
+  ReviewConflictError,
+  ReviewNotFoundError,
+  type ReviewService,
+  ReviewValidationError,
+} from "../../application/review/review-service";
+import {
+  type CfpService,
+  CfpStateError,
+  CfpUnavailableError,
+  CfpValidationError,
+} from "../../application/cfp/public";
 import {
   type Actor,
   AuthenticationRequiredError,
   CapabilityDeniedError,
   requireCapability,
+  requireEventCapability,
 } from "../../application/identity/actor";
 import { createDemoSession, resolveDemoSession } from "../../application/identity/demo-session";
 import { createEventInputToCommand, eventToDto } from "./event-mappers";
@@ -70,8 +107,23 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
-  crm: CrmService,
+  reviewOrCfpService?: ReviewService | CfpService | CrmService,
+  cfpServiceArgument?: CfpService,
+  content?: ContentService,
+  crmArgument?: CrmService,
 ) {
+  const reviewService =
+    reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
+      ? reviewOrCfpService
+      : undefined;
+  const cfpService =
+    cfpServiceArgument ??
+    (reviewOrCfpService && "getForOrganizer" in reviewOrCfpService
+      ? reviewOrCfpService
+      : undefined);
+  const crm =
+    crmArgument ??
+    (reviewOrCfpService && "convert" in reviewOrCfpService ? reviewOrCfpService : undefined);
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
     const supplied = context.req.header("x-correlation-id");
@@ -111,7 +163,7 @@ export function createHttpApp(
     context.json({
       status: "ok",
       checks: { database: "configured", sessionSigning: auth.demoMode ? "configured" : "disabled" },
-      providerMode: "deterministic-fakes",
+      providerMode: "sql-r2",
       logFormat: "structured-json",
     }),
   );
@@ -206,8 +258,538 @@ export function createHttpApp(
       );
     return context.json({ event: eventToDto(event) });
   });
+  app.get("/api/events/:eventId/content", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const parsed = eventContentParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(await content.workspace(context.get("actor"), parsed.data.eventId));
+  });
+  app.post("/api/events/:eventId/content/accept", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = eventContentParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = acceptContentInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Accepted content is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      await content.accept(context.get("actor"), { eventId: params.data.eventId, ...parsed.data }),
+      201,
+    );
+  });
+  app.patch("/api/speaker-profiles/:profileId", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const params = profileParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Profile ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = updateSpeakerProfileInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker profile is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      profile: await content.updateMyProfile(
+        context.get("actor"),
+        params.data.profileId,
+        parsed.data,
+      ),
+    });
+  });
+  app.post("/api/events/:eventId/tasks/:taskId/complete", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const eventParams = eventContentParamsSchema.safeParse(context.req.param());
+    const taskParams = taskParamsSchema.safeParse(context.req.param());
+    if (!eventParams.success || !taskParams.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Task reference is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      await content.completeTask(
+        context.get("actor"),
+        taskParams.data.taskId,
+        eventParams.data.eventId,
+      ),
+    );
+  });
+  app.post("/api/speaker-tasks", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const parsed = requestSpeakerTaskInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker task is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      { task: await content.requestTask(context.get("actor"), parsed.data) },
+      201,
+    );
+  });
+  app.post("/api/speaker-messages", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const parsed = recordSpeakerMessageInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker message is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json(
+      { message: await content.recordMessage(context.get("actor"), parsed.data) },
+      201,
+    );
+  });
+  app.patch("/api/content-sessions/:sessionId", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = contentSessionParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Session ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = updateContentSessionInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Session content is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      session: await content.updateSession(
+        context.get("actor"),
+        params.data.sessionId,
+        parsed.data,
+      ),
+    });
+  });
+  app.post("/api/speaker-assets/:assetId/publish", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = speakerAssetParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Asset ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      asset: await content.publishAsset(context.get("actor"), params.data.assetId),
+    });
+  });
+  app.post("/api/speaker-assets", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const parsed = uploadSpeakerAssetInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Speaker asset is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    const binary = atob(parsed.data.contentBase64);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return context.json(
+      { asset: await content.upload(context.get("actor"), { ...parsed.data, bytes }) },
+      201,
+    );
+  });
+  app.get("/api/events/:eventId/speaker-calendar.ics", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const parsed = eventContentParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.body(await content.calendar(context.get("actor"), parsed.data.eventId), 200, {
+      "content-type": "text/calendar; charset=utf-8",
+      "content-disposition": 'attachment; filename="greenroom-sessions.ics"',
+    });
+  });
+  app.get("/api/events/:eventId/review/organizer", async (context) => {
+    const parsed = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const statusValue = context.req.query("status");
+    const status = statusValue ? proposalStatusSchema.safeParse(statusValue) : undefined;
+    if (status && !status.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Choose a valid proposal status.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json(
+      await reviewService.organizerWorkspace(
+        context.get("actor"),
+        parsed.data.eventId,
+        status?.data,
+      ),
+    );
+  });
+  app.put("/api/events/:eventId/review/plan", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+    const parsed = configureReviewPlanInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The evaluation plan is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      plan: await reviewService.configurePlan(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.criteria,
+      ),
+    });
+  });
+  app.put("/api/events/:eventId/review/statuses", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+    const parsed = configureProposalStatusesInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The status configuration is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      statuses: await reviewService.configureStatuses(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.statuses,
+      ),
+    });
+  });
+  app.post("/api/events/:eventId/review/assignments", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+    const parsed = assignReviewersInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The assignment request is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json(
+      {
+        assignments: await reviewService.assign(
+          context.get("actor"),
+          params.data.eventId,
+          parsed.data.proposalIds,
+          parsed.data.reviewerId,
+        ),
+      },
+      201,
+    );
+  });
+  app.post("/api/events/:eventId/review/transitions", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+    const parsed = bulkProposalTransitionInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The transition request is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      proposals: await reviewService.bulkTransition(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.proposalIds,
+        parsed.data.toStatus,
+      ),
+      mode: "atomic" as const,
+    });
+  });
+  app.get("/api/events/:eventId/review/assignments", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      assignments: await reviewService.reviewerQueue(context.get("actor"), params.data.eventId),
+    });
+  });
+  app.post("/api/events/:eventId/review/assignments/:assignmentId/conflict", async (context) => {
+    const params = reviewAssignmentParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Assignment path is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:evaluate");
+    const parsed = declareConflictInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Describe the conflict.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      conflict: await reviewService.declareConflict(
+        context.get("actor"),
+        params.data.eventId,
+        params.data.assignmentId,
+        parsed.data.reason,
+      ),
+    });
+  });
+  app.put("/api/events/:eventId/review/assignments/:assignmentId/evaluation", async (context) => {
+    const params = reviewAssignmentParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Assignment path is malformed.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:evaluate");
+    const parsed = saveEvaluationInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The evaluation is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json({
+      evaluation: await reviewService.saveEvaluation(
+        context.get("actor"),
+        params.data.eventId,
+        params.data.assignmentId,
+        parsed.data,
+        context.get("correlationId"),
+      ),
+    });
+  });
+  app.get("/api/events/:eventId/cfp", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const parsed = eventIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const cfp = await cfpService.getForOrganizer(context.get("actor"), parsed.data.eventId);
+    if (!cfp)
+      return context.json(
+        envelope("NOT_FOUND", "No CFP has been configured.", context.get("correlationId")),
+        404,
+      );
+    return context.json({ cfp });
+  });
+  app.put("/api/events/:eventId/cfp", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const params = eventIdParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    // Authorization happens before parsing attacker-controlled bodies.
+    await cfpService.getForOrganizer(context.get("actor"), params.data.eventId);
+    const parsed = saveCfpInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The CFP could not be saved.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json({
+      cfp: await cfpService.save(context.get("actor"), {
+        eventId: params.data.eventId,
+        ...parsed.data,
+      }),
+    });
+  });
+  app.post("/api/events/:eventId/cfp/state", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const params = eventIdParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    await cfpService.getForOrganizer(context.get("actor"), params.data.eventId);
+    const parsed = cfpStateInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Choose a valid CFP state.", context.get("correlationId")),
+        400,
+      );
+    return context.json({
+      cfp: await cfpService.changeState(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.state,
+      ),
+    });
+  });
+  app.get("/api/public/events/:eventId/cfp", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const parsed = eventIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    return context.json({ cfp: await cfpService.getPublished(parsed.data.eventId) });
+  });
+  app.get("/api/public/events", async (context) =>
+    context.json({ events: (await service.listAssigned(context.get("actor"))).map(eventToDto) }),
+  );
+  app.post("/api/public/events/:eventId/submissions", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const params = eventIdParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = submitProposalInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The proposal could not be submitted.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    const submission = await cfpService.submit(
+      params.data.eventId,
+      parsed.data.idempotencyKey,
+      parsed.data.answers,
+    );
+    return context.json(
+      { submission: { confirmationId: submission.id, submittedAt: submission.submittedAt } },
+      201,
+    );
+  });
   app.get("/api/events/:eventId/prospects", async (context) => {
     requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
     const path = eventIdParamsSchema.safeParse(context.req.param());
     const query = prospectListQuerySchema.safeParse(context.req.query());
     if (!path.success || !query.success)
@@ -219,16 +801,16 @@ export function createHttpApp(
         ),
         400,
       );
-    const filters = {
-      ...query.data,
-      overdueBefore: query.data.overdue ? new Date().toISOString() : undefined,
-    };
     return context.json({
-      prospects: await crm.list(context.get("actor"), path.data.eventId, filters),
+      prospects: await crm.list(context.get("actor"), path.data.eventId, {
+        ...query.data,
+        overdueBefore: query.data.overdue ? new Date().toISOString() : undefined,
+      }),
     });
   });
   app.post("/api/events/:eventId/prospects", async (context) => {
     requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
     const path = eventIdParamsSchema.safeParse(context.req.param());
     const input = createProspectInputSchema.safeParse(await readJson(context.req));
     if (!path.success || !input.success)
@@ -252,6 +834,7 @@ export function createHttpApp(
   });
   app.get("/api/events/:eventId/prospects/:prospectId", async (context) => {
     requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
     const path = prospectPathSchema.safeParse(context.req.param());
     if (!path.success)
       return context.json(
@@ -268,6 +851,7 @@ export function createHttpApp(
   });
   app.patch("/api/events/:eventId/prospects/:prospectId", async (context) => {
     requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
     const path = prospectPathSchema.safeParse(context.req.param());
     const input = updateProspectInputSchema.safeParse(await readJson(context.req));
     if (!path.success || !input.success)
@@ -290,6 +874,7 @@ export function createHttpApp(
   });
   app.post("/api/events/:eventId/prospects/:prospectId/convert", async (context) => {
     requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
     const path = prospectPathSchema.safeParse(context.req.param());
     if (!path.success)
       return context.json(
@@ -344,6 +929,44 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Converted prospects cannot be changed.", correlationId),
         409,
       );
+    if (error instanceof ReviewValidationError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The review request is invalid.",
+          correlationId,
+          error.fields,
+        ),
+        400,
+      );
+    if (error instanceof ReviewConflictError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Resolve the declared conflict before evaluating.",
+          correlationId,
+        ),
+        409,
+      );
+    if (error instanceof ReviewNotFoundError)
+      return context.json(
+        envelope("NOT_FOUND", "The requested resource was not found.", correlationId),
+        404,
+      );
+    if (error instanceof CfpValidationError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Review the highlighted proposal fields.",
+          correlationId,
+          error.fieldErrors,
+        ),
+        400,
+      );
+    if (error instanceof CfpStateError)
+      return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 400);
+    if (error instanceof CfpUnavailableError)
+      return context.json(envelope("NOT_FOUND", error.message, correlationId), 404);
     logger.error(
       {
         correlationId,

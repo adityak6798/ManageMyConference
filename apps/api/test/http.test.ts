@@ -1,5 +1,6 @@
 // @acceptance ACC-HARNESS
 import { describe, expect, it, vi } from "vitest";
+import { healthResponseSchema } from "@greenroom/contracts";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
 import { CrmService } from "../src/application/crm/crm-service";
@@ -45,6 +46,13 @@ const cookieFor = async (persona: "organizer" | "reviewer" | "speaker" | "public
 });
 
 describe("events HTTP transport", () => {
+  it("returns health that matches the SQL/R2 runtime contract", async () => {
+    const { app } = createTestApp();
+    const response = await app.request("/health");
+    expect(response.status).toBe(200);
+    expect(healthResponseSchema.parse(await response.json()).providerMode).toBe("sql-r2");
+  });
+
   it("returns the seeded identity, memberships, event roles, and capabilities", async () => {
     const { app } = createTestApp();
     const organizer = await app.request("/api/session", { headers: await cookieFor("organizer") });

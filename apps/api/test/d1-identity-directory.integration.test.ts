@@ -32,16 +32,37 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(foundation)) await database.prepare(statement).run();
-    const crm = await readFile(
-      new URL("../migrations/0003_crm_conversion.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of statements(crm)) await database.prepare(statement).run();
     const content = await readFile(
-      new URL("../migrations/0004_content_speaker_conversion.sql", import.meta.url),
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
       "utf8",
     );
     for (const statement of statements(content)) await database.prepare(statement).run();
+    for (const file of [
+      "0003_cfp.sql",
+      "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
+      "0015_crm_conversion.sql",
+      "0016_crm_speaker_conversion.sql",
+    ]) {
+      const migrationSql = await readFile(
+        new URL(`../migrations/${file}`, import.meta.url),
+        "utf8",
+      );
+      for (const statement of statements(migrationSql)) await database.prepare(statement).run();
+    }
+    for (const file of [
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
+    ]) {
+      const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      expect((await database.prepare(trigger).run()).success).toBe(true);
+    }
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 
@@ -55,18 +76,42 @@ describe("D1IdentityDirectory", () => {
           capabilities: expect.any(Set),
         },
       ]),
-      capabilities: new Set(["events:read", "events:create", "crm:manage"]),
+      capabilities: new Set([
+        "events:read",
+        "events:create",
+        "events:settings:read",
+        "events:settings:update",
+        "crm:manage",
+        "content:read",
+        "content:manage",
+        "review:manage",
+        "review:evaluate",
+      ]),
+    });
+    await directory.grantOrganizer("00000000-0000-4000-8000-000000000002", "seed-reviewer");
+    await expect(directory.findByPersona("reviewer")).resolves.toMatchObject({
+      eventAccess: expect.arrayContaining([
+        expect.objectContaining({
+          eventId: "00000000-0000-4000-8000-000000000002",
+          role: "organizer",
+        }),
+      ]),
+      capabilities: new Set([
+        "events:read",
+        "events:settings:read",
+        "events:settings:update",
+        "crm:manage",
+        "content:read",
+        "content:manage",
+        "review:manage",
+        "review:evaluate",
+      ]),
     });
 
     await database
       .prepare("DELETE FROM event_roles WHERE user_id = ?")
       .bind("seed-organizer")
       .run();
-    await expect(directory.findByPersona("organizer")).resolves.toMatchObject({
-      organizations: expect.any(Array),
-      eventAccess: [],
-      capabilities: new Set(["events:read", "events:create"]),
-    });
     await database
       .prepare("DELETE FROM organization_memberships WHERE user_id = ?")
       .bind("seed-organizer")
@@ -75,13 +120,6 @@ describe("D1IdentityDirectory", () => {
       organizations: [],
       eventAccess: [],
       capabilities: new Set(),
-    });
-    await database
-      .prepare("UPDATE event_roles SET role='organizer' WHERE user_id='seed-reviewer'")
-      .run();
-    await expect(directory.findByPersona("reviewer")).resolves.toMatchObject({
-      organizations: [],
-      capabilities: new Set(["events:read", "crm:manage"]),
     });
   });
 });

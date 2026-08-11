@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
+import { bytesToBase64 } from "../src/ContentWorkspace";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
@@ -22,6 +23,10 @@ const event = {
 };
 
 describe("App", () => {
+  it("encodes files larger than the JavaScript argument limit", () => {
+    const bytes = new Uint8Array(200_000).map((_, index) => index % 251);
+    expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -137,7 +142,9 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("Pat Attendee");
     expect(screen.getByRole("link", { name: "Published event" })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith("/api/public/events");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
   });
 
   it("creates an event inside the organizer organization", async () => {
