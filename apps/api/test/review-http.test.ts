@@ -33,7 +33,13 @@ const cookie = async (persona: "organizer" | "reviewer" | "speaker") => ({
  * typed error, which is how the partial-state and retry behaviour is exercised without reaching
  * into storage.
  */
-const build = ({ acceptanceFailures = 0 }: { acceptanceFailures?: number } = {}) => {
+const build = ({
+  acceptanceFailures = 0,
+  acceptanceError,
+}: {
+  acceptanceFailures?: number;
+  acceptanceError?: Error;
+} = {}) => {
   let id = 0;
   const ids = () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`;
   const proposals = new MemorySubmittedProposalAdapter([
@@ -95,13 +101,14 @@ const build = ({ acceptanceFailures = 0 }: { acceptanceFailures?: number } = {})
   class ComposedContentService extends ContentService {
     override async accept(...args: Parameters<ContentService["accept"]>) {
       if (remainingFailures-- > 0)
-        throw new ProposalSubmitterUnavailableError("Simulated content refusal");
+        throw acceptanceError ?? new ProposalSubmitterUnavailableError("Simulated content refusal");
       return super.accept(...args);
     }
   }
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const app = createHttpApp(
     events,
-    { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    logger,
     {
       demoMode: true,
       sessionSecret: secret,
@@ -123,7 +130,7 @@ const build = ({ acceptanceFailures = 0 }: { acceptanceFailures?: number } = {})
   );
   // `proposals` is exposed so a test can seed a status set that predates the reserved decision
   // statuses — the state the HTTP surface has to reconcile.
-  return { app, proposals };
+  return { app, proposals, logger };
 };
 
 /** The decisions the organizer board currently shows, which is where a partial state surfaces. */
@@ -291,6 +298,57 @@ describe("review HTTP API", () => {
     // Re-posting the identical decision does not stack up decisions.
     expect(((await (await decide()).json()) as { decisions: unknown[] }).decisions).toHaveLength(1);
     await expect(workspaceDecisions(app, headers)).resolves.toHaveLength(1);
+  });
+
+  it("reports a decision the server is holding even when acceptance fails unexpectedly", async () => {
+    // The decisions are durable before acceptance runs. Answering 500 would tell the organizer
+    // the request failed while the server kept the decision — so an unexpected fault becomes a
+    // truthful `decision_only` row carrying the correlation id, and is logged at error level so
+    // it still reaches wherever a 500 would have.
+    const { app, logger } = build({
+      acceptanceFailures: 1,
+      acceptanceError: new Error("d1 connection reset"),
+    });
+    const headers = await cookie("organizer");
+    const response = await app.request(`/api/events/${eventId}/review/decisions`, {
+      method: "POST",
+      headers: { ...headers, "x-correlation-id": "acceptance-fault" },
+      body: JSON.stringify({ proposalIds: [proposalId], outcome: "accepted" }),
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      decisions: [{ proposalId, outcome: "accepted" }],
+      acceptances: [
+        {
+          proposalId,
+          state: "decision_only",
+          sessionId: null,
+          detail: "The session could not be created. Reference: acceptance-fault",
+        },
+      ],
+    });
+    // The cause is not invented as a field error the organizer could act on.
+    const body = (await (
+      await app.request(`/api/events/${eventId}/review/decisions`, {
+        method: "POST",
+        headers: { ...headers, "x-correlation-id": "acceptance-fault-2" },
+        body: JSON.stringify({ proposalIds: [proposalId], outcome: "accepted" }),
+      })
+    ).json()) as { acceptances: { state: string }[] };
+    expect(body.acceptances[0]?.state).toBe("content");
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "acceptance-fault",
+        proposalId,
+        errorName: "Error",
+        errorMessage: "d1 connection reset",
+      }),
+      "review.acceptance.failed",
+    );
+    // A typed refusal is a warning, not an error; the two must not be conflated.
+    expect(logger.error).toHaveBeenCalledTimes(1);
   });
 
   it("heals a decision-only acceptance when the identical decision is posted again", async () => {

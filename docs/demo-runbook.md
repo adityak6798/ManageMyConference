@@ -1,6 +1,17 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11 (commit `c72b796`)
+
+## What this demo is, and is not
+
+It runs locally, from a deterministic seed, with development-only signed demo identities. There is
+no production authentication (`GAP-007`) and nothing serves the built frontend against a
+configurable API origin (`GAP-008`), so the product cannot yet be handed over as a URL. Local
+delivery, uploads, and every provider are deterministic fakes: no message leaves the machine, and
+the Accelevents integration the brief names does not exist (`GAP-012`). The honest
+feature-by-feature picture is in [competition traceability](product/competition-traceability.md);
+the per-journey verdicts and the commands that prove them are in the
+[quality scorecard](quality/scorecard.md).
 
 ## Start from a clean checkout
 
@@ -56,8 +67,12 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    that payload as an immutable snapshot and reveals the public link; **Unpublish** takes it down and
    the public routes — the event page, `/api/public/events/greenroom-demo-summit/schedule`, and the
    speaker headshots that snapshot exposed — go back to the standard not-published response. On a
-   clean reset the seeded snapshot is already exactly what Publish composes, so pressing Publish
-   before changing anything is a visible no-op rather than a collapse of the page. The panel names which parts of
+   clean reset the seeded snapshot is exactly what Publish composes, so pressing Publish before
+   changing anything is a visible no-op rather than a collapse of the page — asserted by
+   `apps/api/test/d1-publication-repository.integration.test.ts` ("seeds a published projection
+   identical to what the publish command recomposes"), which applies the seed in Miniflare, compares
+   the composed preview with the seeded snapshot field for field, and republishes to prove the page
+   is unchanged. The panel names which parts of
    the draft have moved ahead of the snapshot, so "why is my edit not on the site" is answered on
    screen. Both embed views are here with their addresses, a paste-ready `<iframe>` snippet behind a
    copy button, and a live frame of the real embed:
@@ -68,7 +83,11 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    event switcher, and publish it from `/publishing`: the slug is server-assigned and the panel
    shows the reserved address before the first publish.
 7. **Speaker CRM** (`/speakers`) and **Communications** (`/communications`) — the outreach pipeline
-   and the delivery outbox with queued, retrying, succeeded, and terminal states plus explicit retry.
+   and the delivery outbox. From a clean reset the outbox carries one delivery in each of the
+   queued, retrying, succeeded, and terminal states, with attempt history and an explicit retry on
+   the terminal one; recovering it consumes that state until the next reset. Nothing here was sent:
+   the seeded history is placeholder data, no lifecycle event enqueues a delivery, and the only
+   provider is a deterministic fake (`GAP-010`).
 8. Switch to **reviewer** — only `/reviews` is reachable. Score the seeded assignment against the
    evaluation plan; unscored criteria are refused rather than silently scored at the minimum.
 9. Switch to **speaker** — only `/portal` is reachable. Complete a task, edit the profile, upload a
@@ -90,10 +109,24 @@ authorization. The API refuses demo mode outside the exact development environme
 ## Reproduce the evidence
 
 ```bash
-npm run check          # format, context integrity, lint, typecheck, OpenAPI drift, unit tests, build
-npm run test:d1        # D1 integration suite, including the deterministic seed-state regression
-npm run test:e2e       # full browser acceptance suite (needs `npx playwright install chromium`)
-npm run test:quality   # the fast evaluator gate
+npm run check          # gate:integrity + gate:test-build + gate:d1 — the same three gates CI runs
+npm run test:d1        # the D1 suite on its own (already included in npm run check)
+npm run test:e2e       # full browser acceptance suite — 30 tests (needs `npx playwright install chromium`)
+npm run test:quality   # the fast evaluator gate — 3 tests
+```
+
+`npm run check` is a `&&` chain of gate scripts, so what it runs is what CI's `integrity`,
+`test-build`, and `d1` jobs run: gate-drift, Biome/Ruff formatting, context integrity, the Python
+CLI tests, lint plus the AST error policy, typecheck, generated-OpenAPI drift, declared-schema drift
+against the migrations, the tool/API/component test suites with coverage, both production builds,
+and the Miniflare D1 integration suite. It does **not** run Playwright or `npm audit`; those are
+`npm run gate:browser` and `npm run gate:security`.
+
+To reproduce one acceptance row rather than the whole suite, name its spec — the `webServer` step
+still resets the database first, so this is a clean-reset reproduction:
+
+```bash
+npm run test:e2e --workspace @greenroom/web -- e2e/agenda.spec.ts
 ```
 
 `npm run test:e2e` starts its own API and web server and resets the database first — but only when
@@ -101,15 +134,21 @@ nothing is already answering on the ports it wants. Point it at **free** ports w
 servers are running, as above; pointing it at ports something else already holds makes it reuse that
 process and skip the reset.
 
-`npm run test:e2e` is repeatable because its own `webServer` step resets the database before each
-invocation. The specs are **not** idempotent against an already-mutated fixture: several assert
-seeded counts, and review completion is terminal by design. If you point the suite at servers that
-are already running — which skips that reset — expect failures. Run `npm run reset` first in that
-case.
+The suite is re-runnable. Measured on 2026-08-11 at commit `c72b796`: 30 tests passed three times
+consecutively — once immediately after `npm run reset`, then twice more against the same
+already-running servers with no reset in between. Every spec either restores what it mutated or
+scopes its assertions to rows the run itself created. Two exceptions are inherent and documented in
+the specs that carry them (`GAP-005`): a completed evaluation and a declared conflict are terminal by
+design, and no affordance returns a communication delivery to a failed state.
+
+Re-runnable is not the same as leaving no trace. Each run adds rows it does not remove — the event
+`publishing.spec.ts` creates, the abstracts `review-workflow.spec.ts` files, the prospect
+`crm.spec.ts` adds (`DEBT-007`). Run `npm run reset` before demoing to anyone.
 
 `test:quality` checks role-aware journey discovery, that every navigation destination renders,
 public semantics and labels, heading structure, mobile layout with no horizontal overflow, and
-conservative loading/resource budgets.
+conservative loading/resource budgets. Those budgets are measured against the Vite dev server, so
+they bound nothing about a built artifact (`GAP-014`).
 
 If a step fails, preserve the displayed correlation reference and the Playwright artifacts under
 `apps/web/test-results/`. Reset before retrying; never repair demo state with manual database edits.

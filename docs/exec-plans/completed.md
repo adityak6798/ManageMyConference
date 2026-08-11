@@ -1,6 +1,6 @@
 # Completed execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-09
+Status: canonical | Owner: delivery | Last verified: 2026-08-11 (commit `c72b796`)
 
 ## `PLAN-001` Harness and reference slice
 
@@ -19,4 +19,4 @@ Verified commands:
 
 Evidence includes passing unit/API/component/Python/AST-checker tests, Miniflare persistence and reset-idempotency tests, Playwright reference-slice coverage, production builds, generated OpenAPI drift, and the final skeptical review. The implementation is present in the current worktree; attach the eventual commit/merge reference when published.
 
-Gitleaks is configured as a required CI gate, but no successful GitHub run artifact was inspected during local verification. GitHub branch protection is also externally configured and unverified. Both remain `GAP-003`; neither invalidates locally reproducible `ACC-HARNESS` completion.
+Gitleaks has since been observed succeeding on hosted CI: the `security` job of run `31471037575`, at head `10eab436`, ran `gitleaks/gitleaks-action@v2` and `npm audit --audit-level=high` to a successful conclusion. GitHub branch protection, however, is **not enabled** — the protection API answered 404 on 2026-08-11 — so none of the five jobs is a required check. That remainder is `GAP-003`; it does not invalidate locally reproducible `ACC-HARNESS` completion, but no claim of "clean CI" may rest on it.

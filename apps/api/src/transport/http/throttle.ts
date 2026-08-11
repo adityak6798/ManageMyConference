@@ -9,6 +9,13 @@
  *
  * Entries are evicted lazily as their windows expire, and the map is capped so a rotating key
  * space (a spoofed forwarded address per request) cannot grow it without bound.
+ *
+ * The cap evicts rather than refuses. Refusing a newcomer once the table is full would let one
+ * client that rotates keys — a random event UUID per request is enough, since the key is formed
+ * before the event is known to exist — lock every genuine submitter out for a whole window. A
+ * rate limiter that fails closed on its own bookkeeping is a denial-of-service amplifier, so a
+ * full table drops its oldest window instead. The worst an attacker gets is a reset counter for
+ * somebody they evicted, which is the lenient direction.
  */
 export interface ThrottleDecision {
   readonly allowed: boolean;
@@ -30,10 +37,13 @@ export class FixedWindowThrottle {
     const existing = this.windows.get(key);
     if (!existing || existing.resetAt <= now) {
       this.evictExpired(now);
-      // A full table means the isolate is already tracking more distinct callers than it
-      // agreed to; refusing the newcomer keeps the limiter's own memory bounded.
-      if (this.windows.size >= this.maxKeys)
-        return { allowed: false, retryAfterSeconds: Math.ceil(this.windowMs / 1000) };
+      // Still full after expiry: make room by dropping the oldest window. Every window is the
+      // same length, so Map insertion order is `resetAt` order and the first key is the oldest.
+      while (this.windows.size >= this.maxKeys) {
+        const oldest = this.windows.keys().next();
+        if (oldest.done) break;
+        this.windows.delete(oldest.value);
+      }
       this.windows.set(key, { count: 1, resetAt: now + this.windowMs });
       return { allowed: true, retryAfterSeconds: 0 };
     }
@@ -69,8 +79,8 @@ export const submissionThrottle = new FixedWindowThrottle(10, 60_000);
  *
  * `cf-connecting-ip` is written by Cloudflare and cannot be forged by the client; the
  * forwarded headers are only consulted for other deployments and are attacker-controlled, so
- * a caller who rotates them merely spreads themselves across buckets — they can never take a
- * bucket away from someone else, because the value is only ever used as a key.
+ * a caller who rotates them merely spreads themselves across buckets. That is only safe because
+ * the key table evicts rather than refuses — see `FixedWindowThrottle`.
  */
 export function clientAddress(headers: { get(name: string): string | null | undefined }): string {
   const direct = headers.get("cf-connecting-ip") ?? headers.get("x-real-ip");

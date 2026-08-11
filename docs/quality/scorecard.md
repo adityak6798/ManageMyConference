@@ -1,30 +1,67 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11
+Status: canonical | Owner: quality | Last verified: 2026-08-11 (commit `c72b796`)
 
-Evidence below was produced on 2026-08-11 by `npm run check` (83 API tests, 12 web tests, lint,
-typecheck, OpenAPI drift, context integrity, build), `npm run test:d1` (15 tests across 11 files),
-`npm run test:e2e` (19 tests), and `npm run test:quality` (3 tests).
+## How to read this
 
-Note on repeatability: `npm run test:e2e` passes on repeated invocations because its `webServer`
-step resets the database each time. The specs are not idempotent against an already-mutated
-fixture — pointed at servers that were already running, so the reset was skipped, 6 of 19 failed in the measurement of 2026-08-11; the exact count depends on how the fixture was mutated.
-Closing that gap is tracked by issue #72.
+A row states what is **proven by a command in the [demo runbook](../demo-runbook.md), run from a
+clean reset**, and names what is still missing behind it. "Done" in this repository requires
+behaviour, negative authorization, visible error state, observability, automated acceptance,
+documentation linkage, and clean CI. No row below satisfies the last of those, so no row says
+"done".
 
-| Acceptance ID | Journey | Required evidence | State |
-|---|---|---|---|
-| `ACC-HARNESS` | reference slice | UI/API/storage/auth/log/reset/context checks | **passed 2026-08-09**: local functional evidence complete; Ralph pass 5 satisfied with zero blockers/majors. Gitleaks/branch protection remain externally unverified under `GAP-003` |
-| `ACC-IDENTITY-EVENTS` | identity/event foundation | role shell + API/storage tenant and authorization negatives | passed locally 2026-08-11: unit, API, D1 integration, Playwright, build, and context evidence complete. Production authentication does not exist; demo-mode sessions are the only identity path (issue #60) |
-| `ACC-REVIEW` | `JNY-003` | reviewer/organizer E2E + auth negatives | passed locally 2026-08-11: domain, API, D1 persistence, role-negative, aggregate-bias, Playwright, build, and context evidence complete. Multi-round review and AI-assisted scoring are not implemented (issue #57) |
-| `ACC-CFP` | `JNY-001`, `JNY-002` | Playwright + API validation | passed locally 2026-08-11. **Correction:** this row previously claimed a pass while the seeded published snapshot carried no `fields`, so from a clean reset the public form rendered no inputs and every public submission returned 500. Fixed in the seed, guarded at the repository boundary, and covered by `apps/api/test/seed-state.integration.test.ts`, which was confirmed to fail against the defective seed. Conditional logic and category routing remain unimplemented (issue #49) |
-| `ACC-SPEAKER` | `JNY-004`, `JNY-005` | portal/task/asset/calendar E2E | passed locally 2026-08-11: unit, API, D1 persistence, role-negative, deterministic upload-port/calendar, and Playwright journey evidence complete. Asset read paths were added this pass with an authorization matrix test at both the service and transport layers, but publishing an asset is one-way and ignores event publication state (#86). #62 stays open because the public gallery still has no `photoUrl` in the projection to request (#55). ICS still omits `DTSTAMP` (#75) |
-| `ACC-CRM` | `JNY-008` | prospect-to-speaker E2E | passed locally 2026-08-11: domain/API authorization negatives, D1 migration/reset persistence, idempotent conversion, private-note isolation, Playwright, build, and context evidence complete. Owner assignment is now validated against an identity-access query for the event's staff — unknown, speaker-only, and other-event identities are refused as a named `ownerId` field error instead of the 500 that issue #67 recorded — and every stage transition writes exactly one `stage-change` activity in the same D1 batch as the note it accompanies, proven by an injected-failure rollback test. Playwright coverage for both was written but not executed in that pass; the suite is shared and was not runnable concurrently |
-| `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | passed locally 2026-08-11: resource/placement management, conflict boundaries, authorization, immutable publication, typed API/D1 storage, deterministic reset, drag-and-drop plus keyboard placement, List/Day/Week/Room/Track/Conflicts views, public projection isolation, Playwright, full check, and production builds. The resource editor (add room / add track) lost its only browser coverage when the reference-slice spec was rewritten for the routed UI, so "Playwright evidence" covers placement and conflicts but not resources (#87). Slot times render in UTC rather than the event timezone (#85); durable schedule-event outbox delivery remains follow-up |
-| `ACC-PUBLIC` | `JNY-007` | public/embed projection E2E + a11y | passed locally 2026-08-11: immutable allowlisted snapshots, API/auth negatives, D1 persistence, responsive public UI with no horizontal overflow at 390px, Playwright, and a hand-rolled accessibility smoke on the public landing page — heading order, landmarks, control labelling, and 390px overflow. That is a smoke, not an audit: there is no automated ruleset, contrast, or focus-order check (#48). **Caveat:** the seeded published projection is hand-written fixture data rather than a composition of the seeded workspace, so publishing replaces it with different content (issues #36, #63) |
-| `ACC-INTEGRATION` | `JNY-009` (`communications-integrations`) | communication outbox + adapter contracts + retry/terminal E2E | passed locally 2026-08-11: deterministic provider, durable outbox, retry/terminal recovery, authorization negatives, D1 persistence, and Playwright evidence complete. **Caveat:** no lifecycle event enqueues a communication and the only provider is a fake, so the seeded history is placeholder data (issues #52, #66) |
-| `ACC-DEMO-SMOKE` | evaluator orientation across `JNY-001`–`JNY-009` | clean reset + role-aware discovery + accessibility/performance smoke | passed locally 2026-08-11: deterministic runbook/reset, every navigation destination asserted to render rather than merely exist, cross-role boundaries, mobile no-overflow smoke, 19-test Playwright suite, 15-test D1 integration suite, build, and full check complete. The browser suite depends on its own reset; it is not idempotent against a mutated fixture (#72). Single-artifact lifecycle acceptance and hosted CI remain pending under issue #10 |
+Two words are used precisely:
 
-"Done" requires behavior, negative authorization, visible error state, observability, automated
-acceptance, documentation linkage, and clean CI. A screen or mocked happy path is insufficient.
-Where a row carries a caveat, the caveat is part of the record: it names what is not yet true and
-the issue that closes it.
+- **Local** — reproduced on a developer machine by a named command. Every verdict below is local.
+- **Hosted CI** — a GitHub Actions run whose conclusion can be inspected. **No hosted CI run
+  exists for any commit on this branch.** The most recent green run of all five jobs
+  (`integrity`, `test-build`, `d1`, `browser`, `security`) is run `31471037575` at head
+  `10eab436`, which is *not* an ancestor of this branch — it is pull request #88, from which this
+  branch was cut before five further commits landed. Treat hosted CI as pending, not as passed.
+
+## Evidence measured on 2026-08-11 at commit `c72b796`
+
+| Command | Result |
+|---|---|
+| `npm run check` | exit 0 — `gate:integrity` (gate-drift over 5 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 21 migrations) then `gate:test-build` (37 `node --test` tool tests; 126 tests in 17 files in `@greenroom/api`; 88 tests in 11 files in `@greenroom/web`; both production builds) then `gate:d1` (20 tests in 11 files) |
+| `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` | 30 passed. Run three times consecutively: once immediately after `npm run reset`, then twice more against the same already-running servers with no reset in between. All three green |
+| `npm run test:quality` | 3 passed |
+| `npm run gate:security` | **not run in this measurement.** `npm audit` last succeeded on hosted CI at head `10eab436` |
+| gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
+
+## Acceptance rows
+
+| Acceptance ID | Journey | Verdict (local) | Reproduce it | Not covered by this row |
+|---|---|---|---|---|
+| `ACC-HARNESS` | reference slice | shipped | `npm run check`; `npm run test:e2e --workspace @greenroom/web -- e2e/reference-slice.spec.ts` | Branch protection is **not enabled**: `gh api repos/:owner/:repo/branches/main/protection` answered 404 "Branch not protected" on 2026-08-11, so the five CI jobs are not required checks (`GAP-003`) |
+| `ACC-IDENTITY-EVENTS` | identity/event foundation | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/reference-slice.spec.ts e2e/lifecycle-demo.spec.ts` | There is **no production authentication**. Signed, expiring demo-mode cookies are the only identity path and the API refuses demo mode outside development, which means a deployed instance is either 401-only or fully impersonatable (`GAP-007`, issues #60, #12). Nothing serves the built frontend against a configurable API origin (`GAP-008`, issue #61) |
+| `ACC-REVIEW` | `JNY-003` | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/review-workflow.spec.ts`; `npm run check` | Review is single-round and has no AI assistance, while `PRD-AI-001` and `PORT-AI` are documented as if a port existed (`GAP-011`, issue #57) |
+| `ACC-CFP` | `JNY-001`, `JNY-002` | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/00-seed-state.spec.ts e2e/cfp.spec.ts`; `npm run test:d1` | Fields are typed, ordered, and required-or-not; there is **no conditional field logic and no category-based routing** (`GAP-009`, issue #49). The seed defect this row once hid — a published snapshot with no `fields`, which rendered an empty public form and answered 500 — is now asserted before any spec can repair it, by `apps/web/e2e/00-seed-state.spec.ts` and `apps/api/test/seed-state.integration.test.ts` |
+| `ACC-SPEAKER` | `JNY-004`, `JNY-005` | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/speaker-portal.spec.ts e2e/lifecycle.spec.ts`; `npm run check` | The calendar is a **download**, not an invite delivered to a speaker's own calendar (`GAP-010`, issue #56). There are **no resource or wiki pages** in the portal (`GAP-013`, issue #54). Organizer "communications" recorded here are log rows, not sends (`GAP-010`, issues #52, #66) |
+| `ACC-CRM` | `JNY-008` | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/crm.spec.ts`; `npm run check` | Durable speaker-conversion claim rows left behind by a permanently failed workflow have no reconciliation or alerting (`DEBT-004`) |
+| `ACC-AGENDA` | `JNY-006` | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/agenda.spec.ts`; `npm run check` | `EVT-SCHEDULE-PUBLISHED` is specified but no durable outbox emission exists, so publication is not yet transactional with its event (`DEBT-006`, issue #22) |
+| `ACC-PUBLIC` | `JNY-007` | shipped | `npm run test:e2e --workspace @greenroom/web -- e2e/public-event.spec.ts e2e/publishing.spec.ts e2e/00-seed-state.spec.ts`; `npm run test:d1`; `npm run test:quality` | The row's old caveat — that the seeded projection was hand-written fixture data, so publishing replaced the page with different content — is closed: `apps/api/test/d1-publication-repository.integration.test.ts` applies the seed in Miniflare and asserts the composed preview equals the seeded snapshot field for field, then republishes and asserts the public page is unchanged (issues #36, #63). Accessibility evidence is a **hand-rolled smoke on one page** — heading order, landmarks, control labelling, 390px overflow. There is no automated ruleset, no contrast check and no focus-order check (`GAP-014`, issue #48). The performance budget is measured against the Vite dev server, so it bounds nothing about a built artifact (`GAP-014`, issue #84) |
+| `ACC-INTEGRATION` | `JNY-009` | partial | `npm run test:e2e --workspace @greenroom/web -- e2e/communications.spec.ts`; `npm run check` | The outbox, retry, terminal state, recovery and authorization behaviour are real, but **no lifecycle event enqueues anything** and the only provider wired into the Worker is the deterministic success fake, so the seeded history is placeholder data and no message content has ever been rendered by a product trigger (`GAP-010`, issues #52, #66, #82). **Accelevents is an enum value with no integration behind it** (`GAP-012`, issue #58); production provider adapters do not exist (issue #23) |
+| `ACC-DEMO-SMOKE` | evaluator orientation across `JNY-001`–`JNY-009` | shipped | `npm run reset` then `npm run test:e2e`; `npm run test:quality` | The suite is re-runnable but **not non-accumulating**: `publishing.spec.ts` leaves the event it creates, `review-workflow.spec.ts` files fresh abstracts, and `crm.spec.ts` adds a prospect on every run, so the fixture grows until `npm run reset` (`DEBT-007`). Hosted CI on this branch and the follow-ups owned by issue #10 remain open |
+
+## What each row's automated evidence actually is
+
+- Browser evidence is `apps/web/e2e/*.spec.ts`, one shared local D1 fixture, `workers: 1`.
+  `apps/web/e2e/lifecycle.spec.ts` is the only spec that carries a single artifact across every
+  boundary: public submission → triage → reviewer scoring → acceptance → readiness → agenda
+  placement → schedule publication → site publication → public page and both embeds, then hands the
+  fixture back.
+- Component evidence is jsdom (`apps/web/test/*`). It stubs `fetch`, so a marker there proves
+  rendering, never the pipeline. `apps/web/test/publishing.test.tsx` carries `ACC-PUBLIC` for that
+  reason; `apps/web/e2e/publishing.spec.ts` is the half that touches the real API.
+- API and domain evidence is `apps/api/test/*.test.ts`; D1 evidence is
+  `apps/api/test/*.integration.test.ts`, run by `npm run test:d1` against Miniflare with every
+  migration applied.
+- Brief feature #6 — the outstanding-speaker-task dashboard — is the one shipped surface with no
+  assertion on its rows. `apps/web/e2e/lifecycle-demo.spec.ts` asserts only that `Overview`
+  renders; the jsdom test feeds it an empty payload. See `GAP-015`.
+
+Where a row carries a gap, the gap is part of the record: it names what is not true yet and the
+`GAP-*`/`DEBT-*` entry that owns it. Full detail is in [known gaps](known-gaps.md) and the
+[technical debt register](../exec-plans/tech-debt.md); the feature-level picture is in
+[competition traceability](../product/competition-traceability.md).

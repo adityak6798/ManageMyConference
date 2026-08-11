@@ -1,6 +1,18 @@
 # CI and release
 
-Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11
+Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11 (commit `c72b796`)
+
+## Hosted CI status, stated plainly
+
+**No hosted CI run exists for any commit on this branch.** The most recent green run of all five
+jobs is run `31471037575` at head `10eab436` — pull request #88, from which this branch was cut
+before five further commits landed, and which is not an ancestor of `HEAD`. Every result quoted
+elsewhere in the documentation set is local unless it names that run.
+
+**`main` is not protected.** On 2026-08-11 `gh api repos/:owner/:repo/branches/main/protection`
+answered 404 "Branch not protected". None of the five jobs is a required check today, and neither
+independent approval, nor resolved conversations, nor force-push protection is enforced. The
+workflow file proves the gates exist; it does not prove anything blocks a merge (`GAP-003`).
 
 ## One definition of green
 
@@ -32,7 +44,7 @@ The checked-in `CI` workflow pins npm `11.12.1` in every job and runs five jobs:
 4. `browser` (`gate:browser`): random ignored local demo-secret setup and reset followed by the full Playwright reference-slice journey; failed runs upload Playwright traces/screenshots/reports and the Wrangler log as artifacts.
 5. `security`: `gate:security` is `npm audit --audit-level=high`; the job additionally runs configured full-history gitleaks scanning as a marketplace action, which is therefore not reachable from `npm run check` or from any gate script.
 
-All five jobs are intended required branch-protection checks. Branch protection must also require independent approval, resolved review conversations, and disallow force pushes/deletion; because these settings live on GitHub, repository files alone do not prove they are enabled. The reference slice includes automated unauthenticated and forbidden coverage. Provider adapter contracts and deployment smoke tests remain future product/release work.
+All five jobs are *intended* required branch-protection checks and none of them is one yet: see the status section above. Protection must also require independent approval, resolved review conversations, and disallow force pushes and deletion. The reference slice includes automated unauthenticated and forbidden coverage. Provider adapter contracts and deployment smoke tests remain future product/release work, and cannot exist before a deployment target does (`GAP-008`).
 
 Not every existing tool emits a governing-document link on failure. Improving remediation output is planned, and documentation must not claim it is already universal.
 
@@ -54,12 +66,19 @@ understood would only be gamed.
 
 ## Implemented scheduled gate
 
-The weekly `Repository gardening` workflow pins npm `11.12.1` and performs locked npm/uv installs, context integrity, Python CLI tests, generated OpenAPI drift, and npm audit. It is read-only and does not open or merge pull requests.
+The weekly `Repository gardening` workflow pins npm `11.12.1` and performs locked npm/uv installs, context integrity, Python CLI tests, generated OpenAPI drift, and npm audit in one job, and installs Chromium to run `npm run test:quality` — the evaluator subset — in a second, uploading its artifacts on failure. It is read-only and does not open or merge pull requests.
 
 ## Planned release gates
 
 As product domains arrive, add their provider contracts and authorization-negative matrices to required CI. Before competition/release, add the external evaluator, accessibility, performance, and quality-score checks. Before production deployment exists, add preview smoke, credential-gated live-adapter checks, immutable migration preflight, rollback, and a smoke test that prevents promotion on failure.
 
-Current local verification evidence uses `npm run check`, `npm run reset`, `npm run test:d1 --workspace @greenroom/api`, `npm run test:e2e`, and `npm audit --audit-level=high`; all pass for the reference slice as of the verification date.
+Current local verification evidence, measured on 2026-08-11 at commit `c72b796`: `npm run check`
+exits 0 (37 tool tests, 126 API tests, 88 web tests, 20 D1 tests, both builds);
+`GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` passes 30 tests, three times
+consecutively, twice of them without an intervening reset; `npm run test:quality` passes 3.
+`npm run gate:security` was **not** run in that measurement.
 
-No successful GitHub gitleaks run artifact was inspected during local verification. The checked-in workflow proves the gate is configured, not that it has executed successfully; confirm that evidence with the first protected-branch CI run.
+The gitleaks half of `GAP-003` is closed: `gitleaks/gitleaks-action@v2` succeeded as a step of the
+`security` job in run `31471037575`, at head `10eab436`, alongside `npm audit --audit-level=high`.
+That run does not cover this branch's commits, and branch protection remains absent, so the rest of
+`GAP-003` stands.

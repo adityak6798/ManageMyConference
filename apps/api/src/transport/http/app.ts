@@ -968,12 +968,14 @@ export function createHttpApp(
     });
   });
   /**
-   * A content refusal the organizer can act on, or `null` for anything else.
+   * A content refusal the organizer can act on.
    *
-   * Only the content domain's typed input refusals answer here. Anything else — a denied
-   * capability, a dropped connection, a broken query — is rethrown so `app.onError` gives it its
-   * own status and correlation id, rather than being flattened into a 201 that claims the
-   * request was fine.
+   * The decisions are already durable by the time acceptance runs, so a failure here can never
+   * be reported as "the request failed" — that would deny state the server is holding. Every
+   * error therefore becomes a per-proposal `decision_only` row. Typed content refusals get copy
+   * the organizer can act on; anything else gets the correlation id and is logged at error level,
+   * so an infrastructure fault is still diagnosable rather than dressed up as a validation
+   * problem. `null` marks the unexpected case for the caller.
    */
   const acceptanceRefusal = (error: unknown) => {
     if (error instanceof ProposalSubmitterUnavailableError)
@@ -1054,24 +1056,28 @@ export function createHttpApp(
             fieldErrors: {},
           });
         } catch (error) {
-          const refusal = acceptanceRefusal(error);
-          if (!refusal) throw error;
+          const correlationId = context.get("correlationId");
+          const refusal = acceptanceRefusal(error) ?? {
+            detail: `The session could not be created. Reference: ${correlationId}`,
+            fieldErrors: {},
+          };
           // The decision is already durable and is not what failed, so it is reported as
           // recorded with the session missing rather than the whole request as refused.
           // Re-posting the identical decision overwrites it and retries the session, which
-          // heals the gap.
-          logger.warn(
-            {
-              correlationId: context.get("correlationId"),
-              operation: context.get("operation"),
-              actorId: context.get("actor")?.id,
-              eventId,
-              proposalId,
-              errorName: error instanceof Error ? error.name : "unknown",
-              errorMessage: error instanceof Error ? error.message : String(error),
-            },
-            "review.acceptance.incomplete",
-          );
+          // heals the gap. Answering 500 here would deny state the server is holding.
+          const fields = {
+            correlationId,
+            operation: context.get("operation"),
+            actorId: context.get("actor")?.id,
+            eventId,
+            proposalId,
+            errorName: error instanceof Error ? error.name : "unknown",
+            errorMessage: error instanceof Error ? error.message : String(error),
+          };
+          // An unexpected fault is still a fault: it is logged at error level so it reaches the
+          // same place a 500 would have, even though the response is a truthful 201.
+          if (acceptanceRefusal(error)) logger.warn(fields, "review.acceptance.incomplete");
+          else logger.error(fields, "review.acceptance.failed");
           acceptances.push({ proposalId, state: "decision_only", sessionId: null, ...refusal });
         }
       }
