@@ -446,7 +446,9 @@ export function App() {
               title="Agenda"
               subtitle="Place sessions across rooms and time slots, then publish the schedule."
             />
-            <AgendaWorkspace key={selectedEvent.id} eventId={selectedEvent.id} onError={setError} />
+            {/* The whole event, not only its id: the board renders every time on its
+                grid in the event's own timezone. */}
+            <AgendaWorkspace key={selectedEvent.id} event={selectedEvent} onError={setError} />
           </>
         ) : (
           noAccess

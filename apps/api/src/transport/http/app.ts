@@ -1293,6 +1293,15 @@ export function createHttpApp(
         operation: context.get("operation"),
         actorId: context.get("actor")?.id,
         errorName: error.name,
+        // The response body never carries these; the log is the only place a
+        // correlation id can be turned back into a cause (ARC-OBS-001).
+        errorMessage: error.message,
+        // Stacks name internal paths, so they stay in development only. `demoMode`
+        // is refused outside ENVIRONMENT=development by `runtimeAuth`.
+        ...(auth.demoMode ? { errorStack: error.stack } : {}),
+        ...(error.cause instanceof Error
+          ? { errorCauseName: error.cause.name, errorCauseMessage: error.cause.message }
+          : {}),
       },
       "request.exception",
     );

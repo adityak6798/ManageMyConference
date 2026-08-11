@@ -383,10 +383,6 @@ describe("events HTTP transport", () => {
     });
     expect(JSON.stringify(body)).not.toContain("storage unavailable");
     expect(logger.error).toHaveBeenCalledTimes(1);
-    expect(logger.error).not.toHaveBeenCalledWith(
-      expect.objectContaining({ errorMessage: expect.anything() }),
-      expect.anything(),
-    );
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         correlationId: "failure-correlation",
@@ -395,8 +391,42 @@ describe("events HTTP transport", () => {
         status: 500,
         actorId: "seed-organizer",
         operation: "GET /api/events",
+        errorName: "Error",
+        // The correlation id is only diagnosable if the log carries the cause.
+        errorMessage: "storage unavailable",
+        errorStack: expect.stringContaining("storage unavailable"),
       }),
       "request.exception",
+    );
+  });
+
+  it("keeps stacks out of the log when demo mode is off", async () => {
+    const service = new EventService({
+      repository: {
+        create: vi.fn(),
+        list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
+        findById: vi.fn().mockResolvedValue(null),
+      },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    // The public projection route is the one unauthenticated read that can reach a
+    // repository, so it is where an anonymous 500 can be observed without demo mode.
+    const app = createHttpApp(service, logger, { demoMode: false }, {
+      publicBySlug: vi.fn().mockRejectedValue(new Error("storage unavailable")),
+    } as unknown as Parameters<typeof createHttpApp>[3]);
+    const response = await app.request("/api/public/events/greenroom-demo-summit", {
+      headers: { "x-correlation-id": "production-correlation" },
+    });
+    expect(response.status).toBe(500);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ errorMessage: "storage unavailable" }),
+      "request.exception",
+    );
+    expect(logger.error).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorStack: expect.anything() }),
+      expect.anything(),
     );
   });
 });

@@ -1,4 +1,5 @@
 // @acceptance ACC-SPEAKER
+import { text } from "node:stream/consumers";
 import { expect, test } from "@playwright/test";
 
 // Both surfaces are event-scoped, so the journey addresses them the way the console
@@ -123,9 +124,19 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await page.goto(PORTAL);
   const calendar = page.getByRole("link", { name: "Download calendar (.ics)" });
   await expect(calendar).toBeVisible();
-  const download = page.waitForEvent("download");
+  const started = page.waitForEvent("download");
   await calendar.click();
-  expect((await download).suggestedFilename()).toBe("greenroom-sessions.ics");
+  const download = await started;
+  expect(download.suggestedFilename()).toBe("greenroom-sessions.ics");
+
+  // Read the bytes the speaker's calendar app would actually import, not just the filename.
+  const ics = await text(await download.createReadStream());
+  expect(ics).toContain("BEGIN:VCALENDAR");
+  expect(ics).toContain("SUMMARY:Designing the calm conference");
+  // The seeded session runs 2026-09-15T17:00:00Z; RFC 5545 writes that as a UTC DATE-TIME.
+  expect(ics).toContain("DTSTART:20260915T170000Z");
+  // RFC 5545 section 3.6.1 makes DTSTAMP mandatory in a VEVENT, and Outlook rejects it without one.
+  expect(ics).toMatch(/\r\nDTSTAMP:\d{8}T\d{6}Z\r\n/);
 });
 
 test("reviewers cannot call the private content workspace", async ({ request }) => {

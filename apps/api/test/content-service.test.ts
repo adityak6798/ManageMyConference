@@ -5,6 +5,7 @@ import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic
 import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
 import { ContentService } from "../src/application/content/content-service";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import type { ContentSession } from "../src/domain/content/content";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const command = {
@@ -39,6 +40,57 @@ function setup() {
     }),
   };
 }
+const calendarSpeaker = {
+  id: "profile-1",
+  eventId,
+  userId: "seed-speaker",
+  sourcePersonId: "person-1",
+  name: "Sam",
+  email: "sam@example.test",
+  bio: "",
+  pronouns: "",
+  organization: "",
+};
+function scheduledSession(overrides: Partial<ContentSession> = {}): ContentSession {
+  return {
+    id: "session-1",
+    eventId,
+    proposalId: "proposal-1",
+    title: "A, B; and C\r\nInjected",
+    abstract: "",
+    format: "Talk",
+    speakerProfileIds: ["profile-1"],
+    tags: [],
+    tracks: [],
+    publicationState: "ready",
+    schedule: {
+      startsAt: "2026-09-15T17:00:00.000Z",
+      endsAt: "2026-09-15T17:45:00.000Z",
+      location: "Main; Stage",
+    },
+    ...overrides,
+  };
+}
+function calendarService(
+  sessions: ContentSession[],
+  now = () => new Date("2026-08-10T12:00:00.000Z"),
+) {
+  return new ContentService({
+    repository: new MemoryContentRepository({
+      sessions,
+      speakers: [calendarSpeaker],
+      tasks: [],
+      assets: [],
+      messages: [],
+    }),
+    assetStorage: new DeterministicAssetStorage(),
+    newId: crypto.randomUUID,
+    now,
+  });
+}
+/** RFC 5545 section 3.1 unfolding: a CRLF followed by one space rejoins a folded line. */
+const calendarLines = (document: string) => document.replaceAll("\r\n ", "").split("\r\n");
+
 describe("ContentService", () => {
   it("preserves speaker and organizer access when an actor has multiple event roles", async () => {
     const { service } = setup();
@@ -251,55 +303,102 @@ describe("ContentService", () => {
     expect(workspace.tasks.map(({ title }) => title)).toContain("Upload final slides");
     expect(workspace.messages.map(({ subject }) => subject)).toContain("Preparation reminder sent");
   });
-  it("emits byte-for-byte deterministic calendar output from canonical schedule data", async () => {
-    const repository = new MemoryContentRepository({
-      sessions: [
-        {
-          id: "session-1",
-          eventId,
-          proposalId: "proposal-1",
-          title: "A, B; and C\r\nInjected",
-          abstract: "",
-          format: "Talk",
-          speakerProfileIds: ["profile-1"],
-          tags: [],
-          tracks: [],
-          publicationState: "ready",
-          schedule: {
-            startsAt: "2026-09-15T17:00:00.000Z",
-            endsAt: "2026-09-15T17:45:00.000Z",
-            location: "Main; Stage",
-          },
-        },
-      ],
-      speakers: [
-        {
-          id: "profile-1",
-          eventId,
-          userId: "seed-speaker",
-          sourcePersonId: "person-1",
-          name: "Sam",
-          email: "sam@example.test",
-          bio: "",
-          pronouns: "",
-          organization: "",
-        },
-      ],
-      tasks: [],
-      assets: [],
-      messages: [],
+  it("emits a complete RFC 5545 document for the speaker's scheduled sessions", async () => {
+    const service = calendarService([scheduledSession()]);
+    // The whole document is asserted, not fragments of it, so dropping any property RFC 5545
+    // makes mandatory — PRODID, VERSION, UID, DTSTAMP, DTSTART — fails this test.
+    expect(await service.calendar(await resolveSeededDemoActor("speaker"), eventId)).toBe(
+      [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Project Greenroom//Speaker Portal//EN",
+        "CALSCALE:GREGORIAN",
+        "BEGIN:VEVENT",
+        "UID:session-1@greenroom",
+        "DTSTAMP:20260810T120000Z",
+        "DTSTART:20260915T170000Z",
+        "DTEND:20260915T174500Z",
+        "SUMMARY:A\\, B\\; and C\\nInjected",
+        "LOCATION:Main\\; Stage",
+        "END:VEVENT",
+        "END:VCALENDAR",
+        "",
+      ].join("\r\n"),
+    );
+  });
+  it("escapes TEXT values and drops characters RFC 5545 cannot carry", async () => {
+    const service = calendarService([
+      scheduledSession({ title: "Back\\slash, semi; colon\r\nsecondline\tkept" }),
+    ]);
+    const document = await service.calendar(await resolveSeededDemoActor("speaker"), eventId);
+    expect(calendarLines(document)).toContain(
+      "SUMMARY:Back\\\\slash\\, semi\\; colon\\nsecondline\tkept",
+    );
+    // A newline in stored data must never break out into a new content line.
+    expect(document).not.toContain("\r\nsecond");
+    // Every line break in the document is a CRLF.
+    expect(document.replaceAll("\r\n", "")).not.toContain("\n");
+  });
+  it("folds long content lines at 75 octets without splitting a character", async () => {
+    const title = "é".repeat(100);
+    const service = calendarService([scheduledSession({ title })]);
+    const document = await service.calendar(await resolveSeededDemoActor("speaker"), eventId);
+    for (const line of document.split("\r\n"))
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    expect(document).toContain("\r\n ");
+    // U+FFFD would appear only if a fold had landed inside a multi-octet character.
+    expect(document).not.toContain("�");
+    expect(calendarLines(document)).toContain(`SUMMARY:${title}`);
+  });
+  it("omits optional properties that carry no usable value", async () => {
+    const { schedule: _unscheduled, ...unscheduledSession } = scheduledSession({
+      id: "session-b",
+      title: "Unscheduled",
     });
-    const service = new ContentService({
-      repository,
-      assetStorage: new DeterministicAssetStorage(),
-      newId: crypto.randomUUID,
-      now: () => new Date(),
-    });
+    const service = calendarService([
+      scheduledSession({
+        id: "session-a",
+        title: "Instant",
+        // DTEND must be later than DTSTART, and an empty location is not worth a property.
+        schedule: {
+          startsAt: "2026-09-15T17:00:00.000Z",
+          endsAt: "2026-09-15T17:00:00.000Z",
+          location: "",
+        },
+      }),
+      unscheduledSession,
+      scheduledSession({
+        id: "session-c",
+        title: "Unusable start",
+        schedule: { startsAt: "2026-09-15T17:00:00", endsAt: "", location: "" },
+      }),
+    ]);
+    expect(await service.calendar(await resolveSeededDemoActor("speaker"), eventId)).toBe(
+      [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Project Greenroom//Speaker Portal//EN",
+        "CALSCALE:GREGORIAN",
+        "BEGIN:VEVENT",
+        "UID:session-a@greenroom",
+        "DTSTAMP:20260810T120000Z",
+        "DTSTART:20260915T170000Z",
+        "SUMMARY:Instant",
+        "END:VEVENT",
+        "END:VCALENDAR",
+        "",
+      ].join("\r\n"),
+    );
+  });
+  it("stamps DTSTAMP from the injected clock and stays byte-for-byte deterministic", async () => {
     const speaker = await resolveSeededDemoActor("speaker");
+    const service = calendarService([scheduledSession()]);
     const first = await service.calendar(speaker, eventId);
     expect(await service.calendar(speaker, eventId)).toBe(first);
-    expect(first).toContain("DTSTART:20260915T170000Z");
-    expect(first).toContain("SUMMARY:A\\, B\\; and C\\nInjected");
-    expect(first).not.toContain("\r\nInjected");
+    expect(calendarLines(first)).toContain("DTSTAMP:20260810T120000Z");
+    const later = calendarService([scheduledSession()], () => new Date("2026-08-11T09:30:15.500Z"));
+    expect(calendarLines(await later.calendar(speaker, eventId))).toContain(
+      "DTSTAMP:20260811T093015Z",
+    );
   });
 });

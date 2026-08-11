@@ -27,6 +27,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run openapi:check
+      - run: npm run schema:check
 
   test-build:
     runs-on: ubuntu-latest

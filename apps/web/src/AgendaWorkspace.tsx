@@ -10,12 +10,16 @@
  *
  * Conflict detection stays in the API (`agenda.conflicts`); this file only makes the
  * conflicts it returns impossible to miss, in every view rather than in one panel.
- * Times render in UTC: the draft carries no timezone, so every surface has to agree on
- * one, and UTC is what the stored slots are in.
+ *
+ * Slots are stored as instants and rendered in the *event's* timezone: an organizer
+ * scheduling a Los Angeles conference reads Los Angeles clock times, and a 21:00 local
+ * session belongs to its local day even when that instant is already tomorrow in UTC.
+ * That makes the day buckets — not only the labels — a function of the event zone, so
+ * the formatters are per-render values derived from the event rather than constants.
  */
 
-import type { AgendaDraftDto } from "@greenroom/contracts";
-import { useEffect, useRef, useState } from "react";
+import type { AgendaDraftDto, EventDto } from "@greenroom/contracts";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AgendaApiError,
   getAgenda,
@@ -25,7 +29,7 @@ import {
   savePlacement,
 } from "./api/agenda";
 import "./styles/agenda.css";
-import { IconCalendar, IconCheck, IconGrip, IconPlus, IconWarning } from "./ui/icons";
+import { IconCalendar, IconCheck, IconClock, IconGrip, IconPlus, IconWarning } from "./ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "./ui/primitives";
 
 type Draft = AgendaDraftDto;
@@ -72,23 +76,81 @@ const CONFLICT_LABELS: Record<Conflict["kind"], string> = {
   MISSING_SESSION: "Session no longer exists",
 };
 
-const timeFormat = new Intl.DateTimeFormat("en-GB", {
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "UTC",
-});
-const dayFormat = new Intl.DateTimeFormat("en-US", {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  timeZone: "UTC",
-});
+/** Reads one instant in one zone: clock time, calendar day, and how to name the zone. */
+type Clock = {
+  /** The zone actually in use — the event's, or UTC if the runtime cannot resolve it. */
+  zone: string;
+  /** `HH:mm` on the event's wall clock. */
+  hhmm: (iso: string) => string;
+  /** The event-local calendar day of an instant, as a sortable `YYYY-MM-DD` key. */
+  dayKey: (iso: string) => string;
+  /** The event-local day of an instant, spelled for a reader. */
+  dayLabel: (iso: string) => string;
+  /** The zone's abbreviation at a given instant (`PDT`), which DST makes date-dependent. */
+  abbreviation: (iso: string) => string;
+};
 
-const hhmm = (iso: string) => timeFormat.format(new Date(iso));
-const slotRange = (slot: Slot) => `${hhmm(slot.startsAt)}–${hhmm(slot.endsAt)}`;
-const dayOf = (iso: string) => iso.slice(0, 10);
-const dayLabel = (day: string) => dayFormat.format(new Date(`${day}T12:00:00.000Z`));
-const byStart = (left: Slot, right: Slot) => left.startsAt.localeCompare(right.startsAt);
+/**
+ * An event carries whatever timezone string was stored for it, and `Intl` throws a
+ * `RangeError` on one it does not recognise. That must not take the board down, so an
+ * unusable zone degrades to UTC — which the board then names, rather than implying it
+ * is showing local time.
+ */
+function resolveZone(timezone: string): string {
+  try {
+    // Constructing the formatter is the probe; `resolvedOptions` also canonicalises it.
+    return new Intl.DateTimeFormat("en-GB", { timeZone: timezone }).resolvedOptions().timeZone;
+  } catch {
+    // ERROR-INTENT: an unrecognised IANA zone is stored data, not an action this operator
+    // took, and there is nothing for them to retry. The board stays readable and says UTC.
+    return "UTC";
+  }
+}
+
+function clockFor(timezone: string): Clock {
+  const zone = resolveZone(timezone);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: zone,
+  });
+  const day = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: zone,
+  });
+  const calendar = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: zone,
+  });
+  const zoneName = new Intl.DateTimeFormat("en-US", { timeZoneName: "short", timeZone: zone });
+  const partOf = (
+    formatter: Intl.DateTimeFormat,
+    iso: string,
+    type: Intl.DateTimeFormatPartTypes,
+  ) => formatter.formatToParts(new Date(iso)).find((part) => part.type === type)?.value ?? "";
+  return {
+    zone,
+    hhmm: (iso) => time.format(new Date(iso)),
+    dayLabel: (iso) => day.format(new Date(iso)),
+    // Assembled from parts rather than from a locale that happens to print ISO order,
+    // because this key is sorted and compared, not shown.
+    dayKey: (iso) =>
+      `${partOf(calendar, iso, "year")}-${partOf(calendar, iso, "month")}-${partOf(calendar, iso, "day")}`,
+    abbreviation: (iso) => partOf(zoneName, iso, "timeZoneName"),
+  };
+}
+
+/** Instants order the same in every zone, so ordering compares the moment, not the text. */
+const byInstant = (left: string, right: string) => {
+  const delta = Date.parse(left) - Date.parse(right);
+  return Number.isNaN(delta) ? left.localeCompare(right) : delta;
+};
+const byStart = (left: Slot, right: Slot) => byInstant(left.startsAt, right.startsAt);
 const cellKey = (roomId: string, slotId: string) => `${roomId}~${slotId}`;
 
 function isViewId(value: string | null): value is ViewId {
@@ -106,12 +168,16 @@ function readViewFromUrl(): ViewId {
 }
 
 export function AgendaWorkspace({
-  eventId,
+  event,
   onError,
 }: {
-  eventId: string;
+  event: EventDto;
   onError: (message: string) => void;
 }) {
+  const eventId = event.id;
+  // Keyed on the zone rather than the whole event: the same formatters survive the many
+  // re-renders of a drag, and a switch to an event in another zone rebuilds them.
+  const clock = useMemo(() => clockFor(event.timezone), [event.timezone]);
   const [agenda, setAgenda] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<ViewId>(readViewFromUrl);
@@ -193,11 +259,27 @@ export function AgendaWorkspace({
   const draft = agenda;
   const rooms = draft.rooms;
   const tracks = draft.tracks;
+  const slotRange = (slot: Slot) => `${clock.hhmm(slot.startsAt)}–${clock.hhmm(slot.endsAt)}`;
   const allSlots = [...draft.slots].sort(byStart);
-  const days = [...new Set(allSlots.map((slot) => dayOf(slot.startsAt)))].sort();
+  // Day buckets are the *event's* calendar days. A 21:00 local slot stays on its local
+  // day even when that instant already belongs to tomorrow in UTC, so the Day, Week,
+  // Room and Track views group the way the organizer's own programme reads.
+  const days = [...new Set(allSlots.map((slot) => clock.dayKey(slot.startsAt)))].sort();
+  // Each key is labelled from a real instant on that day, so no synthetic midday
+  // timestamp has to be invented and no zone offset is assumed.
+  const dayLabels = new Map(
+    allSlots.map((slot) => [clock.dayKey(slot.startsAt), clock.dayLabel(slot.startsAt)]),
+  );
+  const labelForDay = (day: string) => dayLabels.get(day) ?? day;
   const activeDay = selectedDay && days.includes(selectedDay) ? selectedDay : (days[0] ?? null);
-  const daySlots = allSlots.filter((slot) => dayOf(slot.startsAt) === activeDay);
+  const daySlots = allSlots.filter((slot) => clock.dayKey(slot.startsAt) === activeDay);
   const newTrackId = trackForNew ?? tracks[0]?.id ?? "";
+  // DST makes the abbreviation date-dependent, so it is read at a time the board shows.
+  const zoneAbbreviation = clock.abbreviation(allSlots[0]?.startsAt ?? new Date().toISOString());
+  const zoneLabel =
+    zoneAbbreviation && zoneAbbreviation !== clock.zone
+      ? `${clock.zone} (${zoneAbbreviation})`
+      : clock.zone;
 
   const roomName = (id: string) => rooms.find((room) => room.id === id)?.name ?? "Unassigned room";
   const trackOf = (id: string) => tracks.find((track) => track.id === id);
@@ -223,7 +305,7 @@ export function AgendaWorkspace({
     const rightSlot = slotOf(right.slotId);
     if (!leftSlot || !rightSlot) return leftSlot ? -1 : 1;
     return (
-      leftSlot.startsAt.localeCompare(rightSlot.startsAt) ||
+      byInstant(leftSlot.startsAt, rightSlot.startsAt) ||
       roomName(left.roomId).localeCompare(roomName(right.roomId))
     );
   });
@@ -255,7 +337,7 @@ export function AgendaWorkspace({
     const own = placementOf(conflict.placementId);
     const other = placementOf(conflict.conflictingPlacementId);
     const slot = own ? slotOf(own.slotId) : undefined;
-    const when = slot ? `${dayLabel(dayOf(slot.startsAt))} ${slotRange(slot)}` : "an unknown time";
+    const when = slot ? `${clock.dayLabel(slot.startsAt)} ${slotRange(slot)}` : "an unknown time";
     const ownTitle = own ? sessionTitle(own.sessionId) : "a removed placement";
     const otherTitle = other ? sessionTitle(other.sessionId) : "a removed placement";
     switch (conflict.kind) {
@@ -313,7 +395,7 @@ export function AgendaWorkspace({
     setCarry(source);
     if (source.viaKeyboard) {
       const slot = from ? slotOf(from.slotId) : undefined;
-      if (slot) setSelectedDay(dayOf(slot.startsAt));
+      if (slot) setSelectedDay(clock.dayKey(slot.startsAt));
       // Picking a session up from a summary view moves the operator to the board that
       // can actually receive it, rather than leaving them with nowhere to drop.
       if (!isBoardView) selectView("room");
@@ -586,7 +668,7 @@ export function AgendaWorkspace({
         <table className="data board">
           <caption className="visually-hidden">
             Rooms across the top, time slots down the side, for{" "}
-            {activeDay ? dayLabel(activeDay) : "the event"}.
+            {activeDay ? labelForDay(activeDay) : "the event"}, in {zoneLabel}.
           </caption>
           <thead>
             <tr>
@@ -617,7 +699,8 @@ export function AgendaWorkspace({
       <div className="table-wrap">
         <table className="data board">
           <caption className="visually-hidden">
-            One column per time slot on {activeDay ? dayLabel(activeDay) : "the selected day"}.
+            One column per time slot on {activeDay ? labelForDay(activeDay) : "the selected day"},
+            in {zoneLabel}.
           </caption>
           <thead>
             <tr>
@@ -650,14 +733,14 @@ export function AgendaWorkspace({
       <div className="table-wrap">
         <table className="data board">
           <caption className="visually-hidden">
-            Days across the top, time slots down the side.
+            Days across the top, time slots down the side, in {zoneLabel}.
           </caption>
           <thead>
             <tr>
               <th scope="col">Time</th>
               {days.map((day) => (
                 <th scope="col" key={day}>
-                  {dayLabel(day)}
+                  {labelForDay(day)}
                 </th>
               ))}
             </tr>
@@ -668,7 +751,9 @@ export function AgendaWorkspace({
                 <th scope="row">{range}</th>
                 {days.map((day) => {
                   const slotIds = allSlots
-                    .filter((slot) => dayOf(slot.startsAt) === day && slotRange(slot) === range)
+                    .filter(
+                      (slot) => clock.dayKey(slot.startsAt) === day && slotRange(slot) === range,
+                    )
                     .map((slot) => slot.id);
                   const inCell = draft.placements.filter((placement) =>
                     slotIds.includes(placement.slotId),
@@ -770,7 +855,7 @@ export function AgendaWorkspace({
               return (
                 <tr key={placement.id}>
                   <td className="primary-cell">{sessionTitle(placement.sessionId)}</td>
-                  <td>{slot ? dayLabel(dayOf(slot.startsAt)) : "—"}</td>
+                  <td>{slot ? clock.dayLabel(slot.startsAt) : "—"}</td>
                   <td>
                     <select
                       aria-label={`Time assignment ${placement.id}`}
@@ -787,7 +872,7 @@ export function AgendaWorkspace({
                     >
                       {allSlots.map((option) => (
                         <option key={option.id} value={option.id}>
-                          {dayLabel(dayOf(option.startsAt))} · {slotRange(option)}
+                          {clock.dayLabel(option.startsAt)} · {slotRange(option)}
                         </option>
                       ))}
                     </select>
@@ -944,8 +1029,8 @@ export function AgendaWorkspace({
   }
 
   const boardHint = isBoardView
-    ? "Drag a session onto a cell, or press Enter on a session to pick it up and place it with the arrow keys. Times are UTC."
-    : "Times are shown in UTC.";
+    ? `Drag a session onto a cell, or press Enter on a session to pick it up and place it with the arrow keys. Times are shown in ${zoneLabel}.`
+    : `Times are shown in ${zoneLabel}.`;
 
   return (
     <div className="agenda">
@@ -986,7 +1071,7 @@ export function AgendaWorkspace({
             >
               {days.map((day) => (
                 <option key={day} value={day}>
-                  {dayLabel(day)}
+                  {labelForDay(day)}
                 </option>
               ))}
             </select>
@@ -1010,6 +1095,13 @@ export function AgendaWorkspace({
           </label>
         ) : null}
         <span className="spacer" />
+        {/* The zone is stated on the board itself, not only in a card hint: every time
+            on this screen is a wall-clock time and the reader has to know whose. */}
+        <span className="agenda-timezone">
+          <IconClock size={13} />
+          <span className="visually-hidden">Times are shown in </span>
+          {zoneLabel}
+        </span>
         <span className="agenda-count">
           {placedSessionIds.size} of {draft.sessions.length} scheduled
         </span>
@@ -1329,7 +1421,7 @@ export function AgendaWorkspace({
         {draft.slots.map((slot) => (
           <div className="resource-row" key={slot.id}>
             <span className="name">
-              {dayLabel(dayOf(slot.startsAt))} · {slotRange(slot)}
+              {clock.dayLabel(slot.startsAt)} · {slotRange(slot)}
             </span>
             <span />
             <button

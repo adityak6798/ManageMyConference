@@ -34,6 +34,78 @@ function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speake
   return actor.eventAccess.some((access) => access.eventId === eventId && access.role === role);
 }
 
+/** RFC 5545 section 3.1: a content line carries at most 75 octets before its CRLF. */
+const CALENDAR_LINE_OCTETS = 75;
+
+/**
+ * RFC 5545 section 3.1 admits every character except CONTROL (%x00-08, %x0A-1F, %x7F) in a
+ * TEXT value; HTAB is the one C0 character that survives. Line breaks are escaped before this
+ * runs, so whatever is left is a control character no conforming parser would accept.
+ */
+function isCalendarTextCharacter(character: string) {
+  const code = character.codePointAt(0) ?? 0;
+  return character === "\t" || (code >= 0x20 && code !== 0x7f);
+}
+
+/**
+ * RFC 5545 section 3.3.11 TEXT: backslash, comma, semicolon, and line breaks are escaped.
+ * The backslash has to go first so the escapes introduced afterwards are not escaped again.
+ */
+function escapeCalendarText(value: string) {
+  return [
+    ...value
+      .replaceAll("\\", "\\\\")
+      .replaceAll(",", "\\,")
+      .replaceAll(";", "\\;")
+      .replaceAll(/\r\n|\r|\n/g, "\\n"),
+  ]
+    .filter(isCalendarTextCharacter)
+    .join("");
+}
+
+/**
+ * RFC 5545 section 3.1 folding: split on UTF-8 octet boundaries and continue with CRLF plus
+ * one space, which the reader strips to recover the original line. The split never lands
+ * inside a multi-octet character, so unfolding restores the text byte for byte.
+ */
+function foldCalendarLine(line: string) {
+  const octets = new TextEncoder().encode(line);
+  if (octets.length <= CALENDAR_LINE_OCTETS) return line;
+  const decoder = new TextDecoder();
+  const folded: string[] = [];
+  let start = 0;
+  // The first line spends all 75 octets on content; every continuation spends one on its space.
+  let budget = CALENDAR_LINE_OCTETS;
+  while (start < octets.length) {
+    let end = Math.min(start + budget, octets.length);
+    // 0b10xxxxxx marks a UTF-8 continuation octet: step back until the boundary is a character.
+    while (end < octets.length && ((octets[end] ?? 0) & 0b1100_0000) === 0b1000_0000) end -= 1;
+    folded.push(decoder.decode(octets.subarray(start, end)));
+    start = end;
+    budget = CALENDAR_LINE_OCTETS - 1;
+  }
+  return folded.join("\r\n ");
+}
+
+/** RFC 5545 section 3.3.5 UTC DATE-TIME form: `YYYYMMDDTHHMMSSZ`, no fractional seconds. */
+function utcCalendarStamp(instant: Date) {
+  return instant
+    .toISOString()
+    .replaceAll(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Convert a stored ISO instant to the UTC DATE-TIME form, or null when it is not an instant.
+ * An offset is required: `2026-09-15T17:00:00` would be read in whatever zone the worker
+ * happens to run in, which would make the export non-deterministic.
+ */
+function calendarDateTime(value: string) {
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return null;
+  const instant = new Date(value);
+  return Number.isNaN(instant.getTime()) ? null : utcCalendarStamp(instant);
+}
+
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export class ContentService {
   constructor(private readonly dependencies: ContentServiceDependencies) {}
@@ -329,33 +401,60 @@ export class ContentService {
     return asset;
   }
 
+  /**
+   * The speaker's scheduled sessions as an RFC 5545 iCalendar stream.
+   *
+   * VCALENDAR carries the two REQUIRED properties, PRODID (3.7.3) and VERSION (3.7.4), plus
+   * CALSCALE (3.7.1) stated explicitly even though GREGORIAN is its default. METHOD (3.7.2) is
+   * deliberately absent: it MUST match the `method` parameter of the Content-Type the transport
+   * sends, and this document is downloaded as a plain `text/calendar` file to import, not as an
+   * iTIP message. Each VEVENT carries UID and DTSTAMP, REQUIRED by 3.6.1, and DTSTART, which is
+   * REQUIRED there too because the object specifies no METHOD. DTEND (3.6.1), SUMMARY (3.8.1.12),
+   * and LOCATION (3.8.1.7) are OPTIONAL and emitted only when they carry a value.
+   *
+   * DTSTAMP comes from the injected clock, never the wall clock, so the same workspace and the
+   * same clock always produce byte-identical bytes.
+   */
   async calendar(actor: Actor | null, eventId: string): Promise<string> {
     const workspace = await this.workspace(actor, eventId);
-    const escapeCalendarText = (value: string) =>
-      value
-        .replaceAll("\\", "\\\\")
-        .replaceAll(",", "\\,")
-        .replaceAll(";", "\\;")
-        .replaceAll(/\r\n|\r|\n/g, "\\n");
-    const date = (value: string) => value.replaceAll(/[-:]/g, "").replace(".000", "");
+    const stamp = utcCalendarStamp(this.dependencies.now());
     const events = workspace.sessions
       .filter((session) => session.schedule)
-      .sort((a, b) => a.id.localeCompare(b.id));
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .flatMap((session) => {
+        const startsAt = calendarDateTime(session.schedule?.startsAt ?? "");
+        // A stored start that is not an instant cannot be expressed as a DATE-TIME. Such a
+        // session is left out rather than written as a malformed VEVENT, which would cost the
+        // speaker every other session in the file.
+        if (!startsAt) return [];
+        const endsAt = calendarDateTime(session.schedule?.endsAt ?? "");
+        const summary = escapeCalendarText(session.title);
+        const location = escapeCalendarText(session.schedule?.location ?? "");
+        return [
+          "BEGIN:VEVENT",
+          // The session id is already globally unique, and it keeps this VEVENT identified as
+          // the same entry across re-downloads so a calendar updates rather than duplicates it.
+          `UID:${escapeCalendarText(session.id)}@greenroom`,
+          `DTSTAMP:${stamp}`,
+          `DTSTART:${startsAt}`,
+          // 3.6.1: DTEND MUST be later than DTSTART, so anything else is dropped and the
+          // event reads as the zero-length instant DTSTART already describes.
+          ...(endsAt && endsAt > startsAt ? [`DTEND:${endsAt}`] : []),
+          ...(summary ? [`SUMMARY:${summary}`] : []),
+          ...(location ? [`LOCATION:${location}`] : []),
+          "END:VEVENT",
+        ];
+      });
     return [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
       "PRODID:-//Project Greenroom//Speaker Portal//EN",
-      ...events.flatMap((session) => [
-        "BEGIN:VEVENT",
-        `UID:${session.id}@greenroom`,
-        `DTSTART:${date(session.schedule?.startsAt ?? "")}`,
-        `DTEND:${date(session.schedule?.endsAt ?? "")}`,
-        `SUMMARY:${escapeCalendarText(session.title)}`,
-        `LOCATION:${escapeCalendarText(session.schedule?.location ?? "")}`,
-        "END:VEVENT",
-      ]),
+      "CALSCALE:GREGORIAN",
+      ...events,
       "END:VCALENDAR",
       "",
-    ].join("\r\n");
+    ]
+      .map(foldCalendarLine)
+      .join("\r\n");
   }
 }

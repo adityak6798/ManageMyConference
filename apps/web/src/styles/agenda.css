@@ -72,6 +72,21 @@
   white-space: nowrap;
 }
 
+/* Every time on this board is a wall-clock time, so the zone is stated on the board
+   rather than left to a caption the reader has to go looking for. */
+.agenda-timezone {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 620;
+  white-space: nowrap;
+}
+.agenda-timezone svg {
+  color: var(--ink-3);
+}
+
 .agenda-panel {
   min-width: 0;
 }

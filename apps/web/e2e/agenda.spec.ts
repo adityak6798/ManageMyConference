@@ -55,22 +55,24 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Holding");
 
   // Pick-up moves focus onto the first cell; the arrow keys walk the grid from there.
-  const firstCell = page.getByRole("button", { name: /Place .* in Main stage at 16:00–17:00/ });
+  // The cell names are the event's local times: the seeded slots are 16:00Z and 17:00Z,
+  // and the demo event is America/Los_Angeles.
+  const firstCell = page.getByRole("button", { name: /Place .* in Main stage at 09:00–10:00/ });
   await expect(firstCell).toBeFocused();
   await page.keyboard.press("ArrowRight");
   await expect(
-    page.getByRole("button", { name: /Place .* in Workshop lab at 16:00–17:00/ }),
+    page.getByRole("button", { name: /Place .* in Workshop lab at 09:00–10:00/ }),
   ).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  const target = page.getByRole("button", { name: /Place .* in Workshop lab at 17:00–18:00/ });
+  const target = page.getByRole("button", { name: /Place .* in Workshop lab at 10:00–11:00/ });
   await expect(target).toBeFocused();
   await page.keyboard.press("Enter");
 
   await expect(page.getByRole("status")).toContainText(
-    "“Designing the calm conference” placed in Workshop lab at 17:00–18:00.",
+    "“Designing the calm conference” placed in Workshop lab at 10:00–11:00.",
   );
   const placed = page.getByRole("button", {
-    name: /Designing the calm conference\. Workshop lab, 17:00–18:00/,
+    name: /Designing the calm conference\. Workshop lab, 10:00–11:00/,
   });
   await expect(placed).toBeVisible();
   await expect(placed).toBeFocused();
@@ -109,10 +111,10 @@ test("moves a placed session by dragging it onto another room and slot", async (
   expect(dragged).toBe(true);
 
   await expect(page.getByRole("status")).toContainText(
-    "“Designing the calm conference” placed in Workshop lab at 17:00–18:00.",
+    "“Designing the calm conference” placed in Workshop lab at 10:00–11:00.",
   );
   await expect(
-    page.getByRole("button", { name: /Designing the calm conference\. Workshop lab, 17:00–18:00/ }),
+    page.getByRole("button", { name: /Designing the calm conference\. Workshop lab, 10:00–11:00/ }),
   ).toBeVisible();
 });
 
@@ -162,6 +164,46 @@ test("explains a conflict in every view and blocks publication until it is fixed
   await page.reload();
   await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeEnabled();
+});
+
+test("renders slot times on the event's clock, not UTC", async ({ page }) => {
+  await openAgenda(page);
+
+  // The seeded slots are 16:00Z and 17:00Z and the demo event is America/Los_Angeles,
+  // so a regression to UTC formatting turns every assertion below red.
+  await expect(page.getByRole("rowheader", { name: "09:00–10:00" })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: "10:00–11:00" })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: "16:00–17:00" })).toHaveCount(0);
+  await expect(
+    page.getByText("Times are shown in America/Los_Angeles (PDT)").first(),
+  ).toBeVisible();
+
+  // The Day view puts the same slots across the top rather than down the side.
+  await page.getByRole("tab", { name: /^Day/ }).click();
+  await expect(page.getByRole("columnheader", { name: "09:00–10:00" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "16:00–17:00" })).toHaveCount(0);
+
+  // The local day is what buckets the Week view, and 16:00Z is still September 1st
+  // in Los Angeles.
+  await page.getByRole("tab", { name: /^Week/ }).click();
+  await expect(page.getByRole("columnheader", { name: /Tue, Sep 1/ })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: "09:00–10:00" })).toBeVisible();
+
+  // Switching events re-renders the board on the new event's clock with no reload.
+  // Greenroom Workshop Day is America/New_York; the abbreviation is read at the time
+  // the board is shown, so it is matched loosely enough to survive a winter run.
+  // Opening that board seeds it an empty draft, which nothing else in the suite reads.
+  const switcher = page.getByRole("combobox", { name: "Event workspace" });
+  await switcher.selectOption({ label: "Greenroom Workshop Day" });
+  await expect(
+    page.getByText(/Times are shown in America\/New_York \(E[DS]T\)/).first(),
+  ).toBeVisible();
+
+  // Hand the shared fixture back the event the rest of this file works on.
+  await switcher.selectOption({ label: "Greenroom Demo Summit" });
+  await expect(
+    page.getByText("Times are shown in America/Los_Angeles (PDT)").first(),
+  ).toBeVisible();
 });
 
 test("switches views and keeps the chosen view in a shareable URL", async ({ page }) => {
