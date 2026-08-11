@@ -57,13 +57,15 @@ Create or update a separate comment:
 - None.
 
 ### Deferred follow-up
-- `<item>` — owner, reason, and closure condition.
+- `#<issue>` — `<item>` — owner, reason, and closure condition.
 
 ### External verification
-- `<item>` — current state and how to verify.
+- `#<issue>` — `<item>` — current state and how to verify.
 ```
 
 Never hide unresolved blockers among deferred items. If all sections are empty, retain the comment and state `None` so reviewers know the list was considered.
+
+Every actionable deferred follow-up or external verification that will remain after merge must link to an open issue. Prefer updating an existing issue whose scope and owner fit; otherwise create a focused issue. Do not create duplicate trackers. Pending reviews, completed observation notes, and other non-actionable status statements do not require issues.
 
 ## Idempotent updates
 

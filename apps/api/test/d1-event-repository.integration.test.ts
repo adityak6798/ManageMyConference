@@ -104,11 +104,59 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
-    const communications = await readFile(
-      new URL("../migrations/0003_communications_outbox.sql", import.meta.url),
+    const contentMigration = await readFile(
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
       "utf8",
     );
-    for (const statement of communications
+    for (const statement of contentMigration
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    for (const file of [
+      "0003_cfp.sql",
+      "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
+      "0015_crm_conversion.sql",
+      "0016_crm_speaker_conversion.sql",
+    ]) {
+      const migrationSql = await readFile(
+        new URL(`../migrations/${file}`, import.meta.url),
+        "utf8",
+      );
+      for (const statement of migrationSql
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean))
+        await database.prepare(statement).run();
+    }
+    for (const file of [
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
+    ]) {
+      const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      expect((await database.prepare(trigger).run()).success).toBe(true);
+    }
+    const agendaMigration = await readFile(
+      new URL("../migrations/0017_agenda.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of agendaMigration
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const communicationsMigration = await readFile(
+      new URL("../migrations/0019_communications_outbox.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of communicationsMigration
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))

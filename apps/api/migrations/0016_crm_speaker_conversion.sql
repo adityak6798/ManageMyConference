@@ -1,0 +1,3 @@
+CREATE TABLE speaker_conversion_claims (event_id TEXT NOT NULL REFERENCES events(id), source_kind TEXT NOT NULL, source_id TEXT NOT NULL, normalized_email TEXT NOT NULL, speaker_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(event_id, source_kind, source_id));
+CREATE TABLE speaker_email_claims (event_id TEXT NOT NULL REFERENCES events(id), normalized_email TEXT NOT NULL, speaker_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(event_id, normalized_email));
+CREATE TABLE speaker_conversion_sources (event_id TEXT NOT NULL REFERENCES events(id), source_kind TEXT NOT NULL, source_id TEXT NOT NULL, speaker_id TEXT NOT NULL REFERENCES speaker_profiles(id), PRIMARY KEY(event_id, source_kind, source_id));

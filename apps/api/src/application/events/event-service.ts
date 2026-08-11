@@ -1,5 +1,10 @@
 import type { Event } from "../../domain/events/event";
-import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
+import {
+  type Actor,
+  AuthenticationRequiredError,
+  CapabilityDeniedError,
+  requireCapability,
+} from "../identity/actor";
 import type { EventRepository } from "./event-repository";
 
 export interface CreateEventCommand {
@@ -12,6 +17,7 @@ export interface EventServiceDependencies {
   repository: EventRepository;
   newId: () => string;
   now: () => Date;
+  grantOrganizer?: (eventId: string, userId: string) => Promise<void>;
 }
 
 // @spec PRD-EVT-001
@@ -40,7 +46,15 @@ export class EventService {
       createdAt: this.dependencies.now().toISOString(),
     };
     await this.dependencies.repository.create(event);
+    await this.dependencies.grantOrganizer?.(event.id, authorized.id);
     return event;
+  }
+  listAssigned(actor: Actor | null): Promise<readonly Event[]> {
+    if (!actor) throw new AuthenticationRequiredError("Authentication is required");
+    return this.dependencies.repository.list({
+      organizationIds: [],
+      eventIds: actor.eventAccess.map(({ eventId }) => eventId),
+    });
   }
 
   list(actor: Actor | null): Promise<readonly Event[]> {

@@ -10,3 +10,6 @@ migrations_dir = "migrations"
 
 [triggers]
 crons = ["* * * * *"]
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "greenroom-assets"

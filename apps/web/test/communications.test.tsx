@@ -56,46 +56,59 @@ describe("communications history", () => {
               }),
             ),
           );
+        if (url.includes("/api/communications/history"))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                history: [
+                  {
+                    delivery: {
+                      id: "terminal-1",
+                      organizationId,
+                      eventId,
+                      idempotencyKey: "terminal",
+                      triggerType: "projection.requested",
+                      channel: "airtable",
+                      templateId: null,
+                      templateVersion: null,
+                      recipientRef: "session:42",
+                      payload: {},
+                      projectionVersion: 1,
+                      state: "terminal",
+                      attemptCount: 1,
+                      nextAttemptAt: "2026-08-10T12:00:01.000Z",
+                      leaseToken: null,
+                      createdAt: "2026-08-10T12:00:00.000Z",
+                      updatedAt: "2026-08-10T12:00:01.000Z",
+                    },
+                    attempts: [
+                      {
+                        id: "attempt-1",
+                        deliveryId: "terminal-1",
+                        sequence: 1,
+                        startedAt: "2026-08-10T12:00:00.000Z",
+                        completedAt: "2026-08-10T12:00:01.000Z",
+                        outcome: "terminal_failure",
+                        providerReference: null,
+                        errorCode: "PROVIDER_REJECTED",
+                      },
+                    ],
+                  },
+                ],
+                nextCursor: null,
+              }),
+            ),
+          );
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              history: [
-                {
-                  delivery: {
-                    id: "terminal-1",
-                    organizationId,
-                    eventId,
-                    idempotencyKey: "terminal",
-                    triggerType: "projection.requested",
-                    channel: "airtable",
-                    templateId: null,
-                    templateVersion: null,
-                    recipientRef: "session:42",
-                    payload: {},
-                    projectionVersion: 1,
-                    state: "terminal",
-                    attemptCount: 1,
-                    nextAttemptAt: "2026-08-10T12:00:01.000Z",
-                    leaseToken: null,
-                    createdAt: "2026-08-10T12:00:00.000Z",
-                    updatedAt: "2026-08-10T12:00:01.000Z",
-                  },
-                  attempts: [
-                    {
-                      id: "attempt-1",
-                      deliveryId: "terminal-1",
-                      sequence: 1,
-                      startedAt: "2026-08-10T12:00:00.000Z",
-                      completedAt: "2026-08-10T12:00:01.000Z",
-                      outcome: "terminal_failure",
-                      providerReference: null,
-                      errorCode: "PROVIDER_REJECTED",
-                    },
-                  ],
-                },
-              ],
-              nextCursor: null,
+              error: {
+                code: "NOT_FOUND",
+                message: "No fixture for this domain.",
+                correlationId: "fixture-other-domain",
+              },
             }),
+            { status: 404 },
           ),
         );
       }),
@@ -163,7 +176,19 @@ describe("communications history", () => {
                 }),
               ),
             );
-          return deferredHistory;
+          if (url.includes("/api/communications/history")) return deferredHistory;
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: "NOT_FOUND",
+                  message: "No fixture for this domain.",
+                  correlationId: "fixture-other-domain",
+                },
+              }),
+              { status: 404 },
+            ),
+          );
         }),
       );
       render(<App />);

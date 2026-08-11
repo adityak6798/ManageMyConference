@@ -1,26 +1,38 @@
-import type { CommunicationsHistoryDto, EventDto, SessionDto } from "@greenroom/contracts";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
+import type { EventDto, SessionDto } from "@greenroom/contracts";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ContentWorkspace } from "./ContentWorkspace";
+import { CommunicationsWorkspace } from "./CommunicationsWorkspace";
+import { ContentApiError } from "./api/content";
+import { CommunicationsApiError } from "./api/communications";
 import {
-  CommunicationsApiError,
-  getCommunicationsHistory,
-  retryDelivery,
-} from "./api/communications";
+  ApiError,
+  createEvent,
+  getSession,
+  listEvents,
+  listPublicEvents,
+  startDemoSession,
+} from "./api/events";
 import "./styles.css";
+import { AgendaWorkspace } from "./AgendaWorkspace";
+import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
+import { CfpWorkspace } from "./CfpWorkspace";
+import { CrmWorkspace } from "./CrmWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 const navByRole: Record<Persona, string[]> = {
-  organizer: ["Overview", "Event settings", "People", "Communications", "Publishing"],
+  organizer: ["Overview", "Agenda", "Event settings", "People", "Communications", "Publishing"],
   reviewer: ["Review assignments"],
   speaker: ["Speaker tasks", "My sessions"],
   public: ["Published event"],
 };
 
 function readableError(error: unknown): string {
-  if (error instanceof ApiError)
-    return `${error.message} Reference: ${error.envelope.error.correlationId}`;
-  if (error instanceof CommunicationsApiError)
+  if (
+    error instanceof ApiError ||
+    error instanceof ContentApiError ||
+    error instanceof CommunicationsApiError
+  )
     return `${error.message} Reference: ${error.envelope.error.correlationId}`;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
@@ -34,24 +46,21 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<CommunicationsHistoryDto["history"] | null>(null);
-  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
-  const selectedEventIdRef = useRef("");
 
   const loadShell = useCallback(async () => {
     const currentSession = await getSession();
     const loadedEvents = currentSession.capabilities.includes("events:read")
       ? await listEvents()
-      : [];
+      : currentSession.actor.persona === "public"
+        ? await listPublicEvents()
+        : [];
     setSession(currentSession);
     setEvents(loadedEvents);
-    setSelectedEventId((current) => {
-      const next = current || loadedEvents[0]?.id || "";
-      selectedEventIdRef.current = next;
-      return next;
-    });
-    setHistory(null);
+    setSelectedEventId((current) =>
+      loadedEvents.some(({ id }) => id === current) ? current : loadedEvents[0]?.id || "",
+    );
   }, []);
+  const reportError = useCallback((reason: unknown) => setError(readableError(reason)), []);
 
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
@@ -63,19 +72,26 @@ export function App() {
   const selectedEvent = events.find(({ id }) => id === selectedEventId);
   const activeRole = useMemo<Persona>(() => {
     if (!session) return "public";
-    return (
-      session.eventAccess.find(({ eventId }) => eventId === selectedEventId)?.role ??
-      session.actor.persona
-    );
+    const roles = session.eventAccess
+      .filter(({ eventId }) => eventId === selectedEventId)
+      .map(({ role }) => role);
+    if (roles.includes("organizer")) return "organizer";
+    if (roles.includes("speaker")) return "speaker";
+    return roles[0] ?? session.actor.persona;
   }, [selectedEventId, session]);
+  const activeEventCapabilities = [
+    ...new Set(
+      session?.eventAccess
+        .filter(({ eventId }) => eventId === selectedEventId)
+        .flatMap(({ capabilities }) => capabilities) ?? [],
+    ),
+  ];
 
   async function switchPersona(persona: Persona) {
     setBusy(true);
     setError(null);
     try {
       await startDemoSession(persona);
-      setSelectedEventId("");
-      selectedEventIdRef.current = "";
       await loadShell();
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -92,49 +108,13 @@ export function App() {
     setError(null);
     try {
       const event = await createEvent({ organizationId, name, timezone: "America/Los_Angeles" });
-      setEvents(await listEvents());
+      const [refreshedSession, refreshedEvents] = await Promise.all([getSession(), listEvents()]);
+      setSession(refreshedSession);
+      setEvents(refreshedEvents);
       setSelectedEventId(event.id);
-      selectedEventIdRef.current = event.id;
       setName("");
     } catch (reason: unknown) {
       setError(readableError(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function inspectHistory() {
-    const organizationId = selectedEvent?.organizationId;
-    const requestEventId = selectedEventId;
-    if (!organizationId || !requestEventId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const page = await getCommunicationsHistory(organizationId, requestEventId);
-      if (selectedEventIdRef.current !== requestEventId) return;
-      setHistory(page.history);
-      setHistoryCursor(page.nextCursor);
-    } catch (reason: unknown) {
-      if (selectedEventIdRef.current === requestEventId) setError(readableError(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function recover(deliveryId: string) {
-    const organizationId = selectedEvent?.organizationId;
-    const requestEventId = selectedEventId;
-    if (!organizationId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await retryDelivery(organizationId, deliveryId);
-      const page = await getCommunicationsHistory(organizationId, requestEventId);
-      if (selectedEventIdRef.current !== requestEventId) return;
-      setHistory(page.history);
-      setHistoryCursor(page.nextCursor);
-    } catch (reason: unknown) {
-      if (selectedEventIdRef.current === requestEventId) setError(readableError(reason));
     } finally {
       setBusy(false);
     }
@@ -215,12 +195,7 @@ export function App() {
             <select
               id="event-switcher"
               value={selectedEventId}
-              onChange={(event) => {
-                setSelectedEventId(event.target.value);
-                selectedEventIdRef.current = event.target.value;
-                setHistory(null);
-                setHistoryCursor(null);
-              }}
+              onChange={(event) => setSelectedEventId(event.target.value)}
             >
               {events.map((event) => (
                 <option key={event.id} value={event.id}>
@@ -248,6 +223,13 @@ export function App() {
                 <p className="empty">This identity has no event workspace assigned.</p>
               )}
             </section>
+            {selectedEvent ? (
+              <CfpWorkspace
+                key={`${selectedEvent.id}:${session.actor.id}:${activeRole}`}
+                eventId={selectedEvent.id}
+                organizer={activeRole === "organizer"}
+              />
+            ) : null}
             {session.capabilities.includes("events:create") ? (
               <section aria-labelledby="create-title">
                 <h2 id="create-title">Create an event</h2>
@@ -277,93 +259,38 @@ export function App() {
                 </p>
               </section>
             )}
-            {session.capabilities.includes("communications:manage") && selectedEvent ? (
-              <section id="communications" aria-labelledby="communications-title">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">Delivery operations</p>
-                    <h2 id="communications-title">Communications history</h2>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      // ERROR-INTENT: React event handlers cannot await; inspectHistory renders failures.
-                      void inspectHistory();
-                    }}
-                  >
-                    Inspect delivery history
-                  </button>
-                </div>
-                {history ? (
-                  <ul className="delivery-history">
-                    {history.map(({ delivery, attempts }) => (
-                      <li key={delivery.id}>
-                        <div>
-                          <strong>{delivery.recipientRef}</strong>
-                          <span className={`delivery-state state-${delivery.state}`}>
-                            {delivery.state}
-                          </span>
-                          <small>
-                            {attempts.length} attempt{attempts.length === 1 ? "" : "s"}
-                          </small>
-                        </div>
-                        {delivery.state === "retrying" || delivery.state === "terminal" ? (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              // ERROR-INTENT: React event handlers cannot await; recover renders failures.
-                              void recover(delivery.id);
-                            }}
-                          >
-                            Retry {delivery.recipientRef}
-                          </button>
-                        ) : null}
-                        {attempts.length ? (
-                          <ol className="attempt-history">
-                            {attempts.map((attempt) => (
-                              <li key={attempt.id}>
-                                Attempt {attempt.sequence}: {attempt.outcome}
-                                {attempt.errorCode ? ` — ${attempt.errorCode}` : ""}
-                              </li>
-                            ))}
-                          </ol>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="empty">
-                    Inspect the outbox to see queued, retrying, succeeded, and terminal deliveries.
-                  </p>
-                )}
-                {historyCursor ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      const organizationId = selectedEvent.organizationId;
-                      const requestEventId = selectedEvent.id;
-                      setBusy(true);
-                      // ERROR-INTENT: React event handlers cannot await; attached handlers render failures.
-                      void getCommunicationsHistory(organizationId, requestEventId, historyCursor)
-                        .then((page) => {
-                          if (selectedEventIdRef.current !== requestEventId) return;
-                          setHistory((current) => [...(current ?? []), ...page.history]);
-                          setHistoryCursor(page.nextCursor);
-                        })
-                        .catch((reason: unknown) => {
-                          if (selectedEventIdRef.current === requestEventId)
-                            setError(readableError(reason));
-                        })
-                        .finally(() => setBusy(false));
-                    }}
-                  >
-                    Load more history
-                  </button>
-                ) : null}
-              </section>
+            {selectedEvent && activeEventCapabilities.includes("agenda:manage") ? (
+              <AgendaWorkspace
+                key={selectedEvent.id}
+                eventId={selectedEvent.id}
+                onError={setError}
+              />
+            ) : null}
+            {selectedEventId &&
+            (activeRole === "organizer" || activeRole === "speaker") &&
+            (session.capabilities.includes("content:read") ||
+              activeEventCapabilities.includes("content:read")) ? (
+              <ContentWorkspace eventId={selectedEventId} role={activeRole} onError={reportError} />
+            ) : null}
+            {selectedEventId && activeEventCapabilities.includes("review:manage") ? (
+              <OrganizerReviewWorkspace
+                key={`${selectedEventId}:${session.actor.id}:organizer-review`}
+                eventId={selectedEventId}
+              />
+            ) : null}
+            {selectedEventId && activeEventCapabilities.includes("review:evaluate") ? (
+              <ReviewerWorkspace
+                key={`${selectedEventId}:${session.actor.id}:reviewer-review`}
+                eventId={selectedEventId}
+              />
+            ) : null}
+            {selectedEvent &&
+            session.capabilities.includes("crm:manage") &&
+            activeEventCapabilities.includes("crm:manage") ? (
+              <CrmWorkspace eventId={selectedEvent.id} ownerId={session.actor.id} />
+            ) : null}
+            {selectedEvent && session.capabilities.includes("communications:manage") ? (
+              <CommunicationsWorkspace event={selectedEvent} onError={reportError} />
             ) : null}
             {error ? (
               <p role="alert" className="error">
