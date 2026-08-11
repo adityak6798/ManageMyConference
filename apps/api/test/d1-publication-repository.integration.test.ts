@@ -13,6 +13,7 @@ const statements = (sql: string) =>
     .filter(Boolean);
 const safeProjection = {
   event: {
+    eventId: "00000000-0000-4000-8000-000000000001",
     slug: "safe-event",
     name: "Safe Event",
     summary: "Public summary",
@@ -113,5 +114,19 @@ describe("D1PublicationRepository", () => {
       event: { name: "Safe Event" },
       speakers: [{ name: "Speaker" }],
     });
+
+    await database
+      .prepare("DELETE FROM public_event_projections WHERE event_id = ?")
+      .bind("00000000-0000-4000-8000-000000000001")
+      .run();
+    const repository = new D1PublicationRepository(database);
+    await repository.publish(
+      "00000000-0000-4000-8000-000000000001",
+      "2026-08-11T00:00:00.000Z",
+      safeProjection,
+    );
+    await expect(
+      repository.findByEventId("00000000-0000-4000-8000-000000000001"),
+    ).resolves.toMatchObject({ state: "published", slug: "safe-event" });
   });
 });

@@ -21,6 +21,7 @@ export interface PublicSession {
 
 export interface PublicEventProjection {
   readonly event: {
+    readonly eventId: string;
     readonly slug: string;
     readonly name: string;
     readonly summary: string;
@@ -55,6 +56,7 @@ export const allowlistPublicProjection = (
   projection: PublicEventProjection,
 ): PublicEventProjection => ({
   event: {
+    eventId: projection.event.eventId,
     slug: projection.event.slug,
     name: projection.event.name,
     summary: projection.event.summary,

@@ -13,7 +13,7 @@ import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository"
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
-import { CfpService } from "./application/cfp/cfp-service";
+import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
@@ -140,7 +140,13 @@ export default {
         return event ? { name: event.name, timezone: event.timezone } : null;
       },
       cfp: async (eventId) => {
-        const form = await cfpService.getPublished(eventId);
+        let form: Awaited<ReturnType<CfpService["getPublished"]>>;
+        try {
+          form = await cfpService.getPublished(eventId);
+        } catch (error) {
+          if (error instanceof CfpUnavailableError) return null;
+          throw error;
+        }
         return {
           title: form.title,
           description: form.description,

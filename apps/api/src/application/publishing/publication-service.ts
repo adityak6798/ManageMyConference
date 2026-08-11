@@ -51,10 +51,48 @@ export class PublicationService {
   async preview(actor: Actor | null, eventId: string) {
     const organizer = this.requireOrganizer(actor, eventId, "events:settings:read");
     if (!organizer) return null;
-    const publication = await this.repository.findByEventId(eventId);
-    if (!publication || !this.sources) return publication;
-    const [event, cfp, content, schedule] = await Promise.all([
-      this.sources.event(organizer, eventId),
+    const stored = await this.repository.findByEventId(eventId);
+    if (!this.sources) return stored;
+    const event = await this.sources.event(organizer, eventId);
+    if (!event) return null;
+    const slugBase = event.name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 76);
+    const slug = `${slugBase || "event"}-${eventId}`;
+    const publication =
+      stored ??
+      ({
+        eventId,
+        slug,
+        state: "draft",
+        draft: {
+          event: {
+            eventId,
+            slug,
+            name: event.name,
+            summary: "",
+            startsOn: "",
+            endsOn: "",
+            timezone: event.timezone,
+            venue: "",
+          },
+          cfp: {
+            title: "Call for proposals",
+            description: "",
+            status: "closed",
+            publishedAt: null,
+            submissionUrl: `/events/${slug}/cfp`,
+          },
+          sessions: [],
+          speakers: [],
+        },
+        published: null,
+        publishedAt: null,
+      } satisfies import("../../domain/publishing/publication").Publication);
+    const [cfp, content, schedule] = await Promise.all([
       this.sources.cfp(eventId),
       this.sources.content.publishedEventContent(eventId),
       this.sources.schedule(eventId),

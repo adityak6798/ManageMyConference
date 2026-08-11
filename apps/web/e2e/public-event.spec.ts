@@ -39,6 +39,23 @@ test("browses the same accessible published projection directly and embedded", a
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     ),
   ).toBe(true);
+  await page.goto("/events/greenroom-demo-summit/cfp");
+  await page.getByLabel("Proposal title").fill("A public CFP submission");
+  await page.getByLabel("Abstract").fill("Submitted from the public event route.");
+  await page.getByLabel("Contact email").fill("public-speaker@example.com");
+  if (await page.getByLabel("Experience level").count())
+    await page.getByLabel("Experience level").selectOption("Experienced");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(page.getByRole("status")).toContainText(/Confirmation: [0-9a-f-]{36}/);
+  await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
+  const closed = await page.request.post(
+    "/api/events/00000000-0000-4000-8000-000000000001/cfp/state",
+    { data: { state: "close" } },
+  );
+  expect(closed.ok()).toBeTruthy();
+  await page.goto("/events/greenroom-demo-summit/cfp");
+  await expect(page.getByText("Submissions closed.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
 });
 
 test("shows a clear unpublished or unknown event state", async ({ page }) => {

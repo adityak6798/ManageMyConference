@@ -18,6 +18,7 @@ import { publicEventProjectionSchema } from "@greenroom/contracts";
 
 const safeProjection = {
   event: {
+    eventId: "00000000-0000-4000-8000-000000000001",
     slug: "safe-event",
     name: "Safe Event",
     summary: "Public",
@@ -168,6 +169,45 @@ describe("publication snapshots", () => {
       cfp: { title: "Owned CFP", status: "closed" },
       sessions: [{ slug: "session-one", track: "Platform", room: "Main stage" }],
       speakers: [{ slug: "speaker-one", name: "Owned speaker" }],
+    });
+  });
+
+  it("creates a publication lazily for a newly created event", async () => {
+    let stored: Publication | null = null;
+    const repository: PublicationRepository = {
+      findPublicBySlug: vi.fn(async () => stored),
+      findByEventId: vi.fn(async () => stored),
+      publish: vi.fn(async (eventId, publishedAt, projection) => {
+        stored = {
+          eventId,
+          slug: projection.event.slug,
+          state: "published",
+          draft: projection,
+          published: projection,
+          publishedAt,
+        };
+        return stored;
+      }),
+      unpublish: vi.fn(async () => stored),
+    };
+    const service = new PublicationService(repository, {
+      event: vi.fn(async () => ({ name: "Brand New Event", timezone: "UTC" })),
+      cfp: vi.fn(async () => null),
+      content: {
+        publishedEventContent: vi.fn(async () => ({ sessions: [], speakers: [], assets: [] })),
+      },
+      schedule: vi.fn(async () => null),
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+    const preview = await service.preview(organizer, safeProjection.event.eventId);
+    expect(preview).toMatchObject({
+      state: "draft",
+      slug: `brand-new-event-${safeProjection.event.eventId}`,
+      draft: { event: { name: "Brand New Event", timezone: "UTC" } },
+    });
+    await expect(service.publish(organizer, safeProjection.event.eventId)).resolves.toMatchObject({
+      state: "published",
+      published: { event: { name: "Brand New Event" } },
     });
   });
 

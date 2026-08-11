@@ -738,6 +738,7 @@ export const publicSessionSchema = z.object({
 });
 export const publicEventProjectionSchema = z.object({
   event: z.object({
+    eventId: z.string().uuid(),
     slug: routeSlugSchema,
     name: z.string(),
     summary: z.string(),

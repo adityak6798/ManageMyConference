@@ -63,9 +63,23 @@ export class D1PublicationRepository implements PublicationRepository {
   ): Promise<Publication | null> {
     const result = await this.database
       .prepare(
-        "UPDATE public_event_projections SET state = 'published', published_json = ?, published_at = ? WHERE event_id = ?",
+        `INSERT INTO public_event_projections
+          (event_id, slug, state, draft_json, published_json, published_at)
+         VALUES (?, ?, 'published', ?, ?, ?)
+         ON CONFLICT(event_id) DO UPDATE SET
+          slug = excluded.slug,
+          state = 'published',
+          draft_json = excluded.draft_json,
+          published_json = excluded.published_json,
+          published_at = excluded.published_at`,
       )
-      .bind(JSON.stringify(projection), publishedAt, eventId)
+      .bind(
+        eventId,
+        projection.event.slug,
+        JSON.stringify(projection),
+        JSON.stringify(projection),
+        publishedAt,
+      )
       .run();
     if (!result.success)
       throw new Error(`D1 failed to publish projection: ${result.error ?? "unknown error"}`);

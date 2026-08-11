@@ -27,7 +27,8 @@
       "apps/api/src/application/agenda/public.ts",
       "apps/web/src/AgendaWorkspace.tsx",
       "apps/api/src/application/publishing/publication-service.ts",
-      "apps/web/src/PublicEventApp.tsx"
+      "apps/web/src/PublicEventApp.tsx",
+      "apps/web/src/api/cfp.ts"
     ],
     "compositionRoots": ["apps/api/src/index.ts", "apps/web/src/App.tsx"],
     "layerPaths": {

@@ -1,5 +1,6 @@
 import type { PublicEventProjectionDto } from "@greenroom/contracts";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { CfpApiError, loadCfp, submitProposal, type CfpFormDto } from "./api/cfp";
 import { getPublicEvent, PublicApiError } from "./api/publication";
 import "./public-event.css";
 
@@ -34,6 +35,12 @@ export function PublicEventApp() {
   const [{ embedded, slug, section, detail }] = useState(route);
   const [projection, setProjection] = useState<PublicEventProjectionDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
+  const [submissionNotice, setSubmissionNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [liveCfp, setLiveCfp] = useState<CfpFormDto | null>(null);
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; handlers render loading/error outcomes.
     void getPublicEvent(slug)
@@ -44,6 +51,17 @@ export function PublicEventApp() {
         ),
       );
   }, [slug]);
+  useEffect(() => {
+    if (!projection || section !== "cfp") return;
+    // ERROR-INTENT: React effects cannot await; the CFP view renders load failures.
+    void loadCfp(projection.event.eventId, false)
+      .then(setLiveCfp)
+      .catch((reason: unknown) =>
+        setSubmissionNotice(
+          reason instanceof CfpApiError ? reason.message : "The CFP could not be loaded.",
+        ),
+      );
+  }, [projection, section]);
   useEffect(() => {
     if (!projection) return;
     const originalTitle = document.title;
@@ -106,6 +124,26 @@ export function PublicEventApp() {
     section === "speakers" && detail
       ? projection.speakers.find((item) => item.slug === detail)
       : undefined;
+  const submitCfp = async (event: FormEvent) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setSubmissionNotice("");
+    setFieldErrors({});
+    try {
+      const confirmation = await submitProposal(projection.event.eventId, answers, submissionKey);
+      setSubmissionNotice(`Proposal received. Confirmation: ${confirmation.confirmationId}`);
+      setSubmissionKey(crypto.randomUUID());
+      setAnswers({});
+    } catch (reason) {
+      // ERROR-INTENT: The public form renders submission failures for the applicant.
+      if (reason instanceof CfpApiError) setFieldErrors(reason.envelope.error.fieldErrors ?? {});
+      setSubmissionNotice(
+        reason instanceof CfpApiError ? reason.message : "The proposal could not be submitted.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
   if (
     (detail && section === "sessions" && !session) ||
     (detail && section === "speakers" && !speaker)
@@ -251,16 +289,81 @@ export function PublicEventApp() {
         {section === "cfp" && (
           <article className="detail">
             <p className="kicker">Call for proposals</p>
-            <h1>{projection.cfp.title}</h1>
-            <p className="lede">{projection.cfp.description}</p>
+            <h1>{liveCfp?.title ?? projection.cfp.title}</h1>
+            <p className="lede">{liveCfp?.description ?? projection.cfp.description}</p>
             <p>
-              {projection.cfp.status === "open" ? "Open for submissions." : "Submissions closed."}
+              {(liveCfp?.status ?? projection.cfp.status) === "open"
+                ? "Open for submissions."
+                : "Submissions closed."}
             </p>
-            {projection.cfp.status === "open" && (
-              <a className="primary" href={projection.cfp.submissionUrl}>
-                Submit a proposal
-              </a>
+            {liveCfp?.status === "open" && (
+              <form onSubmit={submitCfp}>
+                {liveCfp.fields.map((field) => {
+                  const errors = fieldErrors[`answers.${field.id}`] ?? [];
+                  const errorId = `public-cfp-${field.id}-error`;
+                  return (
+                    <div className="cfp-field" key={field.id}>
+                      <label htmlFor={`public-cfp-${field.id}`}>
+                        {field.label}
+                        {field.required ? " *" : ""}
+                      </label>
+                      {field.guidance && <small>{field.guidance}</small>}
+                      {field.type === "long_text" ? (
+                        <textarea
+                          id={`public-cfp-${field.id}`}
+                          required={field.required}
+                          aria-invalid={errors.length > 0}
+                          aria-describedby={errors.length ? errorId : undefined}
+                          value={answers[field.id] ?? ""}
+                          onChange={(event) =>
+                            setAnswers({ ...answers, [field.id]: event.target.value })
+                          }
+                        />
+                      ) : field.type === "select" ? (
+                        <select
+                          id={`public-cfp-${field.id}`}
+                          required={field.required}
+                          aria-invalid={errors.length > 0}
+                          aria-describedby={errors.length ? errorId : undefined}
+                          value={answers[field.id] ?? ""}
+                          onChange={(event) =>
+                            setAnswers({ ...answers, [field.id]: event.target.value })
+                          }
+                        >
+                          <option value="">Choose an option</option>
+                          {field.options.map((option) => (
+                            <option key={option}>{option}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id={`public-cfp-${field.id}`}
+                          type={field.type === "email" ? "email" : "text"}
+                          required={field.required}
+                          aria-invalid={errors.length > 0}
+                          aria-describedby={errors.length ? errorId : undefined}
+                          value={answers[field.id] ?? ""}
+                          onChange={(event) =>
+                            setAnswers({ ...answers, [field.id]: event.target.value })
+                          }
+                        />
+                      )}
+                      {errors.length > 0 && (
+                        <ul id={errorId} className="field-errors">
+                          {errors.map((message) => (
+                            <li key={message}>{message}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+                <button className="primary" type="submit" disabled={submitting}>
+                  {submitting ? "Submitting…" : "Submit proposal"}
+                </button>
+              </form>
             )}
+            {submissionNotice && <p role="status">{submissionNotice}</p>}
           </article>
         )}
       </main>
