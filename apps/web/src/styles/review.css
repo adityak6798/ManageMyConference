@@ -139,6 +139,48 @@
   margin-top: var(--s-2);
 }
 
+/* ---------------------- decision dialog ----------------------- */
+
+/*
+ * The decision is asked over the table, not below it. `<dialog>` supplies the backdrop, the
+ * focus trap and Escape; everything here is presentation. The element is display:none until
+ * `showModal()` opens it, so no `hidden` handling is needed on the React side.
+ */
+.decision-dialog {
+  border: 0;
+  padding: 0;
+  background: none;
+  max-width: min(38rem, calc(100vw - var(--s-6)));
+  width: 100%;
+  /* Long submitter names and error lists must scroll inside the dialog rather than push the
+     confirm button off a short screen. */
+  max-height: calc(100vh - var(--s-6));
+  overflow: auto;
+  color: inherit;
+}
+.decision-dialog::backdrop {
+  background: rgb(16 24 20 / 45%);
+}
+.decision-dialog .card {
+  margin: 0;
+}
+
+/* The reversal warning is the one place this dialog raises its voice. */
+.decision-warning {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  padding: var(--s-3);
+  border: 1px solid var(--warn-fg, var(--border));
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.decision-warning svg {
+  flex: none;
+  margin-top: 0.1em;
+}
+
 /* ---------------------- decision panel ------------------------ */
 
 /* Same treatment as the detail panel: a focus target with no outline of its own,

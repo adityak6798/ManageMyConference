@@ -225,6 +225,22 @@ function DecisionForm({
             : "This submission carries no contact address, so no speaker can be created from it and it cannot be accepted. Ask the submitter for an address, or add an email field to the published form and have them resubmit."
           : `Records the outcome against ${proposal.submitterName} and moves the abstract to Declined. Nothing is sent to the submitter.`}
       </p>
+      {/*
+       * Declining does not undo an acceptance. The session and speaker the earlier acceptance
+       * created stay in the programme, so an organizer reversing a decision has to remove them
+       * in Sessions & speakers. Saying so here is the difference between a correction and a
+       * programme that quietly disagrees with its own triage board.
+       */}
+      {outcome === "declined" && decided?.outcome === "accepted" ? (
+        <p className="hint decision-warning">
+          <IconWarning size={14} />
+          <span>
+            This abstract was accepted, so a session and a speaker already exist for it. Declining
+            records the reversal but does not remove them — delete the session in Sessions &amp;
+            speakers if it should leave the programme.
+          </span>
+        </p>
+      ) : null}
       <div className="field">
         <label htmlFor={noteId}>Decision note (optional)</label>
         <input
@@ -307,6 +323,33 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const feedback = useActionFeedback();
   const decisionFeedback = useActionFeedback();
   const detailRef = useRef<HTMLDivElement>(null);
+  const decisionDialog = useRef<HTMLDialogElement>(null);
+
+  /**
+   * Closing is refused while a decision is in flight, for the same reason Confirm is: unmounting
+   * the dialog takes its live region with it and the outcome is announced to nobody. This is the
+   * one handler for the Close button, Escape, and a click on the backdrop.
+   */
+  const closeDecision = useCallback(
+    (event?: { preventDefault(): void }) => {
+      if (busy) {
+        event?.preventDefault();
+        return;
+      }
+      setPending(null);
+    },
+    [busy],
+  );
+
+  // `showModal()` is what makes the dialog modal — rendering `<dialog open>` gives a
+  // non-modal box with no backdrop and no focus trap — so the element is driven imperatively
+  // from the state that owns it.
+  useEffect(() => {
+    const dialog = decisionDialog.current;
+    if (!dialog) return;
+    if (pending && !dialog.open) dialog.showModal();
+    if (!pending && dialog.open) dialog.close();
+  }, [pending]);
 
   const load = useCallback(async () => {
     // The tab strip needs a count for every status in one paint, so the workspace
@@ -660,27 +703,40 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                               {OUTCOME_LABEL[decided.outcome]}
                             </Pill>
                           ) : null}
+                          {/*
+                           * Only the outcomes that would change something. A row already
+                           * recorded as accepted offered "Accept" beside an "Accepted" pill,
+                           * which reads as an available action and does nothing — and the
+                           * reverse, declining an acceptance, is offered because it is a real
+                           * correction, with the dialog stating that the session it created
+                           * is not withdrawn by it.
+                           */}
                           <span className="decision-buttons">
-                            {(["accepted", "declined"] as const).map((choice) => (
-                              <button
-                                key={choice}
-                                type="button"
-                                className={choice === "accepted" ? "small" : "secondary small"}
-                                aria-expanded={
-                                  pending?.proposalId === proposal.id && pending.outcome === choice
-                                }
-                                aria-controls="proposal-decision"
-                                disabled={busy}
-                                onClick={() => {
-                                  setDecisionErrors({});
-                                  decisionFeedback.clear();
-                                  setPending({ proposalId: proposal.id, outcome: choice });
-                                }}
-                              >
-                                {choice === "accepted" ? "Accept" : "Decline"}
-                                <span className="visually-hidden"> {proposal.title}</span>
-                              </button>
-                            ))}
+                            {(["accepted", "declined"] as const)
+                              .filter((choice) => decided?.outcome !== choice)
+                              .map((choice) => (
+                                <button
+                                  key={choice}
+                                  type="button"
+                                  className={choice === "accepted" ? "small" : "secondary small"}
+                                  aria-haspopup="dialog"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setDecisionErrors({});
+                                    decisionFeedback.clear();
+                                    setPending({ proposalId: proposal.id, outcome: choice });
+                                  }}
+                                >
+                                  {decided
+                                    ? choice === "accepted"
+                                      ? "Accept instead"
+                                      : "Decline instead"
+                                    : choice === "accepted"
+                                      ? "Accept"
+                                      : "Decline"}
+                                  <span className="visually-hidden"> {proposal.title}</span>
+                                </button>
+                              ))}
                           </span>
                         </td>
                       </tr>
@@ -693,8 +749,31 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         </Card>
       </div>
 
-      {pending && pendingProposal ? (
-        <div className="review-block" id="proposal-decision">
+      {/*
+       * A decision is a modal question, so it is asked in a modal dialog.
+       *
+       * This used to render as a block appended after the table. The control that opened it sat
+       * in a dense row near the top of the page and the panel appeared several hundred pixels
+       * below, so clicking Accept looked like it had done nothing at all — the first thing every
+       * reader of this screen reported. `<dialog showModal>` puts the question over the table
+       * where the eye already is, and brings the focus trap, the inert backdrop, and Escape with
+       * it rather than reimplementing three accessibility behaviours by hand.
+       */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: the keyboard equivalent of dismissing by
+          clicking the backdrop is Escape, which `<dialog>` raises as `cancel` and `onCancel`
+          already handles. A keyboard user never reaches the backdrop itself — the element is
+          modal, so focus is trapped inside the card. */}
+      <dialog
+        className="decision-dialog"
+        ref={decisionDialog}
+        onCancel={closeDecision}
+        // The backdrop is part of the dialog element, so a click that lands on the element
+        // itself rather than on the card inside it is a click outside the question.
+        onClick={(event) => {
+          if (event.target === decisionDialog.current) closeDecision();
+        }}
+      >
+        {pending && pendingProposal ? (
           <Card
             labelledBy="proposal-decision-title"
             title={
@@ -716,11 +795,11 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                 // ERROR-INTENT: React event handlers cannot await; decide announces every outcome.
                 void decide(pendingProposal, pending.outcome, note);
               }}
-              onClose={() => setPending(null)}
+              onClose={closeDecision}
             />
           </Card>
-        </div>
-      ) : null}
+        ) : null}
+      </dialog>
 
       {open ? (
         // The wrapper is only a focus target; the card inside carries the accessible name.

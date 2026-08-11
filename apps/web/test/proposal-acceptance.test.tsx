@@ -494,3 +494,76 @@ describe("sessions and speakers workspace", () => {
     expect(screen.queryByRole("link", { name: /Download calendar/ })).toBeNull();
   });
 });
+
+/*
+ * The decision column used to offer both outcomes on every row and render its confirmation as a
+ * block appended after the table. Clicking Accept on an already-accepted abstract therefore did
+ * nothing visible and nothing at all, several hundred pixels below the control that was pressed.
+ * These pin the two corrections. Modality itself belongs to the browser suite — jsdom cannot
+ * assert a focus trap or a top layer — so what is asserted here is which controls a row offers,
+ * that the question is asked inside a `<dialog>`, and that a reversal states its consequence.
+ */
+describe("the decision column on a row that is already decided", () => {
+  const renderDecided = async (outcome: "accepted" | "declined") => {
+    stubApi((url) =>
+      url.includes("/review/organizer")
+        ? jsonResponse(
+            organizerWorkspace({
+              proposals: [proposal({ status: outcome })],
+              decisions: [{ ...decision, outcome }],
+            }),
+          )
+        : undefined,
+    );
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+    // The row's own title link, which every row carries whatever its decision.
+    return screen.findByRole("button", { name: "Typed boundaries at scale" });
+  };
+
+  it("drops the outcome already recorded and offers only the reversal", async () => {
+    await renderDecided("accepted");
+    // The pill states where the abstract stands. Scoped to the decision cell, because the
+    // status column carries its own pill and the two are different facts about the row.
+    expect(document.querySelector(".decision-cell .pill")).toHaveTextContent("Accepted");
+    // ...and the only decision left to take is the one that would change it.
+    expect(
+      screen.getByRole("button", { name: "Decline instead Typed boundaries at scale" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Accept Typed boundaries at scale/ })).toBeNull();
+  });
+
+  it("mirrors that for a declined abstract", async () => {
+    await renderDecided("declined");
+    expect(document.querySelector(".decision-cell .pill")).toHaveTextContent("Declined");
+    expect(
+      screen.getByRole("button", { name: "Accept instead Typed boundaries at scale" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Decline Typed boundaries at scale/ })).toBeNull();
+  });
+
+  it("asks inside a dialog and says a reversal does not withdraw the session", async () => {
+    await renderDecided("accepted");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Decline instead Typed boundaries at scale" }),
+    );
+
+    const dialog = document.querySelector("dialog.decision-dialog") as HTMLDialogElement;
+    expect(dialog.open).toBe(true);
+    expect(dialog).toContainElement(screen.getByRole("button", { name: "Confirm decline" }));
+    // Declining does not delete content, so the organizer is told what survives the reversal.
+    expect(screen.getByText(/a session and a speaker already exist for it/)).toBeVisible();
+    expect(screen.getByText(/does not remove them/)).toBeVisible();
+
+    // Escape is the dialog's own affordance and must put it away.
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    await waitFor(() => expect(dialog.open).toBe(false));
+  });
+
+  it("does not offer a reversal warning on an abstract that was never accepted", async () => {
+    await renderDecided("declined");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept instead Typed boundaries at scale" }),
+    );
+    expect(screen.queryByText(/a session and a speaker already exist/)).toBeNull();
+  });
+});

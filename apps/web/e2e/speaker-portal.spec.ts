@@ -129,19 +129,48 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
 
   // Sessions are never created from this workspace: content appears here only because an
   // abstract was accepted in review, which provisions its speaker in the same request.
-  // Acceptance is idempotent — a second run re-records the same decision and finds the
-  // session already there — so this step survives its own re-run.
   await page.goto(TRIAGE);
   await expect(page.getByRole("heading", { level: 1, name: "Abstracts" })).toBeVisible();
   // Playwright matches accessible names by substring, and the row link, Accept and Decline
   // all contain the title, so the decision control is addressed by its own leading word.
-  await page.getByRole("button", { name: `Accept ${HALLWAY}` }).click();
-  const decision = page.getByRole("region", { name: "Accept this abstract" });
-  await expect(decision).toContainText("links Alex Morgan (alex.morgan@example.test)");
-  await decision.getByRole("button", { name: "Confirm acceptance" }).click();
-  await expect(decision.getByRole("status")).toContainText(
-    `“${HALLWAY}” is accepted. It is now a session in Sessions & speakers with Alex Morgan linked as its speaker.`,
-  );
+  //
+  // A row whose decision is already recorded no longer offers that same outcome again — the
+  // control that did nothing was removed — so on a second run against a fixture this spec has
+  // already accepted, the abstract is simply confirmed to be accepted and the acceptance step
+  // is skipped. That is what keeps this journey re-runnable (issue #72).
+  // `count()` does not auto-wait, so the row itself is awaited first: counting straight after
+  // the heading appears reads an empty table, silently skips the acceptance, and then fails on
+  // an assertion about a board nothing ever decided.
+  // Scoped to the triage table: the "Recent changes" audit below it lists the same title on
+  // every transition, so an unscoped row lookup grows more ambiguous with each run.
+  const hallwayRow = page.locator(".triage-table").getByRole("row", { name: new RegExp(HALLWAY) });
+  await expect(hallwayRow).toBeVisible();
+  const acceptHallway = hallwayRow.getByRole("button", { name: `Accept ${HALLWAY}`, exact: false });
+  if (await acceptHallway.count()) {
+    await acceptHallway.click();
+    const decision = page.getByRole("region", { name: "Accept this abstract" });
+    await expect(decision).toContainText("links Alex Morgan (alex.morgan@example.test)");
+    // The question is asked over the table, not appended below it. `:modal` is the browser's
+    // own answer to "is this in the top layer with a backdrop and a focus trap", which is the
+    // one thing jsdom cannot tell us — the earlier non-modal block rendered several hundred
+    // pixels below the control that opened it and read as a dead button.
+    await expect(page.locator("dialog.decision-dialog")).toBeVisible();
+    expect(
+      await page.locator("dialog.decision-dialog").evaluate((node) => node.matches(":modal")),
+    ).toBe(true);
+    await decision.getByRole("button", { name: "Confirm acceptance" }).click();
+    await expect(decision.getByRole("status")).toContainText(
+      `“${HALLWAY}” is accepted. It is now a session in Sessions & speakers with Alex Morgan linked as its speaker.`,
+    );
+    // The dialog is modal, so while it is open every other element is out of the accessibility
+    // tree and no role query can reach the table behind it. Dismiss it before reading the row.
+    await decision.getByRole("button", { name: "Close" }).click();
+    await expect(page.locator("dialog.decision-dialog")).toBeHidden();
+  }
+  // Either way the board now records the outcome, and only the reversal is still on offer.
+  await expect(hallwayRow.getByText("Accepted", { exact: true }).first()).toBeVisible();
+  await expect(hallwayRow.getByRole("button", { name: /^Decline instead/ })).toBeVisible();
+  await expect(hallwayRow.getByRole("button", { name: /^Accept / })).toHaveCount(0);
 
   await page.goto(SESSIONS);
   await expect(sessions.getByRole("cell", { name: HALLWAY, exact: false }).first()).toBeVisible();
