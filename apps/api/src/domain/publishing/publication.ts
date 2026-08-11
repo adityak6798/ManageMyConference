@@ -32,8 +32,8 @@ export interface PublicEventProjection {
   readonly cfp: {
     readonly title: string;
     readonly description: string;
-    readonly opensAt: string;
-    readonly closesAt: string;
+    readonly status: "open" | "closed";
+    readonly publishedAt: string | null;
     readonly submissionUrl: string;
   };
   readonly sessions: readonly PublicSession[];
@@ -66,8 +66,8 @@ export const allowlistPublicProjection = (
   cfp: {
     title: projection.cfp.title,
     description: projection.cfp.description,
-    opensAt: projection.cfp.opensAt,
-    closesAt: projection.cfp.closesAt,
+    status: projection.cfp.status,
+    publishedAt: projection.cfp.publishedAt,
     submissionUrl: projection.cfp.submissionUrl,
   },
   sessions: projection.sessions.map((session) => ({

@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
+import { bytesToBase64 } from "../src/ContentWorkspace";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
@@ -22,6 +23,10 @@ const event = {
 };
 
 describe("App", () => {
+  it("encodes files larger than the JavaScript argument limit", () => {
+    const bytes = new Uint8Array(200_000).map((_, index) => index % 251);
+    expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -46,6 +51,32 @@ describe("App", () => {
     expect(screen.getByText("Olivia Organizer")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Event settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create event" })).toBeEnabled();
+  });
+
+  it("does not mount communications for a selected event where the actor is not organizer", async () => {
+    const mixedRoleSession = {
+      ...organizerSession,
+      eventAccess: [{ eventId, role: "reviewer", capabilities: ["events:read"] }],
+      capabilities: ["events:read", "communications:manage"],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              String(input).endsWith("/api/session") ? mixedRoleSession : { events: [event] },
+            ),
+            { status: 200 },
+          ),
+        ),
+      ),
+    );
+    render(<App />);
+    await screen.findByRole("heading", { name: "Greenroom Summit" });
+    expect(
+      screen.queryByRole("button", { name: "Inspect delivery history" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a safe unauthenticated state with correlation reference", async () => {
@@ -137,7 +168,9 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("Pat Attendee");
     expect(screen.getByRole("link", { name: "Published event" })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith("/api/public/events");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
   });
 
   it("creates an event inside the organizer organization", async () => {

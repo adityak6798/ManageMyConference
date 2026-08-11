@@ -29,8 +29,8 @@ const safeProjection = {
   cfp: {
     title: "CFP",
     description: "Join",
-    opensAt: "2026-08-01T00:00:00.000Z",
-    closesAt: "2026-08-20T00:00:00.000Z",
+    status: "open" as const,
+    publishedAt: "2026-08-01T00:00:00.000Z",
     submissionUrl: "https://example.com/cfp",
   },
   sessions: [],
@@ -65,7 +65,9 @@ describe("publication snapshots", () => {
     const service = new PublicationService(repository, () => new Date("2026-08-10T00:00:00.000Z"));
     expect((await service.publicBySlug("safe-event"))?.event.summary).toBe("Public");
     const organizer = await resolveSeededDemoActor("organizer");
-    expect(() => service.preview(null, record.eventId)).toThrow(AuthenticationRequiredError);
+    await expect(service.preview(null, record.eventId)).rejects.toBeInstanceOf(
+      AuthenticationRequiredError,
+    );
     await expect(
       service.publish(await resolveSeededDemoActor("reviewer"), record.eventId),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
@@ -73,6 +75,100 @@ describe("publication snapshots", () => {
     expect(await service.publicBySlug("safe-event")).toBeNull();
     await service.publish(organizer, record.eventId);
     expect((await service.publicBySlug("safe-event"))?.event.summary).toBe("PRIVATE DRAFT EDIT");
+  });
+
+  it("composes owning-domain public interfaces only when previewing or republishing", async () => {
+    let record: Publication = {
+      eventId: "00000000-0000-4000-8000-000000000001",
+      slug: "safe-event",
+      state: "published",
+      draft: safeProjection,
+      published: safeProjection,
+      publishedAt: "2026-08-01T00:00:00.000Z",
+    };
+    const repository: PublicationRepository = {
+      findPublicBySlug: vi.fn(async () => record),
+      findByEventId: vi.fn(async () => record),
+      publish: vi.fn(async (_eventId, publishedAt, published) => {
+        record = { ...record, state: "published", publishedAt, published };
+        return record;
+      }),
+      unpublish: vi.fn(async () => record),
+    };
+    const service = new PublicationService(
+      repository,
+      {
+        event: vi.fn(async () => ({ name: "Composed Event", timezone: "America/Los_Angeles" })),
+        cfp: vi.fn(async () => ({
+          title: "Owned CFP",
+          description: "From the CFP snapshot",
+          status: "closed" as const,
+          publishedAt: "2026-08-09T12:00:00.000Z",
+        })),
+        content: {
+          publishedEventContent: vi.fn(async () => ({
+            sessions: [
+              {
+                id: "session-one",
+                title: "Owned session",
+                abstract: "Accepted content",
+                format: "talk",
+                speakerProfileIds: ["speaker-one"],
+                tags: [],
+                tracks: [],
+              },
+            ],
+            speakers: [
+              {
+                id: "speaker-one",
+                name: "Owned speaker",
+                bio: "Public bio",
+                pronouns: "they/them",
+                organization: "Greenroom",
+              },
+            ],
+            assets: [],
+          })),
+        },
+        schedule: vi.fn(async () => ({
+          eventId: record.eventId,
+          version: 1,
+          publishedAt: "2026-08-09T13:00:00.000Z",
+          agenda: {
+            eventId: record.eventId,
+            rooms: [{ id: "room-one", name: "Main stage" }],
+            tracks: [{ id: "track-one", name: "Platform", color: "#000000" }],
+            slots: [
+              {
+                id: "slot-one",
+                startsAt: "2026-09-01T16:00:00.000Z",
+                endsAt: "2026-09-01T17:00:00.000Z",
+              },
+            ],
+            sessions: [],
+            placements: [
+              {
+                id: "placement-one",
+                sessionId: "session-one",
+                roomId: "room-one",
+                trackId: "track-one",
+                slotId: "slot-one",
+              },
+            ],
+          },
+        })),
+      },
+      () => new Date("2026-08-10T00:00:00.000Z"),
+    );
+    expect((await service.publicBySlug("safe-event"))?.event.name).toBe("Safe Event");
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.publish(organizer, record.eventId);
+    expect(record.published).toMatchObject({
+      event: { name: "Composed Event", startsOn: "2026-09-01" },
+      cfp: { title: "Owned CFP", status: "closed" },
+      sessions: [{ slug: "session-one", track: "Platform", room: "Main stage" }],
+      speakers: [{ slug: "speaker-one", name: "Owned speaker" }],
+    });
   });
 
   it("returns an unauthenticated allowlisted API projection without private source fields", async () => {

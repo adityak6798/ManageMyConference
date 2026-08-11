@@ -15,6 +15,8 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 - `PRD-ABS-001` Organizers filter, assign, bulk-transition, and audit submissions through configured statuses.
 - `PRD-REV-001` An evaluation plan defines criteria and scales. Reviewers see assignments, conflicts, completion, and no aggregate bias before submission.
 
+`PRD-ABS-001` organizers configure an ordered event-scoped status set, filter proposals by those statuses, and transition a selected set atomically; each successful transition displays its transaction-current prior status, next status, proposal, actor, and occurrence time. `PRD-REV-001` organizers configure at least one uniquely identified, explicitly bounded scoring criterion and may assign a proposal once to a user who holds the reviewer role for that event. The rubric is locked once assignments exist. Reviewers can access only their own event assignments, declare a conflict, save a validated draft, and complete it. A conflicted assignment cannot be evaluated; completion is terminal and atomically persists the evaluation, aggregate outcome, and one idempotent completion event. Reviewer responses never contain aggregate outcomes; organizers receive an outcome only after at least one completed evaluation. Completion publishes version 1 of `EVT-REVIEW-COMPLETED` with organization/event/proposal/assignment scope and correlation/causation metadata.
+
 ## Speakers, content, and CRM
 
 - `PRD-SPK-001` A person has one event-scoped speaker profile linked to sessions, tasks, assets, messages, and optional CRM origin.
@@ -24,10 +26,10 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 
 ## Agenda, communications, integrations, public
 
-- `PRD-AGD-001` The agenda manages rooms, tracks, timeslots, and sessions; speaker, room, and overlap conflicts are explicit.
+- `PRD-AGD-001` The agenda manages event-scoped rooms, tracks, timeslots, and placements over sessions supplied by the content application query. A placement may be added, moved, or removed in a private draft. Overlapping placements explicitly identify every shared room, speaker, or session and give a resolution; a conflicted draft cannot be published. Publication is an organizer-only, auditable action that creates a numbered immutable snapshot. Only the latest snapshot—not subsequent draft edits—is available through the public schedule projection.
 - `PRD-COM-001` Templates and triggers enqueue immutable delivery attempts with retry and terminal state; sent history is auditable.
 - `PRD-INT-001` SQL is canonical. Airtable and Accelevents receive versioned outbound projections through typed ports.
-- `PRD-PUB-001` Only published projections are public. Event hub, schedule, sessions, speakers, and CFP have direct and embeddable views. Publishing copies the current allowlisted draft projection into an immutable public snapshot; draft edits remain invisible until the next publish. Unpublishing removes the public snapshot immediately and public routes return the same not-published response used for unknown slugs.
+- `PRD-PUB-001` Only published projections are public. Event hub, schedule, sessions, speakers, and CFP have direct and embeddable views. Preview and publish compose event metadata plus the published CFP, accepted-content, and agenda snapshots through their public application interfaces; publishing never reads another domain's tables. Publishing copies that allowlisted composition into an immutable public snapshot, so later source edits remain invisible until the next publish. Unpublishing removes the public snapshot immediately and public routes return the same not-published response used for unknown slugs.
 - `PRD-AI-001` AI may draft or summarize but never silently changes canonical state; manual fallback is required.
 
 Detailed wire and event contracts belong in [interfaces](../interfaces/README.md); data ownership belongs in [domain boundaries](../architecture/domain-boundaries.md).

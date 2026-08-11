@@ -1,4 +1,4 @@
-CREATE TABLE public_event_projections (
+CREATE TABLE IF NOT EXISTS public_event_projections (
   event_id TEXT PRIMARY KEY NOT NULL REFERENCES events(id),
   slug TEXT UNIQUE NOT NULL CHECK (length(slug) BETWEEN 1 AND 120),
   state TEXT NOT NULL CHECK (state IN ('draft', 'published', 'unpublished')),
@@ -7,5 +7,5 @@ CREATE TABLE public_event_projections (
   published_at TEXT
 );
 
-CREATE INDEX public_event_projections_slug_state_idx
+CREATE INDEX IF NOT EXISTS public_event_projections_slug_state_idx
   ON public_event_projections(slug, state);

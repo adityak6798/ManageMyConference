@@ -254,15 +254,13 @@ export function PublicEventApp() {
             <h1>{projection.cfp.title}</h1>
             <p className="lede">{projection.cfp.description}</p>
             <p>
-              Submissions close{" "}
-              <time dateTime={projection.cfp.closesAt}>
-                {eventTime(projection.cfp.closesAt, projection.event.timezone, "long")}
-              </time>
-              .
+              {projection.cfp.status === "open" ? "Open for submissions." : "Submissions closed."}
             </p>
-            <a className="primary" href={projection.cfp.submissionUrl}>
-              Submit a proposal
-            </a>
+            {projection.cfp.status === "open" && (
+              <a className="primary" href={projection.cfp.submissionUrl}>
+                Submit a proposal
+              </a>
+            )}
           </article>
         )}
       </main>

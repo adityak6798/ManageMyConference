@@ -10,9 +10,11 @@ interface D1Result<T> {
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   all<T>(): Promise<D1Result<T>>;
+  run<T = unknown>(): Promise<D1Result<T>>;
 }
 export interface IdentityDatabasePort {
   prepare(query: string): D1Statement;
+  batch<T = unknown>(statements: D1Statement[]): Promise<D1Result<T>[]>;
 }
 
 interface UserRow {
@@ -29,9 +31,18 @@ interface EventRoleRow {
 }
 
 const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
-  organizer: ["events:read", "events:settings:read", "events:settings:update"],
-  reviewer: ["events:read"],
-  speaker: ["events:read"],
+  organizer: [
+    "events:read",
+    "events:settings:read",
+    "events:settings:update",
+    "agenda:manage",
+    "crm:manage",
+    "content:read",
+    "content:manage",
+    "review:manage",
+  ],
+  reviewer: ["events:read", "review:evaluate"],
+  speaker: ["events:read", "content:read"],
   public: [],
 };
 
@@ -41,13 +52,12 @@ export class D1IdentityDirectory implements IdentityDirectory {
 
   async findByPersona(persona: DemoPersona): Promise<Actor | null> {
     const users = await this.database
-      .prepare("SELECT id, name, persona FROM users WHERE persona = ? ORDER BY id LIMIT 2")
-      .bind(persona)
+      .prepare("SELECT id, name, persona FROM users WHERE id = ? AND persona = ? LIMIT 1")
+      .bind(`seed-${persona}`, persona)
       .all<UserRow>();
     if (!users.success)
       throw new Error(`D1 failed to resolve identity: ${users.error ?? "unknown error"}`);
     if (!users.results?.length) return null;
-    if (users.results.length !== 1) throw new Error(`Demo persona ${persona} is not unique`);
     const user = users.results[0];
     if (!user) return null;
 
@@ -81,10 +91,11 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (organizationList.length) {
       capabilities.add("events:read");
       capabilities.add("events:create");
+      capabilities.add("communications:manage");
+      capabilities.add("agenda:manage");
     }
-    if (eventAccess.some(({ capabilities: assigned }) => assigned.has("events:read"))) {
-      capabilities.add("events:read");
-    }
+    for (const access of eventAccess)
+      for (const capability of access.capabilities) capabilities.add(capability);
     return {
       id: user.id,
       name: user.name,
@@ -93,5 +104,70 @@ export class D1IdentityDirectory implements IdentityDirectory {
       eventAccess,
       capabilities,
     };
+  }
+
+  async isReviewerForEvent(userId: string, eventId: string): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id FROM event_roles WHERE user_id = ? AND event_id = ? AND role = 'reviewer' LIMIT 1",
+      )
+      .bind(userId, eventId)
+      .all<{ event_id: string }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to validate reviewer assignment: ${result.error ?? "unknown error"}`,
+      );
+    return result.results?.length === 1;
+  }
+  async isSpeakerForEvent(userId: string, eventId: string): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id FROM event_roles WHERE user_id = ? AND event_id = ? AND role = 'speaker' LIMIT 1",
+      )
+      .bind(userId, eventId)
+      .all<{ event_id: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to validate speaker access: ${result.error ?? "unknown error"}`);
+    return result.results?.length === 1;
+  }
+  async listReviewersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT u.id, u.name FROM users u JOIN event_roles r ON r.user_id = u.id WHERE r.event_id = ? AND r.role = 'reviewer' ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to list event reviewers: ${result.error ?? "unknown error"}`);
+    return result.results ?? [];
+  }
+
+  async grantOrganizer(eventId: string, userId: string): Promise<void> {
+    const result = await this.database
+      .prepare(
+        "INSERT OR IGNORE INTO event_roles (event_id, user_id, role) VALUES (?, ?, 'organizer')",
+      )
+      .bind(eventId, userId)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to grant event organizer: ${result.error ?? "unknown error"}`);
+  }
+
+  async provisionSpeaker(userId: string, name: string, eventId: string): Promise<void> {
+    const results = await this.database.batch([
+      // ERROR-INTENT: a duplicate ID means a concurrent conversion already provisioned this identity.
+      this.database
+        .prepare("INSERT OR IGNORE INTO users (id,name,persona) VALUES (?,?,'speaker')")
+        .bind(userId, name),
+      // ERROR-INTENT: a duplicate event role means the canonical speaker already has access.
+      this.database
+        .prepare("INSERT OR IGNORE INTO event_roles (event_id,user_id,role) VALUES (?,?,'speaker')")
+        .bind(eventId, userId),
+    ]);
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(
+        `D1 failed to provision speaker identity: ${failed.error ?? "unknown error"}`,
+      );
   }
 }
