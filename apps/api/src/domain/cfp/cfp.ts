@@ -6,7 +6,30 @@ export interface CfpField {
   readonly guidance: string;
   readonly required: boolean;
   readonly options: readonly string[];
+  /**
+   * The longest answer this field accepts. Optional because forms published before limits
+   * existed carry no value; `cfpFieldMaxLength` supplies the type default for those.
+   */
+  readonly maxLength?: number | undefined;
 }
+/**
+ * Default answer ceilings per field type.
+ *
+ * `packages/contracts/src/index.ts` repeats these numbers for the form builder because the
+ * application layer may not import that package. The two must stay in agreement.
+ */
+export const CFP_FIELD_MAX_LENGTHS: Readonly<Record<CfpFieldType, number>> = {
+  short_text: 200,
+  long_text: 5_000,
+  // RFC 5321 section 4.5.3.1.3 caps a forward path at 256 octets including the angle brackets.
+  email: 254,
+  select: 120,
+};
+/**
+ * One rule for "how long may this answer be", read by the validator and advertised by the form.
+ */
+export const cfpFieldMaxLength = (field: Pick<CfpField, "type" | "maxLength">): number =>
+  field.maxLength ?? CFP_FIELD_MAX_LENGTHS[field.type];
 export interface CfpForm {
   readonly eventId: string;
   readonly title: string;

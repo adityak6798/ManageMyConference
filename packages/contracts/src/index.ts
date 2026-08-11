@@ -116,8 +116,6 @@ export const publishedScheduleSchema = z.object({
   publishedBy: z.string(),
   agenda: agendaDraftSchema.omit({ conflicts: true }),
 });
-export const publicScheduleSchema = publishedScheduleSchema.omit({ publishedBy: true });
-export type PublicScheduleDto = z.infer<typeof publicScheduleSchema>;
 export const sessionEventAccessSchema = z.object({
   eventId: z.string().uuid(),
   role: demoPersonaSchema,
@@ -257,6 +255,9 @@ export const apiErrorCodeSchema = z.enum([
   "NOT_FOUND",
   "CONFLICT",
   "AGENDA_CONFLICT",
+  // The unauthenticated CFP submission route is throttled per client and event; a caller
+  // that exceeds the window is told so rather than being given a misleading 4xx.
+  "RATE_LIMITED",
   "INTERNAL_ERROR",
 ]);
 
@@ -285,9 +286,24 @@ export const prospectContactSchema = z.object({
   email: z.string().email(),
   isPrimary: z.boolean(),
 });
+/*
+ * Two vocabularies, deliberately different sizes. `stage-change` and `conversion` are
+ * written by the CRM service as the transition they describe is applied, so they are part
+ * of what a timeline returns but not of what a client may submit: a caller who could post
+ * one could tell the timeline a prospect moved when it never did.
+ */
+export const prospectActivityKindSchema = z.enum([
+  "note",
+  "email",
+  "call",
+  "meeting",
+  "stage-change",
+  "conversion",
+]);
+export const recordableProspectActivityKindSchema = z.enum(["note", "email", "call", "meeting"]);
 export const prospectActivitySchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(["note", "email", "call", "meeting", "stage-change", "conversion"]),
+  kind: prospectActivityKindSchema,
   summary: z.string(),
   private: z.boolean(),
   occurredAt: z.string().datetime(),
@@ -325,7 +341,7 @@ export const updateProspectInputSchema = z
     nextActionAt: z.string().datetime().nullable().optional(),
     activity: z
       .object({
-        kind: z.enum(["note", "email", "call", "meeting", "stage-change"]),
+        kind: recordableProspectActivityKindSchema,
         summary: z.string().trim().min(1).max(1000),
         private: z.boolean().default(true),
       })
@@ -350,6 +366,15 @@ export const prospectListQuerySchema = z.object({
 });
 export const prospectResponseSchema = z.object({ prospect: prospectSchema });
 export const prospectListResponseSchema = z.object({ prospects: z.array(prospectSchema) });
+/**
+ * A user identity-access reports as assignable on this event. Ids are opaque identity strings
+ * (`seed-organizer`), not UUIDs, so the CRM never invents an owner the directory does not know.
+ */
+export const prospectOwnerSchema = z.object({ id: z.string(), name: z.string() });
+export const prospectOwnerListResponseSchema = z.object({
+  owners: z.array(prospectOwnerSchema),
+});
+export type ProspectOwnerDto = z.infer<typeof prospectOwnerSchema>;
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export const contentSessionSchema = z.object({
@@ -363,6 +388,19 @@ export const contentSessionSchema = z.object({
   tags: z.array(z.string()),
   tracks: z.array(z.string()),
   publicationState: z.enum(["draft", "ready", "published"]),
+  /*
+   * Where the event's published agenda places this session — never a stored property of the
+   * session. It is resolved from the agenda publication in force on every read, and is absent
+   * while that publication does not place this session (including before any schedule is
+   * published at all).
+   *
+   * It follows the **agenda** publication, which is not the same clock as
+   * `/api/public/events/{slug}/schedule`: that serves the **site** publication, frozen when the
+   * organizer last published the event page. Publishing the agenda alone moves this field and
+   * leaves the public page where it was, so the two disagree until the site is republished.
+   * That window is the rule (`PRD-PUB-001`), not a defect — but they are not interchangeable,
+   * and an earlier version of this comment claimed they always agree.
+   */
   schedule: z
     .object({
       startsAt: z.string().datetime(),
@@ -417,37 +455,16 @@ export const contentWorkspaceSchema = z.object({
   messages: z.array(speakerMessageSchema),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
-export const acceptContentInputSchema = z
-  .object({
-    proposalId: z.string().trim().min(1),
-    title: z.string().trim().min(1).max(160),
-    abstract: z.string().trim().min(1),
-    format: z.string().trim().min(1),
-    tags: z.array(z.string().trim().min(1)),
-    tracks: z.array(z.string().trim().min(1)),
-    speakers: z
-      .array(
-        z.object({
-          userId: z.string().min(1),
-          sourcePersonId: z.string().min(1),
-          name: z.string().trim().min(1),
-          email: z.string().email(),
-        }),
-      )
-      .min(1),
-  })
-  .superRefine((input, context) => {
-    const seen = new Set<string>();
-    input.speakers.forEach((speaker, index) => {
-      if (seen.has(speaker.sourcePersonId))
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["speakers", index, "sourcePersonId"],
-          message: "Each person may appear only once",
-        });
-      seen.add(speaker.sourcePersonId);
-    });
-  });
+/**
+ * Acceptance names a proposal and nothing else.
+ *
+ * Title, abstract, format and speaker identity are resolved server-side through the review
+ * domain's public application interface (`ARC-FLOW-001`); a client that could supply them could
+ * also invent them, which is how a fabricated proposal id used to create a session with a speaker
+ * who had never applied. Organizers refine the session afterwards with
+ * `PATCH /api/content-sessions/{sessionId}`.
+ */
+export const acceptContentInputSchema = z.object({ proposalId: z.string().uuid() });
 export type AcceptContentInput = z.infer<typeof acceptContentInputSchema>;
 export const updateSpeakerProfileInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -456,6 +473,18 @@ export const updateSpeakerProfileInputSchema = z.object({
   organization: z.string().trim().max(120),
 });
 export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInputSchema>;
+/**
+ * Which uploaded file is this speaker's headshot.
+ *
+ * A request of its own rather than a field on `updateSpeakerProfileInputSchema`, because the
+ * two carry different authority: the profile text is the speaker's to write, while a headshot
+ * may also be set — or removed — by an organizer of the event whose programme it appears on.
+ * Naming a photo is a *choice*, never an exposure: the asset's visibility is untouched, so a
+ * private upload stays private and the public projection emits a `photoUrl` only for an asset
+ * an organizer separately marked publishable. `DELETE` on the same address removes the choice.
+ */
+export const setSpeakerPhotoInputSchema = z.object({ assetId: z.string().uuid() });
+export type SetSpeakerPhotoInput = z.infer<typeof setSpeakerPhotoInputSchema>;
 export const uploadSpeakerAssetInputSchema = z.object({
   profileId: z.string().uuid(),
   name: z.string().trim().min(1).max(160),
@@ -515,12 +544,23 @@ export const reviewAssignmentParamsSchema = z.object({
   eventId: z.string().uuid(),
   assignmentId: z.string().uuid(),
 });
+export const proposalSubmitterSchema = z.object({
+  name: z.string(),
+  email: z.string().email(),
+});
 export const proposalSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
   title: z.string(),
   abstract: z.string(),
+  /** The submitter's display name, or the mask the reviewer projection substitutes for it. */
   submitterName: z.string(),
+  /**
+   * Organizer-only contact details, derived from the answers using the published form's field
+   * types. `null` in the reviewer queue (blind review) and for a form that collected no email.
+   */
+  submitter: proposalSubmitterSchema.nullable(),
+  /** Never carries an `email`-typed answer; contact details live only in `submitter`. */
   answers: z.array(
     z.object({
       fieldId: z.string(),
@@ -531,6 +571,43 @@ export const proposalSchema = z.object({
   ),
   status: proposalStatusSchema,
 });
+// @spec PRD-REV-001 PRD-CNT-001
+export const proposalDecisionOutcomeSchema = z.enum(["accepted", "declined"]);
+export const proposalDecisionSchema = z.object({
+  eventId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  outcome: proposalDecisionOutcomeSchema,
+  decidedBy: z.string(),
+  decidedAt: z.string().datetime(),
+  note: z.string(),
+});
+export const recordProposalDecisionInputSchema = z.object({
+  proposalIds: z.array(z.string().uuid()).min(1).max(100),
+  outcome: proposalDecisionOutcomeSchema,
+  note: z.string().trim().max(1000).default(""),
+});
+export type RecordProposalDecisionInput = z.infer<typeof recordProposalDecisionInputSchema>;
+/**
+ * What became of the content half of one accepted proposal.
+ *
+ * Accepting is two domains deep — the review decision authorizes the session — but it is one
+ * request: the transport records the decision and then runs content acceptance. The two are not
+ * one transaction, so this says which of them happened.
+ *
+ * - `content`: the decision is recorded and `sessionId` names the session it produced.
+ * - `decision_only`: the decision is recorded and durable, but the content domain refused the
+ *   session and said why in `detail`/`fieldErrors`. Nothing is lost and nothing is half-written:
+ *   re-posting the identical decision overwrites it and retries the session, so a retry heals
+ *   the gap once the cause is gone.
+ */
+export const proposalAcceptanceSchema = z.object({
+  proposalId: z.string().uuid(),
+  state: z.enum(["content", "decision_only"]),
+  sessionId: z.string().uuid().nullable(),
+  detail: z.string(),
+  fieldErrors: z.record(z.array(z.string())),
+});
+export type ProposalAcceptanceDto = z.infer<typeof proposalAcceptanceSchema>;
 export const reviewCriterionSchema = z
   .object({
     id: z
@@ -595,7 +672,23 @@ export const organizerReviewWorkspaceSchema = z.object({
   outcomes: z.array(reviewOutcomeSchema),
   audit: z.array(proposalAuditSchema),
   statuses: z.array(proposalStatusDefinitionSchema),
+  /**
+   * Who this organizer may hand an abstract to — the assignable list, which excludes the
+   * signed-in organizer because the console has no reviewer queue for her to open.
+   */
   reviewers: z.array(reviewerOptionSchema),
+  /**
+   * Every reviewer of the event, whoever is signed in: the directory an *existing* assignment's
+   * name is resolved through. Who may be assigned and who is already assigned are two different
+   * questions, and answering the second from `reviewers` printed a raw user id (`seed-organizer`)
+   * in the Reviewers column for anyone the assignable list withholds. Optional so a client
+   * written against the pre-directory shape still parses this response; the server always sends
+   * it.
+   */
+  reviewerDirectory: z.array(reviewerOptionSchema).optional(),
+  // Optional so a client written against the pre-decision shape still parses this response;
+  // the server always sends it.
+  decisions: z.array(proposalDecisionSchema).optional(),
 });
 export const reviewConflictSchema = z.object({
   assignmentId: z.string().uuid(),
@@ -631,12 +724,29 @@ export const reviewPlanResponseSchema = z.object({ plan: reviewPlanSchema });
 export const reviewAssignmentsResponseSchema = z.object({
   assignments: z.array(reviewAssignmentSchema),
 });
+/**
+ * The assignment that was removed, echoed back so the caller can name it in what it announces.
+ * Removing an assignment is how a mis-assignment is corrected — and, when it was the last one,
+ * how the rubric stops being locked by it.
+ */
+export const reviewAssignmentRemovalResponseSchema = z.object({
+  assignment: reviewAssignmentSchema,
+});
 export const proposalTransitionResponseSchema = z.object({
   proposals: z.array(proposalSchema),
   mode: z.literal("atomic"),
 });
 export const proposalStatusesResponseSchema = z.object({
   statuses: z.array(proposalStatusDefinitionSchema),
+});
+export const proposalDecisionResponseSchema = z.object({
+  proposals: z.array(proposalSchema),
+  decisions: z.array(proposalDecisionSchema),
+  /**
+   * One entry per decided proposal for an accepted outcome, empty for a decline. Defaulted so a
+   * client written against the pre-composition shape still parses this response.
+   */
+  acceptances: z.array(proposalAcceptanceSchema).default([]),
 });
 export const reviewConflictResponseSchema = z.object({ conflict: reviewConflictSchema });
 export const evaluationResponseSchema = z.object({ evaluation: evaluationSchema });
@@ -646,6 +756,25 @@ export type ReviewerQueueDto = z.infer<typeof reviewerQueueSchema>;
 export type SaveEvaluationInput = z.infer<typeof saveEvaluationInputSchema>;
 // @spec PRD-CFP-001 PRD-CFP-002
 export const cfpFieldTypeSchema = z.enum(["short_text", "long_text", "email", "select"]);
+/**
+ * The longest answer each field type accepts when the organizer states no explicit limit.
+ *
+ * The CFP domain repeats these numbers in `apps/api/src/domain/cfp/cfp.ts` because the
+ * application layer may not import this package; the two must stay in agreement. The
+ * authoritative value for any published form is the `maxLength` persisted on its fields,
+ * which is what both the form builder and `validateAnswers` read.
+ */
+export const CFP_FIELD_MAX_LENGTHS = {
+  short_text: 200,
+  long_text: 5_000,
+  // RFC 5321 section 4.5.3.1.3 caps a forward path at 256 octets including the angle brackets.
+  email: 254,
+  select: 120,
+} as const satisfies Record<z.infer<typeof cfpFieldTypeSchema>, number>;
+/** The longest answer any single field may accept, and the cap on an explicit `maxLength`. */
+export const CFP_ANSWER_MAX_LENGTH = 10_000;
+/** Answers are keyed by field id, so a submission can never carry more keys than a form has. */
+export const CFP_ANSWER_MAX_FIELDS = 40;
 export const cfpFieldSchema = z.object({
   id: z.string().min(1).max(80),
   type: cfpFieldTypeSchema,
@@ -653,7 +782,17 @@ export const cfpFieldSchema = z.object({
   guidance: z.string().trim().max(500).default(""),
   required: z.boolean().default(false),
   options: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+  /**
+   * The longest answer this field accepts. Optional so forms saved before limits existed
+   * still parse; `cfpFieldMaxLength` supplies the type default for those.
+   */
+  maxLength: z.number().int().min(1).max(CFP_ANSWER_MAX_LENGTH).optional(),
 });
+/** The limit the form builder must advertise and the validator must enforce, for one field. */
+export const cfpFieldMaxLength = (field: {
+  type: z.infer<typeof cfpFieldTypeSchema>;
+  maxLength?: number | undefined;
+}): number => field.maxLength ?? CFP_FIELD_MAX_LENGTHS[field.type];
 export const cfpStatusSchema = z.enum(["draft", "open", "closed"]);
 const cfpFieldsSchema = z
   .array(cfpFieldSchema)
@@ -691,9 +830,21 @@ export const cfpFormSchema = saveCfpInputSchema.extend({
 });
 export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
 export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close", "reopen"]) });
+/**
+ * The only unauthenticated write in the API, so its body is bounded before it reaches a domain.
+ *
+ * A key is a field id (`cfpFieldSchema.id`), a value is one answer, and a submission can carry
+ * no more keys than a form has fields (`cfpFieldsSchema.max(40)`). The per-value ceiling here is
+ * the absolute maximum any field may declare; `validateAnswers` then enforces the narrower,
+ * per-field `maxLength` the published form advertises.
+ */
 export const submitProposalInputSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(120),
-  answers: z.record(z.string()),
+  answers: z
+    .record(z.string().min(1).max(80), z.string().max(CFP_ANSWER_MAX_LENGTH))
+    .refine((answers) => Object.keys(answers).length <= CFP_ANSWER_MAX_FIELDS, {
+      message: `A proposal carries at most ${CFP_ANSWER_MAX_FIELDS} answers`,
+    }),
 });
 export const proposalConfirmationSchema = z.object({
   confirmationId: z.string().uuid(),
@@ -722,7 +873,9 @@ export const publicSpeakerSchema = z.object({
   slug: routeSlugSchema,
   name: z.string(),
   bio: z.string(),
-  headline: z.string(),
+  // Composed from the speaker profile's `organization`. It was published as `headline`,
+  // which promised a job title and delivered an employer.
+  organization: z.string(),
   photoUrl: z.string().optional(),
 });
 export const publicSessionSchema = z.object({
@@ -760,6 +913,29 @@ export const publicEventProjectionSchema = z.object({
 export type PublicEventProjectionDto = z.infer<typeof publicEventProjectionSchema>;
 export const publicEventResponseSchema = z.object({ projection: publicEventProjectionSchema });
 export const publicEventSlugParamsSchema = z.object({ slug: routeSlugSchema });
+/*
+ * The public schedule is a view of the published projection, not of the agenda draft.
+ *
+ * It used to be the agenda publication verbatim — every session on the organizer's board,
+ * including ones whose content is still a draft, keyed by `content_sessions` and
+ * `speaker_profiles` primary keys. A session appears here only if the event's published
+ * snapshot publishes it, and it is named by the same slug that snapshot assigned, so the
+ * schedule and the event hub address one session by one public identifier and no storage
+ * id crosses the boundary. `version` and `publishedAt` stay: they are the agenda's own
+ * statement of which numbered immutable snapshot is in force (`PRD-AGD-001`).
+ */
+// @spec PRD-AGD-001 PRD-PUB-001
+export const publicScheduleSessionSchema = publicSessionSchema.required({
+  startsAt: true,
+  endsAt: true,
+});
+export const publicScheduleSchema = z.object({
+  eventSlug: routeSlugSchema,
+  version: z.number().int().positive(),
+  publishedAt: z.string().datetime(),
+  sessions: z.array(publicScheduleSessionSchema),
+});
+export type PublicScheduleDto = z.infer<typeof publicScheduleSchema>;
 export const publicationPreviewResponseSchema = z.object({
   publication: z.object({
     eventId: z.string().uuid(),

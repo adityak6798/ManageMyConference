@@ -142,6 +142,25 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return result.results ?? [];
   }
 
+  /**
+   * The event's staff. `DISTINCT` because a user may hold both roles on one event, and the
+   * `event_id` predicate is what keeps the list event-scoped: a role held on another event
+   * never appears here.
+   */
+  async listAssignableOwnersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT DISTINCT u.id, u.name FROM users u JOIN event_roles r ON r.user_id = u.id WHERE r.event_id = ? AND r.role IN ('organizer','reviewer') ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to list assignable event owners: ${result.error ?? "unknown error"}`,
+      );
+    return result.results ?? [];
+  }
+
   async grantOrganizer(eventId: string, userId: string): Promise<void> {
     const result = await this.database
       .prepare(

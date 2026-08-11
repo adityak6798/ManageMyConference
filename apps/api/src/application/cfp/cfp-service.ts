@@ -1,4 +1,9 @@
-import type { CfpField, CfpForm, ProposalSubmission } from "../../domain/cfp/cfp";
+import {
+  type CfpField,
+  type CfpForm,
+  cfpFieldMaxLength,
+  type ProposalSubmission,
+} from "../../domain/cfp/cfp";
 import type { Actor } from "../identity/actor";
 import { AuthenticationRequiredError, CapabilityDeniedError } from "../identity/actor";
 import type { CfpRepository } from "./cfp-repository";
@@ -77,11 +82,22 @@ export class CfpService {
       throw new CfpStateError("Only a closed CFP can be reopened");
     const source = state === "publish" ? draft : published;
     if (!source) throw new CfpUnavailableError("Publish the CFP before changing its state");
+    /*
+     * Publishing changes the form applicants see. It does not decide whether they may submit.
+     *
+     * Republishing used to overwrite a `closed` publication with `open`, so an organizer who
+     * had closed submissions after the deadline and later fixed a typo reopened the call by
+     * accident — silently, since the only message named the new version of the form. Open and
+     * closed is what "Close live CFP" and "Reopen live CFP" are for, and those two are the only
+     * things that may change it. A first publication has no live state to preserve and opens.
+     */
+    const live: "open" | "closed" = published?.status === "closed" ? "closed" : "open";
+    const status = state === "publish" ? live : state === "close" ? "closed" : "open";
     const form: CfpForm = {
       ...source,
-      status: state === "close" ? "closed" : "open",
+      status,
       publishedAt: source.publishedAt ?? this.now().toISOString(),
-      publishedStatus: state === "close" ? "closed" : "open",
+      publishedStatus: status,
     };
     await this.repository.savePublished(form, state === "publish" || draft.status !== "draft");
     return (await this.getForOrganizer(actor, eventId)) ?? form;
@@ -131,7 +147,13 @@ function validateAnswers(fields: readonly CfpField[], answers: Record<string, st
     if (!ids.has(key)) errors[`answers.${key}`] = ["This field is not part of the published form."];
   for (const field of fields) {
     const value = answers[field.id]?.trim() ?? "";
+    const limit = cfpFieldMaxLength(field);
     if (field.required && !value) errors[`answers.${field.id}`] = ["This field is required."];
+    // The limit the published form advertises is the limit the submission is held to, so a
+    // form cannot promise room the server refuses — nor accept a 120 KB answer it never asked
+    // for. `submitProposalInputSchema` bounds the body first; this bounds each field.
+    else if (value.length > limit)
+      errors[`answers.${field.id}`] = [`Keep this answer under ${limit} characters.`];
     else if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
       errors[`answers.${field.id}`] = ["Enter a valid email address."];
     else if (value && field.type === "select" && !field.options.includes(value))

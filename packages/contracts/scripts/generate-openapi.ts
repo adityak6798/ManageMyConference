@@ -31,11 +31,15 @@ import {
   healthResponseSchema,
   prospectListQuerySchema,
   prospectListResponseSchema,
+  prospectOwnerListResponseSchema,
   prospectPathSchema,
   prospectResponseSchema,
   organizerReviewWorkspaceSchema,
+  proposalDecisionResponseSchema,
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
+  recordProposalDecisionInputSchema,
+  reviewAssignmentRemovalResponseSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewerQueueSchema,
@@ -44,6 +48,7 @@ import {
   reviewOrganizerQuerySchema,
   reviewPlanResponseSchema,
   saveEvaluationInputSchema,
+  setSpeakerPhotoInputSchema,
   evaluationResponseSchema,
   declareConflictInputSchema,
   sessionResponseSchema,
@@ -209,7 +214,8 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/events/{eventId}/review/transitions",
-  description: "Atomically transitions every named proposal or applies none.",
+  description:
+    "Atomically transitions every named proposal or applies none. The reserved decision statuses are refused here: reaching `accepted`/`declined` is the effect of a recorded decision, so `POST /api/events/{eventId}/review/decisions` is what records one.",
   security: [{ sessionCookie: [] }],
   request: {
     params: reviewEventParamsSchema,
@@ -219,6 +225,28 @@ registry.registerPath({
     200: {
       description: "Atomic proposal transition",
       content: json(proposalTransitionResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/review/decisions",
+  description:
+    "Records an accept/decline decision and moves the proposal to the matching reserved status. For an accepted outcome the same request also creates the session, because the recorded decision is what authorizes it; `acceptances` reports which half happened per proposal. A `decision_only` entry means the decision is durable and the session was refused, so re-posting the identical decision retries it.",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: reviewEventParamsSchema,
+    body: { required: true, content: json(recordProposalDecisionInputSchema) },
+  },
+  responses: {
+    201: {
+      description: "Recorded acceptance decisions",
+      content: json(proposalDecisionResponseSchema),
     },
     400: errorResponse,
     401: errorResponse,
@@ -238,6 +266,25 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/events/{eventId}/review/assignments/{assignmentId}",
+  description:
+    "Removes a review assignment, together with any draft evaluation or declared conflict hanging off it. This is how a mis-assignment is corrected and how the evaluation rubric — locked while any assignment exists — is unlocked again. Refused with 400 once that reviewer has completed their evaluation, because the score is already counted in the abstract's aggregate.",
+  security: [{ sessionCookie: [] }],
+  request: { params: reviewAssignmentParamsSchema },
+  responses: {
+    200: {
+      description: "Removed reviewer assignment",
+      content: json(reviewAssignmentRemovalResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });
@@ -312,10 +359,15 @@ registry.registerPath({
 });
 registry.registerPath({
   method: "get",
-  path: "/api/public/events",
+  path: "/api/events/assigned",
+  // Requires a session and answers 401 without one, which is why it is not under
+  // `/api/public`: nothing in that namespace may demand a session.
   security: [{ sessionCookie: [] }],
   responses: {
-    200: { description: "Publicly assigned events", content: json(eventListResponseSchema) },
+    200: {
+      description: "Events the session holds any role on",
+      content: json(eventListResponseSchema),
+    },
     401: errorResponse,
     500: errorResponse,
   },
@@ -362,6 +414,8 @@ registry.registerPath({
     },
     400: errorResponse,
     404: errorResponse,
+    // Throttled per client address and event; the response carries `Retry-After`.
+    429: errorResponse,
     500: errorResponse,
   },
 });
@@ -384,6 +438,8 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/events/{eventId}/content/accept",
+  description:
+    "Turns a proposal that carries an accepted review decision into a session. Title, abstract, format and speaker identity are resolved server-side; unknown proposals answer 404 and undecided ones 409.",
   security: [{ sessionCookie: [] }],
   request: {
     params: eventContentParamsSchema,
@@ -394,6 +450,8 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    404: errorResponse,
+    409: errorResponse,
     500: errorResponse,
   },
 });
@@ -408,6 +466,45 @@ registry.registerPath({
   responses: {
     200: {
       description: "Updated speaker profile",
+      content: json(z.object({ profile: speakerProfileSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/speaker-profiles/{profileId}/photo",
+  description:
+    "Records which of this speaker's own uploads is their headshot. The owning speaker or an organizer of the event may set it; anybody else is refused exactly like a profile that does not exist. It changes no asset visibility: a private upload stays private and the public page shows initials until an organizer marks that asset publishable. A file belonging to another profile, or one that is not an image, answers 400 naming `assetId`.",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: profileParamsSchema,
+    body: { required: true, content: json(setSpeakerPhotoInputSchema) },
+  },
+  responses: {
+    200: {
+      description: "Speaker profile carrying the chosen headshot",
+      content: json(z.object({ profile: speakerProfileSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/speaker-profiles/{profileId}/photo",
+  description:
+    "Removes the headshot choice and leaves the uploaded file in place. Same authority as setting it.",
+  security: [{ sessionCookie: [] }],
+  request: { params: profileParamsSchema },
+  responses: {
+    200: {
+      description: "Speaker profile with no headshot",
       content: json(z.object({ profile: speakerProfileSchema })),
     },
     400: errorResponse,
@@ -455,11 +552,27 @@ registry.registerPath({
   responses: {
     200: {
       description:
-        "Raw asset bytes. Publishable assets are readable by anyone; private assets only by the owning speaker or an event organizer.",
+        "Raw asset bytes. Readable by anyone while the asset is publishable and its event is published; otherwise only by the owning speaker or an event organizer.",
       content: { "*/*": { schema: { type: "string", format: "binary" } } },
     },
+    304: { description: "Unchanged since the ETag the caller supplied" },
     400: errorResponse,
     404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/speaker-assets/{assetId}",
+  // The uploading speaker or an organizer of the event. An unknown id and an asset on
+  // another event are refused identically, so neither can be told from the other.
+  security: [{ sessionCookie: [] }],
+  request: { params: speakerAssetParamsSchema },
+  responses: {
+    204: { description: "Asset row and stored object removed" },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
     500: errorResponse,
   },
 });
@@ -480,6 +593,22 @@ registry.registerPath({
   },
 });
 registry.registerPath({
+  method: "post",
+  path: "/api/speaker-assets/{assetId}/unpublish",
+  security: [{ sessionCookie: [] }],
+  request: { params: speakerAssetParamsSchema },
+  responses: {
+    200: {
+      description: "Asset returned to private, ending anonymous reads",
+      content: json(z.object({ asset: speakerAssetSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
   method: "patch",
   path: "/api/content-sessions/{sessionId}",
   security: [{ sessionCookie: [] }],
@@ -491,6 +620,24 @@ registry.registerPath({
     200: {
       description: "Organizer-managed session content and readiness",
       content: json(z.object({ session: contentSessionSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/content-sessions/{sessionId}",
+  description:
+    "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone, and the withdrawn session leaves the public page at the next publish because published snapshots are immutable. Answers the refreshed content workspace.",
+  security: [{ sessionCookie: [] }],
+  request: { params: contentSessionParamsSchema },
+  responses: {
+    200: {
+      description: "Content workspace with the withdrawn session removed",
+      content: json(contentWorkspaceSchema),
     },
     400: errorResponse,
     401: errorResponse,
@@ -533,6 +680,8 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/api/events/{eventId}/speaker-calendar.ics",
+  description:
+    "RFC 5545 stream of the speaker's scheduled sessions. Answers 404 when none is scheduled, because section 3.4 requires a VCALENDAR to carry at least one component.",
   security: [{ sessionCookie: [] }],
   request: { params: eventContentParamsSchema },
   responses: {
@@ -543,6 +692,7 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });
@@ -637,14 +787,14 @@ registry.registerPath({
 });
 registry.registerPath({
   method: "get",
-  path: "/api/public/events/{eventId}/schedule",
-  request: { params: agendaIdParamsSchema },
+  path: "/api/public/events/{slug}/schedule",
+  request: { params: publicEventSlugParamsSchema },
   responses: {
     200: {
-      description: "Latest public-safe published schedule",
+      description:
+        "Sessions the published projection places, under the agenda publication in force",
       content: json(z.object({ schedule: publicScheduleSchema })),
     },
-    400: errorResponse,
     404: errorResponse,
     500: errorResponse,
   },
@@ -736,6 +886,22 @@ registry.registerPath({
   },
   responses: {
     201: { description: "Created prospect", content: json(prospectResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/prospects/owners",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: {
+      description: "Users assignable as the owner of a prospect on this event",
+      content: json(prospectOwnerListResponseSchema),
+    },
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,

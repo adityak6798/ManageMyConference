@@ -1,8 +1,6 @@
 // @acceptance ACC-IDENTITY-EVENTS
 import { expect, test } from "@playwright/test";
 
-const demoEventId = "00000000-0000-4000-8000-000000000001";
-
 test("signs in, switches events and roles, creates, and reloads an event", async ({ page }) => {
   const eventName = `Greenroom Browser Summit ${Date.now()}`;
   await page.goto("/");
@@ -26,7 +24,7 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);
 
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
   await expect(page.getByRole("link", { name: /Review assignments/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create event" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Event settings/ })).toHaveCount(0);
@@ -48,35 +46,44 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   // that a version was published rather than pinning the number.
   await expect(page.getByRole("status")).toContainText(/Published version \d+/);
 
-  const conflictResponse = await page.request.put(
-    `/api/events/${demoEventId}/agenda/placements/placement-conflict`,
-    {
-      data: {
-        id: "placement-conflict",
-        sessionId: "20000000-0000-4000-8000-000000000001",
-        roomId: "room-main",
-        trackId: "track-platform",
-        slotId: "slot-0900",
-      },
-    },
-  );
-  expect(conflictResponse.ok()).toBeTruthy();
-
-  await page.reload();
+  // The conflict is made the way an organizer would make one: the second session is
+  // dropped into the cell the opening keynote already holds. It used to be forged with a
+  // `page.request.put` against the placements route, which proved the rule and nothing
+  // about whether the product can reach it — and left a placement no control could clear.
+  const card = page.getByRole("button", { name: /Accessible by default\. Not scheduled/ });
+  await card.focus();
+  await card.press("Enter");
+  await page
+    .getByRole("button", {
+      name: /Place .* in Main stage at 09:00–10:00\. Already holds 1 session/,
+    })
+    .press("Enter");
   await expect(page.getByText("room overlap")).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeDisabled();
 
   // Publication is immutable: the draft conflict must not reach the public projection.
-  const publicResponse = await request.get(`/api/public/events/${demoEventId}/schedule`);
+  // The public schedule is addressed by the published slug, not the internal event id.
+  const publicResponse = await request.get("/api/public/events/greenroom-demo-summit/schedule");
   expect(publicResponse.ok()).toBeTruthy();
   const body = await publicResponse.json();
   expect(body.schedule.version).toBeGreaterThanOrEqual(2);
-  expect(body.schedule.agenda.placements).toHaveLength(1);
+  // The draft now places a second session on the main stage at the published session's
+  // time, so a draft that reached the public route would arrive here as a second entry.
+  expect(body.schedule.sessions).toHaveLength(1);
+  expect(body.schedule.sessions[0].slug).toBe("designing-the-calm-conference");
+  expect(body.schedule.sessions[0].room).toBe("Main stage");
+  // The public schedule is composed from the published projection, so it carries readable
+  // identifiers only — never the internal room/track/slot/placement keys the board uses.
+  expect(JSON.stringify(body)).not.toMatch(/room-main|track-platform|slot-0900|placement-/);
 
-  // Remove the conflict this test introduced. Leaving it behind blocks publication for
-  // every later spec that shares this fixture.
-  const cleanup = await page.request.delete(
-    `/api/events/${demoEventId}/agenda/placements/placement-conflict`,
-  );
-  expect(cleanup.ok(), `conflict cleanup failed: ${await cleanup.text()}`).toBeTruthy();
+  // Cleared with the same controls that made it. Leaving the conflict behind would block
+  // publication for every later run against this fixture.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: /Accessible by default/ })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish schedule" })).toBeEnabled();
 });

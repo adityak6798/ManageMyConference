@@ -5,6 +5,7 @@ import {
 import type {
   Evaluation,
   EvaluationPlan,
+  ProposalDecision,
   ReviewAssignment,
   ReviewCompletedEvent,
   ReviewConflict,
@@ -17,6 +18,7 @@ export class MemoryReviewRepository implements ReviewRepository {
   private conflicts = new Map<string, ReviewConflict>();
   private evaluations = new Map<string, Evaluation>();
   private outcomes = new Map<string, ReviewOutcome>();
+  private decisions = new Map<string, ProposalDecision>();
   readonly events: ReviewCompletedEvent[] = [];
 
   async getPlan(eventId: string) {
@@ -47,6 +49,23 @@ export class MemoryReviewRepository implements ReviewRepository {
   async findAssignment(eventId: string, assignmentId: string) {
     const assignment = this.assignments.get(assignmentId);
     return assignment?.eventId === eventId ? assignment : null;
+  }
+  async deleteAssignment(eventId: string, assignmentId: string) {
+    const assignment = this.assignments.get(assignmentId);
+    if (!assignment || assignment.eventId !== eventId) return;
+    if (
+      [...this.evaluations.values()].some(
+        (item) => item.assignmentId === assignmentId && item.state === "completed",
+      )
+    )
+      throw new ReviewStateConflictError("Evaluation is completed");
+    // The draft and the conflict describe an assignment that is going away, so they go with it
+    // rather than being left pointing at an id nothing resolves.
+    for (const [key, item] of [...this.evaluations])
+      if (item.assignmentId === assignmentId) this.evaluations.delete(key);
+    for (const [key, item] of [...this.conflicts])
+      if (item.assignmentId === assignmentId) this.conflicts.delete(key);
+    this.assignments.delete(assignmentId);
   }
   async getConflict(assignmentId: string, reviewerId: string) {
     return this.conflicts.get(`${assignmentId}:${reviewerId}`) ?? null;
@@ -97,5 +116,14 @@ export class MemoryReviewRepository implements ReviewRepository {
   }
   async listOutcomes(eventId: string) {
     return [...this.outcomes.values()].filter((outcome) => outcome.eventId === eventId);
+  }
+  async saveDecision(decision: ProposalDecision) {
+    this.decisions.set(`${decision.eventId}:${decision.proposalId}`, decision);
+  }
+  async findDecision(eventId: string, proposalId: string) {
+    return this.decisions.get(`${eventId}:${proposalId}`) ?? null;
+  }
+  async listDecisions(eventId: string) {
+    return [...this.decisions.values()].filter((decision) => decision.eventId === eventId);
   }
 }

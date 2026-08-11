@@ -2,12 +2,18 @@
 
 Status: canonical | Owner: platform | IDs: `PORT-EMAIL`, `PORT-CALENDAR`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS`, `PORT-AI` | Last verified: 2026-08-09
 
-Application services call typed provider-neutral ports. Each port has a deterministic fake and contract suite; live implementations are credential-gated and cannot be required for pull-request CI.
+Application services call typed provider-neutral ports. Live implementations are credential-gated and cannot be required for pull-request CI.
 
-- Email: enqueue template/version plus recipient reference; adapter reports provider message reference and normalized result.
-- Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope.
-- Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical.
-- AI: suggestion/draft only, with provenance, explicit acceptance, timeouts, and deterministic manual fallback.
+What exists today, verified at commit `c72b796`: one deterministic fake
+(`apps/api/src/adapters/providers/deterministic-provider.ts`) is wired to all three delivery
+channels — `email`, `airtable` and `accelevents` — in `apps/api/src/index.ts`. No live adapter
+exists for any of them (`GAP-012`, issues #23 and #58), and **no AI port exists at all**: the bullet
+below is a design constraint on future work, not a description of code (`GAP-011`, issue #57).
+
+- Email: enqueue template/version plus recipient reference; adapter reports provider message reference and normalized result. *Implemented against the deterministic fake only; no lifecycle event enqueues a delivery (`GAP-010`).*
+- Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Implemented as a download; nothing delivers an invite to a speaker's calendar (issue #56).*
+- Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; the provider call goes to the fake.*
+- AI: suggestion/draft only, with provenance, explicit acceptance, timeouts, and deterministic manual fallback. *Not implemented.*
 
 Provider calls originate from outbox workers, not open database transactions. Adapters normalize retryable versus terminal errors and never leak SDK types inward.
 

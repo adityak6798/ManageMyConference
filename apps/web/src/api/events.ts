@@ -48,8 +48,14 @@ export async function listEvents(fetcher: typeof fetch = fetch): Promise<EventDt
   const response = await fetcher("/api/events");
   return (await decode(response, eventListResponseSchema)).events;
 }
-export async function listPublicEvents(fetcher: typeof fetch = fetch): Promise<EventDto[]> {
-  const response = await fetcher("/api/public/events");
+/**
+ * The events this session holds a role on, whatever capabilities that role carries.
+ *
+ * Named for what it is: it requires a session and 401s without one, so it never belonged
+ * under `/api/public`.
+ */
+export async function listAssignedEvents(fetcher: typeof fetch = fetch): Promise<EventDto[]> {
+  const response = await fetcher("/api/events/assigned");
   return (await decode(response, eventListResponseSchema)).events;
 }
 

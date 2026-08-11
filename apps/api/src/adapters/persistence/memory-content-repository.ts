@@ -1,7 +1,13 @@
-import type {
-  ContentRepository,
-  AcceptedContent,
+import {
+  type ContentRepository,
+  type AcceptedContent,
+  ContentConflictError,
 } from "../../application/content/content-repository";
+import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
+import type {
+  SpeakerConversionCommand,
+  SpeakerConversionPort,
+} from "../../application/content/speaker-conversion";
 import type {
   ContentWorkspace,
   SpeakerAsset,
@@ -9,7 +15,14 @@ import type {
   SpeakerTask,
 } from "../../domain/content/content";
 
-export class MemoryContentRepository implements ContentRepository {
+const by =
+  <T>(key: (item: T) => string) =>
+  (left: T, right: T) =>
+    key(left) < key(right) ? -1 : key(left) > key(right) ? 1 : 0;
+
+export class MemoryContentRepository
+  implements ContentRepository, AgendaContentQuery, PublishingContentQuery
+{
   private sessions: ContentWorkspace["sessions"] = [];
   private speakers: ContentWorkspace["speakers"] = [];
   private tasks: ContentWorkspace["tasks"] = [];
@@ -33,10 +46,18 @@ export class MemoryContentRepository implements ContentRepository {
     );
   }
   async accept(content: AcceptedContent) {
+    // Mirrors `UNIQUE(event_id, proposal_id)` in D1 so acceptance idempotency is exercised here
+    // and not only against a real database.
+    if (await this.findSessionByProposal(content.session.eventId, content.session.proposalId))
+      throw new ContentConflictError("UNIQUE constraint failed: content_sessions.proposal_id");
     this.sessions = [...this.sessions, content.session];
     this.speakers = [...this.speakers, ...content.speakers];
     this.tasks = [...this.tasks, ...content.tasks];
     this.messages = [...this.messages, ...content.messages];
+  }
+  /** Out-of-band profile creation, the way `SpeakerConversionPort` writes one in D1. */
+  async addProfile(profile: SpeakerProfile) {
+    this.speakers = [...this.speakers, profile];
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
     const speakers = this.speakers.filter(
@@ -48,12 +69,76 @@ export class MemoryContentRepository implements ContentRepository {
         item.eventId === eventId &&
         (!userId || item.speakerProfileIds.some((id) => profileIds.has(id))),
     );
+    // Same ordering the D1 repository's `ORDER BY` clauses produce, so a projection
+    // composed against this repository has the same shape as one composed in production.
+    return {
+      sessions: sessions.toSorted(by((item) => item.title)),
+      speakers: speakers.toSorted(by((item) => item.name)),
+      tasks: this.tasks
+        .filter((item) => profileIds.has(item.speakerProfileId))
+        .toSorted(by((item) => `${item.dueAt}\u0000${item.title}`)),
+      assets: this.assets
+        .filter((item) => profileIds.has(item.speakerProfileId))
+        .toSorted(by((item) => item.uploadedAt)),
+      messages: this.messages
+        .filter((item) => profileIds.has(item.speakerProfileId))
+        .toSorted(by((item) => item.sentAt)),
+    };
+  }
+
+  /**
+   * The agenda and publishing domains read content through these two public application
+   * interfaces, never through `workspace`. They mirror `D1ContentRepository` exactly —
+   * including the filters that keep draft sessions and private assets out of anything
+   * publishable — so a test that composes against this repository exercises the real join.
+   */
+  async listSchedulableSessions(eventId: string) {
+    const workspace = await this.workspace(eventId);
+    return workspace.sessions.map(({ id, title, speakerProfileIds, tracks }) => ({
+      id,
+      title,
+      speakerProfileIds,
+      tracks,
+    }));
+  }
+
+  async publishedEventContent(eventId: string) {
+    const workspace = await this.workspace(eventId);
+    const sessions = workspace.sessions
+      .filter(({ publicationState }) => publicationState === "published")
+      .map(({ id, title, abstract, format, speakerProfileIds, tags, tracks }) => ({
+        id,
+        title,
+        abstract,
+        format,
+        speakerProfileIds,
+        tags,
+        tracks,
+      }));
+    const speakerIds = new Set(sessions.flatMap(({ speakerProfileIds }) => speakerProfileIds));
     return {
       sessions,
-      speakers,
-      tasks: this.tasks.filter((item) => profileIds.has(item.speakerProfileId)),
-      assets: this.assets.filter((item) => profileIds.has(item.speakerProfileId)),
-      messages: this.messages.filter((item) => profileIds.has(item.speakerProfileId)),
+      speakers: workspace.speakers
+        .filter(({ id }) => speakerIds.has(id))
+        .map(({ id, name, bio, pronouns, organization, photoAssetId }) => ({
+          id,
+          name,
+          bio,
+          pronouns,
+          organization,
+          ...(photoAssetId ? { photoAssetId } : {}),
+        })),
+      assets: workspace.assets
+        .filter(
+          ({ speakerProfileId, visibility }) =>
+            speakerIds.has(speakerProfileId) && visibility === "publishable",
+        )
+        .map(({ id, speakerProfileId, name, contentType }) => ({
+          id,
+          speakerProfileId,
+          name,
+          contentType,
+        })),
     };
   }
   async updateProfile(profile: SpeakerProfile) {
@@ -65,11 +150,17 @@ export class MemoryContentRepository implements ContentRepository {
   async updateSession(session: ContentWorkspace["sessions"][number]) {
     this.sessions = this.sessions.map((item) => (item.id === session.id ? session : item));
   }
+  async deleteSession(sessionId: string) {
+    this.sessions = this.sessions.filter(({ id }) => id !== sessionId);
+  }
   async updateAsset(asset: SpeakerAsset) {
     this.assets = this.assets.map((item) => (item.id === asset.id ? asset : item));
   }
   async addAsset(asset: SpeakerAsset) {
     this.assets = [...this.assets, asset];
+  }
+  async deleteAsset(assetId: string) {
+    this.assets = this.assets.filter(({ id }) => id !== assetId);
   }
   async addTask(task: SpeakerTask) {
     this.tasks = [...this.tasks, task];
@@ -92,5 +183,37 @@ export class MemoryContentRepository implements ContentRepository {
         (profile) => profile.eventId === eventId && profile.sourcePersonId === sourcePersonId,
       ) ?? null
     );
+  }
+}
+
+/**
+ * In-memory `SpeakerConversionPort` with the same contract as `D1SpeakerConversion`: one profile
+ * per event per email address, whichever door — CRM conversion or CFP acceptance — arrives first.
+ */
+export class MemorySpeakerConversion implements SpeakerConversionPort {
+  constructor(
+    private readonly repository: MemoryContentRepository,
+    private readonly newId: () => string,
+  ) {}
+  async createOrLink(command: SpeakerConversionCommand) {
+    const normalizedEmail = command.email.trim().toLowerCase();
+    const workspace = await this.repository.workspace(command.eventId);
+    const existing = workspace.speakers.find(
+      (profile) => profile.email.toLowerCase() === normalizedEmail,
+    );
+    if (existing) return { speakerId: existing.id };
+    const speakerId = this.newId();
+    await this.repository.addProfile({
+      id: speakerId,
+      eventId: command.eventId,
+      userId: this.newId(),
+      sourcePersonId: `crm-email:${normalizedEmail}`,
+      name: command.name,
+      email: normalizedEmail,
+      bio: "",
+      pronouns: "",
+      organization: "",
+    });
+    return { speakerId };
   }
 }

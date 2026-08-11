@@ -25,6 +25,21 @@ type PublicSpeaker = PublicEventProjectionDto["speakers"][number];
 type Route = { embedded: boolean; slug: string; section: View; detail: string | undefined };
 
 const SECTIONS: View[] = ["schedule", "sessions", "speakers", "cfp"];
+/** The views that state whether the call for proposals is taking submissions. */
+const CFP_AWARE_VIEWS = new Set<View>(["home", "cfp"]);
+
+/*
+ * One itinerary, four ways of reading it. Every grouping is derived from the
+ * projection already in memory, so switching never refetches and never reorders the
+ * underlying data — only how it is bucketed.
+ */
+type ScheduleView = "list" | "day" | "track" | "room";
+const SCHEDULE_VIEWS: { id: ScheduleView; label: string }[] = [
+  { id: "list", label: "List" },
+  { id: "day", label: "Day" },
+  { id: "track", label: "Track" },
+  { id: "room", label: "Room" },
+];
 
 function parseRoute(pathname: string): Route {
   const parts = pathname.split("/").filter(Boolean);
@@ -85,14 +100,24 @@ function linkProps(to: string) {
 
 /* ----------------------------- formatting ----------------------------- */
 
+/**
+ * The projection derives `startsOn`/`endsOn` from the published agenda's timeslots, so an event
+ * published before anything is scheduled carries empty strings. `new Date("T12:00:00Z")` is an
+ * Invalid Date and `Intl` throws `RangeError` on one, which would take the whole page down —
+ * the public surface must degrade rather than fail on a projection the contract permits.
+ */
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /** `startsOn`/`endsOn` are plain calendar dates, so they are read in UTC, not the venue zone. */
 function calendarDate(value: string, options: Intl.DateTimeFormatOptions) {
+  if (!CALENDAR_DAY.test(value)) return "";
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options }).format(
     new Date(`${value}T12:00:00Z`),
   );
 }
 
 function eventDates({ startsOn, endsOn }: { startsOn: string; endsOn: string }) {
+  if (!CALENDAR_DAY.test(startsOn) || !CALENDAR_DAY.test(endsOn)) return "Dates to be announced";
   if (startsOn === endsOn) return calendarDate(startsOn, { dateStyle: "long" });
   // Intl mangles a day+year request ("2026 (day: 18)"), so a same-month range is
   // assembled from single-field formats instead of one call.
@@ -106,46 +131,56 @@ function eventDates({ startsOn, endsOn }: { startsOn: string; endsOn: string }) 
       })}`;
 }
 
+/**
+ * Every instant formatter goes through here. A session may legitimately carry no start, and
+ * `Intl` throws `RangeError` on an Invalid Date, so an absent or malformed instant renders as
+ * nothing rather than blanking the page it appears on.
+ */
+const formatInstant = (value: string, options: Intl.DateTimeFormatOptions) => {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", options).format(instant);
+};
+
 const clockTime = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  formatInstant(value, { timeZone: timezone, hour: "numeric", minute: "2-digit" });
 
 /** Outside the day-grouped itinerary a bare clock is ambiguous on a multi-day event. */
-const dayAndTime = (value: string, timezone: string) =>
-  `${new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    month: "short",
-    day: "numeric",
-  }).format(new Date(value))}, ${clockTime(value, timezone)}`;
+const dayAndTime = (value: string, timezone: string) => {
+  const day = formatInstant(value, { timeZone: timezone, month: "short", day: "numeric" });
+  const time = clockTime(value, timezone);
+  return day && time ? `${day}, ${time}` : "";
+};
 
-const dayKey = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-CA", {
+const dayKey = (value: string, timezone: string) => {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date(value));
+  }).format(instant);
+};
 
 const dayLabel = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", {
+  formatInstant(value, {
     timeZone: timezone,
     weekday: "long",
     month: "long",
     day: "numeric",
-  }).format(new Date(value));
+  });
 
 const fullTime = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    dateStyle: "full",
-    timeStyle: "short",
-  }).format(new Date(value));
+  formatInstant(value, { timeZone: timezone, dateStyle: "full", timeStyle: "short" });
 
-/** "PDT" for the week the event runs, so summer/winter zones read correctly. */
+/**
+ * "PDT" for the week the event runs, so summer/winter zones read correctly. An event with no
+ * scheduled days has no such week, and the zone name is dropped rather than guessed from today —
+ * the full IANA name is still printed beside it.
+ */
 function zoneAbbreviation(timezone: string, referenceDate: string) {
+  if (!CALENDAR_DAY.test(referenceDate)) return "";
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     timeZoneName: "short",
@@ -196,18 +231,77 @@ function initials(name: string) {
 }
 
 /*
- * `GET /api/speaker-assets/:assetId` now serves an uploaded asset, but the public
- * projection still carries no `photoUrl`, so this page has no id to ask for. The gallery
- * draws a deterministic initials tile rather than leaving a hole, and honours `photoUrl`
- * the moment the projection starts populating it (#55).
+ * A headshot when the projection has one, a monogram tile when it does not — and a
+ * monogram again when the photo fails to load. The URL is composed server-side and the
+ * gallery cannot know whether it resolves, so a 404 must degrade to the tile rather
+ * than leave a browser's broken-image glyph in a row of faces.
+ *
+ * The image is decorative (`alt=""`): every avatar sits next to the speaker's name, so
+ * a description would only make screen readers say the name twice.
  */
 function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const className = large ? "pub-avatar is-large" : "pub-avatar";
-  if (speaker.photoUrl)
-    return <img className={className} src={speaker.photoUrl} alt="" loading="lazy" />;
+  const photoUrl =
+    speaker.photoUrl && speaker.photoUrl !== failedUrl ? speaker.photoUrl : undefined;
+  if (photoUrl)
+    return (
+      <img
+        className={className}
+        src={photoUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailedUrl(photoUrl)}
+      />
+    );
   return (
     <span className={`${className} tone-${toneIndex(speaker.slug)}`} aria-hidden="true">
       {initials(speaker.name)}
+    </span>
+  );
+}
+
+/*
+ * The projection field this renders is now named `organization`, because that is what the
+ * speaker profile stores and what it always held: an employer, never a job title. The
+ * visible line and its screen-reader label say "affiliation" for the same reason.
+ */
+function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
+  if (!speaker.organization.trim()) return null;
+  return (
+    <p className="pub-speaker-headline">
+      <span className="pub-sr">Affiliation: </span>
+      {speaker.organization}
+    </p>
+  );
+}
+
+/** Start–end in the event's zone; the zone itself is stated once per page, not per row. */
+function TimeRange({
+  startsAt,
+  endsAt,
+  timezone,
+  withDay,
+}: {
+  startsAt: string;
+  endsAt: string | undefined;
+  timezone: string;
+  withDay?: boolean;
+}) {
+  return (
+    <span className="pub-when">
+      <time dateTime={startsAt}>
+        {withDay ? dayAndTime(startsAt, timezone) : clockTime(startsAt, timezone)}
+      </time>
+      {endsAt && (
+        <>
+          {/* The dash is punctuation for the eye; the screen reader gets a word. */}
+          <span aria-hidden="true">–</span>
+          <span className="pub-sr"> to </span>
+          <time dateTime={endsAt}>{clockTime(endsAt, timezone)}</time>
+        </>
+      )}
     </span>
   );
 }
@@ -229,16 +323,25 @@ function SessionCard({
   // Every meta entry is its own element so the CSS separator lands between all of
   // them; a bare text node would silently skip the first dot.
   const showClock = Boolean(showTime && session.startsAt);
+  // Outside the day-grouped view an unplaced session would otherwise look identical to
+  // a placed one whose time simply was not rendered.
+  const showPending = Boolean(showTime && !session.startsAt);
   return (
     <article className="pub-session">
       <h3>
         <a {...linkProps(`${base}/sessions/${session.slug}`)}>{session.title}</a>
       </h3>
-      {(showClock || length || session.room) && (
+      {(showClock || showPending || length || session.room) && (
         <p className="pub-session-meta">
           {showClock && (
-            <time dateTime={session.startsAt}>{dayAndTime(session.startsAt ?? "", timezone)}</time>
+            <TimeRange
+              startsAt={session.startsAt ?? ""}
+              endsAt={session.endsAt}
+              timezone={timezone}
+              withDay
+            />
           )}
+          {showPending && <span>Time to be announced</span>}
           {length && <span>{length}</span>}
           {session.room && <span>{session.room}</span>}
         </p>
@@ -277,7 +380,7 @@ function SpeakerCard({
       <h3>
         <a {...linkProps(`${base}/speakers/${speaker.slug}`)}>{speaker.name}</a>
       </h3>
-      <p className="pub-speaker-role">{speaker.headline}</p>
+      <SpeakerHeadline speaker={speaker} />
       {sessions.length > 0 ? (
         <ul className="pub-speaker-sessions">
           {sessions.map((session) => (
@@ -293,7 +396,21 @@ function SpeakerCard({
   );
 }
 
-function Empty({ title, children }: { title: string; children?: ReactNode }) {
+/*
+ * The empty state carries a heading, so it has to slot into the outline of whatever
+ * placed it: level 2 when it stands directly under the page's h1, level 3 inside a
+ * section that already has an h2. A fixed h3 skipped a level on the section pages.
+ */
+function Empty({
+  title,
+  level = 3,
+  children,
+}: {
+  title: string;
+  level?: 2 | 3;
+  children?: ReactNode;
+}) {
+  const Heading = level === 2 ? "h2" : "h3";
   return (
     <div className="pub-empty">
       <span className="glyph" aria-hidden="true">
@@ -312,9 +429,49 @@ function Empty({ title, children }: { title: string; children?: ReactNode }) {
           <path d="M3 13.5h5l1.2 2.3h5.6L16 13.5h5" />
         </svg>
       </span>
-      <h3>{title}</h3>
+      <Heading>{title}</Heading>
       {children ? <p>{children}</p> : null}
     </div>
+  );
+}
+
+/*
+ * Track and room buckets for the schedule switcher. The input is already sorted by
+ * start time, so each bucket keeps that order. A session with no track or no room is
+ * not dropped: it lands in a named "to be announced" bucket that sorts last.
+ */
+function groupByField(sessions: PublicSession[], field: "track" | "room") {
+  const fallback = field === "track" ? "Track to be announced" : "Room to be announced";
+  const buckets = new Map<string, PublicSession[]>();
+  for (const item of sessions) {
+    const value = (field === "track" ? item.track : item.room)?.trim();
+    const label = value || fallback;
+    buckets.set(label, [...(buckets.get(label) ?? []), item]);
+  }
+  return [...buckets.entries()]
+    .sort(([left], [right]) => {
+      if (left === fallback) return 1;
+      if (right === fallback) return -1;
+      return left.localeCompare(right);
+    })
+    .map(([label, items], index) => ({ key: `${field}-${index}`, label, items }));
+}
+
+/** One group of the schedule: a sticky heading plus whatever the view puts under it. */
+function ScheduleGroup({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="pub-day" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      {children}
+    </section>
   );
 }
 
@@ -336,9 +493,15 @@ export function PublicEventApp() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
   const [liveCfp, setLiveCfp] = useState<CfpFormDto | null>(null);
+  // Kept apart from `submissionNotice`: "we could not read the call" is not "your
+  // proposal was not submitted", and it can now happen on a page that has no form.
+  const [cfpUnavailable, setCfpUnavailable] = useState<string | null>(null);
   const [sessionQuery, setSessionQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState("all");
   const [speakerQuery, setSpeakerQuery] = useState("");
+  // A grouping is a reading preference, not a filter: it survives a trip to a session
+  // and back, and it never triggers a fetch.
+  const [scheduleView, setScheduleView] = useState<ScheduleView>("day");
   const mainRef = useRef<HTMLElement>(null);
   const viewKey = `${section}/${detail ?? ""}`;
   const landedOn = useRef(viewKey);
@@ -366,17 +529,42 @@ export function PublicEventApp() {
       );
   }, [slug]);
 
+  /*
+   * The projection is a snapshot frozen at publish time; whether the call is accepting
+   * submissions is live state that the CFP domain enforces on submit. The two disagree
+   * from the moment an organizer closes or reopens the call, so the live form is loaded
+   * for the whole public surface rather than only for the CFP page — the home page used
+   * to offer “Submit a proposal” one click away from a CFP page reporting the call closed.
+   *
+   * A call that cannot be read leaves every view saying nothing about open or closed,
+   * rather than falling back to a snapshot that may contradict the form itself.
+   *
+   * It is read on entering either view that mentions the call — not once per visit and
+   * not on the schedule or the gallery, which never speak for it — so a visitor who
+   * arrives on the home page and clicks through later is told the state as it is then.
+   */
   useEffect(() => {
-    if (!projection || section !== "cfp") return;
-    // ERROR-INTENT: React effects cannot await; the CFP view renders load failures.
+    if (!projection || !CFP_AWARE_VIEWS.has(section)) return;
+    let live = true;
+    // ERROR-INTENT: React effects cannot await; both outcomes below are rendered.
     void loadCfp(projection.event.eventId, false)
-      .then(setLiveCfp)
-      .catch((reason: unknown) =>
-        setSubmissionNotice({
-          tone: "error",
-          text: reason instanceof CfpApiError ? reason.message : "The CFP could not be loaded.",
-        }),
-      );
+      .then((form) => {
+        if (!live) return;
+        setLiveCfp(form);
+        setCfpUnavailable(null);
+      })
+      .catch((reason: unknown) => {
+        if (!live) return;
+        setLiveCfp(null);
+        setCfpUnavailable(
+          reason instanceof CfpApiError
+            ? reason.message
+            : "The call for proposals could not be loaded.",
+        );
+      });
+    return () => {
+      live = false;
+    };
   }, [projection, section]);
 
   // Client-side navigation moves nothing for a screen reader on its own, so the
@@ -415,19 +603,23 @@ export function PublicEventApp() {
       speakers: speaker
         ? `${speaker.name} · ${projection.event.name}`
         : `Speakers · ${projection.event.name}`,
-      cfp: `${projection.cfp.title} · ${projection.event.name}`,
+      // The tab, the heading, and the meta description all name the live call once it
+      // has loaded, so a republished title cannot show up in one place and not another.
+      cfp: `${liveCfp?.title ?? projection.cfp.title} · ${projection.event.name}`,
     };
     document.title = titles[section];
     description.content =
       session?.abstract ??
       speaker?.bio ??
-      (section === "cfp" ? projection.cfp.description : projection.event.summary);
+      (section === "cfp"
+        ? (liveCfp?.description ?? projection.cfp.description)
+        : projection.event.summary);
     return () => {
       document.title = originalTitle;
       if (existingDescription) description.content = originalDescription ?? "";
       else description.remove();
     };
-  }, [detail, projection, section]);
+  }, [detail, liveCfp, projection, section]);
 
   const model = useMemo(() => {
     if (!projection) return null;
@@ -440,7 +632,7 @@ export function PublicEventApp() {
     const days: {
       key: string;
       label: string;
-      slots: { time: string; items: PublicSession[] }[];
+      slots: { time: string; endsAt: string | undefined; items: PublicSession[] }[];
     }[] = [];
     for (const item of timed) {
       const startsAt = item.startsAt ?? "";
@@ -452,8 +644,15 @@ export function PublicEventApp() {
       }
       let slot = day.slots.find((entry) => entry.time === startsAt);
       if (!slot) {
-        slot = { time: startsAt, items: [] };
+        slot = { time: startsAt, endsAt: item.endsAt, items: [] };
         day.slots.push(slot);
+      } else if (!item.endsAt) {
+        // One open-ended session in the block means the block has no honest end time.
+        slot.endsAt = undefined;
+      } else if (slot.endsAt && Date.parse(item.endsAt) > Date.parse(slot.endsAt)) {
+        // Concurrent sessions can run different lengths; the rail describes the block,
+        // so it spans to the last one to finish. Each card still carries its own length.
+        slot.endsAt = item.endsAt;
       }
       slot.items.push(item);
     }
@@ -541,7 +740,26 @@ export function PublicEventApp() {
       </main>
     );
 
-  const cfpStatus = liveCfp?.status ?? projection.cfp.status;
+  /*
+   * One answer about the call, used by every view that mentions it. The live form decides;
+   * the snapshot only supplies wording until it arrives. "unknown" is a real state and is
+   * rendered as one: no pill, and a link that promises reading rather than submitting.
+   */
+  const cfpStatus: "open" | "closed" | "unknown" = liveCfp
+    ? liveCfp.status === "open"
+      ? "open"
+      : "closed"
+    : "unknown";
+  const cfpTitle = liveCfp?.title ?? projection.cfp.title;
+  const cfpDescription = liveCfp?.description ?? projection.cfp.description;
+  const cfpStatusLine =
+    cfpStatus === "open"
+      ? "Open for submissions."
+      : cfpStatus === "closed"
+        ? "Submissions closed."
+        : cfpUnavailable
+          ? "Whether this call is accepting submissions could not be checked."
+          : "Checking whether submissions are open…";
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
@@ -553,10 +771,26 @@ export function PublicEventApp() {
   const speakerNeedle = speakerQuery.trim().toLowerCase();
   const visibleSpeakers = projection.speakers.filter((item) =>
     speakerNeedle
-      ? `${item.name} ${item.headline} ${item.bio}`.toLowerCase().includes(speakerNeedle)
+      ? `${item.name} ${item.organization} ${item.bio}`.toLowerCase().includes(speakerNeedle)
       : true,
   );
   const zoneLine = `All times in ${model.timezone}${model.zone ? ` (${model.zone})` : ""}.`;
+  // Regrouping changes the page under a screen-reader user without moving focus, so the
+  // new shape is announced. Visually hidden: the buttons already show it. The day view
+  // buckets only *placed* sessions into days, so it counts what those days hold and
+  // reports the unplaced ones separately — the same split the visible header states.
+  const scheduleLabel = SCHEDULE_VIEWS.find((view) => view.id === scheduleView)?.label ?? "Day";
+  const scheduleSummary =
+    scheduleView === "day"
+      ? `${scheduleLabel} view. ${countLabel(model.timed.length, "session")} across ${countLabel(
+          model.days.length,
+          "day",
+        )}${
+          model.untimed.length > 0
+            ? `, and ${countLabel(model.untimed.length, "session")} still awaiting a time`
+            : ""
+        }.`
+      : `${scheduleLabel} view. ${countLabel(projection.sessions.length, "session")}.`;
 
   const navItems = [
     { href: `${base}/schedule`, label: "Schedule", view: "schedule" as View },
@@ -603,8 +837,9 @@ export function PublicEventApp() {
         {section === "home" && (
           <>
             <div className="pub-hero">
+              {/* A newly published event has no venue yet; the separator goes with it. */}
               <p className="kicker">
-                {model.dates} · {projection.event.venue}
+                {[model.dates, projection.event.venue].filter(Boolean).join(" · ")}
               </p>
               <h1>{projection.event.name}</h1>
               <p className="lede">{projection.event.summary}</p>
@@ -708,15 +943,20 @@ export function PublicEventApp() {
             <section className="pub-cta" aria-labelledby="home-cfp">
               <div>
                 <p className="kicker">Call for proposals</p>
-                <h2 id="home-cfp">{projection.cfp.title}</h2>
-                <p>{projection.cfp.description}</p>
+                <h2 id="home-cfp">{cfpTitle}</h2>
+                <p>{cfpDescription}</p>
               </div>
+              {/* The invitation is only extended when the call can actually take it: this
+                  block reads the live form, the same source the CFP page and the submit
+                  endpoint read, so the two can no longer contradict each other. */}
               <div className="pub-cta-side">
-                <Pill tone={projection.cfp.status === "open" ? "ok" : "neutral"}>
-                  {projection.cfp.status === "open" ? "Open" : "Closed"}
-                </Pill>
+                {cfpStatus === "unknown" ? null : (
+                  <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
+                    {cfpStatus === "open" ? "Open" : "Closed"}
+                  </Pill>
+                )}
                 <a className="pub-button" {...linkProps(`${base}/cfp`)}>
-                  {projection.cfp.status === "open" ? "Submit a proposal" : "Read the CFP"}
+                  {cfpStatus === "open" ? "Submit a proposal" : "Read the CFP"}
                 </a>
               </div>
             </section>
@@ -728,57 +968,132 @@ export function PublicEventApp() {
             <div className="pub-head">
               <p className="kicker">Published schedule</p>
               <h1>Plan your time</h1>
+              {/* The zone belongs to the whole itinerary, so it is stated here and
+                  nowhere else — the cards below carry bare clock times. */}
               <p className="pub-tz">
                 {zoneLine} {countLabel(model.timed.length, "session")} across{" "}
                 {countLabel(model.days.length, "day")}.
+                {model.untimed.length > 0
+                  ? ` ${countLabel(model.untimed.length, "session")} still awaiting a time.`
+                  : ""}
               </p>
             </div>
-            {model.days.length === 0 && (
-              <Empty title="No timed sessions yet">
-                The published schedule does not have timed sessions yet. Check back once the
-                organizers place the agenda.
+            {projection.sessions.length === 0 ? (
+              <Empty level={2} title="No sessions published yet">
+                The published schedule does not have sessions yet. Check back once the organizers
+                place the agenda.
               </Empty>
-            )}
-            {model.days.map((day) => (
-              <section className="pub-day" key={day.key} aria-labelledby={`day-${day.key}`}>
-                <h2 id={`day-${day.key}`}>{day.label}</h2>
-                <ol className="pub-slots">
-                  {day.slots.map((slot) => (
-                    <li className="pub-slot" key={slot.time}>
-                      <p className="pub-slot-time">
-                        <time dateTime={slot.time}>{clockTime(slot.time, model.timezone)}</time>
-                      </p>
-                      <div className="pub-slot-items">
-                        {slot.items.map((item) => (
+            ) : (
+              <>
+                {/*
+                 * A native fieldset for the group and plain buttons inside it: they are
+                 * in the tab order, fire on Enter and Space for free, and carry their
+                 * own pressed state. The legend names the group for a screen reader;
+                 * sighted users read the pressed button. Every grouping is computed from
+                 * the projection already in state — no refetch.
+                 */}
+                <fieldset className="pub-viewswitch">
+                  <legend className="pub-sr">Group the schedule by</legend>
+                  {SCHEDULE_VIEWS.map((view) => (
+                    <button
+                      key={view.id}
+                      type="button"
+                      aria-pressed={scheduleView === view.id}
+                      onClick={() => setScheduleView(view.id)}
+                    >
+                      {view.label}
+                    </button>
+                  ))}
+                </fieldset>
+                <p className="pub-sr" role="status">
+                  {scheduleSummary}
+                </p>
+
+                {scheduleView === "day" && (
+                  <>
+                    {model.days.map((day) => (
+                      <ScheduleGroup key={day.key} id={`day-${day.key}`} title={day.label}>
+                        <ol className="pub-slots">
+                          {day.slots.map((slot) => (
+                            <li className="pub-slot" key={slot.time}>
+                              <p className="pub-slot-time">
+                                <TimeRange
+                                  startsAt={slot.time}
+                                  endsAt={slot.endsAt}
+                                  timezone={model.timezone}
+                                />
+                              </p>
+                              <div className="pub-slot-items">
+                                {slot.items.map((item) => (
+                                  <SessionCard
+                                    key={item.slug}
+                                    session={item}
+                                    base={base}
+                                    timezone={model.timezone}
+                                    speakers={model.speakersOf(item)}
+                                  />
+                                ))}
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      </ScheduleGroup>
+                    ))}
+                    {model.untimed.length > 0 && (
+                      <ScheduleGroup id="day-unscheduled" title="Time to be announced">
+                        <div className="pub-grid">
+                          {model.untimed.map((item) => (
+                            <SessionCard
+                              key={item.slug}
+                              session={item}
+                              base={base}
+                              timezone={model.timezone}
+                              speakers={model.speakersOf(item)}
+                            />
+                          ))}
+                        </div>
+                      </ScheduleGroup>
+                    )}
+                  </>
+                )}
+
+                {/* The flat view keeps the same order the day view walks, so an
+                    unplaced session sits at the end rather than vanishing. */}
+                {scheduleView === "list" && (
+                  <ScheduleGroup id="schedule-list" title="Every session in start order">
+                    <div className="pub-grid">
+                      {model.ordered.map((item) => (
+                        <SessionCard
+                          key={item.slug}
+                          session={item}
+                          base={base}
+                          timezone={model.timezone}
+                          speakers={model.speakersOf(item)}
+                          showTime
+                        />
+                      ))}
+                    </div>
+                  </ScheduleGroup>
+                )}
+
+                {(scheduleView === "track" || scheduleView === "room") &&
+                  groupByField(model.ordered, scheduleView).map((group) => (
+                    <ScheduleGroup key={group.key} id={`schedule-${group.key}`} title={group.label}>
+                      <div className="pub-grid">
+                        {group.items.map((item) => (
                           <SessionCard
                             key={item.slug}
                             session={item}
                             base={base}
                             timezone={model.timezone}
                             speakers={model.speakersOf(item)}
+                            showTime
                           />
                         ))}
                       </div>
-                    </li>
+                    </ScheduleGroup>
                   ))}
-                </ol>
-              </section>
-            ))}
-            {model.untimed.length > 0 && (
-              <section className="pub-day" aria-labelledby="day-unscheduled">
-                <h2 id="day-unscheduled">Time to be announced</h2>
-                <div className="pub-grid">
-                  {model.untimed.map((item) => (
-                    <SessionCard
-                      key={item.slug}
-                      session={item}
-                      base={base}
-                      timezone={model.timezone}
-                      speakers={model.speakersOf(item)}
-                    />
-                  ))}
-                </div>
-              </section>
+              </>
             )}
           </>
         )}
@@ -791,7 +1106,7 @@ export function PublicEventApp() {
               <p className="pub-tz">{zoneLine}</p>
             </div>
             {projection.sessions.length === 0 ? (
-              <Empty title="No sessions published yet">
+              <Empty level={2} title="No sessions published yet">
                 Accepted sessions appear here once the organizers publish the program.
               </Empty>
             ) : (
@@ -828,22 +1143,30 @@ export function PublicEventApp() {
                   </p>
                 </div>
                 {visibleSessions.length === 0 ? (
-                  <Empty title="No sessions match that filter">
+                  <Empty level={2} title="No sessions match that filter">
                     Try a different search term or choose “All tracks”.
                   </Empty>
                 ) : (
-                  <div className="pub-grid">
-                    {visibleSessions.map((item) => (
-                      <SessionCard
-                        key={item.slug}
-                        session={item}
-                        base={base}
-                        timezone={model.timezone}
-                        speakers={model.speakersOf(item)}
-                        showTime
-                      />
-                    ))}
-                  </div>
+                  // The card titles are h3s, so the flat grid needs an h2 above them or
+                  // the page outline jumps a level. It says nothing the toolbar has not
+                  // already shown, so it is for screen readers only.
+                  <section aria-labelledby="pub-session-list">
+                    <h2 className="pub-sr" id="pub-session-list">
+                      Session list
+                    </h2>
+                    <div className="pub-grid">
+                      {visibleSessions.map((item) => (
+                        <SessionCard
+                          key={item.slug}
+                          session={item}
+                          base={base}
+                          timezone={model.timezone}
+                          speakers={model.speakersOf(item)}
+                          showTime
+                        />
+                      ))}
+                    </div>
+                  </section>
                 )}
               </>
             )}
@@ -904,7 +1227,7 @@ export function PublicEventApp() {
               </p>
             </div>
             {projection.speakers.length === 0 ? (
-              <Empty title="No speakers published yet">
+              <Empty level={2} title="No speakers published yet">
                 Speaker profiles appear here once the organizers publish the program.
               </Empty>
             ) : (
@@ -926,20 +1249,27 @@ export function PublicEventApp() {
                   </p>
                 </div>
                 {visibleSpeakers.length === 0 ? (
-                  <Empty title="No speakers match that search">
+                  <Empty level={2} title="No speakers match that search">
                     Clear the search box to see the whole gallery.
                   </Empty>
                 ) : (
-                  <div className="pub-gallery">
-                    {visibleSpeakers.map((item) => (
-                      <SpeakerCard
-                        key={item.slug}
-                        speaker={item}
-                        base={base}
-                        sessions={model.sessionsBySpeaker.get(item.slug) ?? []}
-                      />
-                    ))}
-                  </div>
+                  // Same reason as the session grid: an h2 keeps the outline unbroken
+                  // above the h3 on every speaker card.
+                  <section aria-labelledby="pub-speaker-list">
+                    <h2 className="pub-sr" id="pub-speaker-list">
+                      Speaker list
+                    </h2>
+                    <div className="pub-gallery">
+                      {visibleSpeakers.map((item) => (
+                        <SpeakerCard
+                          key={item.slug}
+                          speaker={item}
+                          base={base}
+                          sessions={model.sessionsBySpeaker.get(item.slug) ?? []}
+                        />
+                      ))}
+                    </div>
+                  </section>
                 )}
               </>
             )}
@@ -956,7 +1286,7 @@ export function PublicEventApp() {
               <div className="pub-head">
                 <p className="kicker">Speaker</p>
                 <h1>{speaker.name}</h1>
-                <p className="pub-speaker-role">{speaker.headline}</p>
+                <SpeakerHeadline speaker={speaker} />
               </div>
             </div>
             <p className="lede">{speaker.bio}</p>
@@ -986,15 +1316,24 @@ export function PublicEventApp() {
           <article className="pub-detail">
             <div className="pub-head">
               <p className="kicker">Call for proposals</p>
-              <h1>{liveCfp?.title ?? projection.cfp.title}</h1>
+              <h1>{cfpTitle}</h1>
               <p className="pub-tz">
-                <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
-                  {cfpStatus === "open" ? "Open" : "Closed"}
-                </Pill>
-                {cfpStatus === "open" ? "Open for submissions." : "Submissions closed."}
+                {cfpStatus === "unknown" ? null : (
+                  <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
+                    {cfpStatus === "open" ? "Open" : "Closed"}
+                  </Pill>
+                )}
+                {cfpStatusLine}
               </p>
             </div>
-            <p className="lede">{liveCfp?.description ?? projection.cfp.description}</p>
+            <p className="lede">{cfpDescription}</p>
+            {/* A call that could not be read says so here. It is not a submission
+                failure, so it does not borrow the submission notice's wording. */}
+            {cfpUnavailable ? (
+              <p className="pub-notice is-error" role="alert">
+                {cfpUnavailable}
+              </p>
+            ) : null}
             {liveCfp?.status === "open" && (
               <form className="pub-form" onSubmit={submitCfp}>
                 {liveCfp.fields.map((field) => {

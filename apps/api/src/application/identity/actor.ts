@@ -37,6 +37,28 @@ export function requireCapability(actor: Actor | null, capability: Capability): 
   return actor;
 }
 
+/**
+ * Does the actor hold `capability` through a grant of `role` on this exact event?
+ *
+ * An actor may hold several roles on one event — the seeded organizer is also a reviewer of
+ * the demo event. Every access entry has to be considered, so this is `some`, never `find`:
+ * matching only the first entry made authorization depend on the order the identity directory
+ * happened to return roles in, which `ORDER BY role` was silently supplying (`ARC-AUTH-001`).
+ */
+export function hasEventRoleCapability(
+  actor: Actor,
+  eventId: string,
+  role: EventAccess["role"],
+  capability: Capability,
+): boolean {
+  return actor.eventAccess.some(
+    (candidate) =>
+      candidate.eventId === eventId &&
+      candidate.role === role &&
+      candidate.capabilities.has(capability),
+  );
+}
+
 export function requireEventCapability(
   actor: Actor | null,
   eventId: string,

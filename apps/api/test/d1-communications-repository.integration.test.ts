@@ -43,6 +43,7 @@ describe("D1CommunicationsRepository", () => {
       "0018_agenda_draft_revision.sql",
       "0019_communications_outbox.sql",
       "0020_public_event_projections.sql",
+      "0021_review_decisions.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       if (/^(000[789]|001[0-3])_/.test(migration)) {
@@ -155,6 +156,7 @@ describe("D1CommunicationsRepository", () => {
       "0018_agenda_draft_revision.sql",
       "0019_communications_outbox.sql",
       "0020_public_event_projections.sql",
+      "0021_review_decisions.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       if (/^(000[789]|001[0-3])_/.test(migration)) {

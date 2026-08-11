@@ -47,6 +47,45 @@ export interface AgendaDraft {
   readonly placements: readonly Placement[];
 }
 
+/**
+ * When and where one agenda puts a session.
+ *
+ * This is the *only* statement a session's time can come from: the slot supplies the instants
+ * and the room supplies the place. `content_sessions` used to carry its own copy of all three,
+ * written by nothing but the seed, so a speaker's calendar and the published programme could —
+ * and did — name different days for the same talk.
+ */
+export interface PlacedSessionTime {
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly location: string;
+}
+
+/**
+ * Where this agenda places each session, keyed by session id.
+ *
+ * A placement whose slot the agenda no longer holds yields nothing at all rather than a
+ * half-time: a session with an unusable start is unscheduled, not scheduled at an unknown hour.
+ * A room that has since been removed leaves the location empty and keeps the time, because the
+ * hour is still true. Two placements of one session is a `SESSION_OVERLAP` conflict that blocks
+ * publication, so the last one wins here and no published snapshot can reach that branch.
+ */
+export function placedSessionTimes(agenda: AgendaDraft): ReadonlyMap<string, PlacedSessionTime> {
+  const slots = new Map(agenda.slots.map((slot) => [slot.id, slot]));
+  const rooms = new Map(agenda.rooms.map((room) => [room.id, room.name]));
+  const placed = new Map<string, PlacedSessionTime>();
+  for (const placement of agenda.placements) {
+    const slot = slots.get(placement.slotId);
+    if (!slot) continue;
+    placed.set(placement.sessionId, {
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      location: rooms.get(placement.roomId) ?? "",
+    });
+  }
+  return placed;
+}
+
 const overlaps = (left: AgendaSlot, right: AgendaSlot) =>
   Date.parse(left.startsAt) < Date.parse(right.endsAt) &&
   Date.parse(right.startsAt) < Date.parse(left.endsAt);

@@ -222,6 +222,11 @@
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
+/* A refresh that failed over data already on screen: the page stays, the stamp says so. */
+.refreshed-at.is-stale {
+  color: var(--warn-fg);
+  font-weight: 550;
+}
 
 .eyebrow {
   color: var(--clay-600);

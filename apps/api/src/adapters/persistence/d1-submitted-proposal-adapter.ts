@@ -1,10 +1,13 @@
 import {
-  ProposalStatusConfigurationError,
+  MASKED_SUBMITTER_NAME,
   type ProposalStatus,
   type ProposalStatusAudit,
+  ProposalStatusConfigurationError,
+  type ProposalSubmitter,
   type SubmittedProposal,
   type SubmittedProposalInterface,
 } from "../../application/cfp/submitted-proposal-interface";
+
 interface D1Result<T> {
   results?: T[];
   success: boolean;
@@ -42,6 +45,73 @@ type AuditRow = {
   occurred_at: string;
 };
 type StatusRow = { key: string; label: string; sort_order: number };
+/**
+ * Field ids that name a person and nothing else. The submitter's name is not a field *type* the
+ * CFP builder offers, so it is recognised by identity and never guessed from arbitrary prose.
+ * `name` is deliberately absent: see `AMBIGUOUS_NAME_FIELD_ID`.
+ */
+const PERSON_NAME_FIELD_IDS = ["full_name", "fullname", "speaker_name", "submitter_name"];
+/**
+ * The one id a label may overrule. `name` is as ordinary an id for a field labelled "Session
+ * name" as for the applicant's own name, so it alone defers to a label that says the field
+ * names something other than a person.
+ */
+const AMBIGUOUS_NAME_FIELD_ID = "name";
+/** Every id that identifies a name field, used when a submission has no stored form snapshot. */
+const NAME_FIELD_IDS = [AMBIGUOUS_NAME_FIELD_ID, ...PERSON_NAME_FIELD_IDS];
+/**
+ * Deliberately anchored: a person's name, and nothing that merely contains the word. Qualifiers
+ * stack ("Your full name") because organizers write labels, not identifiers.
+ */
+const PERSON_NAME_LABEL =
+  /^(?:(?:your|speaker|submitter|presenter|contact|full|preferred|first|last)\s+)*names?$/i;
+/**
+ * A label that names the proposal, the event, or an organization rather than a person — the
+ * only thing that overrules `AMBIGUOUS_NAME_FIELD_ID`.
+ */
+const OBJECT_NAME_LABEL =
+  /\b(?:session|talk|proposal|abstract|title|track|workshop|event|room|project|product|company|organisation|organization|team)(?:['’]s)?\s+names?\b/i;
+/**
+ * Is this field the submitter's own name, and therefore organizer-only?
+ *
+ * A label that names a person always wins, and an id that can only be a person's name is
+ * trusted whatever the label says — an id rule that a loose label check could veto was how
+ * `{id: "speaker_name", label: "Speaker's name"}` leaked an applicant's name into the reviewer
+ * queue. Only the ambiguous bare `name` id defers, and only to a label that explicitly names
+ * something else, so `{id: "name", label: "Session name"}` stays visible.
+ */
+const isNameField = (field: SnapshotField) => {
+  const label = field.label.trim();
+  if (PERSON_NAME_LABEL.test(label)) return true;
+  if (PERSON_NAME_FIELD_IDS.includes(field.id.toLowerCase())) return true;
+  return field.id.toLowerCase() === AMBIGUOUS_NAME_FIELD_ID && !OBJECT_NAME_LABEL.test(label);
+};
+
+/**
+ * The submitter, read out of the stored answers using the published form's own field types.
+ *
+ * The email comes from the first `email`-typed field that carries a value, which is what makes
+ * the contact address available to organizers without ever putting it in `answers`. Without one
+ * there is no submitter at all: a name with no address cannot identify a speaker.
+ */
+const submitterOf = (
+  fields: readonly SnapshotField[],
+  answers: Record<string, string>,
+): ProposalSubmitter | null => {
+  const email = fields
+    .filter((field) => field.type === "email")
+    .map((field) => answers[field.id]?.trim())
+    .find((value): value is string => Boolean(value));
+  if (!email) return null;
+  const name = fields
+    .filter(isNameField)
+    .map((field) => answers[field.id]?.trim())
+    .find((value): value is string => Boolean(value));
+  // A form that never asked for a name still identifies its submitter by address, which is
+  // more honest than inventing one out of the local part.
+  return { name: name ?? email, email };
+};
+
 const proposal = (row: ProposalRow): SubmittedProposal => {
   const answers = JSON.parse(row.answers_json) as Record<string, string>;
   const snapshot = JSON.parse(row.form_fields_json) as SnapshotField[];
@@ -50,14 +120,15 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
     : Object.keys(answers).map((id) => ({
         id,
         label: id.replaceAll("_", " "),
-        type: (id.includes("email") ? "email" : id === "title" ? "short_text" : "long_text") as
-          | "email"
-          | "short_text"
-          | "long_text",
+        type: (id.includes("email")
+          ? "email"
+          : id === "title" || NAME_FIELD_IDS.includes(id.toLowerCase())
+            ? "short_text"
+            : "long_text") as "email" | "short_text" | "long_text",
       }));
   const visibleAnswers = fields.flatMap((field) => {
     const value = answers[field.id]?.trim();
-    return value && field.type !== "email"
+    return value && field.type !== "email" && !isNameField(field)
       ? [{ fieldId: field.id, label: field.label, type: field.type, value }]
       : [];
   });
@@ -67,12 +138,14 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
   const abstract =
     visibleAnswers.find(({ fieldId }) => fieldId === "abstract") ??
     visibleAnswers.find(({ type, fieldId }) => type === "long_text" && fieldId !== title?.fieldId);
+  const submitter = submitterOf(fields, answers);
   return {
     id: row.id,
     eventId: row.event_id,
     title: title?.value || `Proposal ${row.id}`,
     abstract: abstract?.value || "See submitted answers.",
-    submitterName: "Applicant",
+    submitterName: submitter?.name ?? MASKED_SUBMITTER_NAME,
+    submitter,
     answers: visibleAnswers,
     status: row.status,
   };

@@ -6,6 +6,10 @@
  * row with its state pill, attempt count, and last provider error in line. Retrying
  * and terminal rows carry the recovery action next to the evidence that justifies it,
  * and the result of that retry is announced where the operator is looking.
+ *
+ * Every failure is rendered by this surface, including the failure to read it: a history that
+ * never arrived puts the reason, its correlation id, and a retry where the rows would have
+ * been, instead of leaving a skeleton up and explaining it somewhere else on the page.
  */
 
 import type { CommunicationsHistoryDto, EventDto } from "@greenroom/contracts";
@@ -17,7 +21,7 @@ import {
 } from "./api/communications";
 import "./styles/communications.css";
 import { IconCheck, IconClock, IconInbox, IconSend, IconWarning } from "./ui/icons";
-import { Card, EmptyState, Tabs, useActionFeedback } from "./ui/primitives";
+import { Card, EmptyState, Notice, Tabs, useActionFeedback } from "./ui/primitives";
 
 type HistoryEntry = CommunicationsHistoryDto["history"][number];
 type DeliveryState = HistoryEntry["delivery"]["state"];
@@ -64,19 +68,26 @@ function readError(reason: unknown, fallback: string) {
 
 interface CommunicationsWorkspaceProps {
   event: EventDto;
-  onError(reason: unknown): void;
 }
 
 // @spec PRD-COM-001 PRD-INT-001
-export function CommunicationsWorkspace({ event, onError }: CommunicationsWorkspaceProps) {
+export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps) {
   const [history, setHistory] = useState<CommunicationsHistoryDto["history"] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("all");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Why the outbox is not on screen. Only the read that leaves this surface empty is held
+  // here; a refused refresh of an outbox already rendered is announced beside the control
+  // that asked for it instead, because that is where the operator is looking.
+  const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const eventIdRef = useRef(event.id);
+  // `load` is memoized and drives the mount effect, so it cannot read render state; this
+  // mirror answers "is there an outbox on screen to put the message beside?".
+  const loadedRef = useRef(false);
   const feedback = useActionFeedback();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: feedback.announce is a fresh closure on every render, so depending on it would re-run the mount effect forever.
   const load = useCallback(
     async (nextCursor?: string) => {
       const requestedEventId = event.id;
@@ -91,15 +102,22 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
         setHistory((current) =>
           nextCursor ? [...(current ?? []), ...page.history] : page.history,
         );
+        loadedRef.current = true;
+        setLoadFailure(null);
         setCursor(page.nextCursor);
       } catch (reason: unknown) {
-        // ERROR-INTENT: The shared workspace error surface renders this request failure.
-        if (eventIdRef.current === requestedEventId) onError(reason);
+        if (eventIdRef.current !== requestedEventId) return;
+        const message = readError(reason, "The outbox could not be loaded.");
+        // ERROR-INTENT: an outbox that is on screen keeps its rows and takes the refusal next
+        // to the control that asked for the refresh; an outbox that never arrived renders the
+        // refusal in its own place, because there is nothing else on this surface to explain.
+        if (loadedRef.current) feedback.announce("error", message);
+        else setLoadFailure(message);
       } finally {
         setBusy(false);
       }
     },
-    [event.id, event.organizationId, onError],
+    [event.id, event.organizationId],
   );
 
   // The outbox is re-read whenever the event changes, and the retry feedback from the
@@ -107,11 +125,14 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
   // biome-ignore lint/correctness/useExhaustiveDependencies: feedback.clear is a fresh closure on every render, so depending on it would re-run this effect forever.
   useEffect(() => {
     eventIdRef.current = event.id;
+    loadedRef.current = false;
     setHistory(null);
     setCursor(null);
     setExpanded({});
+    setLoadFailure(null);
     feedback.clear();
-    // ERROR-INTENT: React effects cannot await; load reports failures through onError.
+    // ERROR-INTENT: React effects cannot await; load renders its own failure in place of
+    // the outbox it could not read.
     void load();
   }, [load, event.id]);
 
@@ -165,7 +186,9 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
             ? `${history.length} ${history.length === 1 ? "delivery" : "deliveries"} loaded${
                 recoverable.length ? ` · ${recoverable.length} awaiting recovery` : ""
               }`
-            : "Loading the outbox…"
+            : loadFailure
+              ? "The outbox could not be read"
+              : "Loading the outbox…"
         }
         actions={
           <button
@@ -173,7 +196,7 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
             className="secondary"
             disabled={busy}
             onClick={() => {
-              // ERROR-INTENT: handlers cannot await; load reports failures through onError.
+              // ERROR-INTENT: handlers cannot await; load renders or announces its failure.
               void load();
             }}
           >
@@ -189,7 +212,33 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
         </div>
 
         <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
-          {history === null ? (
+          {history === null && loadFailure ? (
+            // The failure takes the skeleton's place: the outbox is the only thing this
+            // surface has to say, so when it cannot be read that *is* the page.
+            <div className="comms-failure">
+              <Notice tone="error">{loadFailure}</Notice>
+              <EmptyState
+                title="The delivery history could not be loaded"
+                icon={<IconWarning size={20} />}
+                action={
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      // ERROR-INTENT: handlers cannot await; load renders or announces its failure.
+                      void load();
+                    }}
+                  >
+                    {busy ? "Trying again…" : "Try again"}
+                  </button>
+                }
+              >
+                No delivery was changed by this. Try again, and quote the reference above if it
+                keeps failing.
+              </EmptyState>
+            </div>
+          ) : history === null ? (
             <div className="comms-skeletons">
               <div aria-hidden="true">
                 {[0, 1, 2, 3].map((index) => (
@@ -352,7 +401,7 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
               className="secondary"
               disabled={busy}
               onClick={() => {
-                // ERROR-INTENT: handlers cannot await; load reports failures through onError.
+                // ERROR-INTENT: handlers cannot await; load renders or announces its failure.
                 void load(cursor);
               }}
             >

@@ -52,16 +52,17 @@ describe("review D1 persistence", () => {
         .filter(Boolean))
         expect((await database.prepare(statement).run()).success).toBe(true);
     }
-    const communicationsMigration = (
+    const trailingMigrations = (
       await Promise.all([
         readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
         readFile(
           new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
           "utf8",
         ),
+        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
       ])
     ).join("\n");
-    for (const statement of communicationsMigration
+    for (const statement of trailingMigrations
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))
@@ -105,6 +106,42 @@ describe("review D1 persistence", () => {
         { key: "reviewed", label: "Reviewed", sortOrder: 1 },
       ]),
     ).rejects.toThrow("currently in use");
+    // The seed's accepted proposal carries a real decision record, which is what content
+    // acceptance is gated on — `reset.sql` no longer names a proposal id that exists nowhere.
+    const seededProposalId = "10000000-0000-4000-8000-000000000010";
+    await expect(reviews.findDecision(eventId, seededProposalId)).resolves.toMatchObject({
+      outcome: "accepted",
+      decidedBy: "seed-organizer",
+    });
+    // Counted relative to whatever the seed carries rather than against a literal, so the
+    // overwrite claim below survives the seed gaining another accepted proposal.
+    const seededDecisions = await reviews.listDecisions(eventId);
+    expect(seededDecisions.filter(({ proposalId: id }) => id === seededProposalId)).toHaveLength(1);
+    // Deciding again overwrites rather than duplicating, so a retry after a partial failure heals.
+    await reviews.saveDecision({
+      eventId,
+      proposalId: seededProposalId,
+      outcome: "declined",
+      decidedBy: "seed-organizer",
+      decidedAt: "2026-08-10T13:00:00.000Z",
+      note: "Reversed",
+    });
+    const afterOverwrite = await reviews.listDecisions(eventId);
+    expect(afterOverwrite).toHaveLength(seededDecisions.length);
+    expect(afterOverwrite.filter(({ proposalId: id }) => id === seededProposalId)).toMatchObject([
+      { outcome: "declined", note: "Reversed" },
+    ]);
+    // A decision must reference a real submission of that event.
+    await expect(
+      reviews.saveDecision({
+        eventId,
+        proposalId: "no-such-proposal",
+        outcome: "accepted",
+        decidedBy: "seed-organizer",
+        decidedAt: "2026-08-10T13:00:00.000Z",
+        note: "",
+      }),
+    ).rejects.toThrow();
     await expect(reviews.getPlan(eventId)).resolves.toMatchObject({
       criteria: expect.arrayContaining([expect.objectContaining({ id: "relevance" })]),
     });
@@ -200,5 +237,49 @@ describe("review D1 persistence", () => {
         },
       ),
     ).rejects.toThrow("conflicted");
+
+    /*
+     * Removing an assignment, against the real triggers and the real foreign keys.
+     *
+     * An organizer's undo for a mis-assignment. The SQL is guarded rather than
+     * checked-then-run, so this is the only place the guards are exercised by SQLite itself
+     * rather than by a map in memory.
+     */
+    // Every statement is scoped to an assignment of the named event, so this event's
+    // assignment named under another event's id touches nothing — not the row, and not the
+    // conflict hanging off it.
+    await reviews.deleteAssignment("00000000-0000-4000-8000-000000000002", conflictedAssignment.id);
+    await expect(reviews.findAssignment(eventId, conflictedAssignment.id)).resolves.toMatchObject({
+      id: conflictedAssignment.id,
+    });
+    await expect(
+      reviews.getConflict(conflictedAssignment.id, conflictedAssignment.reviewerId),
+    ).resolves.toMatchObject({ reason: "Existing conflict" });
+
+    // Nothing has been completed against this one, so it goes — and the conflict row hanging
+    // off it goes with it, rather than being orphaned against a key that no longer resolves.
+    await reviews.deleteAssignment(eventId, conflictedAssignment.id);
+    await expect(reviews.findAssignment(eventId, conflictedAssignment.id)).resolves.toBeNull();
+    await expect(
+      reviews.getConflict(conflictedAssignment.id, conflictedAssignment.reviewerId),
+    ).resolves.toBeNull();
+    // The scored one is refused, and nothing about it moves: the evaluation and the aggregate
+    // it feeds both survive the attempt.
+    await expect(reviews.deleteAssignment(eventId, evaluation.assignmentId)).rejects.toThrow(
+      "completed",
+    );
+    await expect(reviews.findAssignment(eventId, evaluation.assignmentId)).resolves.toMatchObject({
+      id: evaluation.assignmentId,
+    });
+    await expect(
+      reviews.getEvaluation(evaluation.assignmentId, evaluation.reviewerId),
+    ).resolves.toMatchObject({ state: "completed" });
+    await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
+      { completedEvaluationCount: 1, averageScore: 4.5 },
+    ]);
+    // An id that is not there is not an error: the caller has already been told it is gone.
+    await expect(
+      reviews.deleteAssignment(eventId, "20000000-0000-4000-8000-0000000000ff"),
+    ).resolves.toBeUndefined();
   });
 });

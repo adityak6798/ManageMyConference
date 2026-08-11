@@ -1,6 +1,15 @@
 import type { PublicationRepository } from "./publication-repository";
-import { allowlistPublicProjection } from "../../domain/publishing/publication";
-import { type Actor, AuthenticationRequiredError, CapabilityDeniedError } from "../identity/actor";
+import {
+  allowlistPublicProjection,
+  publicEventSlug,
+  publicSlugs,
+} from "../../domain/publishing/publication";
+import {
+  type Actor,
+  AuthenticationRequiredError,
+  CapabilityDeniedError,
+  hasEventRoleCapability,
+} from "../identity/actor";
 import type { PublishingContentQuery } from "../content/public";
 import type { PublicSchedule } from "../agenda/public";
 
@@ -41,9 +50,11 @@ export class PublicationService {
     capability: "events:settings:read" | "events:settings:update",
   ) {
     if (!actor) throw new AuthenticationRequiredError("Authentication is required");
-    const access = actor.eventAccess.find((candidate) => candidate.eventId === eventId);
-    if (!access) return false;
-    if (access.role !== "organizer" || !access.capabilities.has(capability))
+    if (!actor.eventAccess.some((candidate) => candidate.eventId === eventId)) return false;
+    // Every grant on the event counts, not just the first one the directory returned: an
+    // organizer who also reviews for the event used to be authorized only because
+    // `ORDER BY role` put "organizer" before "reviewer" (`ARC-AUTH-001`).
+    if (!hasEventRoleCapability(actor, eventId, "organizer", capability))
       throw new CapabilityDeniedError(`Actor lacks ${capability} for event`);
     return actor;
   }
@@ -55,13 +66,7 @@ export class PublicationService {
     if (!this.sources) return stored;
     const event = await this.sources.event(organizer, eventId);
     if (!event) return null;
-    const slugBase = event.name
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 76);
-    const slug = `${slugBase || "event"}-${eventId}`;
+    const slug = publicEventSlug(event.name, eventId);
     const publication =
       stored ??
       ({
@@ -110,6 +115,20 @@ export class PublicationService {
       ]) ?? [];
     const sortedDates = dates.toSorted();
     const speakers = new Map(content.speakers.map((speaker) => [speaker.id, speaker]));
+    // Readable public URLs are derived here, from the titles and names the organizer
+    // typed, and never from storage keys. `publishedEventContent` already withholds
+    // private assets, so an unpublished headshot cannot be linked from the gallery.
+    const sessionSlug = publicSlugs(
+      content.sessions,
+      ({ id, title }) => ({ id, label: title }),
+      "session",
+    );
+    const speakerSlug = publicSlugs(
+      content.speakers,
+      ({ id, name }) => ({ id, label: name }),
+      "speaker",
+    );
+    const publishableAssets = new Set(content.assets.map(({ id }) => id));
     return {
       ...publication,
       draft: allowlistPublicProjection({
@@ -134,23 +153,27 @@ export class PublicationService {
           const slot = placement ? slots.get(placement.slotId) : undefined;
           const room = placement ? rooms.get(placement.roomId) : undefined;
           return {
-            slug: session.id,
+            slug: sessionSlug(session.id),
             title: session.title,
             abstract: session.abstract,
             format: session.format,
             track: placement ? (tracks.get(placement.trackId) ?? "") : (session.tracks[0] ?? ""),
-            speakerSlugs: session.speakerProfileIds.filter((id) => speakers.has(id)),
+            speakerSlugs: session.speakerProfileIds
+              .filter((id) => speakers.has(id))
+              .map((id) => speakerSlug(id)),
             ...(slot ? { startsAt: slot.startsAt, endsAt: slot.endsAt } : {}),
             ...(room ? { room } : {}),
           };
         }),
         speakers: content.speakers.map((speaker) => ({
-          slug: speaker.id,
+          slug: speakerSlug(speaker.id),
           name: speaker.name,
           bio: speaker.bio,
-          headline: speaker.organization,
-          ...(speaker.photoAssetId
-            ? { photoUrl: `/api/public/assets/${speaker.photoAssetId}` }
+          organization: speaker.organization,
+          // The gallery links the asset route the content domain actually serves; the
+          // `/api/public/assets/:id` path this used to emit was never routed at all.
+          ...(speaker.photoAssetId && publishableAssets.has(speaker.photoAssetId)
+            ? { photoUrl: `/api/speaker-assets/${speaker.photoAssetId}` }
             : {}),
         })),
       }),

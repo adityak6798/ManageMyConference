@@ -1,0 +1,333 @@
+// @acceptance ACC-CFP
+/*
+ * The CFP composer edits a document that is *also* live in front of applicants, and every
+ * regression it has shipped came from that split: the draft on screen, the draft on the
+ * server, and the immutable snapshot the public is submitting against are three different
+ * things, and the composer is the only place a human can tell them apart.
+ *
+ * These are jsdom tests rather than browser ones because each one turns on what the
+ * workspace *sends* and in what order — a Playwright assertion on rendered text passes
+ * happily while the wrong version goes live.
+ */
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CfpWorkspace } from "../src/CfpWorkspace";
+
+const eventId = "00000000-0000-4000-8000-000000000001";
+
+type Call = { url: string; method: string; body: Record<string, unknown> };
+
+const jsonResponse = (body: unknown, status = 200) =>
+  Promise.resolve(new Response(JSON.stringify(body), { status }));
+
+const errorResponse = (
+  status: number,
+  code: string,
+  message: string,
+  fieldErrors?: Record<string, string[]>,
+) => jsonResponse({ error: { code, message, correlationId: "trace-cfp", fieldErrors } }, status);
+
+const notFound = () => errorResponse(404, "NOT_FOUND", "No call for proposals exists yet.");
+
+const field = (overrides: Record<string, unknown> = {}) => ({
+  id: "title",
+  type: "short_text",
+  label: "Proposal title",
+  guidance: "",
+  required: true,
+  options: [],
+  ...overrides,
+});
+
+const form = (overrides: Record<string, unknown> = {}) => ({
+  eventId,
+  title: "Call for proposals",
+  description: "Tell us what you would like to talk about.",
+  fields: [field()],
+  status: "draft",
+  version: 1,
+  publishedAt: null,
+  publishedStatus: null,
+  ...overrides,
+});
+
+/** Records every write so a test can assert *what* was sent and in *which order*. */
+function stubApi(routes: (url: string, init?: RequestInit) => Promise<Response> | undefined) {
+  const calls: Call[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({
+        url,
+        method: init?.method ?? "GET",
+        body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {},
+      });
+      return routes(url, init) ?? notFound();
+    }),
+  );
+  return calls;
+}
+
+const writes = (calls: Call[]) => calls.filter((call) => call.method !== "GET");
+
+/** The `<li>` for one question, found by the control only that question owns. */
+const question = (label: string) =>
+  screen.getByRole("button", { name: `Remove ${label}` }).closest("li") as HTMLElement;
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("publishing what is on screen", () => {
+  it("saves an unsaved edit before promoting it, so the live form is the one being looked at", async () => {
+    const edited = form({ title: "Call for talks", version: 2 });
+    const published = { ...edited, status: "open", publishedStatus: "open" };
+    const calls = stubApi((url, init) => {
+      if (url.endsWith("/cfp/state")) return jsonResponse({ cfp: published });
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return jsonResponse({ cfp: edited });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: form() });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    fireEvent.change(await screen.findByLabelText("Form title"), {
+      target: { value: "Call for talks" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish CFP" }));
+
+    await screen.findByText("Published. Applicants now see this version of the form.");
+    // The order is the whole point: `publish` promotes the *stored* draft, so a publish that
+    // ran before the save would put the previous title in front of applicants.
+    expect(writes(calls).map((call) => `${call.method} ${call.url}`)).toEqual([
+      `PUT /api/events/${eventId}/cfp`,
+      `POST /api/events/${eventId}/cfp/state`,
+    ]);
+    expect(writes(calls)[0]?.body).toMatchObject({ title: "Call for talks" });
+    expect(writes(calls)[1]?.body).toEqual({ state: "publish" });
+  });
+
+  it("leaves the live form alone when the save that would precede it is refused", async () => {
+    const calls = stubApi((url, init) => {
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return errorResponse(400, "VALIDATION_FAILED", "The form could not be saved.", {
+          "fields.1.label": ["Give this question a label."],
+        });
+      if (url.startsWith("/api/events/"))
+        return jsonResponse({
+          cfp: form({ fields: [field(), field({ id: "abstract", label: "Session abstract" })] }),
+        });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    fireEvent.change(await screen.findByLabelText("Form title"), { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish CFP" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Reference: trace-cfp");
+    // A refused save must abort the publish; promoting the stored draft here would ship the
+    // version the organizer was trying to replace.
+    expect(writes(calls).map((call) => call.url)).toEqual([`/api/events/${eventId}/cfp`]);
+    // The server names the question by index; the organizer has to be shown which one.
+    expect(
+      within(question("Session abstract")).getByText("Give this question a label."),
+    ).toBeInTheDocument();
+    expect(
+      within(question("Proposal title")).queryByText("Give this question a label."),
+    ).toBeNull();
+  });
+});
+
+describe("building the question list", () => {
+  const twoQuestions = () =>
+    form({ fields: [field(), field({ id: "abstract", label: "Session abstract" })] });
+
+  it("posts the order the organizer arranged, not the order the server sent", async () => {
+    const calls = stubApi((url, init) => {
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return jsonResponse({ cfp: twoQuestions() });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: twoQuestions() });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Move Proposal title down" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    const sent = writes(calls)[0]?.body.fields as { id: string }[];
+    expect(sent.map((entry) => entry.id)).toEqual(["abstract", "title"]);
+    // Applicants answer these in order, so the numbering the organizer reads has to move too.
+    expect(within(question("Session abstract")).getByText("1")).toBeInTheDocument();
+    expect(within(question("Proposal title")).getByText("2")).toBeInTheDocument();
+  });
+
+  it("refuses to remove the last question, which the API would reject as an empty form", async () => {
+    stubApi((url) => (url.startsWith("/api/events/") ? jsonResponse({ cfp: form() }) : undefined));
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    expect(await screen.findByRole("button", { name: "Remove Proposal title" })).toBeDisabled();
+  });
+
+  it("carries select options only while the question is a select", async () => {
+    const calls = stubApi((url, init) => {
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return jsonResponse({ cfp: form() });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: form() });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    fireEvent.change(await screen.findByLabelText("Field type"), { target: { value: "select" } });
+    fireEvent.change(screen.getByLabelText("Options (comma separated)"), {
+      target: { value: "Beginner, Intermediate ,, Advanced" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    // The contract rejects blank options and a select with none, so the split has to
+    // trim and drop empties rather than send whatever was typed between the commas.
+    expect(writes(calls)[0]?.body.fields).toMatchObject([
+      { type: "select", options: ["Beginner", "Intermediate", "Advanced"] },
+    ]);
+
+    fireEvent.change(screen.getByLabelText("Field type"), { target: { value: "short_text" } });
+    expect(screen.queryByLabelText("Options (comma separated)")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(writes(calls)).toHaveLength(2));
+    // Options left behind on a short-text question would reappear the next time somebody
+    // switched the type back, silently resurrecting a vocabulary that was removed.
+    expect(writes(calls)[1]?.body.fields).toMatchObject([{ type: "short_text", options: [] }]);
+  });
+});
+
+describe("the live form beside the draft", () => {
+  const draft = form({
+    title: "Call for proposals 2027",
+    status: "open",
+    version: 4,
+    publishedAt: "2026-08-01T12:00:00.000Z",
+    publishedStatus: "open",
+  });
+  const live = { ...draft, title: "Call for proposals 2026", version: 3 };
+
+  function renderDiverged() {
+    const calls = stubApi((url) => {
+      if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: live });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: draft });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+    return calls;
+  }
+
+  it("reads the published snapshot from the public endpoint, not from the draft it already has", async () => {
+    const calls = renderDiverged();
+
+    await screen.findByText("Draft ahead of live");
+    // The Live tab is only evidence if it is the same bytes an applicant receives.
+    expect(calls.map((call) => call.url)).toContain(`/api/public/events/${eventId}/cfp`);
+  });
+
+  it("says in words that the saved draft has moved ahead of what applicants are served", async () => {
+    renderDiverged();
+
+    expect(await screen.findByText("Draft ahead of live")).toBeInTheDocument();
+    expect(screen.getByText(/The saved draft is ahead of the live form/)).toBeInTheDocument();
+    // "Unsaved edits" is a different state with a different remedy; conflating them is how
+    // an organizer concludes they have already published.
+    expect(screen.queryByText("Unsaved edits")).toBeNull();
+  });
+
+  it("shows each version under its own tab so the two can actually be compared", async () => {
+    renderDiverged();
+
+    await screen.findByText("Draft ahead of live");
+    expect(screen.getByText("Call for proposals 2027")).toBeInTheDocument();
+    expect(screen.queryByText("Call for proposals 2026")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Live form" }));
+
+    expect(screen.getByText("Call for proposals 2026")).toBeInTheDocument();
+    expect(screen.getByText(/This is exactly what applicants see right now/)).toBeInTheDocument();
+  });
+});
+
+describe("the public submission form", () => {
+  const openForm = form({
+    status: "open",
+    publishedStatus: "open",
+    publishedAt: "2026-08-01T12:00:00.000Z",
+    fields: [
+      field(),
+      field({ id: "abstract", type: "long_text", label: "Session abstract", required: false }),
+    ],
+  });
+
+  it("submits answers keyed by question id with an idempotency key", async () => {
+    const calls = stubApi((url) => {
+      if (url.endsWith("/submissions"))
+        return jsonResponse({
+          submission: {
+            confirmationId: "11111111-1111-4111-8111-111111111111",
+            submittedAt: "2026-08-11T12:00:00.000Z",
+          },
+        });
+      if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: openForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+
+    fireEvent.change(await screen.findByLabelText(/Proposal title/), {
+      target: { value: "Shipping a CFP" },
+    });
+    fireEvent.change(screen.getByLabelText("Session abstract"), {
+      target: { value: "How the composer keeps draft and live apart." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+
+    await screen.findByText(/Confirmation: 11111111-1111-4111-8111-111111111111/);
+    const submission = writes(calls)[0];
+    expect(submission?.url).toBe(`/api/public/events/${eventId}/submissions`);
+    // Answers are keyed by field id, never by label or position: the server matches them
+    // against the published snapshot's ids.
+    expect(submission?.body.answers).toEqual({
+      title: "Shipping a CFP",
+      abstract: "How the composer keeps draft and live apart.",
+    });
+    expect(String(submission?.body.idempotencyKey).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("puts the server's rejection on the answer that caused it", async () => {
+    stubApi((url) => {
+      if (url.endsWith("/submissions"))
+        return errorResponse(400, "VALIDATION_FAILED", "The proposal could not be submitted.", {
+          "answers.title": ["Keep the title under 120 characters."],
+        });
+      if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: openForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+
+    fireEvent.change(await screen.findByLabelText(/Proposal title/), {
+      target: { value: "A title well past the limit" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+
+    expect(await screen.findByText("Keep the title under 120 characters.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Proposal title/)).toHaveAttribute("aria-invalid", "true");
+    // An applicant must not have to guess which of their answers the server disliked.
+    expect(screen.getByLabelText("Session abstract")).toHaveAttribute("aria-invalid", "false");
+  });
+
+  it("offers no form at all when nothing is published, rather than a dead submit button", async () => {
+    stubApi(() => undefined);
+    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+
+    expect(await screen.findByText("This call for proposals is not available")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+  });
+});

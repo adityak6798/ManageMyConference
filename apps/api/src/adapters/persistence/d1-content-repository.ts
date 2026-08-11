@@ -111,7 +111,7 @@ export class D1ContentRepository
     const statements = [
       this.database
         .prepare(
-          "INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,speaker_profile_ids,tags,tracks,publication_state,schedule_starts_at,schedule_ends_at,schedule_location) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,speaker_profile_ids,tags,tracks,publication_state) VALUES (?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(
           session.id,
@@ -124,9 +124,6 @@ export class D1ContentRepository
           JSON.stringify(session.tags),
           JSON.stringify(session.tracks),
           session.publicationState,
-          session.schedule?.startsAt ?? null,
-          session.schedule?.endsAt ?? null,
-          session.schedule?.location ?? null,
         ),
       ...content.speakers.map((profile) =>
         this.database
@@ -258,6 +255,9 @@ export class D1ContentRepository
       session.id,
     );
   }
+  async deleteSession(sessionId: string) {
+    await this.run("DELETE FROM content_sessions WHERE id=?", sessionId);
+  }
   async updateAsset(asset: SpeakerAsset) {
     await this.run("UPDATE speaker_assets SET visibility=? WHERE id=?", asset.visibility, asset.id);
   }
@@ -273,6 +273,9 @@ export class D1ContentRepository
       asset.visibility,
       asset.uploadedAt,
     );
+  }
+  async deleteAsset(assetId: string) {
+    await this.run("DELETE FROM speaker_assets WHERE id=?", assetId);
   }
   async addTask(task: SpeakerTask) {
     await this.run(
@@ -334,15 +337,6 @@ export class D1ContentRepository
       tags: parse<string[]>(row.tags),
       tracks: parse<string[]>(row.tracks),
       publicationState: (row.publication_state ?? "draft") as ContentSession["publicationState"],
-      ...(row.schedule_starts_at
-        ? {
-            schedule: {
-              startsAt: row.schedule_starts_at,
-              endsAt: row.schedule_ends_at ?? "",
-              location: row.schedule_location ?? "",
-            },
-          }
-        : {}),
     };
   }
   private profile(row: Row): SpeakerProfile {

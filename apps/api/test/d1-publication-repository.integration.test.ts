@@ -1,19 +1,37 @@
 // @acceptance ACC-PUBLIC
-import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
+import {
+  type D1CfpDatabasePort,
+  D1CfpRepository,
+} from "../src/adapters/persistence/d1-cfp-repository";
+import { D1ContentRepository } from "../src/adapters/persistence/d1-content-repository";
+import { D1EventRepository } from "../src/adapters/persistence/d1-event-repository";
 import { D1PublicationRepository } from "../src/adapters/persistence/d1-publication-repository";
+import { D1ReviewRepository } from "../src/adapters/persistence/d1-review-repository";
+import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
+import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
+import { D1SubmittedProposalAdapter } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
+import { R2AssetStorage, type R2BucketPort } from "../src/adapters/storage/r2-asset-storage";
+import { AgendaService } from "../src/application/agenda/agenda-service";
+import { CfpService, CfpUnavailableError } from "../src/application/cfp/cfp-service";
+import { ContentService } from "../src/application/content/content-service";
+import { EventService } from "../src/application/events/event-service";
+import { ReviewService } from "../src/application/review/review-service";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import { createHttpApp } from "../src/transport/http/app";
+import { applySeed, seededAssetBytes } from "./support/seeded-d1";
 
-const statements = (sql: string) =>
-  sql
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean);
+const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
+const DEMO_SLUG = "greenroom-demo-summit";
+const SEEDED_HEADSHOT = "90000000-0000-4000-8000-000000000001";
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 const safeProjection = {
   event: {
-    eventId: "00000000-0000-4000-8000-000000000001",
+    eventId: DEMO_EVENT,
     slug: "safe-event",
     name: "Safe Event",
     summary: "Public summary",
@@ -33,6 +51,59 @@ const safeProjection = {
   speakers: [],
 };
 
+/**
+ * The production wiring of `PublicationService`, assembled the way `src/index.ts` assembles
+ * it. Composing through the real D1 repositories is what makes "the seed is what publish
+ * produces" a checkable property rather than a claim about a hand-written blob.
+ */
+function publishingFor(database: never) {
+  const identities = new D1IdentityDirectory(database);
+  const events = new EventService({
+    repository: new D1EventRepository(database),
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  const contentRepository = new D1ContentRepository(database);
+  const cfpService = new CfpService(
+    new D1CfpRepository(database as unknown as D1CfpDatabasePort),
+    () => crypto.randomUUID(),
+    () => new Date(),
+  );
+  const agenda = new AgendaService(
+    new D1AgendaRepository(database, () => new Date("2026-08-10T20:00:00.000Z")),
+    () => new Date("2026-08-10T20:00:00.000Z"),
+    contentRepository,
+  );
+  const publicationRepository = new D1PublicationRepository(database);
+  const publishing = new PublicationService(
+    publicationRepository,
+    {
+      event: async (actor, eventId) => {
+        const event = await events.get(actor, eventId);
+        return event ? { name: event.name, timezone: event.timezone } : null;
+      },
+      cfp: async (eventId) => {
+        try {
+          const form = await cfpService.getPublished(eventId);
+          return {
+            title: form.title,
+            description: form.description,
+            status: form.status === "closed" ? ("closed" as const) : ("open" as const),
+            publishedAt: form.publishedAt,
+          };
+        } catch (error) {
+          if (error instanceof CfpUnavailableError) return null;
+          throw error;
+        }
+      },
+      content: contentRepository,
+      schedule: (eventId) => agenda.published(eventId),
+    },
+    () => new Date("2026-08-10T20:00:00.000Z"),
+  );
+  return { agenda, contentRepository, events, identities, publicationRepository, publishing };
+}
+
 describe("D1PublicationRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
@@ -44,37 +115,7 @@ describe("D1PublicationRepository", () => {
       d1Databases: { DB: "publishing-test" },
     });
     const database = await runtime.getD1Database("DB");
-    for (const name of [
-      "0001_create_events.sql",
-      "0002_identity_event_foundation.sql",
-      "0003_cfp.sql",
-      "0004_cfp_published_snapshot.sql",
-      "0005_cfp_snapshot_status.sql",
-      "0006_review_workflow.sql",
-      "0007_review_completion_conflict_guard.sql",
-      "0008_review_conflict_completion_guard.sql",
-      "0009_review_assignment_requires_plan.sql",
-      "0010_review_plan_lock.sql",
-      "0011_cfp_transition_status_guard.sql",
-      "0012_cfp_status_in_use_guard.sql",
-      "0013_cfp_submission_default_status.sql",
-      "0014_content_speaker_portal.sql",
-      "0015_crm_conversion.sql",
-      "0016_crm_speaker_conversion.sql",
-      "0017_agenda.sql",
-      "0018_agenda_draft_revision.sql",
-      "0019_communications_outbox.sql",
-      "0020_public_event_projections.sql",
-    ]) {
-      const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
-      if (/^(000[789]|001[0-3])_/.test(name)) {
-        await database.prepare(migration).run();
-        continue;
-      }
-      for (const statement of statements(migration)) await database.prepare(statement).run();
-    }
-    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    for (const statement of statements(reset)) await database.prepare(statement).run();
+    await applySeed(database);
     const draft = {
       ...safeProjection,
       crmNotes: "private CRM",
@@ -83,7 +124,7 @@ describe("D1PublicationRepository", () => {
           slug: "speaker",
           name: "Speaker",
           bio: "Public",
-          headline: "Builder",
+          organization: "Builder",
           privateEmail: "private@example.com",
         },
       ],
@@ -92,19 +133,16 @@ describe("D1PublicationRepository", () => {
       .prepare(
         "UPDATE public_event_projections SET state = 'draft', draft_json = ?, published_json = NULL, published_at = NULL WHERE event_id = ?",
       )
-      .bind(JSON.stringify(draft), "00000000-0000-4000-8000-000000000001")
+      .bind(JSON.stringify(draft), DEMO_EVENT)
       .run();
     const service = new PublicationService(
       new D1PublicationRepository(database),
       () => new Date("2026-08-10T00:00:00.000Z"),
     );
-    await service.publish(
-      await resolveSeededDemoActor("organizer"),
-      "00000000-0000-4000-8000-000000000001",
-    );
+    await service.publish(await resolveSeededDemoActor("organizer"), DEMO_EVENT);
     const stored = await database
       .prepare("SELECT published_json FROM public_event_projections WHERE event_id = ?")
-      .bind("00000000-0000-4000-8000-000000000001")
+      .bind(DEMO_EVENT)
       .first<{ published_json: string }>();
     expect(stored).not.toBeNull();
     expect(stored?.published_json).not.toMatch(
@@ -117,16 +155,175 @@ describe("D1PublicationRepository", () => {
 
     await database
       .prepare("DELETE FROM public_event_projections WHERE event_id = ?")
-      .bind("00000000-0000-4000-8000-000000000001")
+      .bind(DEMO_EVENT)
       .run();
     const repository = new D1PublicationRepository(database);
-    await repository.publish(
-      "00000000-0000-4000-8000-000000000001",
-      "2026-08-11T00:00:00.000Z",
-      safeProjection,
+    await repository.publish(DEMO_EVENT, "2026-08-11T00:00:00.000Z", safeProjection);
+    await expect(repository.findByEventId(DEMO_EVENT)).resolves.toMatchObject({
+      state: "published",
+      slug: "safe-event",
+    });
+  });
+
+  /*
+   * The seed used to ship a hand-written `published_json` naming sessions and speakers that
+   * existed in no other table, so the public page and the organizer workspace showed
+   * unrelated events and pressing Publish destroyed the nicer half. This asserts the seed is
+   * the output of the real composer over the real seeded CFP, content and agenda.
+   */
+  it("seeds a published projection identical to what the publish command recomposes", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-seed-parity" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { publishing, publicationRepository } = publishingFor(database as never);
+
+    const seeded = await publicationRepository.findPublicBySlug(DEMO_SLUG);
+    if (!seeded?.published) throw new Error(`the seed must publish ${DEMO_SLUG}`);
+    const organizer = await resolveSeededDemoActor("organizer");
+    const preview = await publishing.preview(organizer, DEMO_EVENT);
+    if (!preview) throw new Error("an organizer must be able to preview the seeded event");
+
+    // `published == preview` on a fresh reset: Publish is a no-op on the seeded demo.
+    expect(preview.draft).toEqual(seeded.published);
+    expect(preview.draft).toEqual(seeded.draft);
+
+    // The page shows the workspace: the accepted sessions and their speaker profiles.
+    expect(preview.draft.sessions.map(({ title }) => title)).toEqual([
+      "Accessible by default",
+      "Designing the calm conference",
+    ]);
+    expect(preview.draft.speakers.map(({ name }) => name)).toEqual(["Jordan Bell", "Sam Speaker"]);
+    expect(preview.draft.speakers.find(({ name }) => name === "Jordan Bell")?.photoUrl).toBe(
+      `/api/speaker-assets/${SEEDED_HEADSHOT}`,
     );
-    await expect(
-      repository.findByEventId("00000000-0000-4000-8000-000000000001"),
-    ).resolves.toMatchObject({ state: "published", slug: "safe-event" });
+
+    // No public URL anywhere in the snapshot is a storage id.
+    for (const slug of [
+      seeded.slug,
+      seeded.published.event.slug,
+      ...seeded.published.sessions.flatMap((item) => [item.slug, ...item.speakerSlugs]),
+      ...seeded.published.speakers.map(({ slug: value }) => value),
+    ]) {
+      expect(slug, `${slug} must be route-safe`).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+      expect(slug, `${slug} leaks a storage UUID`).not.toMatch(UUID_PATTERN);
+    }
+
+    // Publishing from the clean seed leaves the public page exactly as it was.
+    await publishing.publish(organizer, DEMO_EVENT);
+    const republished = await publicationRepository.findPublicBySlug(DEMO_SLUG);
+    expect(republished?.published).toEqual(seeded.published);
+  });
+
+  it("serves the seeded headshot to an anonymous reader and withdraws it on unpublish", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-seed-assets" },
+      r2Buckets: { ASSETS: "publishing-seed-assets-bucket" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const bytes = await seededAssetBytes();
+    const { agenda, contentRepository, events, publicationRepository, publishing } = publishingFor(
+      database as never,
+    );
+    // Where the bytes live is content's record to hand over, not a table publishing reads.
+    const seededAsset = await contentRepository.findAsset(SEEDED_HEADSHOT);
+    expect(seededAsset?.storageKey, "the seed must record where the headshot lives").toBeTruthy();
+    // Exactly what the `reset:assets` step of `npm run reset` uploads.
+    const storage = new R2AssetStorage(
+      (await runtime.getR2Bucket("ASSETS")) as unknown as R2BucketPort,
+    );
+    await storage.put({
+      key: seededAsset?.storageKey as string,
+      contentType: "image/png",
+      bytes,
+    });
+
+    const reviewService = new ReviewService({
+      repository: new D1ReviewRepository(database as never),
+      proposals: new D1SubmittedProposalAdapter(database as never),
+      identities: new D1IdentityDirectory(database as never),
+      events,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const content = new ContentService({
+      repository: contentRepository,
+      assetStorage: storage,
+      proposals: reviewService,
+      agenda,
+      speakerConversion: new D1SpeakerConversion(
+        database as never,
+        () => crypto.randomUUID(),
+        new D1IdentityDirectory(database as never),
+      ),
+      eventPublication: {
+        isEventPublished: async (eventId) =>
+          (await publicationRepository.findByEventId(eventId))?.state === "published",
+      },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const app = createHttpApp(
+      events,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      { demoMode: false },
+      reviewService,
+      undefined,
+      content,
+      undefined,
+      agenda,
+      undefined,
+      publishing,
+    );
+
+    // The gallery's `photoUrl`, fetched the way a visitor's browser fetches it: no session.
+    const anonymous = await app.request(`/api/speaker-assets/${SEEDED_HEADSHOT}`);
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.headers.get("content-type")).toBe("image/png");
+    // Storable, but never usable without asking: unpublishing has to be visible at once.
+    expect(anonymous.headers.get("cache-control")).toBe("public, no-cache");
+    const served = new Uint8Array(await anonymous.arrayBuffer());
+    expect(served.byteLength).toBe(bytes.byteLength);
+    expect([...served.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+
+    // The public schedule off the real seed, through the real D1 agenda and publication
+    // repositories: the placed session under its public slug, and no storage id at all.
+    const schedule = await app.request(`/api/public/events/${DEMO_SLUG}/schedule`);
+    expect(schedule.status).toBe(200);
+    expect(schedule.headers.get("cache-control")).toBe("public, no-cache");
+    const scheduleBody = await schedule.text();
+    expect(JSON.parse(scheduleBody)).toEqual({
+      schedule: {
+        eventSlug: DEMO_SLUG,
+        version: 1,
+        publishedAt: "2026-08-10T20:00:00.000Z",
+        sessions: [
+          {
+            slug: "designing-the-calm-conference",
+            title: "Designing the calm conference",
+            abstract: "A practical guide to reducing operational noise.",
+            format: "45-minute talk",
+            track: "Platform",
+            speakerSlugs: ["sam-speaker"],
+            startsAt: "2026-09-01T16:00:00.000Z",
+            endsAt: "2026-09-01T17:00:00.000Z",
+            room: "Main stage",
+          },
+        ],
+      },
+    });
+    expect(scheduleBody).not.toMatch(UUID_PATTERN);
+    expect(scheduleBody).not.toMatch(/room-main|track-platform|slot-0900|placement-opening/);
+
+    // Unpublishing the event withdraws the bytes it exposed.
+    await publishing.unpublish(await resolveSeededDemoActor("organizer"), DEMO_EVENT);
+    expect((await app.request(`/api/speaker-assets/${SEEDED_HEADSHOT}`)).status).toBe(404);
+    expect((await app.request(`/api/public/events/${DEMO_SLUG}/schedule`)).status).toBe(404);
   });
 });

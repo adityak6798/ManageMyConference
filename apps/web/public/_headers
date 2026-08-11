@@ -1,0 +1,17 @@
+# Framing policy for the public projection.
+#
+# `_headers` is the static-host convention used by Cloudflare Pages and Netlify. Vite
+# copies this file verbatim into `dist/`, so the built output carries the policy with
+# it instead of relying on whatever a host happens to default to.
+#
+# The embed views exist to be framed by someone else's site. Browsers allow that by
+# default today, but a default is not a guarantee — a host that starts sending
+# `X-Frame-Options: SAMEORIGIN` or a restrictive CSP would break every embed silently.
+# Declaring `frame-ancestors *` pins the intent. Replace `*` with an explicit
+# origin list to restrict embedding to known partners; the syntax is the same.
+#
+# X-Frame-Options is deliberately absent: it has no "allow any origin" value, and
+# modern browsers honour `frame-ancestors` over it anyway.
+
+/embed/*
+  Content-Security-Policy: frame-ancestors *

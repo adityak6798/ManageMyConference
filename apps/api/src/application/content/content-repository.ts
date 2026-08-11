@@ -21,8 +21,11 @@ export interface ContentRepository {
   updateProfile(profile: SpeakerProfile): Promise<void>;
   updateTask(task: SpeakerTask): Promise<void>;
   updateSession(session: ContentSession): Promise<void>;
+  /** Remove a withdrawn session. Its speaker, their tasks, and their uploads are untouched. */
+  deleteSession(sessionId: string): Promise<void>;
   updateAsset(asset: SpeakerAsset): Promise<void>;
   addAsset(asset: SpeakerAsset): Promise<void>;
+  deleteAsset(assetId: string): Promise<void>;
   addTask(task: SpeakerTask): Promise<void>;
   addMessage(message: SpeakerMessage): Promise<void>;
   findProfile(profileId: string): Promise<SpeakerProfile | null>;
@@ -32,6 +35,19 @@ export interface ContentRepository {
 }
 
 export class ContentConflictError extends Error {}
+
+/**
+ * "Is this event's public page live?", answered by whoever owns publication state.
+ *
+ * Content asks because an asset an organizer marked publishable is reachable *through* that
+ * page: taking the page down has to take its bytes down with it. The port is declared here so
+ * the content domain never imports the publishing domain; the composition root supplies it.
+ * An implementation is optional, and its absence means "nothing is published" — a missing
+ * wiring loses public asset reads rather than silently serving withdrawn bytes.
+ */
+export interface EventPublicationQuery {
+  isEventPublished(eventId: string): Promise<boolean>;
+}
 
 export interface AssetStoragePort {
   put(input: { key: string; contentType: string; bytes: Uint8Array }): Promise<{ key: string }>;

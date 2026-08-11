@@ -3,4 +3,5 @@ export {
   ProspectAlreadyConvertedError,
   ProspectContactRequiredError,
   ProspectNotFoundError,
+  ProspectOwnerNotEligibleError,
 } from "./errors";

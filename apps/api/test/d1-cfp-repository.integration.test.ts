@@ -1,5 +1,7 @@
 // @acceptance ACC-CFP
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -7,9 +9,14 @@ import {
   type D1CfpDatabasePort,
 } from "../src/adapters/persistence/d1-cfp-repository";
 import {
+  type ContentDatabasePort,
+  D1ContentRepository,
+} from "../src/adapters/persistence/d1-content-repository";
+import {
   type D1ProposalDatabasePort,
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
+import { ContentConflictError } from "../src/application/content/content-repository";
 const statements = (sql: string) =>
   sql
     .split(";")
@@ -61,19 +68,22 @@ describe("D1CfpRepository", () => {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       for (const statement of statements(sql)) await database.prepare(statement).run();
     }
-    const communicationsMigration = (
+    const trailingMigrations = (
       await Promise.all([
         readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
         readFile(
           new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
           "utf8",
         ),
+        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
       ])
     ).join("\n");
-    for (const statement of statements(communicationsMigration))
-      await database.prepare(statement).run();
+    for (const statement of statements(trailingMigrations)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    for (const statement of statements(reset)) await database.prepare(statement).run();
+    // Asserted, like the DDL above: an unasserted seed loop would let this whole suite run
+    // green against an empty database the moment the seed stopped applying.
+    for (const statement of statements(reset))
+      expect((await database.prepare(statement).run()).success, statement).toBe(true);
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);
     const proposals = new D1SubmittedProposalAdapter(database as D1ProposalDatabasePort);
     const form = {
@@ -153,15 +163,41 @@ describe("D1CfpRepository", () => {
       ],
     });
     expect(custom).not.toBeNull();
-    await expect(proposals.find(form.eventId, custom?.id as string)).resolves.toMatchObject({
+    // The email-typed answer never appears in `answers`, and the organizer projection carries
+    // it as the submitter instead. A form with no name field identifies its submitter by
+    // address rather than inventing one.
+    await expect(proposals.find(form.eventId, custom?.id as string)).resolves.toEqual({
+      id: custom?.id,
+      eventId: form.eventId,
       title: "Advanced",
       abstract: "Custom session content",
-      submitterName: "Applicant",
+      submitterName: "private@example.com",
+      submitter: { name: "private@example.com", email: "private@example.com" },
+      status: "submitted",
       answers: [
-        { fieldId: "level", label: "Experience level", value: "Advanced" },
-        { fieldId: "session", label: "Session details", value: "Custom session content" },
+        { fieldId: "level", label: "Experience level", type: "select", value: "Advanced" },
+        {
+          fieldId: "session",
+          label: "Session details",
+          type: "long_text",
+          value: "Custom session content",
+        },
       ],
     });
+    // The seeded submissions carry both a name and an email field, so the organizer sees the
+    // real person — the `submitterName: "Applicant"` constant is gone.
+    await expect(
+      proposals.find(form.eventId, "10000000-0000-4000-8000-000000000001"),
+    ).resolves.toMatchObject({
+      submitterName: "Alex Morgan",
+      submitter: { name: "Alex Morgan", email: "alex.morgan@example.test" },
+    });
+    // And the contact address is never smuggled through the answer list.
+    expect(
+      JSON.stringify(
+        (await proposals.find(form.eventId, "10000000-0000-4000-8000-000000000001"))?.answers,
+      ),
+    ).not.toContain("alex.morgan@example.test");
     await repository.savePublished({ ...form, status: "closed", publishedStatus: "closed" }, true);
     await expect(
       repository.createSubmission({
@@ -170,5 +206,96 @@ describe("D1CfpRepository", () => {
         idempotencyKey: "after-close",
       }),
     ).resolves.toBeNull();
+  });
+});
+
+// The DDL `tools/check-schema-drift.mjs` renders from schema.ts is the declared storage intent
+// that `npm run schema:check` proves equal to the migrations. A database built only from that
+// DDL has to carry the constraints the repositories silently depend on.
+describe("the DDL rendered from schema.ts", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+  it("defaults a submission status and rejects a duplicate proposal acceptance", async () => {
+    const declaredDdl = execFileSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../../../tools/check-schema-drift.mjs", import.meta.url)),
+        "--emit-ddl",
+      ],
+      { encoding: "utf8" },
+    );
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "declared-schema-test" },
+    });
+    const database = await runtime.getD1Database("DB");
+    for (const statement of statements(declaredDdl))
+      expect((await database.prepare(statement).run()).success).toBe(true);
+    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
+    // The seed is the fixture every assertion below leans on, so a statement that stops
+    // applying has to fail here rather than silently leave an empty database.
+    for (const statement of statements(reset))
+      expect((await database.prepare(statement).run()).success, statement).toBe(true);
+
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const repository = new D1CfpRepository(database as D1CfpDatabasePort);
+    // createSubmission never names `status`, so the column default is the only thing that keeps
+    // this insert off the NOT NULL constraint.
+    const submission = await repository.createSubmission({
+      id: "10000000-0000-4000-8000-000000000777",
+      eventId,
+      cfpVersion: 1,
+      idempotencyKey: "declared-schema-default-status",
+      answers: { title: "Talk" },
+      fields: [],
+      submittedAt: "2026-08-11T00:00:00.000Z",
+    });
+    expect(submission?.id).toBe("10000000-0000-4000-8000-000000000777");
+    const stored = await database
+      .prepare("SELECT status FROM cfp_submissions WHERE id = ?")
+      .bind("10000000-0000-4000-8000-000000000777")
+      .all<{ status: string }>();
+    expect(stored.results?.[0]?.status).toBe("submitted");
+
+    const content = new D1ContentRepository(database as ContentDatabasePort);
+    const session = {
+      id: "20000000-0000-4000-8000-000000000777",
+      eventId,
+      proposalId: "declared-schema-proposal",
+      title: "Accepted twice",
+      abstract: "Concurrent acceptance must collide, not duplicate.",
+      format: "45-minute talk",
+      speakerProfileIds: ["10000000-0000-4000-8000-000000000777"],
+      tags: [],
+      tracks: [],
+      publicationState: "draft" as const,
+    };
+    const speaker = {
+      id: "10000000-0000-4000-8000-000000000777",
+      eventId,
+      userId: "seed-speaker",
+      sourcePersonId: "declared-schema-person",
+      name: "Sam Speaker",
+      email: "sam@example.test",
+      bio: "",
+      pronouns: "they/them",
+      organization: "Greenroom Labs",
+    };
+    await content.accept({ session, speakers: [speaker], tasks: [], messages: [] });
+    await expect(
+      content.accept({
+        session: { ...session, id: "20000000-0000-4000-8000-000000000778" },
+        speakers: [
+          {
+            ...speaker,
+            id: "10000000-0000-4000-8000-000000000778",
+            sourcePersonId: "declared-schema-person-retry",
+          },
+        ],
+        tasks: [],
+        messages: [],
+      }),
+    ).rejects.toBeInstanceOf(ContentConflictError);
   });
 });

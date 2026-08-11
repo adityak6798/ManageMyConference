@@ -11,17 +11,22 @@
  */
 
 import type { ContentWorkspaceDto, UpdateContentSessionInput } from "@greenroom/contracts";
-import { type FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  acceptContent,
+  clearSpeakerProfilePhoto,
   completeSpeakerTask,
+  ContentApiError,
+  contentFieldErrors,
   getContent,
   publishSpeakerAsset,
   recordSpeakerMessage,
   requestSpeakerTask,
+  setSpeakerProfilePhoto,
+  unpublishSpeakerAsset,
   updateContentSession,
   updateSpeakerProfile,
   uploadSpeakerAsset,
+  withdrawContentSession,
 } from "./api/content";
 import "./styles/content.css";
 import {
@@ -30,7 +35,6 @@ import {
   IconClock,
   IconInbox,
   IconLink,
-  IconPlus,
   IconSend,
   IconSessions,
   IconSpeakers,
@@ -42,16 +46,66 @@ import { Card, EmptyState, Notice, Pill, Stat, Tabs, useActionFeedback } from ".
 interface Props {
   eventId: string;
   role: "organizer" | "speaker";
-  onError: (error: unknown) => void;
 }
 
 type Workspace = ContentWorkspaceDto;
 type ContentSession = Workspace["sessions"][number];
 type SpeakerProfile = Workspace["speakers"][number];
+type SpeakerAsset = Workspace["assets"][number];
 type PublicationState = ContentSession["publicationState"];
 
-/** Resolves to true when the mutation succeeded, so callers can announce an outcome. */
-type Run = (action: () => Promise<unknown>) => Promise<boolean>;
+/**
+ * Only an image can be a headshot, which is the same rule the server enforces. Checking it
+ * here decides whether the control is offered at all, so a speaker is not invited to nominate
+ * their slide deck and then told off for it.
+ */
+function isImageAsset(asset: SpeakerAsset) {
+  return asset.contentType.startsWith("image/");
+}
+
+/**
+ * The one sentence that says what the public will and will not see.
+ *
+ * Choosing a headshot and publishing it are two decisions held by two people: the speaker
+ * picks the picture, an organizer decides whether the file may leave the workspace. A photo
+ * that is still private is shown here as chosen but withheld, so nobody believes a face is on
+ * the programme when the programme is drawing their initials.
+ */
+function photoVisibility(asset: SpeakerAsset) {
+  return asset.visibility === "publishable"
+    ? "It is visible on the published programme."
+    : "It is not public yet: the published programme shows initials until an organizer marks this file publishable.";
+}
+
+/**
+ * The outcome of a mutation. The failure carries the rejection itself so a form can render the
+ * server's field-level detail against the input that caused it, not only announce that it failed.
+ */
+type RunResult = { ok: true } | { ok: false; error: unknown };
+type Run = (action: () => Promise<unknown>) => Promise<RunResult>;
+
+/**
+ * A refusal, phrased for the person who has to act on it, with the id it is logged under.
+ *
+ * The failure of an action is announced beside the control that caused it — this workspace no
+ * longer hands anything to a page-level surface — so the correlation id has to travel with the
+ * sentence, or the operator has nothing to quote when they ask for help.
+ */
+function withReference(sentence: string, error: unknown) {
+  return error instanceof ContentApiError
+    ? `${sentence} Reference: ${error.envelope.error.correlationId}`
+    : sentence;
+}
+
+/** One paragraph per message, tied to its control through aria-describedby. */
+function FieldErrors({ id, messages }: { id: string; messages: readonly string[] | undefined }) {
+  if (!messages?.length) return null;
+  return (
+    <p className="error-text" id={id}>
+      {messages.join(" ")}
+    </p>
+  );
+}
 
 const PUBLICATION_TONE: Record<PublicationState, "neutral" | "info" | "ok"> = {
   draft: "neutral",
@@ -300,12 +354,10 @@ function SessionEditor({
 /* ============================== organizer view ============================== */
 
 function OrganizerView({
-  eventId,
   workspace,
   busy,
   run,
 }: {
-  eventId: string;
   workspace: Workspace;
   busy: boolean;
   run: Run;
@@ -317,13 +369,20 @@ function OrganizerView({
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<"all" | PublicationState>("all");
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  // Withdrawal is destructive and irreversible, so it is a two-step control: the row asks
+  // before anything is sent, the way converting a prospect does.
+  const [withdrawingSessionId, setWithdrawingSessionId] = useState<string | null>(null);
 
   // The organizer picks who the task or message is for; this used to be hardcoded to
   // the first speaker in the workspace, which made both actions unusable in practice.
   const [speakerChoice, setSpeakerChoice] = useState("");
-  const [taskTitle, setTaskTitle] = useState("Upload final presentation");
-  const [taskDue, setTaskDue] = useState("2026-09-01");
-  const [messageSubject, setMessageSubject] = useState("Speaker preparation reminder sent");
+  // Both forms start empty. They used to be pre-filled with a title, a due date, and a
+  // subject that no organizer had typed, so one click wrote invented rows into the event.
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDue, setTaskDue] = useState("");
+  const [taskErrors, setTaskErrors] = useState<Record<string, string[]>>({});
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageErrors, setMessageErrors] = useState<Record<string, string[]>>({});
   const taskTitleRef = useRef<HTMLInputElement>(null);
 
   const now = Date.now();
@@ -375,86 +434,157 @@ function OrganizerView({
       .includes(needle);
   });
 
-  function acceptDemoProposal() {
-    if (busy) return;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() =>
-      acceptContent(eventId, {
-        proposalId: "demo-accepted-proposal",
-        title: "A newly accepted session",
-        abstract: "Accepted once and linked without duplicate entry.",
-        format: "Talk",
-        tags: ["community"],
-        tracks: ["Main"],
-        speakers: [
-          {
-            userId: "seed-speaker",
-            sourcePersonId: "proposal-person-sam",
-            name: "Sam Speaker",
-            email: "sam@example.test",
-          },
-        ],
-      }),
-    ).then((ok) =>
+  function saveSession(sessionId: string, input: UpdateContentSessionInput) {
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() => updateContentSession(sessionId, input)).then((result) =>
       sessionFeedback.announce(
-        ok ? "success" : "error",
-        ok ? "Accepted proposal linked as a session." : "The proposal could not be accepted.",
+        result.ok ? "success" : "error",
+        result.ok
+          ? `Saved “${input.title}”.`
+          : withReference("That session could not be saved.", result.error),
       ),
     );
   }
 
-  function saveSession(sessionId: string, input: UpdateContentSessionInput) {
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => updateContentSession(sessionId, input)).then((ok) =>
+  /**
+   * Take a session out of the programme.
+   *
+   * The control the decline dialog points at. Declining an abstract that was already accepted
+   * reverses the decision but cannot remove the session it created — that object belongs to
+   * this workspace — so this is where a session leaves, taking its agenda placements with it.
+   */
+  function withdrawSession(sessionId: string, title: string) {
+    if (busy) return;
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() => withdrawContentSession(sessionId)).then((result) => {
+      if (result.ok) {
+        setWithdrawingSessionId(null);
+        setExpandedSessionId((current) => (current === sessionId ? null : current));
+      }
       sessionFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `Saved “${input.title}”.` : "That session could not be saved.",
-      ),
-    );
+        result.ok ? "success" : "error",
+        result.ok
+          ? `“${title}” was withdrawn, along with any agenda placement holding it. It leaves the public page the next time you publish.`
+          : withReference("That session could not be withdrawn.", result.error),
+      );
+    });
   }
 
   function requestTask(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy || !selectedSpeaker) return;
+    const title = taskTitle.trim();
+    // The request carries what the organizer typed, so it is checked here before it is sent
+    // rather than relying on browser constraint validation the submit path can bypass.
+    const problems: Record<string, string[]> = {};
+    if (!title) problems.title = ["Say what you need from this speaker."];
+    if (!taskDue) problems.dueAt = ["Choose the day this is due."];
+    else if (Number.isNaN(new Date(`${taskDue}T23:59:00.000Z`).getTime()))
+      problems.dueAt = ["That is not a real date."];
+    setTaskErrors(problems);
+    if (Object.keys(problems).length) {
+      outreachFeedback.announce("error", "That request is incomplete. Check the fields above.");
+      return;
+    }
     const name = selectedSpeaker.name;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(() =>
       requestSpeakerTask({
         profileId: selectedSpeaker.id,
-        title: taskTitle,
+        title,
         // The picker collects a day; speakers are given until the end of it.
         dueAt: new Date(`${taskDue}T23:59:00.000Z`).toISOString(),
       }),
-    ).then((ok) =>
+    ).then((result) => {
+      if (result.ok) {
+        setTaskTitle("");
+        setTaskDue("");
+      } else setTaskErrors(contentFieldErrors(result.error));
       outreachFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `Requested “${taskTitle}” from ${name}.` : "That task could not be requested.",
-      ),
-    );
+        result.ok ? "success" : "error",
+        result.ok
+          ? `Requested “${title}” from ${name}.`
+          : withReference("That task could not be requested.", result.error),
+      );
+    });
   }
 
   function recordMessage(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy || !selectedSpeaker) return;
+    const subject = messageSubject.trim();
+    if (!subject) {
+      setMessageErrors({ subject: ["Say what you sent this speaker."] });
+      outreachFeedback.announce("error", "Enter the subject of the message you sent.");
+      return;
+    }
+    setMessageErrors({});
     const name = selectedSpeaker.name;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() => recordSpeakerMessage({ profileId: selectedSpeaker.id, subject })).then(
+      (result) => {
+        if (result.ok) setMessageSubject("");
+        else setMessageErrors(contentFieldErrors(result.error));
+        outreachFeedback.announce(
+          result.ok ? "success" : "error",
+          result.ok
+            ? `Logged “${subject}” to ${name}.`
+            : withReference("That message could not be recorded.", result.error),
+        );
+      },
+    );
+  }
+
+  /**
+   * Publication is reversible, so this control is a toggle rather than a one-way switch.
+   * Returning a file to private closes the public door on the very next read, and a headshot
+   * withdrawn this way leaves the public gallery at the next publish.
+   */
+  function setAssetVisibility(asset: SpeakerAsset) {
+    if (busy) return;
+    const publishing = asset.visibility !== "publishable";
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(() =>
-      recordSpeakerMessage({ profileId: selectedSpeaker.id, subject: messageSubject }),
-    ).then((ok) =>
-      outreachFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `Logged a message to ${name}.` : "That message could not be recorded.",
+      publishing ? publishSpeakerAsset(asset.id) : unpublishSpeakerAsset(asset.id),
+    ).then((result) =>
+      assetFeedback.announce(
+        result.ok ? "success" : "error",
+        result.ok
+          ? publishing
+            ? `“${asset.name}” is now publishable.`
+            : `“${asset.name}” is private again and has left the public page.`
+          : withReference(
+              publishing
+                ? "That asset could not be published."
+                : "That asset could not be made private.",
+              result.error,
+            ),
       ),
     );
   }
 
-  function publishAsset(assetId: string, name: string) {
+  /**
+   * An organizer may set or remove a speaker's headshot too — they own the programme it
+   * appears on, and a speaker who has gone quiet still needs a face on the gallery. It marks
+   * a choice only: the file's visibility is untouched by this control.
+   */
+  function setProfilePhoto(speaker: SpeakerProfile, asset: SpeakerAsset | null) {
     if (busy) return;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => publishSpeakerAsset(assetId)).then((ok) =>
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() =>
+      asset ? setSpeakerProfilePhoto(speaker.id, asset.id) : clearSpeakerProfilePhoto(speaker.id),
+    ).then((result) =>
       assetFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `“${name}” is now publishable.` : "That asset could not be published.",
+        result.ok ? "success" : "error",
+        result.ok
+          ? asset
+            ? `“${asset.name}” is now ${speaker.name}’s profile photo. ${photoVisibility(asset)}`
+            : `${speaker.name} has no profile photo now.`
+          : withReference(
+              contentFieldErrors(result.error).assetId?.[0] ??
+                "That profile photo could not be changed.",
+              result.error,
+            ),
       ),
     );
   }
@@ -502,16 +632,12 @@ function OrganizerView({
 
       <div className="split">
         <div className="content-stack">
+          {/* Sessions are created by accepting an abstract in review, never from here: the
+              acceptance command names a proposal and the server resolves the rest of it. */}
           <Card
             labelledBy="accepted-sessions"
             title="Accepted sessions"
             hint="Content that survived review. Edit a row to change how it will be published."
-            actions={
-              <button type="button" aria-disabled={busy} onClick={acceptDemoProposal}>
-                <IconPlus size={15} />
-                Accept demo proposal
-              </button>
-            }
             tight
           >
             <div className="content-tabs">
@@ -564,6 +690,7 @@ function OrganizerView({
                   <tbody>
                     {visibleSessions.map((session) => {
                       const expanded = expandedSessionId === session.id;
+                      const withdrawing = withdrawingSessionId === session.id;
                       return (
                         <Fragment key={session.id}>
                           <tr>
@@ -595,22 +722,69 @@ function OrganizerView({
                                   <span className="sub">{session.schedule.location}</span>
                                 </>
                               ) : (
-                                <span className="hint">Not scheduled</span>
+                                <span className="hint">Not on the published schedule</span>
                               )}
                             </td>
                             <td>
-                              <button
-                                type="button"
-                                className="secondary small"
-                                aria-expanded={expanded}
-                                aria-controls={`session-editor-${session.id}`}
-                                onClick={() => setExpandedSessionId(expanded ? null : session.id)}
-                              >
-                                {expanded ? "Close" : "Edit"}
-                                <span className="visually-hidden"> {session.title}</span>
-                              </button>
+                              <div className="row-actions">
+                                <button
+                                  type="button"
+                                  className="secondary small"
+                                  aria-expanded={expanded}
+                                  aria-controls={`session-editor-${session.id}`}
+                                  onClick={() => setExpandedSessionId(expanded ? null : session.id)}
+                                >
+                                  {expanded ? "Close" : "Edit"}
+                                  <span className="visually-hidden"> {session.title}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary small"
+                                  aria-expanded={withdrawing}
+                                  aria-controls={`session-withdraw-${session.id}`}
+                                  onClick={() =>
+                                    setWithdrawingSessionId(withdrawing ? null : session.id)
+                                  }
+                                >
+                                  Withdraw
+                                  <span className="visually-hidden"> {session.title}</span>
+                                </button>
+                              </div>
                             </td>
                           </tr>
+                          {withdrawing ? (
+                            <tr className="editor-row">
+                              <td colSpan={6} id={`session-withdraw-${session.id}`}>
+                                <Notice tone="warn">
+                                  <IconWarning size={15} />
+                                  <span>
+                                    Withdraw “{session.title}”? It leaves the programme and any
+                                    agenda placement holding it is removed.{" "}
+                                    {session.speakerProfileIds.length
+                                      ? "The speaker keeps their profile, tasks, and uploads."
+                                      : "No speaker profile is removed."}{" "}
+                                    It stays on the published public page until you publish again.
+                                  </span>
+                                </Notice>
+                                <div className="session-editor-actions">
+                                  <button
+                                    type="button"
+                                    aria-disabled={busy}
+                                    onClick={() => withdrawSession(session.id, session.title)}
+                                  >
+                                    {busy ? "Withdrawing…" : `Yes, withdraw ${session.title}`}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() => setWithdrawingSessionId(null)}
+                                  >
+                                    Keep this session
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : null}
                           {expanded ? (
                             <tr className="editor-row">
                               <td colSpan={6} id={`session-editor-${session.id}`}>
@@ -646,7 +820,7 @@ function OrganizerView({
           <Card
             labelledBy="speaker-assets"
             title="Speaker assets"
-            hint="Uploads stay private until you mark them publishable."
+            hint="Uploads stay private until you mark them publishable, and marking one as a headshot does not publish it."
             tight
           >
             <div className="content-feedback">{assetFeedback.node}</div>
@@ -665,41 +839,68 @@ function OrganizerView({
                     </tr>
                   </thead>
                   <tbody>
-                    {workspace.assets.map((asset) => (
-                      <tr key={asset.id}>
-                        <td className="primary-cell">
-                          {asset.name}
-                          <span className="sub">{asset.contentType}</span>
-                        </td>
-                        <td>
-                          {speakerById.get(asset.speakerProfileId)?.name ?? "Unknown speaker"}
-                        </td>
-                        <td>{shortDate(asset.uploadedAt)}</td>
-                        <td>
-                          <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
-                            {asset.visibility === "publishable" ? "Publishable" : "Private"}
-                          </Pill>
-                        </td>
-                        <td>
-                          {/* The control stays mounted once it is spent so the keyboard
-                              focus that triggered it is not thrown back to the body. */}
-                          <button
-                            type="button"
-                            className="secondary small"
-                            aria-disabled={busy || asset.visibility === "publishable"}
-                            onClick={() => {
-                              if (asset.visibility === "publishable") return;
-                              publishAsset(asset.id, asset.name);
-                            }}
-                          >
-                            {asset.visibility === "publishable"
-                              ? "Publishable"
-                              : "Mark publishable"}
-                            <span className="visually-hidden"> — {asset.name}</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {workspace.assets.map((asset) => {
+                      const owner = speakerById.get(asset.speakerProfileId);
+                      const isPhoto = Boolean(owner && owner.photoAssetId === asset.id);
+                      return (
+                        <tr key={asset.id}>
+                          <td className="primary-cell">
+                            {asset.name}
+                            <span className="sub">
+                              {asset.contentType}
+                              {isPhoto ? " · Profile photo" : ""}
+                            </span>
+                          </td>
+                          <td>{owner?.name ?? "Unknown speaker"}</td>
+                          <td>{shortDate(asset.uploadedAt)}</td>
+                          <td>
+                            <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
+                              {asset.visibility === "publishable" ? "Publishable" : "Private"}
+                            </Pill>
+                          </td>
+                          <td>
+                            {/* Both controls stay mounted through the round trip, so the
+                                keyboard focus that triggered one is not thrown back to the
+                                body; each is a toggle, because both decisions are reversible. */}
+                            <div className="row-actions">
+                              {/* An organizer has to be able to open what a speaker sent them —
+                                  a slide deck the workspace only lists is not delivered.
+                                  `GET /api/speaker-assets/:id` already authorizes this. */}
+                              <a
+                                className="download"
+                                href={`/api/speaker-assets/${asset.id}`}
+                                download={asset.name}
+                              >
+                                Download
+                                <span className="visually-hidden"> — {asset.name}</span>
+                              </a>
+                              <button
+                                type="button"
+                                className="secondary small"
+                                aria-disabled={busy}
+                                onClick={() => setAssetVisibility(asset)}
+                              >
+                                {asset.visibility === "publishable"
+                                  ? "Make private"
+                                  : "Mark publishable"}
+                                <span className="visually-hidden"> — {asset.name}</span>
+                              </button>
+                              {owner && isImageAsset(asset) ? (
+                                <button
+                                  type="button"
+                                  className="ghost small"
+                                  aria-disabled={busy}
+                                  onClick={() => setProfilePhoto(owner, isPhoto ? null : asset)}
+                                >
+                                  {isPhoto ? "Remove profile photo" : "Use as profile photo"}
+                                  <span className="visually-hidden"> — {asset.name}</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -809,7 +1010,11 @@ function OrganizerView({
                       onChange={(changeEvent) => setTaskTitle(changeEvent.target.value)}
                       required
                       maxLength={160}
+                      placeholder="What you need from them"
+                      aria-invalid={Boolean(taskErrors.title?.length)}
+                      aria-describedby={taskErrors.title?.length ? "task-title-error" : undefined}
                     />
+                    <FieldErrors id="task-title-error" messages={taskErrors.title} />
                   </div>
                   <div className="field">
                     <label htmlFor="task-due">Due date</label>
@@ -819,11 +1024,19 @@ function OrganizerView({
                       value={taskDue}
                       onChange={(changeEvent) => setTaskDue(changeEvent.target.value)}
                       required
+                      aria-invalid={Boolean(taskErrors.dueAt?.length)}
+                      aria-describedby={
+                        taskErrors.dueAt?.length ? "task-due-error task-due-hint" : "task-due-hint"
+                      }
                     />
+                    <p className="hint" id="task-due-hint">
+                      The speaker has until the end of this day.
+                    </p>
+                    <FieldErrors id="task-due-error" messages={taskErrors.dueAt} />
                   </div>
                   <button type="submit" aria-disabled={busy}>
                     <IconTask size={15} />
-                    Request presentation asset
+                    Request this task
                   </button>
                 </form>
 
@@ -836,11 +1049,22 @@ function OrganizerView({
                       onChange={(changeEvent) => setMessageSubject(changeEvent.target.value)}
                       required
                       maxLength={200}
+                      placeholder="Subject of what you sent"
+                      aria-invalid={Boolean(messageErrors.subject?.length)}
+                      aria-describedby={
+                        messageErrors.subject?.length
+                          ? "message-subject-error message-subject-hint"
+                          : "message-subject-hint"
+                      }
                     />
+                    <p className="hint" id="message-subject-hint">
+                      Logged as history for the whole organizing team. Nothing is sent from here.
+                    </p>
+                    <FieldErrors id="message-subject-error" messages={messageErrors.subject} />
                   </div>
                   <button type="submit" className="secondary" aria-disabled={busy}>
                     <IconSend size={15} />
-                    Record communication
+                    Record this message
                   </button>
                 </form>
 
@@ -934,14 +1158,25 @@ function SpeakerView({
   );
   const openTasks = tasks.filter(({ status }) => status === "open");
   const overdue = openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length;
+  // A session's time is where the published agenda places it, resolved by the server on every
+  // read, so this card and the .ics download can never disagree with the public schedule.
+  const scheduled = workspace.sessions.filter((session) => session.schedule);
+  // A deleted asset clears the column it was chosen through, so this only ever misses while a
+  // refetch is in flight; the card then reads as "no photo yet" rather than breaking.
+  const photoAsset = workspace.assets.find(({ id }) => id === profile.photoAssetId);
+  const publishableAssets = workspace.assets.filter(
+    ({ visibility }) => visibility === "publishable",
+  ).length;
 
   function completeTask(taskId: string, title: string) {
     if (busy) return;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => completeSpeakerTask(eventId, taskId)).then((ok) =>
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() => completeSpeakerTask(eventId, taskId)).then((result) =>
       taskFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `“${title}” marked complete.` : "That task could not be completed.",
+        result.ok ? "success" : "error",
+        result.ok
+          ? `“${title}” marked complete.`
+          : withReference("That task could not be completed.", result.error),
       ),
     );
   }
@@ -949,11 +1184,41 @@ function SpeakerView({
   function saveProfile(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy) return;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => updateSpeakerProfile(profile.id, draft)).then((ok) =>
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() => updateSpeakerProfile(profile.id, draft)).then((result) =>
       profileFeedback.announce(
-        ok ? "success" : "error",
-        ok ? "Profile saved. Organizers see this version." : "Your profile could not be saved.",
+        result.ok ? "success" : "error",
+        result.ok
+          ? "Profile saved. Organizers see this version."
+          : withReference("Your profile could not be saved.", result.error),
+      ),
+    );
+  }
+
+  /**
+   * Choose, or unchoose, the picture that represents this speaker.
+   *
+   * The announcement says what happens next as well as what happened, because the answer
+   * depends on a decision this speaker does not hold: the photo appears on the programme only
+   * once an organizer has marked that same file publishable.
+   */
+  function chooseProfilePhoto(asset: SpeakerAsset | null) {
+    if (busy) return;
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(() =>
+      asset ? setSpeakerProfilePhoto(profile.id, asset.id) : clearSpeakerProfilePhoto(profile.id),
+    ).then((result) =>
+      uploadFeedback.announce(
+        result.ok ? "success" : "error",
+        result.ok
+          ? asset
+            ? `“${asset.name}” is now your profile photo. ${photoVisibility(asset)}`
+            : "Your profile photo has been removed. The programme shows your initials."
+          : withReference(
+              contentFieldErrors(result.error).assetId?.[0] ??
+                "That file could not be used as your profile photo.",
+              result.error,
+            ),
       ),
     );
   }
@@ -967,7 +1232,7 @@ function SpeakerView({
       uploadFeedback.announce("error", "Choose a file before uploading.");
       return;
     }
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(async () => {
       const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
       await uploadSpeakerAsset({
@@ -976,11 +1241,13 @@ function SpeakerView({
         contentType: file.type as "image/jpeg" | "image/png" | "application/pdf",
         contentBase64,
       });
-    }).then((ok) => {
-      if (ok) uploadFormRef.current?.reset();
+    }).then((result) => {
+      if (result.ok) uploadFormRef.current?.reset();
       uploadFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `${file.name} uploaded privately.` : "That file could not be uploaded.",
+        result.ok ? "success" : "error",
+        result.ok
+          ? `${file.name} uploaded privately.`
+          : withReference("That file could not be uploaded.", result.error),
       );
     });
   }
@@ -998,13 +1265,17 @@ function SpeakerView({
         <Stat
           label="Your sessions"
           value={workspace.sessions.length}
-          hint={`${workspace.sessions.filter((session) => session.schedule).length} scheduled`}
+          hint={`${scheduled.length} scheduled`}
           icon={<IconSessions size={15} />}
         />
         <Stat
           label="Files uploaded"
           value={workspace.assets.length}
-          hint="Private to you and the organizers"
+          hint={
+            publishableAssets
+              ? `${publishableAssets} cleared for the public page`
+              : "Private to you and the organizers"
+          }
           icon={<IconInbox size={15} />}
         />
       </dl>
@@ -1183,19 +1454,61 @@ function SpeakerView({
             </button>
           </form>
           {uploadFeedback.node}
+          {/* The headshot, and one plain sentence about who can see it. The photo used to be
+              unreachable from here entirely: the column existed, the public projection read
+              it, and nothing in the product could ever write it. */}
+          <div className="photo-status">
+            {photoAsset ? (
+              <>
+                <img
+                  className="photo-preview"
+                  src={`/api/speaker-assets/${photoAsset.id}`}
+                  alt={`Your profile photo, ${photoAsset.name}`}
+                />
+                <p>
+                  <strong>{photoAsset.name}</strong> is your profile photo.{" "}
+                  {photoVisibility(photoAsset)}
+                </p>
+              </>
+            ) : (
+              <p className="hint">
+                You have no profile photo. Upload a PNG or JPEG and choose “Use as profile photo”;
+                the published programme shows your initials until you do.
+              </p>
+            )}
+          </div>
           {workspace.assets.length ? (
             <ul className="upload-list">
-              {workspace.assets.map((asset) => (
-                <li key={asset.id}>
-                  <span className="upload-name">
-                    {asset.name}
-                    <span className="sub">Uploaded {shortDate(asset.uploadedAt)}</span>
-                  </span>
-                  <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
-                    {asset.visibility === "publishable" ? "Publishable" : "Private"}
-                  </Pill>
-                </li>
-              ))}
+              {workspace.assets.map((asset) => {
+                const isPhoto = asset.id === profile.photoAssetId;
+                return (
+                  <li key={asset.id}>
+                    <span className="upload-name">
+                      {asset.name}
+                      <span className="sub">Uploaded {shortDate(asset.uploadedAt)}</span>
+                    </span>
+                    <span className="upload-actions">
+                      {isPhoto ? <Pill tone="strong">Profile photo</Pill> : null}
+                      <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
+                        {asset.visibility === "publishable" ? "Publishable" : "Private"}
+                      </Pill>
+                      {/* Offered only for images, which is the rule the server enforces:
+                          nominating a slide deck is refused, so it is never invited. */}
+                      {isImageAsset(asset) ? (
+                        <button
+                          type="button"
+                          className="ghost small"
+                          aria-disabled={busy}
+                          onClick={() => chooseProfilePhoto(isPhoto ? null : asset)}
+                        >
+                          {isPhoto ? "Remove profile photo" : "Use as profile photo"}
+                          <span className="visually-hidden"> — {asset.name}</span>
+                        </button>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="hint upload-empty">No files stored yet.</p>
@@ -1208,10 +1521,16 @@ function SpeakerView({
         title="Your sessions"
         hint="Times are shown in your device's timezone."
         actions={
-          <a className="download" href={`/api/events/${eventId}/speaker-calendar.ics`} download>
-            <IconCalendar size={15} />
-            Download calendar (.ics)
-          </a>
+          // A calendar with no VEVENT is not a calendar: the export answers 404 until at
+          // least one session is scheduled, so the link is not offered before then.
+          scheduled.length ? (
+            <a className="download" href={`/api/events/${eventId}/speaker-calendar.ics`} download>
+              <IconCalendar size={15} />
+              Download calendar (.ics)
+            </a>
+          ) : (
+            <span className="hint">Downloadable once the published schedule places a session.</span>
+          )
         }
         tight
       >
@@ -1225,7 +1544,7 @@ function SpeakerView({
                     <span className="sub">
                       {session.schedule
                         ? `${shortDateTime(session.schedule.startsAt)} · ${session.schedule.location}`
-                        : "Schedule pending — organizers have not placed this yet"}
+                        : "Not on the published schedule yet — this fills in when organizers publish the agenda"}
                     </span>
                   </span>
                   <span className="session-line-meta">
@@ -1279,37 +1598,106 @@ function LoadingWorkspace() {
   );
 }
 
+/**
+ * What the skeleton becomes when the workspace cannot be read.
+ *
+ * This is the only failure with nowhere else to go: there is no table to put an announcement
+ * beside and no control that caused it. So it takes the workspace's own place, says which read
+ * failed, carries the correlation id, and offers the one action that can still help.
+ */
+function LoadFailure({
+  message,
+  speaker,
+  onRetry,
+}: {
+  message: string;
+  speaker: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="content-workspace">
+      <Card>
+        <Notice tone="error">{message}</Notice>
+        <EmptyState
+          title={speaker ? "Your portal could not be loaded" : "This workspace could not be loaded"}
+          icon={<IconWarning size={20} />}
+          action={
+            <button type="button" className="secondary" onClick={onRetry}>
+              Try again
+            </button>
+          }
+        >
+          Nothing on the event has changed. Try again, and quote the reference above if it keeps
+          failing.
+        </EmptyState>
+      </Card>
+    </div>
+  );
+}
+
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
-export function ContentWorkspace({ eventId, role, onError }: Props) {
+export function ContentWorkspace({ eventId, role }: Props) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  // A load that failed leaves nothing to put an announcement beside, so the failure is
+  // rendered where the workspace would have been. The skeleton used to stay up forever
+  // and the only account of why lived on a page-level surface the next click erased.
+  const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The event whose answer is still wanted: a read for the event the organizer just left
+  // must not paint over the one they are on now, whichever way it resolves.
+  const requestedRef = useRef(eventId);
+
+  const load = useCallback(() => {
+    const requestedEventId = eventId;
+    setLoadFailure(null);
+    // ERROR-INTENT: React effects cannot await; the rejection handler renders the failure
+    // in place of the workspace, with the correlation id and a control to try again.
+    void getContent(requestedEventId).then(
+      (loaded) => {
+        if (requestedRef.current === requestedEventId) setWorkspace(loaded);
+      },
+      (reason: unknown) => {
+        if (requestedRef.current !== requestedEventId) return;
+        setLoadFailure(
+          withReference(
+            reason instanceof ContentApiError
+              ? reason.message
+              : "This workspace could not be loaded.",
+            reason,
+          ),
+        );
+      },
+    );
+  }, [eventId]);
 
   useEffect(() => {
+    requestedRef.current = eventId;
     setWorkspace(null);
-    // ERROR-INTENT: React effects cannot await; the attached handler renders the failure.
-    void getContent(eventId).then(setWorkspace).catch(onError);
-  }, [eventId, onError]);
+    load();
+  }, [load, eventId]);
 
   const run: Run = async (action) => {
     setBusy(true);
     try {
       await action();
       setWorkspace(await getContent(eventId));
-      return true;
+      return { ok: true };
     } catch (error) {
-      // ERROR-INTENT: The parent shell renders the normalized API failure with its correlation ID;
-      // the caller additionally announces the failure next to the control that triggered it.
-      onError(error);
-      return false;
+      // ERROR-INTENT: the rejection is handed back to the caller, which announces it next to
+      // the control that triggered it — with the correlation id, via withReference — and
+      // renders any field-level detail the server attached against the input that caused it.
+      return { ok: false, error };
     } finally {
       setBusy(false);
     }
   };
 
+  if (loadFailure)
+    return <LoadFailure message={loadFailure} speaker={role === "speaker"} onRetry={load} />;
+
   if (!workspace) return <LoadingWorkspace />;
 
-  if (role === "organizer")
-    return <OrganizerView eventId={eventId} workspace={workspace} busy={busy} run={run} />;
+  if (role === "organizer") return <OrganizerView workspace={workspace} busy={busy} run={run} />;
 
   const profile = workspace.speakers[0];
   if (!profile)

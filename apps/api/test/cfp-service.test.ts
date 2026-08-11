@@ -121,4 +121,45 @@ describe("CFP service", () => {
       status: "open",
     });
   });
+
+  /*
+   * Publishing a new version of the form is not a decision about submissions.
+   *
+   * An organizer who closed the call after the deadline, then fixed a typo and pressed
+   * "Publish changes", used to reopen it: `changeState` wrote `status: "open"` for anything
+   * that was not a close, so late proposals started arriving again and the only message on
+   * screen talked about the form. Reopening has its own button and that stays the only way.
+   */
+  it("keeps a closed call closed when a new version of the form is published", async () => {
+    const service = new CfpService(
+      new MemoryCfpRepository(),
+      () => crypto.randomUUID(),
+      () => new Date(),
+    );
+    await service.save(actor, { eventId, title: "Published", description: "", fields });
+    await service.changeState(actor, eventId, "publish");
+    await service.changeState(actor, eventId, "close");
+
+    await service.save(actor, { eventId, title: "Typo fixed", description: "", fields });
+    const republished = await service.changeState(actor, eventId, "publish");
+    expect(republished.publishedStatus).toBe("closed");
+    await expect(service.getPublished(eventId)).resolves.toMatchObject({
+      title: "Typo fixed",
+      status: "closed",
+    });
+    // The applicant-facing consequence, which is the whole point: no late submissions.
+    await expect(
+      service.submit(eventId, "after-republish", { title: "Late", email: "a@example.com" }),
+    ).rejects.toBeInstanceOf(CfpUnavailableError);
+
+    // Reopening is still one explicit click, and it still works on the republished form.
+    await service.changeState(actor, eventId, "reopen");
+    await expect(service.getPublished(eventId)).resolves.toMatchObject({
+      title: "Typo fixed",
+      status: "open",
+    });
+    await expect(
+      service.submit(eventId, "after-reopen", { title: "On time", email: "a@example.com" }),
+    ).resolves.toMatchObject({ eventId });
+  });
 });

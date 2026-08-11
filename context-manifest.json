@@ -21,12 +21,14 @@
       "apps/api/src/application/cfp/submitted-proposal-interface.ts",
       "apps/api/src/application/review/review-service.ts",
       "apps/api/src/application/review/review-repository.ts",
+      "apps/api/src/application/review/public.ts",
       "apps/api/src/application/crm/public.ts",
       "apps/api/src/application/content/speaker-conversion.ts",
       "apps/web/src/CrmWorkspace.tsx",
       "apps/api/src/application/agenda/public.ts",
       "apps/web/src/AgendaWorkspace.tsx",
       "apps/api/src/application/publishing/publication-service.ts",
+      "apps/api/src/application/publishing/public.ts",
       "apps/web/src/PublicEventApp.tsx",
       "apps/web/src/api/cfp.ts",
       "apps/web/src/ui/primitives.tsx",
@@ -57,7 +59,7 @@
       "domain": [],
       "application": [],
       "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core"],
-      "transport": ["@greenroom/contracts", "hono", "hono/cookie"],
+      "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
       "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
       "contracts": ["zod"]
     }
@@ -88,10 +90,15 @@
         "apps/web/vite.config.ts",
         "apps/web/playwright.config.ts",
         "apps/web/e2e/lifecycle-demo.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts",
+        "apps/web/e2e/00-seed-state.spec.ts",
         "docs/demo-runbook.md",
         "apps/web/src/AppShell.tsx",
         "apps/web/src/OverviewPage.tsx",
+        "apps/web/test/overview-dashboard.test.tsx",
+        "apps/web/test/shell-error-surface.test.tsx",
         "apps/web/src/router.ts",
+        "apps/web/test/router.test.tsx",
         "apps/web/src/ui/primitives.tsx",
         "apps/web/src/ui/icons.tsx",
         "apps/api/test/seed-state.integration.test.ts"
@@ -156,6 +163,8 @@
         "apps/api/test/d1-cfp-repository.integration.test.ts",
         "apps/web/src/api/cfp.ts",
         "apps/web/src/CfpWorkspace.tsx",
+        "apps/web/test/cfp-composer.test.tsx",
+        "apps/web/test/cfp-republish-closed.test.tsx",
         "apps/web/e2e/cfp.spec.ts"
       ]
     },
@@ -179,12 +188,15 @@
         "apps/api/migrations/0011_cfp_transition_status_guard.sql",
         "apps/api/migrations/0012_cfp_status_in_use_guard.sql",
         "apps/api/migrations/0013_cfp_submission_default_status.sql",
+        "apps/api/migrations/0021_review_decisions.sql",
         "apps/api/test/review-service.test.ts",
         "apps/api/test/review-http.test.ts",
         "apps/api/test/d1-review-repository.integration.test.ts",
         "apps/web/src/ReviewWorkspace.tsx",
         "apps/web/src/api/review.ts",
-        "apps/web/e2e/review-workflow.spec.ts"
+        "apps/web/e2e/review-workflow.spec.ts",
+        "apps/web/test/proposal-acceptance.test.tsx",
+        "apps/web/test/review-decisions.test.tsx"
       ]
     },
     {
@@ -204,11 +216,15 @@
         "apps/api/src/adapters/persistence/memory-content-repository.ts",
         "apps/api/src/adapters/storage",
         "apps/api/migrations/0014_content_speaker_portal.sql",
+        "apps/api/migrations/0022_content_session_schedule_from_agenda.sql",
         "apps/api/test/content-service.test.ts",
+        "apps/api/test/content-calendar-publication.test.ts",
         "apps/api/test/content-http.test.ts",
         "apps/api/test/d1-content-repository.integration.test.ts",
         "apps/web/src/ContentWorkspace.tsx",
         "apps/web/src/api/content.ts",
+        "apps/web/test/speaker-photo.test.tsx",
+        "apps/web/test/session-withdrawal.test.tsx",
         "apps/web/e2e/speaker-portal.spec.ts"
       ]
     },
@@ -230,6 +246,7 @@
         "apps/api/test/d1-crm-repository.integration.test.ts",
         "apps/web/src/CrmWorkspace.tsx",
         "apps/web/src/api/crm.ts",
+        "apps/web/test/crm-owner-assignment.test.tsx",
         "apps/web/e2e/crm.spec.ts"
       ]
     },
@@ -251,6 +268,9 @@
         "apps/api/test/d1-agenda-repository.integration.test.ts",
         "apps/web/src/AgendaWorkspace.tsx",
         "apps/web/src/api/agenda.ts",
+        "apps/web/test/agenda-timezone.test.tsx",
+        "apps/web/test/agenda-timeslots.test.tsx",
+        "apps/web/test/agenda-failure-feedback.test.tsx",
         "apps/web/e2e/agenda.spec.ts"
       ]
     },
@@ -291,9 +311,16 @@
         "apps/api/migrations/0020_public_event_projections.sql",
         "apps/api/test/publication.test.ts",
         "apps/api/test/d1-publication-repository.integration.test.ts",
+        "apps/api/test/support/seeded-d1.ts",
         "apps/web/src/PublicEventApp.tsx",
+        "apps/web/src/PublishingWorkspace.tsx",
+        "apps/web/src/styles/publishing.css",
+        "apps/web/public/_headers",
         "apps/web/src/api/publication.ts",
-        "apps/web/e2e/public-event.spec.ts"
+        "apps/web/test/publishing.test.tsx",
+        "apps/web/test/public-event-pages.test.tsx",
+        "apps/web/e2e/public-event.spec.ts",
+        "apps/web/e2e/publishing.spec.ts"
       ]
     }
   ],
@@ -308,11 +335,13 @@
     "App": "apps/web/src/App.tsx",
     "ContentService": "apps/api/src/application/content/content-service.ts",
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
+    "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts",
     "PublishingContentQuery": "apps/api/src/application/content/public.ts",
     "CrmContentQuery": "apps/api/src/application/content/public.ts",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
     "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
-    "PublicationService": "apps/api/src/application/publishing/publication-service.ts"
+    "PublicationService": "apps/api/src/application/publishing/publication-service.ts",
+    "composePublicSchedule": "apps/api/src/application/publishing/public.ts"
   }
 }

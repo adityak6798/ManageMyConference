@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import {
   check,
   index,
@@ -8,7 +8,13 @@ import {
   sqliteTable,
   text,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+
+// This file is the declared storage intent for the migrations in `apps/api/migrations`.
+// `npm run schema:check` (tools/check-schema-drift.mjs) fails the build when the two disagree.
+// Column order matters to that check, so columns appear here in the order the migrations
+// create them (including columns added later by ALTER TABLE).
 
 // @spec PRD-EVT-001
 export const organizations = sqliteTable(
@@ -88,91 +94,138 @@ export const eventRoles = sqliteTable(
 );
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
-export const contentSessions = sqliteTable("content_sessions", {
-  id: text("id").primaryKey().notNull(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id),
-  proposalId: text("proposal_id").notNull(),
-  title: text("title").notNull(),
-  abstract: text("abstract").notNull(),
-  format: text("format").notNull(),
-  speakerProfileIds: text("speaker_profile_ids").notNull(),
-  tags: text("tags").notNull(),
-  tracks: text("tracks").notNull(),
-  publicationState: text("publication_state").notNull(),
-  scheduleStartsAt: text("schedule_starts_at"),
-  scheduleEndsAt: text("schedule_ends_at"),
-  scheduleLocation: text("schedule_location"),
-});
-export const speakerProfiles = sqliteTable("speaker_profiles", {
-  id: text("id").primaryKey().notNull(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id),
-  sourcePersonId: text("source_person_id").notNull(),
-  name: text("name").notNull(),
-  email: text("email").notNull(),
-  bio: text("bio").notNull(),
-  pronouns: text("pronouns").notNull(),
-  organization: text("organization").notNull(),
-  photoAssetId: text("photo_asset_id"),
-});
-export const speakerTasks = sqliteTable("speaker_tasks", {
-  id: text("id").primaryKey().notNull(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id),
-  speakerProfileId: text("speaker_profile_id")
-    .notNull()
-    .references(() => speakerProfiles.id),
-  title: text("title").notNull(),
-  dueAt: text("due_at").notNull(),
-  status: text("status").notNull(),
-  completedAt: text("completed_at"),
-});
-export const speakerAssets = sqliteTable("speaker_assets", {
-  id: text("id").primaryKey().notNull(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id),
-  speakerProfileId: text("speaker_profile_id")
-    .notNull()
-    .references(() => speakerProfiles.id),
-  name: text("name").notNull(),
-  contentType: text("content_type").notNull(),
-  storageKey: text("storage_key").notNull(),
-  visibility: text("visibility").notNull(),
-  uploadedAt: text("uploaded_at").notNull(),
-});
-export const speakerMessages = sqliteTable("speaker_messages", {
-  id: text("id").primaryKey().notNull(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id),
-  speakerProfileId: text("speaker_profile_id")
-    .notNull()
-    .references(() => speakerProfiles.id),
-  subject: text("subject").notNull(),
-  sentAt: text("sent_at").notNull(),
-});
+export const contentSessions = sqliteTable(
+  "content_sessions",
+  {
+    id: text("id").primaryKey().notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    proposalId: text("proposal_id").notNull(),
+    title: text("title").notNull(),
+    abstract: text("abstract").notNull(),
+    format: text("format").notNull(),
+    speakerProfileIds: text("speaker_profile_ids").notNull(),
+    tags: text("tags").notNull(),
+    tracks: text("tracks").notNull(),
+    // No schedule columns: a session's time is its agenda placement, resolved through the
+    // agenda's public application interface on every read (migration 0022).
+    publicationState: text("publication_state").notNull(),
+  },
+  (table) => [
+    // Idempotency guard for ContentService.accept under concurrency.
+    unique("content_sessions_event_id_proposal_id_unique").on(table.eventId, table.proposalId),
+    check(
+      "content_sessions_publication_state",
+      sql`${table.publicationState} IN ('draft','ready','published')`,
+    ),
+    index("content_sessions_event_id_idx").on(table.eventId),
+  ],
+);
+export const speakerProfiles = sqliteTable(
+  "speaker_profiles",
+  {
+    id: text("id").primaryKey().notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    sourcePersonId: text("source_person_id").notNull(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    bio: text("bio").notNull(),
+    pronouns: text("pronouns").notNull(),
+    organization: text("organization").notNull(),
+    photoAssetId: text("photo_asset_id"),
+  },
+  (table) => [
+    unique("speaker_profiles_event_id_source_person_id_unique").on(
+      table.eventId,
+      table.sourcePersonId,
+    ),
+    index("speaker_profiles_event_user_idx").on(table.eventId, table.userId),
+  ],
+);
+export const speakerTasks = sqliteTable(
+  "speaker_tasks",
+  {
+    id: text("id").primaryKey().notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    speakerProfileId: text("speaker_profile_id")
+      .notNull()
+      .references(() => speakerProfiles.id),
+    title: text("title").notNull(),
+    dueAt: text("due_at").notNull(),
+    status: text("status").notNull(),
+    completedAt: text("completed_at"),
+  },
+  (table) => [
+    check("speaker_tasks_status", sql`${table.status} IN ('open','complete')`),
+    index("speaker_tasks_profile_idx").on(table.speakerProfileId),
+  ],
+);
+export const speakerAssets = sqliteTable(
+  "speaker_assets",
+  {
+    id: text("id").primaryKey().notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    speakerProfileId: text("speaker_profile_id")
+      .notNull()
+      .references(() => speakerProfiles.id),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    storageKey: text("storage_key").notNull().unique(),
+    visibility: text("visibility").notNull(),
+    uploadedAt: text("uploaded_at").notNull(),
+  },
+  (table) => [
+    check("speaker_assets_visibility", sql`${table.visibility} IN ('private','publishable')`),
+    index("speaker_assets_profile_idx").on(table.speakerProfileId),
+  ],
+);
+export const speakerMessages = sqliteTable(
+  "speaker_messages",
+  {
+    id: text("id").primaryKey().notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    speakerProfileId: text("speaker_profile_id")
+      .notNull()
+      .references(() => speakerProfiles.id),
+    subject: text("subject").notNull(),
+    sentAt: text("sent_at").notNull(),
+  },
+  (table) => [index("speaker_messages_profile_idx").on(table.speakerProfileId)],
+);
 // @spec PRD-CFP-001
-export const cfpForms = sqliteTable("cfp_forms", {
-  eventId: text("event_id")
-    .primaryKey()
-    .notNull()
-    .references(() => events.id),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  fieldsJson: text("fields_json").notNull(),
-  status: text("status").notNull(),
-  version: integer("version").notNull(),
-  publishedAt: text("published_at"),
-  publishedJson: text("published_json"),
-});
+export const cfpForms = sqliteTable(
+  "cfp_forms",
+  {
+    eventId: text("event_id")
+      .primaryKey()
+      .notNull()
+      .references(() => events.id),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    fieldsJson: text("fields_json").notNull(),
+    status: text("status").notNull(),
+    version: integer("version").notNull(),
+    publishedAt: text("published_at"),
+    publishedJson: text("published_json"),
+  },
+  (table) => [
+    check("cfp_forms_title_length", sql`length(${table.title}) BETWEEN 1 AND 120`),
+    check("cfp_forms_status", sql`${table.status} IN ('draft', 'open', 'closed')`),
+    check("cfp_forms_version", sql`${table.version} > 0`),
+  ],
+);
 // @spec PRD-CFP-002
 export const cfpSubmissions = sqliteTable(
   "cfp_submissions",
@@ -184,15 +237,17 @@ export const cfpSubmissions = sqliteTable(
     cfpVersion: integer("cfp_version").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     answersJson: text("answers_json").notNull(),
-    formFieldsJson: text("form_fields_json").notNull(),
     submittedAt: text("submitted_at").notNull(),
-    status: text("status").notNull(),
+    // 0006 added both columns with defaults; D1CfpRepository.createSubmission relies on them.
+    status: text("status").notNull().default("submitted"),
+    formFieldsJson: text("form_fields_json").notNull().default("[]"),
   },
   (table) => [
     unique("cfp_submissions_event_id_idempotency_key_unique").on(
       table.eventId,
       table.idempotencyKey,
     ),
+    check("cfp_submissions_cfp_version", sql`${table.cfpVersion} > 0`),
     index("cfp_submissions_event_id_idx").on(table.eventId),
     index("cfp_submissions_event_status_idx").on(table.eventId, table.status),
   ],
@@ -202,13 +257,17 @@ export const cfpStatusAudit = sqliteTable(
   "cfp_status_audit",
   {
     id: text("id").primaryKey().notNull(),
-    eventId: text("event_id").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
     proposalId: text("proposal_id")
       .notNull()
       .references(() => cfpSubmissions.id),
     fromStatus: text("from_status").notNull(),
     toStatus: text("to_status").notNull(),
-    actorId: text("actor_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
     occurredAt: text("occurred_at").notNull(),
   },
   (table) => [index("cfp_status_audit_event_idx").on(table.eventId, table.occurredAt)],
@@ -216,7 +275,9 @@ export const cfpStatusAudit = sqliteTable(
 export const cfpStatuses = sqliteTable(
   "cfp_statuses",
   {
-    eventId: text("event_id").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
     key: text("key").notNull(),
     label: text("label").notNull(),
     sortOrder: integer("sort_order").notNull(),
@@ -224,7 +285,10 @@ export const cfpStatuses = sqliteTable(
   (table) => [primaryKey({ columns: [table.eventId, table.key] })],
 );
 export const reviewPlans = sqliteTable("review_plans", {
-  eventId: text("event_id").primaryKey().notNull(),
+  eventId: text("event_id")
+    .primaryKey()
+    .notNull()
+    .references(() => events.id),
   criteriaJson: text("criteria_json").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -232,9 +296,15 @@ export const reviewAssignments = sqliteTable(
   "review_assignments",
   {
     id: text("id").primaryKey().notNull(),
-    eventId: text("event_id").notNull(),
-    proposalId: text("proposal_id").notNull(),
-    reviewerId: text("reviewer_id").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cfpSubmissions.id),
+    reviewerId: text("reviewer_id")
+      .notNull()
+      .references(() => users.id),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -248,7 +318,9 @@ export const reviewConflicts = sqliteTable(
     assignmentId: text("assignment_id")
       .notNull()
       .references(() => reviewAssignments.id),
-    reviewerId: text("reviewer_id").notNull(),
+    reviewerId: text("reviewer_id")
+      .notNull()
+      .references(() => users.id),
     reason: text("reason").notNull(),
     declaredAt: text("declared_at").notNull(),
   },
@@ -260,25 +332,59 @@ export const reviewEvaluations = sqliteTable(
     assignmentId: text("assignment_id")
       .notNull()
       .references(() => reviewAssignments.id),
-    reviewerId: text("reviewer_id").notNull(),
+    reviewerId: text("reviewer_id")
+      .notNull()
+      .references(() => users.id),
     scoresJson: text("scores_json").notNull(),
     notes: text("notes").notNull(),
     state: text("state").notNull(),
     updatedAt: text("updated_at").notNull(),
     completedAt: text("completed_at"),
   },
-  (table) => [primaryKey({ columns: [table.assignmentId, table.reviewerId] })],
+  (table) => [
+    primaryKey({ columns: [table.assignmentId, table.reviewerId] }),
+    check("review_evaluations_state", sql`${table.state} IN ('draft', 'completed')`),
+  ],
 );
 export const reviewOutcomes = sqliteTable(
   "review_outcomes",
   {
-    eventId: text("event_id").notNull(),
-    proposalId: text("proposal_id").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cfpSubmissions.id),
     completedEvaluationCount: integer("completed_evaluation_count").notNull(),
     averageScore: real("average_score").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.eventId, table.proposalId] })],
+);
+// The organizer's acceptance decision. `cfp_submissions.status` carries the workflow state the
+// triage board filters on and organizers may rename; this row is the durable record of who
+// decided what and when, and it is what content acceptance is gated on (`ARC-FLOW-001`).
+export const reviewDecisions = sqliteTable(
+  "review_decisions",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cfpSubmissions.id),
+    outcome: text("outcome").notNull(),
+    decidedBy: text("decided_by")
+      .notNull()
+      .references(() => users.id),
+    decidedAt: text("decided_at").notNull(),
+    note: text("note").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.eventId, table.proposalId] }),
+    check("review_decisions_outcome", sql`${table.outcome} IN ('accepted', 'declined')`),
+    index("review_decisions_event_outcome_idx").on(table.eventId, table.outcome),
+  ],
 );
 export const reviewEvents = sqliteTable(
   "review_events",
@@ -301,6 +407,8 @@ export const reviewEvents = sqliteTable(
       table.assignmentId,
       table.version,
     ),
+    check("review_events_event_type", sql`${table.eventType} = 'EVT-REVIEW-COMPLETED'`),
+    check("review_events_version", sql`${table.version} = 1`),
   ],
 );
 
@@ -367,6 +475,9 @@ export const crmActivities = sqliteTable(
   (table) => [
     check("crm_activities_is_private", sql`${table.isPrivate} IN (0,1)`),
     index("crm_activities_timeline_idx").on(table.prospectId, table.occurredAt),
+    uniqueIndex("crm_activities_one_conversion_idx")
+      .on(table.prospectId)
+      .where(sql`${table.kind} = 'conversion'`),
   ],
 );
 export const speakerConversionSources = sqliteTable(
@@ -437,7 +548,7 @@ export const agendaPublications = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.eventId, table.version] }),
     check("agenda_publications_version", sql`${table.version} > 0`),
-    index("agenda_publications_latest_idx").on(table.eventId, table.version),
+    index("agenda_publications_latest_idx").on(table.eventId, desc(table.version)),
   ],
 );
 
@@ -456,7 +567,14 @@ export const messageTemplates = sqliteTable(
     body: text("body").notNull(),
     createdAt: text("created_at").notNull(),
   },
-  (table) => [unique().on(table.organizationId, table.templateKey, table.version)],
+  (table) => [
+    unique().on(table.organizationId, table.templateKey, table.version),
+    check("message_templates_version", sql`${table.version} > 0`),
+    check(
+      "message_templates_channel",
+      sql`${table.channel} IN ('email', 'airtable', 'accelevents')`,
+    ),
+  ],
 );
 
 export const communicationDeliveries = sqliteTable(
@@ -486,6 +604,19 @@ export const communicationDeliveries = sqliteTable(
   },
   (table) => [
     unique().on(table.organizationId, table.idempotencyKey),
+    check(
+      "communication_deliveries_trigger_type",
+      sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested')`,
+    ),
+    check(
+      "communication_deliveries_channel",
+      sql`${table.channel} IN ('email', 'airtable', 'accelevents')`,
+    ),
+    check("communication_deliveries_payload_json", sql`json_valid(${table.payloadJson})`),
+    check(
+      "communication_deliveries_state",
+      sql`${table.state} IN ('queued', 'retrying', 'succeeded', 'terminal')`,
+    ),
     index("communication_deliveries_worker_idx").on(
       table.state,
       table.nextAttemptAt,
@@ -515,6 +646,10 @@ export const communicationAttempts = sqliteTable(
   },
   (table) => [
     unique().on(table.deliveryId, table.sequence),
+    check(
+      "communication_attempts_outcome",
+      sql`${table.outcome} IN ('succeeded', 'retryable_failure', 'terminal_failure')`,
+    ),
     index("communication_attempts_delivery_idx").on(table.deliveryId, table.sequence),
   ],
 );
@@ -533,7 +668,14 @@ export const outboundProjectionState = sqliteTable(
       .references(() => communicationDeliveries.id),
     projectedAt: text("projected_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.destination, table.eventId, table.resourceRef] })],
+  (table) => [
+    primaryKey({ columns: [table.destination, table.eventId, table.resourceRef] }),
+    check(
+      "outbound_projection_state_destination",
+      sql`${table.destination} IN ('airtable', 'accelevents')`,
+    ),
+    check("outbound_projection_state_version", sql`${table.version} > 0`),
+  ],
 );
 
 // @spec PRD-PUB-001
@@ -550,5 +692,17 @@ export const publicEventProjections = sqliteTable(
     publishedJson: text("published_json"),
     publishedAt: text("published_at"),
   },
-  (table) => [index("public_event_projections_slug_state_idx").on(table.slug, table.state)],
+  (table) => [
+    check("public_event_projections_slug_length", sql`length(${table.slug}) BETWEEN 1 AND 120`),
+    check(
+      "public_event_projections_state",
+      sql`${table.state} IN ('draft', 'published', 'unpublished')`,
+    ),
+    check("public_event_projections_draft_json", sql`json_valid(${table.draftJson})`),
+    check(
+      "public_event_projections_published_json",
+      sql`${table.publishedJson} IS NULL OR json_valid(${table.publishedJson})`,
+    ),
+    index("public_event_projections_slug_state_idx").on(table.slug, table.state),
+  ],
 );

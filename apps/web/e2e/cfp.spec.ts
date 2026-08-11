@@ -4,7 +4,14 @@ import { expect, test } from "@playwright/test";
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const CFP = `/cfp?event=${EVENT_ID}`;
 
-/** The seeded form, restated so the journey below starts from one exact state. */
+/**
+ * The seeded form, restated so the journey below starts from one exact state.
+ *
+ * It has to be the *whole* seeded form, field for field. This restatement used to omit the
+ * seed's "Your name" question, so the first run of this spec quietly published a narrower
+ * form than the seed ships — and every spec that ran afterwards, in that run or the next,
+ * met a call for proposals that no longer collected a submitter name.
+ */
 const SEEDED_FORM = {
   title: "Share your conference story",
   description: "Submit a practical session for Greenroom Demo Summit.",
@@ -26,6 +33,14 @@ const SEEDED_FORM = {
       options: [],
     },
     {
+      id: "name",
+      type: "short_text",
+      label: "Your name",
+      guidance: "How organizers should address you",
+      required: false,
+      options: [],
+    },
+    {
       id: "email",
       type: "email",
       label: "Contact email",
@@ -36,7 +51,11 @@ const SEEDED_FORM = {
   ],
 };
 
-test.use({ permissions: ["clipboard-read", "clipboard-write"] });
+// One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
+test.use({
+  permissions: ["clipboard-read", "clipboard-write"],
+  extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.2" },
+});
 
 test("organizer composes, sees draft diverge from the live form, publishes, and an applicant receives a durable confirmation", async ({
   page,
@@ -82,8 +101,9 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
   await added.getByLabel("Guidance").fill("Choose the closest match");
   await added.getByLabel("Options (comma separated)").fill("New, Experienced");
   await added.getByLabel("Required").check();
+  // Appended last, then moved one place up: fourth of the five questions on the form.
   await page.getByRole("button", { name: "Move Experience level up" }).click();
-  await expect(page.locator(".cfp-question-name").nth(2)).toHaveText("Experience level");
+  await expect(page.locator(".cfp-question-name").nth(3)).toHaveText("Experience level");
 
   // Editing a live form has to say so before the organizer discovers it from a
   // confused applicant. The draft preview updates immediately; the live one does not.

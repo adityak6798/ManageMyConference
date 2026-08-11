@@ -82,7 +82,30 @@
   width: auto;
   min-width: 160px;
 }
-
+/* Deciding is a different kind of act from moving a status, so it is separated from the
+   pipeline controls rather than reading as a third dropdown. It is a fieldset named by a
+   legend, not a <label> pointing at one control, so it gives up the browser's own chrome and
+   takes the label styling by hand. */
+.triage-decide {
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 var(--s-5);
+  border: 0;
+  border-left: 1px solid var(--line);
+}
+.triage-decide .group-label {
+  padding: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+/* The pipeline hint says where Accepted and Declined went, so it sits under the select
+   rather than competing with it for the row. */
+.triage-actions .field > .hint {
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
 .triage-feedback .notice {
   margin: var(--s-4) var(--s-5) 0;
 }
@@ -123,6 +146,160 @@
 .triage-table tbody tr.is-open,
 .triage-table tbody tr.is-open:hover {
   background: var(--green-50);
+}
+
+/* Each assigned reviewer sits on their own line with the control that takes the
+   assignment back, so "who has this" and "undo that" read as one fact per person
+   rather than as a comma-separated string with a stray button after it. */
+.assigned-reviewers {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assigned-reviewers li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.assigned-reviewers .assigned-name {
+  white-space: nowrap;
+}
+/* The detail panel states the assignment under a term label, so the list starts
+   flush with the other rows of that block. */
+.detail-reviewers .assigned-reviewers {
+  margin-top: 2px;
+}
+
+/* The decision column carries a recorded outcome above its two controls, so the
+   pair reads as one cell rather than as three loose items on a dense row. */
+.triage-table td.decision-cell {
+  white-space: nowrap;
+}
+.triage-table .decision-buttons {
+  display: inline-flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.triage-table td.decision-cell .pill + .decision-buttons {
+  margin-top: var(--s-2);
+}
+
+/* ---------------------- decision dialog ----------------------- */
+
+/*
+ * The decision is asked over the table, not below it. `<dialog>` supplies the backdrop, the
+ * focus trap and Escape; everything here is presentation. The element is display:none until
+ * `showModal()` opens it, so no `hidden` handling is needed on the React side.
+ */
+.decision-dialog {
+  border: 0;
+  padding: 0;
+  background: none;
+  max-width: min(38rem, calc(100vw - var(--s-6)));
+  width: 100%;
+  /* Long submitter names and error lists must scroll inside the dialog rather than push the
+     confirm button off a short screen. */
+  max-height: calc(100vh - var(--s-6));
+  overflow: auto;
+  color: inherit;
+}
+.decision-dialog::backdrop {
+  background: rgb(16 24 20 / 45%);
+}
+.decision-dialog .card {
+  margin: 0;
+}
+
+/* The reversal warning is the one place this dialog raises its voice. */
+.decision-warning {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  padding: var(--s-3);
+  border: 1px solid var(--warn-fg, var(--border));
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.decision-warning svg {
+  flex: none;
+  margin-top: 0.1em;
+}
+
+/* ---------------------- decision panel ------------------------ */
+
+/* Same treatment as the detail panel: a focus target with no outline of its own,
+   because the card inside is what the organizer is reading. */
+.decision-confirm:focus {
+  outline: none;
+}
+.decision-confirm {
+  display: grid;
+  gap: var(--s-3);
+}
+.decision-question {
+  font-size: var(--text-md);
+}
+.decision-question strong {
+  font-weight: 650;
+}
+.decision-confirm > .hint {
+  max-width: var(--measure);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+/* A decision over a selection names every abstract it would decide: the organizer is
+   authorizing content, so what is in the set has to be readable before they confirm. */
+.decision-list {
+  list-style: none;
+  display: grid;
+  gap: var(--s-2);
+  max-height: 14rem;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.decision-list .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.decision-errors {
+  list-style: none;
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--danger-fg);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.decision-errors .error-text {
+  color: var(--danger-fg);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+/* Kept clickable-looking but inert in flight: disabling the control mid-request
+   moves focus to the document body and the outcome is announced to nobody. */
+.decision-actions button[aria-disabled="true"]:not(:disabled) {
+  opacity: 0.55;
+  cursor: progress;
+}
+/* A truly disabled Confirm is not waiting on anything — it is an acceptance that can never
+   succeed — so it must not borrow the in-flight cursor above. */
+.decision-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.decision-actions {
+  align-items: center;
 }
 
 /* ------------------------ detail panel ------------------------ */
@@ -229,6 +406,14 @@
 }
 .status-row {
   grid-template-columns: minmax(180px, 1fr) auto;
+}
+/* The reserved statuses carry an explanation where the other rows carry Remove, so the
+   column keeps its width and the row keeps its shape. */
+.status-reserved {
+  align-self: center;
+  max-width: 28ch;
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 .rubric-row-actions {
   display: flex;
@@ -401,6 +586,11 @@
   .triage-bulk,
   .triage-actions {
     gap: var(--s-3);
+  }
+  /* Stacked, the divider would read as a rule across the panel rather than beside it. */
+  .triage-decide {
+    padding-left: 0;
+    border-left: 0;
   }
   .triage-action-row select,
   .criterion-input select {

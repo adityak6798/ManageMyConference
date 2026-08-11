@@ -3,7 +3,12 @@ export interface PublicSpeaker {
   readonly slug: string;
   readonly name: string;
   readonly bio: string;
-  readonly headline: string;
+  /**
+   * The speaker's employer, copied from their profile. It was called `headline` while it
+   * still held the organization, which made the gallery print an employer wherever a job
+   * title belonged; the field now says what it actually carries.
+   */
+  readonly organization: string;
   readonly photoUrl?: string;
 }
 
@@ -87,7 +92,148 @@ export const allowlistPublicProjection = (
     slug: speaker.slug,
     name: speaker.name,
     bio: speaker.bio,
-    headline: speaker.headline,
+    organization: speaker.organization,
     ...(speaker.photoUrl ? { photoUrl: speaker.photoUrl } : {}),
   })),
 });
+
+/**
+ * A session the published snapshot places: everything `PublicSession` carries, with the
+ * clock no longer optional. A session without a time is published but not scheduled.
+ */
+export interface PublicScheduleSession extends PublicSession {
+  readonly startsAt: string;
+  readonly endsAt: string;
+}
+
+/**
+ * The public schedule. `version` and `publishedAt` identify the agenda's numbered
+ * immutable snapshot; the sessions are the published projection's own, so the schedule
+ * can only ever name content the organizer has published, under the same public slug the
+ * event hub uses for it.
+ */
+export interface PublicScheduleProjection {
+  readonly eventSlug: string;
+  readonly version: number;
+  readonly publishedAt: string;
+  readonly sessions: readonly PublicScheduleSession[];
+}
+
+const isScheduled = (session: PublicSession): session is PublicScheduleSession =>
+  Boolean(session.startsAt && session.endsAt);
+
+/**
+ * Compose the public schedule from a published projection and the agenda publication in
+ * force.
+ *
+ * The projection is the only source of session material here. The agenda snapshot is
+ * keyed by `content_sessions` and `speaker_profiles` primary keys and covers the whole
+ * organizer board — including sessions whose content is still a draft — so nothing but
+ * its identity crosses this boundary. Fields are copied one by one for the same reason
+ * `allowlistPublicProjection` copies them: a stored snapshot is JSON, and a spread would
+ * publish whatever an older writer happened to leave in it.
+ */
+export const composePublicSchedule = (
+  projection: PublicEventProjection,
+  publication: { readonly version: number; readonly publishedAt: string },
+): PublicScheduleProjection => ({
+  eventSlug: projection.event.slug,
+  version: publication.version,
+  publishedAt: publication.publishedAt,
+  sessions: projection.sessions
+    .filter(isScheduled)
+    .map((session) => ({
+      slug: session.slug,
+      title: session.title,
+      abstract: session.abstract,
+      format: session.format,
+      track: session.track,
+      speakerSlugs: [...session.speakerSlugs],
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      ...(session.room ? { room: session.room } : {}),
+    }))
+    // Programme order, and the same order on every read: two sessions that start together
+    // are separated by room and then by title rather than by storage order.
+    .sort(
+      (left, right) =>
+        left.startsAt.localeCompare(right.startsAt) ||
+        (left.room ?? "").localeCompare(right.room ?? "") ||
+        left.title.localeCompare(right.title),
+    ),
+});
+
+/*
+ * Public URLs are part of the product. `/sessions/designing-the-calm-conference` is
+ * readable, quotable, and survives being pasted into a programme; the storage UUID this
+ * projection used to emit is none of those things. Slugs are therefore derived here, in
+ * the publishing domain's projection step, from the title or name the organizer typed —
+ * publishing never reaches into content or agenda storage to build one.
+ */
+const SLUG_MAX_LENGTH = 72;
+
+export const toPublicSlug = (value: string): string =>
+  value
+    .normalize("NFKD")
+    // Strip the combining marks NFKD just split off, so "Renee" survives an accented "Renée".
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, SLUG_MAX_LENGTH)
+    .replace(/^-+|-+$/g, "");
+
+/**
+ * A short, stable discriminator derived from the record's own id (FNV-1a, base36).
+ * It depends on nothing but that record, so republishing unchanged content reproduces
+ * exactly the same URL even as neighbouring records come and go.
+ */
+const discriminator = (id: string): string => {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).slice(-6).padStart(4, "0");
+};
+
+/**
+ * Assign one readable, event-unique slug per record.
+ *
+ * A title nobody else in the event shares keeps the clean slug; genuine duplicates each
+ * take the record-derived suffix so neither one wins the bare name. Records whose label
+ * slugs to nothing (emoji-only titles, scripts outside the route charset) fall back to
+ * `<fallback>-<discriminator>` rather than to their primary key.
+ */
+export function publicSlugs<T>(
+  records: readonly T[],
+  identify: (record: T) => { id: string; label: string },
+  fallback: string,
+): (id: string) => string {
+  const bases = records.map((record) => {
+    const { id, label } = identify(record);
+    return { id, base: toPublicSlug(label) || `${fallback}-${discriminator(id)}` };
+  });
+  const shared = new Set(
+    bases.map(({ base }) => base).filter((base, index, all) => all.indexOf(base) !== index),
+  );
+  const assigned = new Map<string, string>();
+  const taken = new Set<string>();
+  for (const { id, base } of bases) {
+    let slug = shared.has(base) ? `${base}-${discriminator(id)}` : base;
+    // Two distinct records can only land here by hashing alike behind the same base;
+    // the counter keeps the guarantee absolute rather than probabilistic.
+    for (let attempt = 2; taken.has(slug); attempt += 1)
+      slug = `${base}-${discriminator(id)}-${attempt}`;
+    taken.add(slug);
+    assigned.set(id, slug);
+  }
+  return (id: string) => assigned.get(id) ?? `${fallback}-${discriminator(id)}`;
+}
+
+/**
+ * The event's own public address. Slugs are unique across every event, so the name alone
+ * cannot be trusted; the discriminator makes it unique without pasting a storage UUID
+ * into the one URL an organizer is most likely to share.
+ */
+export const publicEventSlug = (name: string, eventId: string): string =>
+  `${toPublicSlug(name) || "event"}-${discriminator(eventId)}`;

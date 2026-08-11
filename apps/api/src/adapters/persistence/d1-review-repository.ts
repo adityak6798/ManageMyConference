@@ -3,8 +3,10 @@ import {
   ReviewStateConflictError,
 } from "../../application/review/review-repository";
 import type {
+  DecisionOutcome,
   Evaluation,
   EvaluationPlan,
+  ProposalDecision,
   ReviewAssignment,
   ReviewCompletedEvent,
   ReviewConflict,
@@ -54,6 +56,24 @@ type OutcomeRow = {
   average_score: number;
   updated_at: string;
 };
+
+type DecisionRow = {
+  event_id: string;
+  proposal_id: string;
+  outcome: DecisionOutcome;
+  decided_by: string;
+  decided_at: string;
+  note: string;
+};
+
+const decision = (row: DecisionRow): ProposalDecision => ({
+  eventId: row.event_id,
+  proposalId: row.proposal_id,
+  outcome: row.outcome,
+  decidedBy: row.decided_by,
+  decidedAt: row.decided_at,
+  note: row.note,
+});
 
 const assignment = (row: AssignmentRow): ReviewAssignment => ({
   id: row.id,
@@ -155,6 +175,39 @@ export class D1ReviewRepository implements ReviewRepository {
       .all<AssignmentRow>();
     this.ensure(result, "find review assignment");
     return result.results?.[0] ? assignment(result.results[0]) : null;
+  }
+  /**
+   * Remove an assignment together with the unfinished work hanging off it.
+   *
+   * Guarded rather than checked-then-run: both deletes that could orphan a score carry a
+   * `NOT EXISTS … state = 'completed'` predicate, so an evaluation completed between the
+   * service's read and this write leaves every row in place instead of half-removing an
+   * assignment whose score is already counted. The assignment row is therefore still there
+   * afterwards, and that is what this reports as the conflict — no row count from the driver is
+   * needed to tell the two outcomes apart.
+   */
+  async deleteAssignment(eventId: string, assignmentId: string) {
+    // Every statement is scoped to an assignment of *this* event, so an id belonging to another
+    // event cannot reach that event's conflict or draft rows.
+    const owned =
+      "assignment_id IN (SELECT id FROM review_assignments WHERE id = ? AND event_id = ?)";
+    const unscored =
+      "NOT EXISTS (SELECT 1 FROM review_evaluations WHERE assignment_id = ? AND state = 'completed')";
+    const results = await this.database.batch([
+      this.database
+        .prepare(`DELETE FROM review_conflicts WHERE ${owned} AND ${unscored}`)
+        .bind(assignmentId, eventId, assignmentId),
+      this.database
+        .prepare(`DELETE FROM review_evaluations WHERE ${owned} AND state != 'completed'`)
+        .bind(assignmentId, eventId),
+      // Last, so the rows referencing it by foreign key are already gone.
+      this.database
+        .prepare(`DELETE FROM review_assignments WHERE id = ? AND event_id = ? AND ${unscored}`)
+        .bind(assignmentId, eventId, assignmentId),
+    ]);
+    for (const result of results) this.ensure(result, "remove review assignment");
+    if (await this.findAssignment(eventId, assignmentId))
+      throw new ReviewStateConflictError("Evaluation is completed");
   }
   async getConflict(assignmentId: string, reviewerId: string) {
     const result = await this.database
@@ -277,6 +330,35 @@ export class D1ReviewRepository implements ReviewRepository {
       .all<EvaluationRow>();
     this.ensure(result, "list completed evaluations");
     return (result.results ?? []).map(evaluation);
+  }
+  async saveDecision(item: ProposalDecision) {
+    const result = await this.database
+      .prepare(
+        "INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decided_at, note) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id, proposal_id) DO UPDATE SET outcome = excluded.outcome, decided_by = excluded.decided_by, decided_at = excluded.decided_at, note = excluded.note",
+      )
+      .bind(item.eventId, item.proposalId, item.outcome, item.decidedBy, item.decidedAt, item.note)
+      .run();
+    this.ensure(result, "save review decision");
+  }
+  async findDecision(eventId: string, proposalId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note FROM review_decisions WHERE event_id = ? AND proposal_id = ? LIMIT 1",
+      )
+      .bind(eventId, proposalId)
+      .all<DecisionRow>();
+    this.ensure(result, "find review decision");
+    return result.results?.[0] ? decision(result.results[0]) : null;
+  }
+  async listDecisions(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note FROM review_decisions WHERE event_id = ? ORDER BY proposal_id",
+      )
+      .bind(eventId)
+      .all<DecisionRow>();
+    this.ensure(result, "list review decisions");
+    return (result.results ?? []).map(decision);
   }
   async listOutcomes(eventId: string) {
     const result = await this.database

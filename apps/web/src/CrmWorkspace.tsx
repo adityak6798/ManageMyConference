@@ -7,18 +7,21 @@
  * in the browser because the tab counts have to be readable *before* a stage is
  * picked, and the list endpoint returns one stage at a time.
  *
- * Owner is a select rather than free text: an owner id that does not exist violates the
- * crm_prospects.owner_id foreign key and surfaces to the organizer as a 500, so the UI
- * never lets an arbitrary string be sent. The set of offerable owners is deliberately
- * narrow — see the note on ownerOptions below.
+ * Owner is a select rather than free text, populated from the same identity-access query the
+ * server validates writes against: the event's organizers and reviewers. An owner id that does
+ * not exist violated the crm_prospects.owner_id foreign key and surfaced as a 500, so the UI
+ * offers only identities the server will accept — and renders the server's refusal on the
+ * owner control when it disagrees anyway.
  */
 
-import type { ProspectDto } from "@greenroom/contracts";
+import type { ProspectDto, ProspectOwnerDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CrmApiError,
   convertProspect,
   createProspect,
+  crmFieldErrors,
+  listProspectOwners,
   listProspects,
   updateProspect,
 } from "./api/crm";
@@ -76,10 +79,20 @@ function readCrmError(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
 
+function FieldErrors({ id, messages }: { id: string; messages: readonly string[] }) {
+  if (!messages.length) return null;
+  return (
+    <p className="error-text" id={id}>
+      {messages.join(" ")}
+    </p>
+  );
+}
+
 // @spec PRD-CRM-001
 export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: string }) {
   const loadSequence = useRef(0);
   const [prospects, setProspects] = useState<ProspectDto[]>([]);
+  const [owners, setOwners] = useState<ProspectOwnerDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("all");
@@ -93,9 +106,11 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
   const [email, setEmail] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
   const [newOwner, setNewOwner] = useState(ownerId);
+  const [newOwnerErrors, setNewOwnerErrors] = useState<string[]>([]);
 
   const [stage, setStage] = useState<ProspectDto["stage"]>("identified");
   const [assignedOwner, setAssignedOwner] = useState(ownerId);
+  const [assignedOwnerErrors, setAssignedOwnerErrors] = useState<string[]>([]);
   const [nextAction, setNextAction] = useState("");
   const [nextActionAt, setNextActionAt] = useState("");
   const [note, setNote] = useState("");
@@ -107,11 +122,24 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
 
   const reload = useCallback(async () => {
     const sequence = ++loadSequence.current;
-    const loaded = await listProspects(eventId);
+    const [loaded, staff] = await Promise.all([
+      listProspects(eventId),
+      listProspectOwners(eventId),
+    ]);
     // A response that lands after the organizer switched events describes the old
     // workspace; rendering it would show another event's pipeline.
-    if (sequence === loadSequence.current) setProspects(loaded);
-  }, [eventId]);
+    if (sequence !== loadSequence.current) return;
+    setProspects(loaded);
+    setOwners(staff);
+    // The new-prospect form defaults to the signed-in organizer. If this event's staff list
+    // does not contain the pending choice — a different event, or an identity that has left —
+    // fall back to somebody the server will accept rather than posting a doomed owner.
+    setNewOwner((current) =>
+      staff.some(({ id }) => id === current)
+        ? current
+        : (staff.find(({ id }) => id === ownerId)?.id ?? staff[0]?.id ?? current),
+    );
+  }, [eventId, ownerId]);
 
   useEffect(() => {
     let active = true;
@@ -136,19 +164,18 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
   const now = Date.now();
   const selected = prospects.find(({ id }) => id === selectedId);
 
-  // Listing every eligible owner needs an identity-access query that does not exist yet.
-  // Borrowing the review workspace's reviewer list would couple the CRM to review:manage
-  // and cross a domain boundary, so until that query ships the select offers the signed-in
-  // organizer plus whoever already owns a prospect. Tracked by issue #67.
+  // The event's staff, as identity-access reports it — the same set the server validates
+  // against, so the select cannot offer an owner the write path will refuse.
   const ownerOptions = useMemo(() => {
     const options = new Map<string, string>();
-    options.set(ownerId, "You");
-    // An owner already stored on the prospect stays selectable, otherwise saving an
-    // unrelated field would silently reassign the prospect to somebody else.
+    for (const owner of owners)
+      options.set(owner.id, owner.id === ownerId ? `${owner.name} (you)` : owner.name);
+    // An owner already stored on a prospect stays selectable even after leaving the event,
+    // otherwise saving an unrelated field would silently reassign the prospect to somebody else.
     for (const prospect of prospects)
       if (!options.has(prospect.ownerId)) options.set(prospect.ownerId, prospect.ownerId);
     return [...options].map(([id, label]) => ({ id, name: label }));
-  }, [ownerId, prospects]);
+  }, [owners, ownerId, prospects]);
 
   const ownerName = useCallback(
     (id: string) => ownerOptions.find((owner) => owner.id === id)?.name ?? id,
@@ -195,6 +222,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
     setSelectedId(prospect.id);
     setConfirmingConvert(false);
     detailFeedback.clear();
+    setAssignedOwnerErrors([]);
     setStage(prospect.stage === "converted" ? "invited" : prospect.stage);
     setAssignedOwner(prospect.ownerId);
     setNextAction(prospect.nextAction ?? "");
@@ -207,6 +235,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
   async function add(formEvent: FormEvent) {
     formEvent.preventDefault();
     setBusy(true);
+    setNewOwnerErrors([]);
     try {
       const created = await createProspect(eventId, {
         name,
@@ -221,6 +250,9 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
       await reload();
       pipelineFeedback.announce("success", `${created.name} added to the pipeline as identified.`);
     } catch (reason) {
+      // A refusal the server pinned to a field is shown on that field as well as announced,
+      // so the organizer sees which control to fix.
+      setNewOwnerErrors(crmFieldErrors(reason).ownerId ?? []);
       pipelineFeedback.announce("error", readCrmError(reason, "Could not add the prospect."));
     } finally {
       setBusy(false);
@@ -231,6 +263,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
     formEvent.preventDefault();
     if (!selected) return;
     setBusy(true);
+    setAssignedOwnerErrors([]);
     try {
       await updateProspect(eventId, selected.id, {
         stage,
@@ -246,6 +279,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
         `Saved. ${selected.name} is in the ${stage} stage, owned by ${ownerName(assignedOwner)}.`,
       );
     } catch (reason) {
+      setAssignedOwnerErrors(crmFieldErrors(reason).ownerId ?? []);
       detailFeedback.announce("error", readCrmError(reason, "Could not update the prospect."));
     } finally {
       setBusy(false);
@@ -384,7 +418,12 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                     <select
                       id="crm-new-owner"
                       value={newOwner}
-                      onChange={(changeEvent) => setNewOwner(changeEvent.target.value)}
+                      onChange={(changeEvent) => {
+                        setNewOwner(changeEvent.target.value);
+                        setNewOwnerErrors([]);
+                      }}
+                      aria-invalid={Boolean(newOwnerErrors.length)}
+                      aria-describedby={newOwnerErrors.length ? "crm-new-owner-error" : undefined}
                     >
                       {ownerOptions.map((owner) => (
                         <option key={owner.id} value={owner.id}>
@@ -392,6 +431,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                         </option>
                       ))}
                     </select>
+                    <FieldErrors id="crm-new-owner-error" messages={newOwnerErrors} />
                   </div>
                   <div className="field">
                     <label htmlFor="crm-new-due">First action due</label>
@@ -639,7 +679,16 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                       <select
                         id="crm-owner"
                         value={assignedOwner}
-                        onChange={(changeEvent) => setAssignedOwner(changeEvent.target.value)}
+                        onChange={(changeEvent) => {
+                          setAssignedOwner(changeEvent.target.value);
+                          setAssignedOwnerErrors([]);
+                        }}
+                        aria-invalid={Boolean(assignedOwnerErrors.length)}
+                        aria-describedby={
+                          assignedOwnerErrors.length
+                            ? "crm-owner-error crm-owner-hint"
+                            : "crm-owner-hint"
+                        }
                       >
                         {ownerOptions.map((owner) => (
                           <option key={owner.id} value={owner.id}>
@@ -647,9 +696,10 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                           </option>
                         ))}
                       </select>
-                      <p className="hint">
+                      <p className="hint" id="crm-owner-hint">
                         Only organizers and reviewers on this event can own a prospect.
                       </p>
+                      <FieldErrors id="crm-owner-error" messages={assignedOwnerErrors} />
                     </div>
                     <div className="field">
                       <label htmlFor="crm-next-action">Next action</label>
@@ -680,8 +730,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                         maxLength={1000}
                       />
                       <p className="hint">
-                        Saved to the timeline. Stage changes are not logged automatically yet, so
-                        record the reason here.
+                        Saved to the timeline alongside the stage change this save records.
                       </p>
                     </div>
                     <button type="submit" disabled={busy}>
@@ -764,7 +813,8 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                   </ol>
                 ) : (
                   <p className="crm-help">
-                    No activity recorded yet. Saving a private note adds the first entry.
+                    No activity recorded yet. Moving the stage or saving a private note adds the
+                    first entry.
                   </p>
                 )}
               </section>

@@ -218,8 +218,51 @@
   color: var(--muted);
   font-size: var(--text-xs);
 }
+.upload-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .upload-empty {
   margin-top: var(--s-4);
+}
+
+/*
+ * The chosen headshot, shown at the size a gallery tile shows it, next to the sentence that
+ * says whether the public can see it. Seeing the picture is the point: a speaker who cannot
+ * see what they picked cannot tell a portrait from a screenshot of one.
+ */
+.photo-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.photo-status p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.photo-preview {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: var(--r-md);
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+/* Two reversible decisions on one row, wrapping rather than crushing the cell. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
 }
 
 /* --------------------------- portal: sessions ----------------------------- */

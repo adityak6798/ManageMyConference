@@ -4,6 +4,7 @@ import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
+import { statements } from "./support/seeded-d1";
 
 describe("content speaker conversion", () => {
   let runtime: Miniflare | undefined;
@@ -46,26 +47,25 @@ describe("content speaker conversion", () => {
         .filter(Boolean))
         await database.prepare(statement).run();
     }
-    const communicationsMigration = (
+    const trailingMigrations = (
       await Promise.all([
         readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
         readFile(
           new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
           "utf8",
         ),
+        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
       ])
     ).join("\n");
-    for (const statement of communicationsMigration
+    for (const statement of trailingMigrations
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    for (const statement of reset
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
+    // The shared splitter, not `split(";")`: the seed carries prose comments, and a
+    // semicolon or an apostrophe inside one is not a statement boundary.
+    for (const statement of statements(reset)) await database.prepare(statement).run();
     const eventId = "00000000-0000-4000-8000-000000000001",
       speakerId = "40000000-0000-4000-8000-000000000001";
     await database
