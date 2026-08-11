@@ -21,7 +21,9 @@
       "apps/api/src/application/review/review-repository.ts",
       "apps/api/src/application/crm/public.ts",
       "apps/api/src/application/content/speaker-conversion.ts",
-      "apps/web/src/CrmWorkspace.tsx"
+      "apps/web/src/CrmWorkspace.tsx",
+      "apps/api/src/application/agenda/public.ts",
+      "apps/web/src/AgendaWorkspace.tsx"
     ],
     "compositionRoots": ["apps/api/src/index.ts", "apps/web/src/App.tsx"],
     "layerPaths": {
@@ -217,7 +219,18 @@
       "acceptance": ["ACC-AGENDA"],
       "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
-      "paths": []
+      "paths": [
+        "apps/api/src/domain/agenda",
+        "apps/api/src/application/agenda",
+        "apps/api/src/adapters/persistence/d1-agenda-repository.ts",
+        "apps/api/src/adapters/persistence/memory-agenda-repository.ts",
+        "apps/api/migrations/0017_agenda.sql",
+        "apps/api/migrations/0018_agenda_draft_revision.sql",
+        "apps/api/test/agenda-service.test.ts",
+        "apps/api/test/d1-agenda-repository.integration.test.ts",
+        "apps/web/src/AgendaWorkspace.tsx",
+        "apps/web/src/api/agenda.ts"
+      ]
     },
     {
       "id": "communications-integrations",

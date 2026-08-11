@@ -409,3 +409,34 @@ export const speakerEmailClaims = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.eventId, table.normalizedEmail] })],
 );
+
+// @spec PRD-AGD-001
+export const agendaDrafts = sqliteTable("agenda_drafts", {
+  eventId: text("event_id")
+    .primaryKey()
+    .notNull()
+    .references(() => events.id),
+  draftJson: text("draft_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  revision: integer("revision").notNull().default(0),
+});
+
+export const agendaPublications = sqliteTable(
+  "agenda_publications",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    version: integer("version").notNull(),
+    publishedAt: text("published_at").notNull(),
+    publishedBy: text("published_by")
+      .notNull()
+      .references(() => users.id),
+    scheduleJson: text("schedule_json").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.eventId, table.version] }),
+    check("agenda_publications_version", sql`${table.version} > 0`),
+    index("agenda_publications_latest_idx").on(table.eventId, table.version),
+  ],
+);

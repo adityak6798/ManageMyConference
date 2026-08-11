@@ -1,0 +1,1 @@
+ALTER TABLE agenda_drafts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;

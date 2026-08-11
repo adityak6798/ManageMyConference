@@ -98,6 +98,7 @@
                                 "events:create",
                                 "events:settings:read",
                                 "events:settings:update",
+                                "agenda:manage",
                                 "crm:manage",
                                 "content:read",
                                 "content:manage",
@@ -123,6 +124,7 @@
                           "events:create",
                           "events:settings:read",
                           "events:settings:update",
+                          "agenda:manage",
                           "crm:manage",
                           "content:read",
                           "content:manage",
@@ -159,6 +161,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -209,6 +212,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -605,6 +609,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -655,6 +660,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -705,6 +711,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -755,6 +762,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -957,6 +965,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1007,6 +1016,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1057,6 +1067,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1107,6 +1118,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1267,6 +1279,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1317,6 +1330,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1367,6 +1381,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1417,6 +1432,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1567,6 +1583,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1617,6 +1634,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1667,6 +1685,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1717,6 +1736,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1767,6 +1787,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2109,6 +2130,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2159,6 +2181,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2209,6 +2232,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2259,6 +2283,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2456,6 +2481,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2506,6 +2532,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2556,6 +2583,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2606,6 +2634,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2656,6 +2685,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2797,6 +2827,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2847,6 +2878,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2897,6 +2929,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2947,6 +2980,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3141,6 +3175,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3191,6 +3226,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3241,6 +3277,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3291,6 +3328,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3341,6 +3379,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3535,6 +3574,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3585,6 +3625,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3635,6 +3676,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3685,6 +3727,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3735,6 +3778,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4006,6 +4050,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4056,6 +4101,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4106,6 +4152,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4156,6 +4203,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4265,6 +4313,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4315,6 +4364,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4532,6 +4582,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4582,6 +4633,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4632,6 +4684,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4682,6 +4735,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4732,6 +4786,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4921,6 +4976,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4971,6 +5027,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5021,6 +5078,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5147,6 +5205,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5197,6 +5256,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5247,6 +5307,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5609,6 +5670,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5659,6 +5721,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5709,6 +5772,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5759,6 +5823,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6204,6 +6269,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6254,6 +6320,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6304,6 +6371,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6354,6 +6422,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6526,6 +6595,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6576,6 +6646,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6626,6 +6697,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6676,6 +6748,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7047,6 +7120,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7097,6 +7171,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7147,6 +7222,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7197,6 +7273,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7361,6 +7438,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7411,6 +7489,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7461,6 +7540,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7511,6 +7591,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7645,6 +7726,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7695,6 +7777,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7745,6 +7828,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7795,6 +7879,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8031,6 +8116,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8081,6 +8167,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8131,6 +8218,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8181,6 +8269,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8330,6 +8419,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8380,6 +8470,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8430,6 +8521,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8480,6 +8572,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8612,6 +8705,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8662,6 +8756,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8712,6 +8807,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8762,6 +8858,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8844,6 +8941,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8894,6 +8992,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8944,6 +9043,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8994,6 +9094,2701 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/agenda": {
+      "get": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organizer agenda draft and conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agenda": {
+                      "type": "object",
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "rooms": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name"
+                            ]
+                          }
+                        },
+                        "tracks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "color": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "color"
+                            ]
+                          }
+                        },
+                        "slots": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "endsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "startsAt",
+                              "endsAt"
+                            ]
+                          }
+                        },
+                        "sessions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "speakerIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title",
+                              "speakerIds"
+                            ]
+                          }
+                        },
+                        "placements": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "sessionId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "roomId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "trackId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "slotId": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "sessionId",
+                              "roomId",
+                              "trackId",
+                              "slotId"
+                            ]
+                          }
+                        },
+                        "conflicts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "ROOM_OVERLAP",
+                                  "SPEAKER_OVERLAP",
+                                  "SESSION_OVERLAP",
+                                  "MISSING_SESSION"
+                                ]
+                              },
+                              "placementId": {
+                                "type": "string"
+                              },
+                              "conflictingPlacementId": {
+                                "type": "string"
+                              },
+                              "resourceId": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "placementId",
+                              "conflictingPlacementId",
+                              "resourceId",
+                              "message"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "rooms",
+                        "tracks",
+                        "slots",
+                        "sessions",
+                        "placements",
+                        "conflicts"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agenda"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/agenda/resources": {
+      "put": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rooms": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ]
+                    }
+                  },
+                  "tracks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        },
+                        "color": {
+                          "type": "string",
+                          "pattern": "^#[0-9a-fA-F]{6}$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "color"
+                      ]
+                    }
+                  },
+                  "slots": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "startsAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "endsAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "startsAt",
+                        "endsAt"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "rooms",
+                  "tracks",
+                  "slots"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configured rooms, tracks, and timeslots",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agenda": {
+                      "type": "object",
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "rooms": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name"
+                            ]
+                          }
+                        },
+                        "tracks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "color": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "color"
+                            ]
+                          }
+                        },
+                        "slots": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "endsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "startsAt",
+                              "endsAt"
+                            ]
+                          }
+                        },
+                        "sessions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "speakerIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title",
+                              "speakerIds"
+                            ]
+                          }
+                        },
+                        "placements": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "sessionId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "roomId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "trackId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "slotId": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "sessionId",
+                              "roomId",
+                              "trackId",
+                              "slotId"
+                            ]
+                          }
+                        },
+                        "conflicts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "ROOM_OVERLAP",
+                                  "SPEAKER_OVERLAP",
+                                  "SESSION_OVERLAP",
+                                  "MISSING_SESSION"
+                                ]
+                              },
+                              "placementId": {
+                                "type": "string"
+                              },
+                              "conflictingPlacementId": {
+                                "type": "string"
+                              },
+                              "resourceId": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "placementId",
+                              "conflictingPlacementId",
+                              "resourceId",
+                              "message"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "rooms",
+                        "tracks",
+                        "slots",
+                        "sessions",
+                        "placements",
+                        "conflicts"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agenda"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/agenda/placements/{placementId}": {
+      "put": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "placementId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "roomId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "trackId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "slotId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "sessionId",
+                  "roomId",
+                  "trackId",
+                  "slotId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated draft and conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agenda": {
+                      "type": "object",
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "rooms": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name"
+                            ]
+                          }
+                        },
+                        "tracks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "color": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "color"
+                            ]
+                          }
+                        },
+                        "slots": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "endsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "startsAt",
+                              "endsAt"
+                            ]
+                          }
+                        },
+                        "sessions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "speakerIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title",
+                              "speakerIds"
+                            ]
+                          }
+                        },
+                        "placements": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "sessionId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "roomId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "trackId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "slotId": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "sessionId",
+                              "roomId",
+                              "trackId",
+                              "slotId"
+                            ]
+                          }
+                        },
+                        "conflicts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "ROOM_OVERLAP",
+                                  "SPEAKER_OVERLAP",
+                                  "SESSION_OVERLAP",
+                                  "MISSING_SESSION"
+                                ]
+                              },
+                              "placementId": {
+                                "type": "string"
+                              },
+                              "conflictingPlacementId": {
+                                "type": "string"
+                              },
+                              "resourceId": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "placementId",
+                              "conflictingPlacementId",
+                              "resourceId",
+                              "message"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "rooms",
+                        "tracks",
+                        "slots",
+                        "sessions",
+                        "placements",
+                        "conflicts"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agenda"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "placementId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Placement removed"
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/agenda/publications": {
+      "post": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Auditable immutable schedule publication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schedule": {
+                      "type": "object",
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true
+                        },
+                        "publishedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "publishedBy": {
+                          "type": "string"
+                        },
+                        "agenda": {
+                          "type": "object",
+                          "properties": {
+                            "eventId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "rooms": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name"
+                                ]
+                              }
+                            },
+                            "tracks": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "color": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "color"
+                                ]
+                              }
+                            },
+                            "slots": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "startsAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "endsAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "startsAt",
+                                  "endsAt"
+                                ]
+                              }
+                            },
+                            "sessions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "speakerIds": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "title",
+                                  "speakerIds"
+                                ]
+                              }
+                            },
+                            "placements": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "sessionId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "roomId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "trackId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "slotId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "sessionId",
+                                  "roomId",
+                                  "trackId",
+                                  "slotId"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "eventId",
+                            "rooms",
+                            "tracks",
+                            "slots",
+                            "sessions",
+                            "placements"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "version",
+                        "publishedAt",
+                        "publishedBy",
+                        "agenda"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "schedule"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/events/{eventId}/schedule": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest public-safe published schedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schedule": {
+                      "type": "object",
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true
+                        },
+                        "publishedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "agenda": {
+                          "type": "object",
+                          "properties": {
+                            "eventId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "rooms": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name"
+                                ]
+                              }
+                            },
+                            "tracks": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "color": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "color"
+                                ]
+                              }
+                            },
+                            "slots": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "startsAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "endsAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "startsAt",
+                                  "endsAt"
+                                ]
+                              }
+                            },
+                            "sessions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "speakerIds": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "title",
+                                  "speakerIds"
+                                ]
+                              }
+                            },
+                            "placements": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "sessionId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "roomId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "trackId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "slotId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "sessionId",
+                                  "roomId",
+                                  "trackId",
+                                  "slotId"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "eventId",
+                            "rooms",
+                            "tracks",
+                            "slots",
+                            "sessions",
+                            "placements"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "version",
+                        "publishedAt",
+                        "agenda"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "schedule"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9108,6 +11903,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9213,6 +12009,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9263,6 +12060,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9313,6 +12111,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9430,6 +12229,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9480,6 +12280,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9530,6 +12331,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9580,6 +12382,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9630,6 +12433,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9739,6 +12543,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9789,6 +12594,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9839,6 +12645,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9973,6 +12780,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10023,6 +12831,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10073,6 +12882,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10123,6 +12933,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10390,6 +13201,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10440,6 +13252,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10490,6 +13303,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10540,6 +13354,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10821,6 +13636,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10871,6 +13687,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10921,6 +13738,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10971,6 +13789,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11210,6 +14029,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11260,6 +14080,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11310,6 +14131,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11360,6 +14182,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11410,6 +14233,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11734,6 +14558,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11784,6 +14609,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11834,6 +14660,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11884,6 +14711,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11934,6 +14762,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11984,6 +14813,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12223,6 +15053,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12273,6 +15104,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12323,6 +15155,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12373,6 +15206,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12423,6 +15257,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12473,6 +15308,7 @@
                             "FORBIDDEN",
                             "VALIDATION_FAILED",
                             "NOT_FOUND",
+                            "AGENDA_CONFLICT",
                             "INTERNAL_ERROR"
                           ]
                         },

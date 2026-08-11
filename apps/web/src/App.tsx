@@ -11,6 +11,7 @@ import {
   startDemoSession,
 } from "./api/events";
 import "./styles.css";
+import { AgendaWorkspace } from "./AgendaWorkspace";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
 import { CfpWorkspace } from "./CfpWorkspace";
 import { CrmWorkspace } from "./CrmWorkspace";
@@ -18,7 +19,7 @@ import { CrmWorkspace } from "./CrmWorkspace";
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 const navByRole: Record<Persona, string[]> = {
-  organizer: ["Overview", "Event settings", "People", "Publishing"],
+  organizer: ["Overview", "Agenda", "Event settings", "People", "Publishing"],
   reviewer: ["Review assignments"],
   speaker: ["Speaker tasks", "My sessions"],
   public: ["Published event"],
@@ -250,6 +251,17 @@ export function App() {
                 </p>
               </section>
             )}
+            {selectedEvent &&
+            (session.eventAccess
+              .find(({ eventId }) => eventId === selectedEvent.id)
+              ?.capabilities.includes("agenda:manage") ||
+              session.organizations.some(({ id }) => id === selectedEvent.organizationId)) ? (
+              <AgendaWorkspace
+                key={selectedEvent.id}
+                eventId={selectedEvent.id}
+                onError={setError}
+              />
+            ) : null}
             {selectedEventId && (activeRole === "organizer" || activeRole === "speaker") ? (
               <ContentWorkspace eventId={selectedEventId} role={activeRole} onError={reportError} />
             ) : null}

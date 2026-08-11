@@ -17,6 +17,9 @@
 ## Identifier backlinks
 
 ### `ACC-AGENDA`
+- `test` / `repository-fact`: [apps/api/test/agenda-service.test.ts](../../apps/api/test/agenda-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-agenda-repository.integration.test.ts](../../apps/api/test/d1-agenda-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
@@ -162,8 +165,13 @@
 - `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-AGD-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)
+- `code` / `repository-fact`: [apps/api/src/application/agenda/agenda-service.ts](../../apps/api/src/application/agenda/agenda-service.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/agenda/agenda.ts](../../apps/api/src/domain/agenda/agenda.ts)
+- `code` / `repository-fact`: [apps/web/src/AgendaWorkspace.tsx](../../apps/web/src/AgendaWorkspace.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/index.ts](../../packages/contracts/src/index.ts)
 
 ### `PRD-CFP-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema.ts](../../apps/api/src/adapters/persistence/schema.ts)

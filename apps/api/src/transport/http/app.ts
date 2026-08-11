@@ -1,6 +1,9 @@
 import {
   acceptContentInputSchema,
   type ApiErrorEnvelope,
+  agendaIdParamsSchema,
+  agendaPlacementSchema,
+  agendaResourcesSchema,
   cfpStateInputSchema,
   createEventInputSchema,
   createProspectInputSchema,
@@ -53,6 +56,12 @@ import {
   CfpUnavailableError,
   CfpValidationError,
 } from "../../application/cfp/public";
+import {
+  AgendaConflictError,
+  AgendaNotFoundError,
+  AgendaResourceInUseError,
+  type AgendaService,
+} from "../../application/agenda/public";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -111,6 +120,7 @@ export function createHttpApp(
   cfpServiceArgument?: CfpService,
   content?: ContentService,
   crmArgument?: CrmService,
+  agenda?: AgendaService,
 ) {
   const reviewService =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -894,6 +904,89 @@ export function createHttpApp(
       ),
     });
   });
+  app.get("/api/events/:eventId/agenda", async (context) => {
+    if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+    const parsed = agendaIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    return context.json({ agenda: await agenda.draft(context.get("actor"), parsed.data.eventId) });
+  });
+  app.put("/api/events/:eventId/agenda/resources", async (context) => {
+    if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+    requireCapability(context.get("actor"), "agenda:manage");
+    const params = agendaIdParamsSchema.safeParse(context.req.param());
+    const body = agendaResourcesSchema.safeParse(await readJson(context.req));
+    if (!params.success || !body.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Agenda resources are invalid.",
+          context.get("correlationId"),
+          body.success ? undefined : validationFields(body.error.issues),
+        ),
+        400,
+      );
+    return context.json({
+      agenda: await agenda.configure(context.get("actor"), params.data.eventId, body.data),
+    });
+  });
+  app.put("/api/events/:eventId/agenda/placements/:placementId", async (context) => {
+    if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+    requireCapability(context.get("actor"), "agenda:manage");
+    const params = agendaIdParamsSchema.safeParse(context.req.param());
+    const body = agendaPlacementSchema.safeParse(await readJson(context.req));
+    if (!params.success || !body.success || body.data.id !== context.req.param("placementId"))
+      return context.json(
+        envelope("VALIDATION_FAILED", "Placement is invalid.", context.get("correlationId")),
+        400,
+      );
+    return context.json({
+      agenda: await agenda.place(context.get("actor"), params.data.eventId, body.data),
+    });
+  });
+  app.delete("/api/events/:eventId/agenda/placements/:placementId", async (context) => {
+    if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+    const parsed = agendaIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    await agenda.remove(
+      context.get("actor"),
+      parsed.data.eventId,
+      context.req.param("placementId"),
+    );
+    return context.body(null, 204);
+  });
+  app.post("/api/events/:eventId/agenda/publications", async (context) => {
+    if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+    const parsed = agendaIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    return context.json(
+      { schedule: await agenda.publish(context.get("actor"), parsed.data.eventId) },
+      201,
+    );
+  });
+  app.get("/api/public/events/:eventId/schedule", async (context) => {
+    if (!agenda) throw new AgendaNotFoundError("Schedule not configured");
+    const parsed = agendaIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const schedule = await agenda.published(parsed.data.eventId);
+    if (!schedule) throw new AgendaNotFoundError("Published schedule not found");
+    return context.json({ schedule });
+  });
   app.notFound((context) =>
     context.json(
       envelope("NOT_FOUND", "The requested resource was not found.", context.get("correlationId")),
@@ -914,6 +1007,27 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Request body must be valid JSON.", correlationId),
         400,
       );
+    if (error instanceof AgendaConflictError)
+      return context.json(
+        envelope(
+          "AGENDA_CONFLICT",
+          "Resolve schedule conflicts before publishing.",
+          correlationId,
+          {
+            conflicts: error.conflicts.map(
+              ({ kind, resourceId, message }) => `${kind}:${resourceId}: ${message}`,
+            ),
+          },
+        ),
+        409,
+      );
+    if (error instanceof AgendaNotFoundError)
+      return context.json(
+        envelope("NOT_FOUND", "The requested resource was not found.", correlationId),
+        404,
+      );
+    if (error instanceof AgendaResourceInUseError)
+      return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 409);
     if (error instanceof ProspectNotFoundError)
       return context.json(
         envelope("NOT_FOUND", "The requested resource was not found.", correlationId),

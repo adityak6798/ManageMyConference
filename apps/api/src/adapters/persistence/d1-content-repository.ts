@@ -11,6 +11,7 @@ import type {
   SpeakerProfile,
   SpeakerTask,
 } from "../../domain/content/content";
+import type { AgendaContentQuery } from "../../application/content/public";
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   run<T = unknown>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
@@ -26,8 +27,17 @@ export interface ContentDatabasePort {
 type Row = Record<string, string | null>;
 const parse = <T>(value: string | null | undefined) => JSON.parse(value ?? "[]") as T;
 
-export class D1ContentRepository implements ContentRepository {
+export class D1ContentRepository implements ContentRepository, AgendaContentQuery {
   constructor(private readonly database: ContentDatabasePort) {}
+  async listSchedulableSessions(eventId: string) {
+    const workspace = await this.workspace(eventId);
+    return workspace.sessions.map(({ id, title, speakerProfileIds, tracks }) => ({
+      id,
+      title,
+      speakerProfileIds,
+      tracks,
+    }));
+  }
   private async rows(query: string, ...values: unknown[]): Promise<Row[]> {
     const result = await this.database
       .prepare(query)

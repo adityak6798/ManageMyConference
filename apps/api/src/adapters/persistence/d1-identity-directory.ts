@@ -35,6 +35,7 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
     "events:read",
     "events:settings:read",
     "events:settings:update",
+    "agenda:manage",
     "crm:manage",
     "content:read",
     "content:manage",
@@ -90,6 +91,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (organizationList.length) {
       capabilities.add("events:read");
       capabilities.add("events:create");
+      capabilities.add("agenda:manage");
     }
     for (const access of eventAccess)
       for (const capability of access.capabilities) capabilities.add(capability);

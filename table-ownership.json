@@ -26,6 +26,8 @@
     "review_conflicts": "review",
     "review_evaluations": "review",
     "review_outcomes": "review",
-    "review_events": "review"
+    "review_events": "review",
+    "agenda_drafts": "agenda",
+    "agenda_publications": "agenda"
   }
 }

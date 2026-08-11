@@ -32,6 +32,11 @@ describe("D1IdentityDirectory", () => {
       "utf8",
     );
     for (const statement of statements(foundation)) await database.prepare(statement).run();
+    const agenda = await readFile(
+      new URL("../migrations/0017_agenda.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(agenda)) await database.prepare(statement).run();
     const content = await readFile(
       new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
       "utf8",
@@ -81,6 +86,7 @@ describe("D1IdentityDirectory", () => {
         "events:create",
         "events:settings:read",
         "events:settings:update",
+        "agenda:manage",
         "crm:manage",
         "content:read",
         "content:manage",
@@ -100,6 +106,7 @@ describe("D1IdentityDirectory", () => {
         "events:read",
         "events:settings:read",
         "events:settings:update",
+        "agenda:manage",
         "crm:manage",
         "content:read",
         "content:manage",

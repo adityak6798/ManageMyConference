@@ -1,5 +1,7 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
+import { AgendaService } from "./application/agenda/agenda-service";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
@@ -49,8 +51,9 @@ export default {
       now: () => new Date(),
       grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
+    const contentRepository = new D1ContentRepository(environment.DB);
     const content = new ContentService({
-      repository: new D1ContentRepository(environment.DB),
+      repository: contentRepository,
       assetStorage: new R2AssetStorage(environment.ASSETS),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -70,6 +73,16 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const now = () => new Date();
+    const agenda = new AgendaService(
+      new D1AgendaRepository(environment.DB, now),
+      now,
+      contentRepository,
+      async (actor, eventId) => {
+        const event = await service.get(actor, eventId);
+        return Boolean(event && actor.organizations.some(({ id }) => id === event.organizationId));
+      },
+    );
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -102,6 +115,7 @@ export default {
       cfpService,
       content,
       crm,
+      agenda,
     );
     return Promise.resolve(app.fetch(request));
   },

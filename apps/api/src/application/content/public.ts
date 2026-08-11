@@ -8,6 +8,22 @@ export interface AgendaContentQuery {
     }[]
   >;
 }
+export class FixtureSchedulableContentQuery implements AgendaContentQuery {
+  constructor(
+    private readonly data: ReadonlyMap<
+      string,
+      readonly { id: string; title: string; speakerIds: readonly string[] }[]
+    >,
+  ) {}
+  async listSchedulableSessions(eventId: string) {
+    return (this.data.get(eventId) ?? []).map(({ id, title, speakerIds }) => ({
+      id,
+      title,
+      speakerProfileIds: [...speakerIds],
+      tracks: [],
+    }));
+  }
+}
 export interface PublishingContentQuery {
   publishedEventContent(eventId: string): Promise<{
     sessions: readonly {

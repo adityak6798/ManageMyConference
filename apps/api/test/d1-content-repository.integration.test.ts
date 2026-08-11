@@ -57,6 +57,10 @@ describe("D1ContentRepository", () => {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       for (const statement of statements(sql)) await database.prepare(statement).run();
     }
+    for (const migration of ["0017_agenda.sql", "0018_agenda_draft_revision.sql"]) {
+      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
+      for (const statement of statements(sql)) await database.prepare(statement).run();
+    }
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
     const repository = new D1ContentRepository(database as ContentDatabasePort);

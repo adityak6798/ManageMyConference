@@ -143,6 +143,15 @@ describe("D1EventRepository", () => {
       const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       expect((await database.prepare(trigger).run()).success).toBe(true);
     }
+    const agendaMigration = await readFile(
+      new URL("../migrations/0017_agenda.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of agendaMigration
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     const statements = reset
       .split(";")
