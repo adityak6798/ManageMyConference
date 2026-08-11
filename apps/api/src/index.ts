@@ -1,5 +1,7 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
+import { CfpService } from "./application/cfp/cfp-service";
 import { EventService } from "./application/events/event-service";
 import { createHttpApp } from "./transport/http/app";
 
@@ -30,11 +32,18 @@ export function runtimeAuth(
 export default {
   fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
+    const identityDirectory = new D1IdentityDirectory(environment.DB);
     const service = new EventService({
       repository: new D1EventRepository(environment.DB),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
+      grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
+    const cfpService = new CfpService(
+      new D1CfpRepository(environment.DB),
+      () => crypto.randomUUID(),
+      () => new Date(),
+    );
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -49,13 +58,13 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
-    const identityDirectory = new D1IdentityDirectory(environment.DB);
     const app = createHttpApp(
       service,
       logger,
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      cfpService,
     );
     return Promise.resolve(app.fetch(request));
   },

@@ -1,12 +1,21 @@
 import {
   type ApiErrorEnvelope,
+  cfpStateInputSchema,
   createEventInputSchema,
   demoSessionInputSchema,
   eventIdParamsSchema,
+  saveCfpInputSchema,
+  submitProposalInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
+import {
+  type CfpService,
+  CfpStateError,
+  CfpUnavailableError,
+  CfpValidationError,
+} from "../../application/cfp/public";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -60,6 +69,7 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
+  cfpService?: CfpService,
 ) {
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
@@ -195,6 +205,115 @@ export function createHttpApp(
       );
     return context.json({ event: eventToDto(event) });
   });
+  app.get("/api/events/:eventId/cfp", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const parsed = eventIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const cfp = await cfpService.getForOrganizer(context.get("actor"), parsed.data.eventId);
+    if (!cfp)
+      return context.json(
+        envelope("NOT_FOUND", "No CFP has been configured.", context.get("correlationId")),
+        404,
+      );
+    return context.json({ cfp });
+  });
+  app.put("/api/events/:eventId/cfp", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const params = eventIdParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    // Authorization happens before parsing attacker-controlled bodies.
+    await cfpService.getForOrganizer(context.get("actor"), params.data.eventId);
+    const parsed = saveCfpInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The CFP could not be saved.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json({
+      cfp: await cfpService.save(context.get("actor"), {
+        eventId: params.data.eventId,
+        ...parsed.data,
+      }),
+    });
+  });
+  app.post("/api/events/:eventId/cfp/state", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const params = eventIdParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    await cfpService.getForOrganizer(context.get("actor"), params.data.eventId);
+    const parsed = cfpStateInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Choose a valid CFP state.", context.get("correlationId")),
+        400,
+      );
+    return context.json({
+      cfp: await cfpService.changeState(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.state,
+      ),
+    });
+  });
+  app.get("/api/public/events/:eventId/cfp", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const parsed = eventIdParamsSchema.safeParse(context.req.param());
+    if (!parsed.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    return context.json({ cfp: await cfpService.getPublished(parsed.data.eventId) });
+  });
+  app.get("/api/public/events", async (context) =>
+    context.json({ events: (await service.listAssigned(context.get("actor"))).map(eventToDto) }),
+  );
+  app.post("/api/public/events/:eventId/submissions", async (context) => {
+    if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+    const params = eventIdParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = submitProposalInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The proposal could not be submitted.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    const submission = await cfpService.submit(
+      params.data.eventId,
+      parsed.data.idempotencyKey,
+      parsed.data.answers,
+    );
+    return context.json(
+      { submission: { confirmationId: submission.id, submittedAt: submission.submittedAt } },
+      201,
+    );
+  });
   app.notFound((context) =>
     context.json(
       envelope("NOT_FOUND", "The requested resource was not found.", context.get("correlationId")),
@@ -215,6 +334,20 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Request body must be valid JSON.", correlationId),
         400,
       );
+    if (error instanceof CfpValidationError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Review the highlighted proposal fields.",
+          correlationId,
+          error.fieldErrors,
+        ),
+        400,
+      );
+    if (error instanceof CfpStateError)
+      return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 400);
+    if (error instanceof CfpUnavailableError)
+      return context.json(envelope("NOT_FOUND", error.message, correlationId), 404);
     logger.error(
       {
         correlationId,

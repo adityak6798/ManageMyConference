@@ -8,6 +8,8 @@ import {
 import { z, type ZodType } from "zod";
 import {
   apiErrorEnvelopeSchema,
+  cfpResponseSchema,
+  cfpStateInputSchema,
   createEventInputSchema,
   createEventResponseSchema,
   demoSessionInputSchema,
@@ -16,6 +18,9 @@ import {
   eventIdParamsSchema,
   healthResponseSchema,
   sessionResponseSchema,
+  saveCfpInputSchema,
+  submitProposalInputSchema,
+  proposalConfirmationResponseSchema,
 } from "../src/index";
 
 extendZodWithOpenApi(z);
@@ -38,6 +43,91 @@ registry.registerPath({
   responses: {
     200: { description: "Current identity and capabilities", content: json(sessionResponseSchema) },
     401: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/cfp",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: { description: "Editable CFP and published state", content: json(cfpResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/events/{eventId}/cfp",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: eventIdParamsSchema,
+    body: { required: true, content: json(saveCfpInputSchema) },
+  },
+  responses: {
+    200: { description: "Saved CFP draft", content: json(cfpResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/public/events",
+  security: [{ sessionCookie: [] }],
+  responses: {
+    200: { description: "Publicly assigned events", content: json(eventListResponseSchema) },
+    401: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/cfp/state",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: eventIdParamsSchema,
+    body: { required: true, content: json(cfpStateInputSchema) },
+  },
+  responses: {
+    200: { description: "Updated CFP state", content: json(cfpResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/public/events/{eventId}/cfp",
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: { description: "Published CFP", content: json(cfpResponseSchema) },
+    400: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/public/events/{eventId}/submissions",
+  request: {
+    params: eventIdParamsSchema,
+    body: { required: true, content: json(submitProposalInputSchema) },
+  },
+  responses: {
+    201: {
+      description: "Durable proposal confirmation",
+      content: json(proposalConfirmationResponseSchema),
+    },
+    400: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });

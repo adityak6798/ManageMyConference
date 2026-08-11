@@ -104,6 +104,30 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
+    const cfp = await readFile(new URL("../migrations/0003_cfp.sql", import.meta.url), "utf8");
+    for (const statement of cfp
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const snapshot = await readFile(
+      new URL("../migrations/0004_cfp_published_snapshot.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of snapshot
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
+    const snapshotStatus = await readFile(
+      new URL("../migrations/0005_cfp_snapshot_status.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of snapshotStatus
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     const statements = reset
       .split(";")
