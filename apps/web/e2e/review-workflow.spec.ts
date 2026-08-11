@@ -59,8 +59,14 @@ test("organizer triages and reviewer completes an unbiased evaluation", async ({
   await expect(
     page.getByLabel("Transition to").getByRole("option", { name: "Needs follow-up" }),
   ).toHaveCount(1);
+  await page.getByLabel("Status 1 label").fill("New submissions");
   await page.getByLabel("Status 5 label").fill("Follow up required");
+  const statusesSaved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/review/statuses") && response.request().method() === "PUT",
+  );
   await page.getByRole("button", { name: "Save statuses" }).click();
+  await expect((await statusesSaved).ok()).toBe(true);
   await expect(
     page.getByLabel("Transition to").getByRole("option", { name: "Follow up required" }),
   ).toHaveAttribute("value", "needs_follow_up");
