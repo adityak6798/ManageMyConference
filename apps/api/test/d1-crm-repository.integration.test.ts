@@ -1,7 +1,8 @@
 // @acceptance ACC-CRM
 import { readFile } from "node:fs/promises";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import { createMigratedDatabase } from "./support/seeded-d1";
 import { D1CrmRepository } from "../src/adapters/persistence/d1-crm-repository";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
 
@@ -9,78 +10,20 @@ const eventId = "00000000-0000-4000-8000-000000000001";
 const otherEventId = "00000000-0000-4000-8000-000000000002";
 
 /**
- * Every migration, then the deterministic seed. The CRM's guarantees are written in SQL —
- * foreign keys, the partial conversion index, batch atomicity — so they can only be proven
- * against the real applied schema.
+ * Every migration, then the deterministic seed. The CRM's guarantees are written in the
+ * schema — foreign keys, the partial conversion index, batch atomicity — so they can only be
+ * proved against the real applied schema.
  */
-async function migratedDatabase(runtime: Miniflare) {
-  const database = await runtime.getD1Database("DB");
-  for (const file of [
-    "0001_create_events.sql",
-    "0002_identity_event_foundation.sql",
-    "0003_cfp.sql",
-    "0004_cfp_published_snapshot.sql",
-    "0005_cfp_snapshot_status.sql",
-    "0006_review_workflow.sql",
-    "0007_review_completion_conflict_guard.sql",
-    "0008_review_conflict_completion_guard.sql",
-    "0009_review_assignment_requires_plan.sql",
-    "0010_review_plan_lock.sql",
-    "0011_cfp_transition_status_guard.sql",
-    "0012_cfp_status_in_use_guard.sql",
-    "0013_cfp_submission_default_status.sql",
-    "0014_content_speaker_portal.sql",
-    "0015_crm_conversion.sql",
-    "0016_crm_speaker_conversion.sql",
-    "0017_agenda.sql",
-    "0018_agenda_draft_revision.sql",
-  ]) {
-    const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
-    if (/^(000[789]|001[0-3])_/.test(file)) {
-      await database.prepare(sql).run();
-      continue;
-    }
-    for (const statement of sql
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
-  }
-  const trailingMigrations = (
-    await Promise.all([
-      readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
-      readFile(new URL("../migrations/0020_public_event_projections.sql", import.meta.url), "utf8"),
-      readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
-    ])
-  ).join("\n");
-  for (const statement of trailingMigrations
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean))
-    await database.prepare(statement).run();
-  const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-  for (const statement of reset
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean))
-    await database.prepare(statement).run();
-  return database;
-}
-
-const runtimeFor = (name: string) =>
-  new Miniflare({
-    modules: true,
-    script: "export default { fetch() {} }",
-    d1Databases: { DB: name },
-  });
+const migratedRuntime = (label: string) => createMigratedDatabase({ label, seed: true });
 
 describe("D1 CRM persistence", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
 
   it("atomically records one conversion activity under concurrency", async () => {
-    runtime = runtimeFor("crm-test");
-    const database = await migratedDatabase(runtime);
+    const migrated = await migratedRuntime("crm-test");
+    runtime = migrated.runtime;
+    const database = migrated.database;
     const repository = new D1CrmRepository(database);
     const prospect = {
       id: "10000000-0000-4000-8000-000000000010",
@@ -165,8 +108,9 @@ describe("D1 CRM persistence", () => {
   });
 
   it("writes a stage transition and its note in one batch, or neither of them", async () => {
-    runtime = runtimeFor("crm-stage-history");
-    const database = await migratedDatabase(runtime);
+    const migrated = await migratedRuntime("crm-stage-history");
+    runtime = migrated.runtime;
+    const database = migrated.database;
     const repository = new D1CrmRepository(database);
     const prospect = {
       id: "10000000-0000-4000-8000-000000000020",
@@ -256,8 +200,9 @@ describe("D1 CRM persistence", () => {
   });
 
   it("scopes assignable prospect owners to one event and excludes speakers", async () => {
-    runtime = runtimeFor("crm-owner-eligibility");
-    const database = await migratedDatabase(runtime);
+    const migrated = await migratedRuntime("crm-owner-eligibility");
+    runtime = migrated.runtime;
+    const database = migrated.database;
     const directory = new D1IdentityDirectory(database);
 
     // Seeded event one: an organizer who also reviews there, plus a reviewer. `seed-speaker`

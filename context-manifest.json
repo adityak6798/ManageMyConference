@@ -171,7 +171,9 @@
         "apps/web/src/ui/icons.tsx",
         "apps/api/test/seed-state.integration.test.ts",
         "apps/web/src/workspaces/contract.ts",
-        "apps/web/src/workspaces/registry.tsx"
+        "apps/web/src/workspaces/registry.tsx",
+        "apps/api/test/d1-harness.integration.test.ts",
+        "apps/api/test/support/seeded-d1.ts"
       ]
     },
     {
@@ -471,7 +473,6 @@
         "apps/api/migrations/0020_public_event_projections.sql",
         "apps/api/test/publication.test.ts",
         "apps/api/test/d1-publication-repository.integration.test.ts",
-        "apps/api/test/support/seeded-d1.ts",
         "apps/web/src/PublicEventApp.tsx",
         "apps/web/src/PublishingWorkspace.tsx",
         "apps/web/src/styles/publishing.css",

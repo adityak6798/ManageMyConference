@@ -1,7 +1,8 @@
 // @acceptance ACC-SPEAKER
 import { readFile } from "node:fs/promises";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import { createMigratedDatabase } from "./support/seeded-d1";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
 import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
 import {
@@ -36,62 +37,9 @@ describe("D1ContentRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
   it("rolls back a failed acceptance and permits a clean retry", async () => {
-    runtime = new Miniflare({
-      modules: true,
-      script: "export default { fetch() {} }",
-      d1Databases: { DB: "content-atomic-test" },
-    });
-    const database = await runtime.getD1Database("DB");
-    for (const file of [
-      "0001_create_events.sql",
-      "0002_identity_event_foundation.sql",
-      "0003_cfp.sql",
-      "0004_cfp_published_snapshot.sql",
-      "0005_cfp_snapshot_status.sql",
-      "0006_review_workflow.sql",
-    ]) {
-      const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
-      for (const statement of statements(sql)) await database.prepare(statement).run();
-    }
-    for (const file of [
-      "0007_review_completion_conflict_guard.sql",
-      "0008_review_conflict_completion_guard.sql",
-      "0009_review_assignment_requires_plan.sql",
-      "0010_review_plan_lock.sql",
-      "0011_cfp_transition_status_guard.sql",
-      "0012_cfp_status_in_use_guard.sql",
-      "0013_cfp_submission_default_status.sql",
-    ]) {
-      const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
-      expect((await database.prepare(sql).run()).success).toBe(true);
-    }
-    const contentSql = await readFile(
-      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of statements(contentSql)) await database.prepare(statement).run();
-    for (const migration of ["0015_crm_conversion.sql", "0016_crm_speaker_conversion.sql"]) {
-      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
-      for (const statement of statements(sql)) await database.prepare(statement).run();
-    }
-    for (const migration of ["0017_agenda.sql", "0018_agenda_draft_revision.sql"]) {
-      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
-      for (const statement of statements(sql)) await database.prepare(statement).run();
-    }
-    const trailingMigrations = (
-      await Promise.all([
-        readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
-        readFile(
-          new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
-          "utf8",
-        ),
-        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
-      ])
-    ).join("\n");
-    for (const statement of statements(trailingMigrations)) await database.prepare(statement).run();
-    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    for (const statement of statements(reset))
-      expect((await database.prepare(statement).run()).success, statement).toBe(true);
+    const migrated = await createMigratedDatabase({ label: "content", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
     const repository = new D1ContentRepository(database as ContentDatabasePort);
     const session = {
       id: "50000000-0000-4000-8000-000000000001",
