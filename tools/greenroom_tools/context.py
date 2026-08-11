@@ -344,6 +344,147 @@ def migration_schema(paths: list[Path]) -> dict[str, set[str]]:
     return tables
 
 
+SCORECARD = "docs/quality/scorecard.md"
+ACTIVE_PLANS = "docs/exec-plans/active.md"
+COMPLETED_PLANS = "docs/exec-plans/completed.md"
+# `Last verified: 2026-08-11` and `**Last verified:** 2026-08-11` are both in use; the date is
+# what has to be machine-readable, not the emphasis around the label.
+LAST_VERIFIED_PATTERN = re.compile(r"Last verified:?\*{0,2}\s*(\d{4}-\d{2}-\d{2})")
+PLAN_HEADING_PATTERN = re.compile(r"^## `(PLAN-[A-Z0-9-]+)`", re.MULTILINE)
+PLAN_STATUS_PATTERN = re.compile(r"^Status: (active|completed)\b", re.MULTILINE)
+SCORECARD_ROW_PATTERN = re.compile(r"^\| `(ACC-[A-Z0-9-]+)` \| ([^|]*)\| ([^|]*)\|", re.MULTILINE)
+VERDICTS = {"shipped", "partial"}
+# Phrases that assert a thing does not exist yet. Deliberately a short, closed list: the point
+# is to catch a claim contradicting declared state, not to parse English.
+STALE_CLAIM_PATTERN = re.compile(
+    r"is planned\b|are planned\b|not configured yet|not implemented yet|"
+    r"does not exist yet|do not exist yet|is not yet configured",
+    re.IGNORECASE,
+)
+
+
+def canonical_markdown() -> list[Path]:
+    """
+    Normative documents only.
+
+    `docs/generated/` is a projection of this metadata and `docs/references/` is untrusted
+    external evidence; neither is a place where the repository states what is true, so neither
+    is held to these rules.
+    """
+    return [
+        path
+        for path in all_files((".md",))
+        if not str(path.relative_to(ROOT)).startswith(("docs/generated/", "docs/references/"))
+    ]
+
+
+def documentation_semantics_problems(manifest: dict[str, Any]) -> list[str]:
+    """
+    Contradictions canonical documents can hold while every link in them still resolves.
+
+    Link and ownership checks prove a document is *well-formed*. These prove selected claims in
+    it are not *contradicted* — by another document, or by declared machine-readable state.
+    Nothing here guesses meaning from prose: every rule reads either a table this repository
+    writes in a fixed shape, or a declared field.
+    """
+    problems: list[str] = []
+
+    # 1. Acceptance rows: one row per ID, a known ID, and a verdict from the closed set.
+    scorecard = (ROOT / SCORECARD).read_text(encoding="utf-8")
+    declared = {identifier for domain in manifest["domains"] for identifier in domain["acceptance"]}
+    seen: dict[str, str] = {}
+    for identifier, _journey, verdict in SCORECARD_ROW_PATTERN.findall(scorecard):
+        verdict = verdict.strip()
+        if identifier in seen:
+            problems.append(
+                f"{SCORECARD}: acceptance ID '{identifier}' has more than one row. One row "
+                "states one verdict; two rows can state two, and the reader cannot tell which "
+                "is current."
+            )
+        seen[identifier] = verdict
+        if identifier not in declared:
+            problems.append(
+                f"{SCORECARD}: row '{identifier}' is not an acceptance ID any domain declares "
+                "in context/domains/*.json."
+            )
+        if verdict not in VERDICTS:
+            problems.append(
+                f"{SCORECARD}: row '{identifier}' has verdict '{verdict}'. Use one of "
+                f"{', '.join(sorted(VERDICTS))}, so the state reads without interpreting prose."
+            )
+    for identifier in sorted(declared - set(seen)):
+        problems.append(
+            f"{SCORECARD}: acceptance ID '{identifier}' is declared by a domain but has no row. "
+            "An acceptance with no stated verdict reads as passing."
+        )
+
+    # 2. Plan placement: a plan is active or completed, in the matching file, and in one file.
+    placement: dict[str, list[str]] = {}
+    for relative, expected in ((ACTIVE_PLANS, "active"), (COMPLETED_PLANS, "completed")):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        sections = re.split(PLAN_HEADING_PATTERN, text)
+        for index in range(1, len(sections), 2):
+            identifier = sections[index]
+            status = PLAN_STATUS_PATTERN.search(sections[index + 1])
+            placement.setdefault(identifier, []).append(relative)
+            if status is None:
+                problems.append(
+                    f"{relative}: plan '{identifier}' has no `Status: active` or "
+                    "`Status: completed` line, so its lifecycle state cannot be read."
+                )
+            elif status.group(1) != expected:
+                problems.append(
+                    f"{relative}: plan '{identifier}' says `Status: {status.group(1)}` but sits "
+                    f"in the {expected} plans document. Move it, or correct the status."
+                )
+    for identifier, files in sorted(placement.items()):
+        if len(files) > 1:
+            problems.append(
+                f"Plan '{identifier}' appears in both {' and '.join(files)}; it has one "
+                "lifecycle state, so it belongs in one of them."
+            )
+    known_plans = {identifier for domain in manifest["domains"] for identifier in domain["plans"]}
+    for identifier in sorted(set(placement) - known_plans):
+        problems.append(
+            f"Plan '{identifier}' is documented but declared by no domain in "
+            "context/domains/*.json."
+        )
+
+    # 3. `Last verified` is a real date in a fixed format, on every canonical document.
+    for path in canonical_markdown():
+        relative = str(path.relative_to(ROOT))
+        text = path.read_text(encoding="utf-8")
+        if "Last verified" not in text:
+            continue
+        if not LAST_VERIFIED_PATTERN.search(text):
+            problems.append(
+                f"{relative}: `Last verified` must be an ISO date, as `Last verified: "
+                "YYYY-MM-DD`. Freshness is not enforced as an age — a document does not rot on "
+                "a timer — but the date has to be machine-readable to be checkable at all."
+            )
+
+    # 4. A claim that a declared-configured resource does not exist yet.
+    for resource in manifest["architecture"].get("resources", []):
+        if resource.get("state") != "configured":
+            continue
+        for path in canonical_markdown():
+            relative = str(path.relative_to(ROOT))
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if not STALE_CLAIM_PATTERN.search(line):
+                    continue
+                if not any(
+                    re.search(rf"\b{re.escape(name)}\b", line) for name in resource["names"]
+                ):
+                    continue
+                problems.append(
+                    f"{relative}:{number}: says '{resource['id']}' is not there yet, but "
+                    f"context/architecture.json declares it configured — see "
+                    f"{resource['evidence']}. Correct the sentence, or change the declared "
+                    "state if it really was removed."
+                )
+    return problems
+
+
 ROUTE_TABLE_PATTERN = re.compile(r"const routes = \[(.*?)\] as const;", re.DOTALL)
 ROUTE_ENTRY_PATTERN = re.compile(r'"([A-Z]+ /[^"]*)"')
 WORKSPACE_PATH_PATTERN = re.compile(r'^\s*path: "(/[^"]*)",', re.MULTILINE)
@@ -467,6 +608,7 @@ def check_repository() -> list[str]:
             "run `npm run context -- generate`"
         )
     problems.extend(allowlist_problems(manifest))
+    problems.extend(documentation_semantics_problems(manifest))
     problems.extend(duplicate_registration_problems())
     locations = context_locations()
     unique_owners: dict[str, str] = {}

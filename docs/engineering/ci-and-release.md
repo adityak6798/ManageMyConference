@@ -54,6 +54,19 @@ npm pin, so moving the bootstrap did not take that check out of service.
 The workflow runs five jobs:
 
 1. `integrity` (`gate:integrity`): gate-drift check; Biome/Ruff; context routing/integrity; Python CLI tests; AST error policy; TypeScript; generated OpenAPI drift; declared-schema/migration drift.
+
+   `greenroom-context check` also holds the canonical documents to each other and to declared
+   state, not only to well-formedness. One row per acceptance ID with a verdict from a closed
+   set, and a row for every ID a domain declares; every plan carrying a lifecycle status, in the
+   document that status names, and in only one of them; `Last verified` as an ISO date; and no
+   sentence claiming a resource `context/architecture.json` declares **configured** is not
+   there yet. That last rule is why `ARC-003` no longer describes the asset bucket as a future
+   plan while it is bound in `wrangler.toml` and `R2AssetStorage` is wired in the Worker — and
+   the rule is strict enough that it fires on this paragraph if the old sentence is quoted here
+   verbatim, which is the point. Freshness is not enforced as an age — a document does not rot
+   on a timer — but
+   the date has to be machine-readable to be checkable at all. Nothing here interprets prose:
+   each rule reads a table written in a fixed shape, or a declared field.
 2. `test-build` (`gate:test-build`): unit, API, and component tests with V8 coverage printed for both workspaces, plus production builds.
 3. `d1` (`gate:d1`): Miniflare D1 persistence, migration, and deterministic-seed tests. These build their own Miniflare instance, so the job no longer runs `npm run reset` first; the `browser` gate still proves `reset` applies through real Wrangler, and dropping it here keeps `npm run check` from mutating the shared local D1 fixture a concurrent Playwright run depends on.
 4. `browser` (`gate:browser`): random ignored local demo-secret setup and `npm run reset`, followed by the whole Playwright acceptance suite — every spec in `apps/web/e2e`, 30 tests across 12 files, not just the reference slice; failed runs upload Playwright traces/screenshots/reports and the Wrangler log as artifacts. Because `CI` is set there, the job starts its own servers rather than reusing anything, so the CI run is always a clean-reset run.

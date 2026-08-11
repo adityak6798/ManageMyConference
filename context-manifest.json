@@ -226,7 +226,36 @@
       "contracts": [
         "zod"
       ]
-    }
+    },
+    "resources": [
+      {
+        "id": "d1",
+        "names": [
+          "D1"
+        ],
+        "state": "configured",
+        "evidence": "apps/api/wrangler.toml",
+        "note": "Bound as DB; 22 migrations apply against it locally and in the D1 suite."
+      },
+      {
+        "id": "r2",
+        "names": [
+          "R2"
+        ],
+        "state": "configured",
+        "evidence": "apps/api/src/adapters/storage/r2-asset-storage.ts",
+        "note": "Bound as ASSETS in wrangler.toml and wired as R2AssetStorage in apps/api/src/index.ts."
+      },
+      {
+        "id": "production-providers",
+        "names": [
+          "Accelevents"
+        ],
+        "state": "absent",
+        "evidence": "apps/api/src/adapters/providers/deterministic-provider.ts",
+        "note": "Only DeterministicProvider exists, a fake that always succeeds. Issue #23 tracks real adapters."
+      }
+    ]
   },
   "domains": [
     {

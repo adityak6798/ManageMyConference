@@ -12,10 +12,12 @@ from greenroom_tools.context import (
     ROOT,
     allowlist_problems,
     architecture_import_problems,
+    canonical_markdown,
     check_repository,
     compose_manifest,
     context_locations,
     cross_domain_import_permitted,
+    documentation_semantics_problems,
     domain_for,
     domain_fragments,
     duplicate_registration_problems,
@@ -131,6 +133,123 @@ class ContextRoutingTest(unittest.TestCase):
 
     def test_repository_integrity_is_clean(self) -> None:
         self.assertEqual(check_repository(), [])
+
+
+class DocumentationSemanticsTest(unittest.TestCase):
+    """
+    A canonical document can have every link resolve and still contradict another document, or
+    the code. These fixtures prove the contradictions this repository has actually shipped.
+    """
+
+    def problems_with(self, edit) -> list[str]:
+        """Run the semantic checks against a temporary copy of the repository's documents."""
+        manifest = load_manifest()
+        original = {}
+        targets = [
+            Path("docs/quality/scorecard.md"),
+            Path("docs/exec-plans/active.md"),
+            Path("docs/exec-plans/completed.md"),
+            Path("docs/architecture/system-context.md"),
+        ]
+        for relative in targets:
+            original[relative] = (ROOT / relative).read_text(encoding="utf-8")
+        try:
+            for relative, text in edit(dict(original)).items():
+                (ROOT / relative).write_text(text, encoding="utf-8")
+            return documentation_semantics_problems(manifest)
+        finally:
+            for relative, text in original.items():
+                (ROOT / relative).write_text(text, encoding="utf-8")
+
+    def test_the_repository_documents_are_consistent(self) -> None:
+        self.assertEqual(documentation_semantics_problems(load_manifest()), [])
+
+    def test_a_duplicated_acceptance_row_fails(self) -> None:
+        def edit(documents):
+            scorecard = Path("docs/quality/scorecard.md")
+            row = next(
+                line
+                for line in documents[scorecard].splitlines()
+                if line.startswith("| `ACC-CFP` |")
+            )
+            documents[scorecard] = documents[scorecard].replace(row, f"{row}\n{row}")
+            return documents
+
+        problems = self.problems_with(edit)
+        self.assertTrue(any("more than one row" in problem for problem in problems), problems)
+
+    def test_a_contradictory_verdict_fails(self) -> None:
+        def edit(documents):
+            scorecard = Path("docs/quality/scorecard.md")
+            documents[scorecard] = documents[scorecard].replace(
+                "| `ACC-CFP` | `JNY-001`, `JNY-002` | shipped |",
+                "| `ACC-CFP` | `JNY-001`, `JNY-002` | planned |",
+            )
+            return documents
+
+        problems = self.problems_with(edit)
+        self.assertTrue(any("verdict 'planned'" in problem for problem in problems), problems)
+
+    def test_an_acceptance_id_with_no_row_fails(self) -> None:
+        def edit(documents):
+            scorecard = Path("docs/quality/scorecard.md")
+            documents[scorecard] = "\n".join(
+                line
+                for line in documents[scorecard].splitlines()
+                if not line.startswith("| `ACC-AGENDA` |")
+            )
+            return documents
+
+        problems = self.problems_with(edit)
+        # The `ACC-AGENDA` case from #87: deleting the coverage a row rests on must surface,
+        # not leave the row quietly true.
+        self.assertTrue(
+            any("ACC-AGENDA" in problem and "no row" in problem for problem in problems), problems
+        )
+
+    def test_a_completed_plan_left_in_the_active_document_fails(self) -> None:
+        def edit(documents):
+            active = Path("docs/exec-plans/active.md")
+            documents[active] = documents[active].replace(
+                "Status: active; single-artifact", "Status: completed; single-artifact", 1
+            )
+            return documents
+
+        problems = self.problems_with(edit)
+        self.assertTrue(
+            any("sits in the active plans document" in problem for problem in problems), problems
+        )
+
+    def test_a_plan_in_both_documents_fails(self) -> None:
+        def edit(documents):
+            completed = Path("docs/exec-plans/completed.md")
+            documents[completed] += "\n## `PLAN-002` Duplicated\n\nStatus: completed\n"
+            return documents
+
+        problems = self.problems_with(edit)
+        self.assertTrue(any("appears in both" in problem for problem in problems), problems)
+
+    def test_claiming_a_configured_resource_is_absent_fails(self) -> None:
+        def edit(documents):
+            context = Path("docs/architecture/system-context.md")
+            documents[context] = documents[context].replace(
+                "D1 stores canonical relational data, and R2 stores assets",
+                "D1 stores canonical relational data; R2 is planned for assets and is "
+                "not configured yet",
+            )
+            return documents
+
+        # The exact sentence this repository shipped until 2026-08-11, while R2 was bound in
+        # wrangler.toml and R2AssetStorage was wired in the Worker.
+        problems = self.problems_with(edit)
+        self.assertTrue(any("'r2' is not there yet" in problem for problem in problems), problems)
+        self.assertTrue(any("r2-asset-storage.ts" in problem for problem in problems), problems)
+
+    def test_generated_and_reference_documents_are_not_held_to_these_rules(self) -> None:
+        scanned = {str(path.relative_to(ROOT)) for path in canonical_markdown()}
+        self.assertFalse(any(path.startswith("docs/generated/") for path in scanned))
+        self.assertFalse(any(path.startswith("docs/references/") for path in scanned))
+        self.assertIn("docs/quality/scorecard.md", scanned)
 
 
 class ArchitectureAllowlistTest(unittest.TestCase):
