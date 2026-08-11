@@ -33,6 +33,8 @@ function app() {
       now: () => 1_000,
       resolveActor: resolveSeededDemoActor,
     },
+    undefined,
+    undefined,
     new ContentService({
       repository: new MemoryContentRepository(),
       assetStorage: new DeterministicAssetStorage(),

@@ -10,6 +10,16 @@
     "speaker_profiles": "content",
     "speaker_tasks": "content",
     "speaker_assets": "content",
-    "speaker_messages": "content"
+    "speaker_messages": "content",
+    "cfp_forms": "cfp",
+    "cfp_submissions": "cfp",
+    "cfp_statuses": "cfp",
+    "cfp_status_audit": "cfp",
+    "review_plans": "review",
+    "review_assignments": "review",
+    "review_conflicts": "review",
+    "review_evaluations": "review",
+    "review_outcomes": "review",
+    "review_events": "review"
   }
 }

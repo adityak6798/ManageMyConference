@@ -28,11 +28,31 @@ describe("D1ContentRepository", () => {
     for (const file of [
       "0001_create_events.sql",
       "0002_identity_event_foundation.sql",
-      "0003_content_speaker_portal.sql",
+      "0003_cfp.sql",
+      "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       for (const statement of statements(sql)) await database.prepare(statement).run();
     }
+    for (const file of [
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
+    ]) {
+      const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
+      expect((await database.prepare(sql).run()).success).toBe(true);
+    }
+    const contentSql = await readFile(
+      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(contentSql)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
     const repository = new D1ContentRepository(database as ContentDatabasePort);

@@ -19,9 +19,16 @@ const personas = {
         "events:settings:update",
         "content:read",
         "content:manage",
+        "review:manage",
       ] as const,
     })),
-    capabilities: ["events:read", "events:create", "content:read", "content:manage"] as const,
+    capabilities: [
+      "events:read",
+      "events:create",
+      "content:read",
+      "content:manage",
+      "review:manage",
+    ] as const,
   },
   reviewer: {
     id: "seed-reviewer",
@@ -32,10 +39,10 @@ const personas = {
       {
         eventId: primaryEventId,
         role: "reviewer" as const,
-        capabilities: ["events:read"] as const,
+        capabilities: ["events:read", "review:evaluate"] as const,
       },
     ],
-    capabilities: ["events:read"] as const,
+    capabilities: ["events:read", "review:evaluate"] as const,
   },
   speaker: {
     id: "seed-speaker",

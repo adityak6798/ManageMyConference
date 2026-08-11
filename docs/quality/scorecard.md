@@ -1,13 +1,13 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-09
+Status: canonical | Owner: quality | Last verified: 2026-08-10
 
 | Acceptance ID | Journey | Required evidence | State |
 |---|---|---|---|
 | `ACC-HARNESS` | reference slice | UI/API/storage/auth/log/reset/context checks | **passed 2026-08-09**: local functional evidence complete; Ralph pass 5 satisfied with zero blockers/majors. Gitleaks/branch protection remain externally unverified under `GAP-003` |
 | `ACC-IDENTITY-EVENTS` | identity/event foundation | role shell + API/storage tenant and authorization negatives | passed locally 2026-08-10: unit, API, D1 integration, Playwright, build, and context evidence complete |
-| `ACC-CFP` | `JNY-001`, `JNY-002` | Playwright + API validation | planned |
-| `ACC-REVIEW` | `JNY-003` | reviewer/organizer E2E + auth negatives | planned |
+| `ACC-REVIEW` | `JNY-003` | reviewer/organizer E2E + auth negatives | **passed locally 2026-08-10**: domain, API, D1 persistence, role-negative, aggregate-bias, Playwright, build, and context evidence complete |
+| `ACC-CFP` | `JNY-001`, `JNY-002` | Playwright + API validation | passed locally 2026-08-10: organizer/applicant Playwright journey, API validation and authorization negatives, real-D1 snapshot/idempotency integration, migration/reset, build, and context evidence complete |
 | `ACC-SPEAKER` | `JNY-004`, `JNY-005` | portal/task/asset/calendar E2E | passed locally 2026-08-10: unit, API, D1 persistence, role-negative, deterministic upload-port/calendar, and Playwright journey evidence complete |
 | `ACC-CRM` | `JNY-008` | prospect-to-speaker E2E | planned |
 | `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | planned |

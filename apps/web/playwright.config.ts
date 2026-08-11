@@ -6,6 +6,8 @@ const apiPort = process.env.GREENROOM_API_PORT ?? "8787";
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "test-results",
+  // The acceptance journeys intentionally share and mutate one deterministic local D1 fixture.
+  workers: 1,
   use: {
     baseURL: `http://127.0.0.1:${webPort}`,
     trace: "retain-on-failure",

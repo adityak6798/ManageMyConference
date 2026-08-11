@@ -3,7 +3,12 @@ import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-director
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
 import { ContentService } from "./application/content/content-service";
+import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
+import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
+import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
+import { CfpService } from "./application/cfp/cfp-service";
 import { EventService } from "./application/events/event-service";
+import { ReviewService } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
 
 interface Environment {
@@ -34,10 +39,12 @@ export function runtimeAuth(
 export default {
   fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
+    const identityDirectory = new D1IdentityDirectory(environment.DB);
     const service = new EventService({
       repository: new D1EventRepository(environment.DB),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
+      grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
     const content = new ContentService({
       repository: new D1ContentRepository(environment.DB),
@@ -45,6 +52,11 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const cfpService = new CfpService(
+      new D1CfpRepository(environment.DB),
+      () => crypto.randomUUID(),
+      () => new Date(),
+    );
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -59,13 +71,22 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
-    const identityDirectory = new D1IdentityDirectory(environment.DB);
+    const reviewService = new ReviewService({
+      repository: new D1ReviewRepository(environment.DB),
+      proposals: new D1SubmittedProposalAdapter(environment.DB),
+      identities: identityDirectory,
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const app = createHttpApp(
       service,
       logger,
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      reviewService,
+      cfpService,
       content,
     );
     return Promise.resolve(app.fetch(request));

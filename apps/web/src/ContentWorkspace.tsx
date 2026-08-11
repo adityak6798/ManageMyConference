@@ -10,7 +10,7 @@ import {
   updateContentSession,
   updateSpeakerProfile,
   uploadSpeakerAsset,
-} from "./api/events";
+} from "./api/content";
 
 interface Props {
   eventId: string;

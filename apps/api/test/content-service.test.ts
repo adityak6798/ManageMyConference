@@ -40,6 +40,43 @@ function setup() {
   };
 }
 describe("ContentService", () => {
+  it("preserves speaker and organizer access when an actor has multiple event roles", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.accept(organizer, {
+      ...command,
+      speakers: [
+        ...command.speakers,
+        {
+          userId: "second-speaker",
+          sourcePersonId: "person-2",
+          name: "Second Speaker",
+          email: "second@example.test",
+        },
+      ],
+    });
+
+    const speaker = await resolveSeededDemoActor("speaker");
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    const reviewerSpeaker = {
+      ...speaker,
+      eventAccess: [
+        reviewer.eventAccess[0] as NonNullable<(typeof reviewer.eventAccess)[number]>,
+        ...speaker.eventAccess,
+      ],
+    };
+    await expect(service.workspace(reviewerSpeaker, eventId)).resolves.toMatchObject({
+      speakers: [{ userId: "seed-speaker" }],
+    });
+
+    const organizerSpeaker = {
+      ...organizer,
+      eventAccess: [...organizer.eventAccess, ...speaker.eventAccess],
+    };
+    const organizerWorkspace = await service.workspace(organizerSpeaker, eventId);
+    expect(organizerWorkspace.speakers).toHaveLength(2);
+  });
+
   it("persists canonical bytes through the production R2 port", async () => {
     const put = vi.fn().mockResolvedValue(undefined);
     const storage = new R2AssetStorage({ put, delete: vi.fn().mockResolvedValue(undefined) });
