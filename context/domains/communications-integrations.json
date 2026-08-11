@@ -1,0 +1,31 @@
+{
+  "id": "communications-integrations",
+  "order": 90,
+  "index": "docs/product/specifications.md",
+  "specs": ["PRD-COM-001", "PRD-INT-001"],
+  "journeys": ["JNY-009"],
+  "acceptance": ["ACC-INTEGRATION"],
+  "plans": ["PLAN-002"],
+  "paths": [
+    "apps/api/src/domain/communications",
+    "apps/api/src/application/communications",
+    "apps/api/src/adapters/providers",
+    "apps/api/src/adapters/persistence/d1-communications-repository.ts",
+    "apps/api/src/adapters/persistence/memory-communications-repository.ts",
+    "apps/api/test/communications-http.test.ts",
+    "apps/api/test/communications-service.test.ts",
+    "apps/api/test/d1-communications-repository.integration.test.ts",
+    "apps/api/migrations/0019_communications_outbox.sql",
+    "apps/web/src/api/communications.ts",
+    "apps/web/src/CommunicationsWorkspace.tsx",
+    "apps/web/test/communications.test.tsx",
+    "apps/web/e2e/communications.spec.ts",
+    "apps/api/src/transport/http/routes/communications.ts",
+    "apps/web/src/workspaces/communications.tsx"
+  ],
+  "symbols": {
+    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
+    "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
+    "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts"
+  }
+}

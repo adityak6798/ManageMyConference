@@ -1,6 +1,5 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { AgendaWorkspace } from "./AgendaWorkspace";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
 import {
   ApiError,
@@ -10,29 +9,25 @@ import {
   listEvents,
   startDemoSession,
 } from "./api/events";
-import { CfpWorkspace } from "./CfpWorkspace";
-import { CommunicationsWorkspace } from "./CommunicationsWorkspace";
-import { ContentWorkspace } from "./ContentWorkspace";
-import { CrmWorkspace } from "./CrmWorkspace";
 import { OverviewPage } from "./OverviewPage";
-import { PublishingWorkspace } from "./PublishingWorkspace";
-import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
 import { getPublicationSummary } from "./api/publication";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
-import {
-  IconCalendar,
-  IconDashboard,
-  IconForm,
-  IconGlobe,
-  IconReview,
-  IconSend,
-  IconSessions,
-  IconSettings,
-  IconSpeakers,
-  IconTask,
-} from "./ui/icons";
+import { IconDashboard, IconSettings } from "./ui/icons";
 import { Card, EmptyState, Notice, PageHeader } from "./ui/primitives";
+import type {
+  NavGroupName,
+  WorkspaceAccess,
+  WorkspaceContext,
+  WorkspaceModule,
+} from "./workspaces/contract";
+import {
+  assertNoDuplicateWorkspaces,
+  canOpen,
+  NAV_GROUP_ORDER,
+  workspaceForPath,
+  workspacesForPersona,
+} from "./workspaces/registry";
 
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 
@@ -42,24 +37,60 @@ function readableError(error: unknown): string {
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
 
-/** Routes each persona can reach, in sidebar order. The first entry is its home. */
-function routesFor(role: Persona, capabilities: string[]): { href: string; label: string }[] {
+interface NavEntry {
+  href: string;
+  label: string;
+  group: NavGroupName;
+  order: number;
+  icon: ReactNode;
+}
+
+/**
+ * The two surfaces the shell owns itself. Every other entry comes from a domain's workspace
+ * module, so adding a domain adds no line to this file.
+ *
+ * `/` is the shell's because what it shows depends on the persona rather than on a domain,
+ * and `/settings` is the shell's because its create-event form is the shell's own state.
+ */
+function shellRoutes(role: Persona): NavEntry[] {
+  const overview = (label: string): NavEntry => ({
+    href: "/",
+    label,
+    group: "home",
+    order: 0,
+    icon: <IconDashboard size={16} />,
+  });
   if (role === "organizer")
     return [
-      { href: "/", label: "Overview" },
-      { href: "/abstracts", label: "Abstracts" },
-      { href: "/sessions", label: "Sessions & speakers" },
-      { href: "/agenda", label: "Agenda" },
-      { href: "/cfp", label: "Call for proposals" },
-      { href: "/speakers", label: "Speaker CRM" },
-      { href: "/communications", label: "Communications" },
-      { href: "/publishing", label: "Publishing" },
-      { href: "/settings", label: "Event settings" },
+      overview("Overview"),
+      {
+        href: "/settings",
+        label: "Event settings",
+        group: "Audience",
+        order: 8,
+        icon: <IconSettings size={16} />,
+      },
     ];
-  if (role === "reviewer") return [{ href: "/reviews", label: "Review assignments" }];
-  if (role === "speaker") return [{ href: "/portal", label: "Speaker portal" }];
-  return capabilities.length ? [{ href: "/", label: "Events" }] : [{ href: "/", label: "Events" }];
+  // A reviewer and a speaker land on their own single workspace, so the shell adds nothing.
+  if (role === "reviewer" || role === "speaker") return [];
+  return [overview("Events")];
 }
+
+/** Routes each persona can reach, in sidebar order. The first entry is its home. */
+function routesFor(role: Persona): NavEntry[] {
+  const domains = workspacesForPersona(role).map((module) => ({
+    href: module.path,
+    label: module.label,
+    group: module.group,
+    order: module.order,
+    icon: module.icon,
+  }));
+  return [...shellRoutes(role), ...domains].sort((left, right) => left.order - right.order);
+}
+
+// Two domains claiming one route would otherwise mean whichever module the registry reached
+// first quietly wins, with the other workspace never rendering and nothing saying so.
+assertNoDuplicateWorkspaces();
 
 // @spec PRD-EVT-001 PRD-IAM-001 PRD-IAM-002
 export function App() {
@@ -150,15 +181,7 @@ export function App() {
       ({ eventId, role }) => eventId === selectedEventId && role === "organizer",
     ),
   );
-  // Scoped to the selected event on purpose. The actor-level capability set is the union
-  // of every event the actor can touch, so testing it would let an organizer of event A
-  // mount event B's workspace and fire its requests.
-  const canReadContent = activeEventCapabilities.includes("content:read");
-
-  const allowed = useMemo(
-    () => routesFor(activeRole, activeEventCapabilities),
-    [activeRole, activeEventCapabilities],
-  );
+  const allowed = useMemo(() => routesFor(activeRole), [activeRole]);
 
   // A persona that cannot reach the current route lands on its own home rather than
   // an empty frame — switching identity used to leave the page blank.
@@ -289,50 +312,15 @@ export function App() {
       </main>
     );
 
-  const icons: Record<string, React.ReactNode> = {
-    "/": <IconDashboard size={16} />,
-    "/abstracts": <IconReview size={16} />,
-    "/sessions": <IconSessions size={16} />,
-    "/agenda": <IconCalendar size={16} />,
-    "/cfp": <IconForm size={16} />,
-    "/speakers": <IconSpeakers size={16} />,
-    "/communications": <IconSend size={16} />,
-    "/publishing": <IconGlobe size={16} />,
-    "/settings": <IconSettings size={16} />,
-    "/reviews": <IconReview size={16} />,
-    "/portal": <IconTask size={16} />,
-  };
-
-  const groups: NavGroup[] =
-    activeRole === "organizer"
-      ? [
-          {
-            items: allowed
-              .slice(0, 1)
-              .map((r) => ({ href: `${r.href}${query}`, label: r.label, icon: icons[r.href] })),
-          },
-          {
-            heading: "Program",
-            items: allowed
-              .slice(1, 5)
-              .map((r) => ({ href: `${r.href}${query}`, label: r.label, icon: icons[r.href] })),
-          },
-          {
-            heading: "Audience",
-            items: allowed
-              .slice(5)
-              .map((r) => ({ href: `${r.href}${query}`, label: r.label, icon: icons[r.href] })),
-          },
-        ]
-      : [
-          {
-            items: allowed.map((r) => ({
-              href: `${r.href}${query}`,
-              label: r.label,
-              icon: icons[r.href],
-            })),
-          },
-        ];
+  // Each entry carries its own group and icon, so the sidebar is grouped by what a workspace
+  // declares rather than by slicing a hand-ordered array at hard-coded indices.
+  const groups: NavGroup[] = NAV_GROUP_ORDER.flatMap((name) => {
+    const items = allowed
+      .filter((route) => route.group === name)
+      .map((route) => ({ href: `${route.href}${query}`, label: route.label, icon: route.icon }));
+    if (items.length === 0) return [];
+    return [name === "home" ? { items } : { heading: name, items }];
+  });
 
   // Only offer the link once the event is actually published under a known slug.
   const publicHref = publication?.state === "published" ? `/events/${publication.slug}` : null;
@@ -353,6 +341,30 @@ export function App() {
     </>
   );
 
+  /** Render a domain's workspace behind the header it declares for itself. */
+  function renderWorkspace(workspace: WorkspaceModule, access: WorkspaceAccess) {
+    if (!selectedEvent) return noAccess;
+    const context: WorkspaceContext = {
+      ...access,
+      event: selectedEvent,
+      query,
+      agendaLoadFailure,
+      reportAgendaLoadFailure,
+      onPublicationChange: setPublication,
+    };
+    const { eyebrow, title, subtitle } = workspace.header(context);
+    return (
+      <>
+        <PageHeader
+          {...(eyebrow ? { eyebrow } : {})}
+          title={title}
+          {...(subtitle ? { subtitle } : {})}
+        />
+        {workspace.render(context)}
+      </>
+    );
+  }
+
   function renderPage() {
     if (!selectedEvent)
       return (
@@ -366,212 +378,83 @@ export function App() {
         </>
       );
 
-    switch (path) {
-      case "/":
-        if (activeRole === "organizer") return <OverviewPage event={selectedEvent} query={query} />;
-        return (
-          <>
-            <PageHeader title={selectedEvent.name} subtitle="Attendee view" />
-            <Card>
-              {/* The public slug is only readable by an organizer, so this identity cannot
-                  be told whether the event is published — say what is true instead of
-                  guessing either way. */}
-              <EmptyState title="This event has a public site of its own">
-                Its schedule, sessions, speakers, and call for proposals are published at a separate
-                address. An organizer can copy that link from the workspace.
-              </EmptyState>
-            </Card>
-          </>
-        );
-      case "/cfp":
-        return (
-          <>
-            <PageHeader
-              eyebrow="Program"
-              title="Call for proposals"
-              subtitle="Compose the public submission form, then publish it."
-            />
-            <CfpWorkspace
-              key={`${selectedEvent.id}:${session?.actor.id}:${activeRole}`}
-              eventId={selectedEvent.id}
-              organizer={activeRole === "organizer"}
-            />
-          </>
-        );
-      case "/abstracts":
-        return activeEventCapabilities.includes("review:manage") ? (
-          <>
-            <PageHeader
-              eyebrow="Program"
-              title="Abstracts"
-              subtitle="Triage submissions, assign reviewers, and record decisions."
-            />
-            <OrganizerReviewWorkspace
-              key={`${selectedEventId}:${session?.actor.id}:organizer-review`}
-              eventId={selectedEventId}
-            />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/reviews":
-        return activeEventCapabilities.includes("review:evaluate") ? (
-          <>
-            <PageHeader
-              eyebrow="Reviewer"
-              title="Review assignments"
-              subtitle="Score each assigned proposal against the evaluation plan."
-            />
-            <ReviewerWorkspace
-              key={`${selectedEventId}:${session?.actor.id}:reviewer-review`}
-              eventId={selectedEventId}
-            />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/sessions":
-      case "/portal":
-        // The route allowlist redirect is an effect, so it runs *after* children mount and
-        // fire their requests. Every workspace must therefore gate on capability itself.
-        return canReadContent ? (
-          <>
-            <PageHeader
-              eyebrow={activeRole === "speaker" ? "Speaker" : "Program"}
-              title={activeRole === "speaker" ? "Speaker portal" : "Sessions & speakers"}
-              subtitle={
-                activeRole === "speaker"
-                  ? "Your profile, onboarding tasks, private uploads, and sessions."
-                  : "Accepted content, speaker records, tasks, and assets."
-              }
-            />
-            <ContentWorkspace
-              key={`${selectedEventId}:${session?.actor.id}:${activeRole}`}
-              eventId={selectedEventId}
-              role={activeRole === "speaker" ? "speaker" : "organizer"}
-            />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/agenda":
-        return activeEventCapabilities.includes("agenda:manage") ? (
-          <>
-            <PageHeader
-              eyebrow="Program"
-              title="Agenda"
-              subtitle="Place sessions across rooms and time slots, then publish the schedule."
-            />
-            {/* The board reports a failure to load, and only that: it has no grid to put
-                one in until a draft arrives. It is rendered here, above the space the
-                board would have filled, rather than at the foot of the page. */}
-            {agendaLoadFailure ? <Notice tone="error">{agendaLoadFailure}</Notice> : null}
-            {/* The whole event, not only its id: the board renders every time on its
-                grid in the event's own timezone. */}
-            <AgendaWorkspace
-              key={selectedEvent.id}
-              event={selectedEvent}
-              onError={reportAgendaLoadFailure}
-            />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/speakers":
-        return activeEventCapabilities.includes("crm:manage") ? (
-          <>
-            <PageHeader
-              eyebrow="Audience"
-              title="Speaker CRM"
-              subtitle="Track prospects through outreach and convert them into speakers."
-            />
-            <CrmWorkspace eventId={selectedEvent.id} ownerId={session?.actor.id ?? ""} />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/communications":
-        return session?.capabilities.includes("communications:manage") && isEventOrganizer ? (
-          <>
-            <PageHeader
-              eyebrow="Audience"
-              title="Communications"
-              subtitle="Outbound delivery history with queued, retrying, sent, and failed states."
-            />
-            <CommunicationsWorkspace event={selectedEvent} />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/publishing":
-        return activeEventCapabilities.includes("events:settings:read") ? (
-          <>
-            <PageHeader
-              eyebrow="Audience"
-              title="Publishing"
-              subtitle="Compose the public projection, publish it as an immutable snapshot, and embed it."
-            />
-            <PublishingWorkspace
-              key={`${selectedEvent.id}:${session?.actor.id}`}
-              eventId={selectedEvent.id}
-              eventName={selectedEvent.name}
-              canPublish={activeEventCapabilities.includes("events:settings:update")}
-              onPublicationChange={setPublication}
-            />
-          </>
-        ) : (
-          noAccess
-        );
-      case "/settings":
-        return (
-          <>
-            <PageHeader
-              eyebrow="Configure"
-              title="Event settings"
-              subtitle={`${selectedEvent.name} · ${selectedEvent.timezone}`}
-            />
-            {session?.capabilities.includes("events:create") ? (
-              <Card title="Create an event" labelledBy="create-title">
-                <form onSubmit={submit}>
-                  <div className="field">
-                    <label htmlFor="event-name">Event name</label>
-                    <div className="form-row">
-                      <input
-                        id="event-name"
-                        value={name}
-                        onChange={(changeEvent) => setName(changeEvent.target.value)}
-                        placeholder="Greenroom Summit"
-                        required
-                        maxLength={120}
-                      />
-                      <button type="submit" disabled={busy}>
-                        {busy ? "Creating…" : "Create event"}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </Card>
-            ) : (
-              <Card>
-                <EmptyState title="Organizers only">
-                  Organization and event settings stay restricted to organizers.
-                </EmptyState>
-              </Card>
-            )}
-          </>
-        );
-      default:
-        return (
-          <>
-            <PageHeader title="Page not found" />
-            <Card>
-              <EmptyState title="That workspace does not exist">
-                Use the navigation to return to a surface your role can reach.
-              </EmptyState>
-            </Card>
-          </>
-        );
+    const access: WorkspaceAccess = {
+      session,
+      activeRole,
+      capabilities: activeEventCapabilities,
+      isEventOrganizer,
+    };
+    const workspace = workspaceForPath(path);
+    if (workspace)
+      return canOpen(workspace, access) ? renderWorkspace(workspace, access) : noAccess;
+
+    // The shell's own two surfaces. A domain adds neither a case here nor an entry above.
+    if (path === "/") {
+      if (activeRole === "organizer") return <OverviewPage event={selectedEvent} query={query} />;
+      return (
+        <>
+          <PageHeader title={selectedEvent.name} subtitle="Attendee view" />
+          <Card>
+            {/* The public slug is only readable by an organizer, so this identity cannot
+                be told whether the event is published — say what is true instead of
+                guessing either way. */}
+            <EmptyState title="This event has a public site of its own">
+              Its schedule, sessions, speakers, and call for proposals are published at a separate
+              address. An organizer can copy that link from the workspace.
+            </EmptyState>
+          </Card>
+        </>
+      );
     }
+    if (path === "/settings")
+      return (
+        <>
+          <PageHeader
+            eyebrow="Configure"
+            title="Event settings"
+            subtitle={`${selectedEvent.name} · ${selectedEvent.timezone}`}
+          />
+          {session?.capabilities.includes("events:create") ? (
+            <Card title="Create an event" labelledBy="create-title">
+              <form onSubmit={submit}>
+                <div className="field">
+                  <label htmlFor="event-name">Event name</label>
+                  <div className="form-row">
+                    <input
+                      id="event-name"
+                      value={name}
+                      onChange={(changeEvent) => setName(changeEvent.target.value)}
+                      placeholder="Greenroom Summit"
+                      required
+                      maxLength={120}
+                    />
+                    <button type="submit" disabled={busy}>
+                      {busy ? "Creating…" : "Create event"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </Card>
+          ) : (
+            <Card>
+              <EmptyState title="Organizers only">
+                Organization and event settings stay restricted to organizers.
+              </EmptyState>
+            </Card>
+          )}
+        </>
+      );
+
+    return (
+      <>
+        <PageHeader title="Page not found" />
+        <Card>
+          <EmptyState title="That workspace does not exist">
+            Use the navigation to return to a surface your role can reach.
+          </EmptyState>
+        </Card>
+      </>
+    );
   }
 
   return (

@@ -9,16 +9,21 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from greenroom_tools.context import (
+    ROOT,
     architecture_import_problems,
     check_repository,
+    compose_manifest,
     context_locations,
     cross_domain_import_permitted,
     domain_for,
+    domain_fragments,
+    duplicate_registration_problems,
     layer_for,
     load_manifest,
     migration_schema,
     module_specifiers,
     production_layer_problems,
+    rendered_manifest,
     spec_locations,
 )
 
@@ -125,6 +130,142 @@ class ContextRoutingTest(unittest.TestCase):
 
     def test_repository_integrity_is_clean(self) -> None:
         self.assertEqual(check_repository(), [])
+
+
+class DomainRegistrationTest(unittest.TestCase):
+    """
+    A domain declares its own routes, workspaces and context; nothing about adding one
+    requires editing a file another domain owns. These prove the checks that keep two domains
+    from silently claiming the same surface.
+    """
+
+    def write_modules(self, root: Path, kind: str, modules: dict[str, str]) -> None:
+        directory = root / (
+            "apps/api/src/transport/http/routes" if kind == "routes" else "apps/web/src/workspaces"
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, body in modules.items():
+            (directory / name).write_text(body, encoding="utf-8")
+
+    def route_module(self, domain: str, route: str) -> str:
+        return (
+            f'export const x: RouteModule = {{\n  domain: "{domain}",\n'
+            f'  routes,\n}};\nconst routes = [\n  "{route}",\n] as const;\n'
+        )
+
+    def workspace_module(self, domain: str, path: str) -> str:
+        return f'export const x = {{\n  domain: "{domain}",\n  path: "{path}",\n}};\n'
+
+    def test_two_domains_cannot_claim_one_http_route(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_modules(
+                root,
+                "routes",
+                {
+                    "agenda.ts": self.route_module("agenda", "GET /api/events/:eventId/agenda"),
+                    "review.ts": self.route_module("review", "GET /api/events/:eventId/agenda"),
+                },
+            )
+            problems = duplicate_registration_problems(root)
+            self.assertTrue(
+                any("Duplicate HTTP route registration" in problem for problem in problems),
+                problems,
+            )
+            self.assertTrue(any("'agenda' and 'review'" in problem for problem in problems))
+
+    def test_two_domains_cannot_claim_one_workspace(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_modules(
+                root,
+                "workspaces",
+                {
+                    "crm.tsx": self.workspace_module("crm", "/speakers"),
+                    "content.tsx": self.workspace_module("content", "/speakers"),
+                },
+            )
+            problems = duplicate_registration_problems(root)
+            self.assertTrue(
+                any("Duplicate workspace registration" in problem for problem in problems),
+                problems,
+            )
+
+    def test_one_domain_declaring_its_own_surfaces_is_clean(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_modules(
+                root,
+                "routes",
+                {
+                    "agenda.ts": self.route_module("agenda", "GET /api/events/:eventId/agenda"),
+                    "review.ts": self.route_module("review", "GET /api/events/:eventId/review"),
+                },
+            )
+            self.assertEqual(duplicate_registration_problems(root), [])
+
+    def test_a_route_module_must_name_its_owning_domain(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_modules(root, "routes", {"orphan.ts": 'const routes = ["GET /x"];\n'})
+            self.assertTrue(
+                any(
+                    "declares no owning domain" in problem
+                    for problem in duplicate_registration_problems(root)
+                ),
+            )
+
+    def test_aggregate_manifest_is_composed_from_the_fragments(self) -> None:
+        manifest, problems = compose_manifest()
+        self.assertEqual(problems, [])
+        self.assertEqual(manifest, load_manifest())
+
+    def test_generating_the_manifest_twice_produces_identical_bytes(self) -> None:
+        first, _ = compose_manifest()
+        second, _ = compose_manifest()
+        self.assertEqual(rendered_manifest(first), rendered_manifest(second))
+
+    def test_every_domain_declares_its_own_fragment(self) -> None:
+        identifiers = [fragment["id"] for fragment in domain_fragments()]
+        self.assertEqual(identifiers, [domain["id"] for domain in load_manifest()["domains"]])
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+
+    def test_no_domain_module_imports_another_domains_module(self) -> None:
+        """
+        The acceptance criterion, stated as an invariant: adding a domain's route or workspace
+        touches that domain's module and one registry line, and nothing else. A module reaching
+        sideways into a peer's would quietly reintroduce the coupling the split removed.
+        """
+        for directory, shared in (
+            (
+                Path("apps/api/src/transport/http/routes"),
+                {"contract", "registry", "runtime", "throttle"},
+            ),
+            (Path("apps/web/src/workspaces"), {"contract", "registry"}),
+        ):
+            peers = {
+                path.stem
+                for path in (ROOT / directory).iterdir()
+                if path.stem not in shared and path.is_file()
+            }
+            for module in sorted((ROOT / directory).iterdir()):
+                if module.stem in shared or not module.is_file():
+                    continue
+                for specifier in module_specifiers(module.read_text(encoding="utf-8")):
+                    target = specifier.rsplit("/", 1)[-1].removesuffix(".js")
+                    self.assertNotIn(
+                        target,
+                        peers - {module.stem},
+                        f"{module.relative_to(ROOT)} imports peer module '{specifier}'",
+                    )
+
+    def test_each_registered_symbol_has_exactly_one_owning_domain(self) -> None:
+        owners: dict[str, list[str]] = {}
+        for fragment in domain_fragments():
+            for symbol in fragment.get("symbols") or {}:
+                owners.setdefault(symbol, []).append(fragment["id"])
+        duplicated = {symbol: names for symbol, names in owners.items() if len(names) > 1}
+        self.assertEqual(duplicated, {})
 
 
 if __name__ == "__main__":

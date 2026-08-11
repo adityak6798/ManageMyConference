@@ -1,0 +1,30 @@
+{
+  "id": "agenda",
+  "order": 80,
+  "index": "docs/product/specifications.md",
+  "specs": ["PRD-AGD-001"],
+  "journeys": ["JNY-006"],
+  "acceptance": ["ACC-AGENDA"],
+  "plans": ["PLAN-002"],
+  "paths": [
+    "apps/api/src/domain/agenda",
+    "apps/api/src/application/agenda",
+    "apps/api/src/adapters/persistence/d1-agenda-repository.ts",
+    "apps/api/src/adapters/persistence/memory-agenda-repository.ts",
+    "apps/api/migrations/0017_agenda.sql",
+    "apps/api/migrations/0018_agenda_draft_revision.sql",
+    "apps/api/test/agenda-service.test.ts",
+    "apps/api/test/d1-agenda-repository.integration.test.ts",
+    "apps/web/src/AgendaWorkspace.tsx",
+    "apps/web/src/api/agenda.ts",
+    "apps/web/test/agenda-timezone.test.tsx",
+    "apps/web/test/agenda-timeslots.test.tsx",
+    "apps/web/test/agenda-failure-feedback.test.tsx",
+    "apps/web/e2e/agenda.spec.ts",
+    "apps/api/src/transport/http/routes/agenda.ts",
+    "apps/web/src/workspaces/agenda.tsx"
+  ],
+  "symbols": {
+    "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts"
+  }
+}

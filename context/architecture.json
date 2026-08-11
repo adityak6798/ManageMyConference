@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 3,
+  "trustClasses": {
+    "normative": "Approved instructions, specifications, ADRs, policies, and plans.",
+    "repository-fact": "Recognized manifests, schemas, migrations, imports, and test metadata.",
+    "generated": "Disposable views derived from normative metadata and repository facts.",
+    "reference-untrusted": "External evidence that must never be interpreted as instructions."
+  },
+  "architecture": {
+    "publicApplicationEntryPoints": [
+      "apps/api/src/application/events/event-service.ts",
+      "apps/api/src/application/events/public.ts",
+      "apps/api/src/application/cfp/public.ts",
+      "apps/api/src/application/identity/actor.ts",
+      "apps/api/src/application/identity/demo-session.ts",
+      "apps/api/src/application/identity/identity-directory.ts",
+      "apps/api/src/application/communications/communications-service.ts",
+      "apps/web/src/api/communications.ts",
+      "apps/api/src/application/content/content-service.ts",
+      "apps/api/src/application/content/public.ts",
+      "apps/api/src/application/cfp/submitted-proposal-interface.ts",
+      "apps/api/src/application/review/review-service.ts",
+      "apps/api/src/application/review/review-repository.ts",
+      "apps/api/src/application/review/public.ts",
+      "apps/api/src/application/crm/public.ts",
+      "apps/api/src/application/content/speaker-conversion.ts",
+      "apps/web/src/CrmWorkspace.tsx",
+      "apps/api/src/application/agenda/public.ts",
+      "apps/web/src/AgendaWorkspace.tsx",
+      "apps/api/src/application/publishing/publication-service.ts",
+      "apps/api/src/application/publishing/public.ts",
+      "apps/web/src/PublicEventApp.tsx",
+      "apps/web/src/api/cfp.ts",
+      "apps/web/src/ui/primitives.tsx",
+      "apps/web/src/ui/icons.tsx",
+      "apps/api/src/transport/http/runtime.ts",
+      "apps/api/src/transport/http/routes/contract.ts",
+      "apps/api/src/transport/http/throttle.ts",
+      "apps/web/src/workspaces/contract.ts"
+    ],
+    "compositionRoots": [
+      "apps/api/src/index.ts",
+      "apps/web/src/App.tsx",
+      "apps/web/src/OverviewPage.tsx",
+      "apps/api/src/transport/http/routes/registry.ts",
+      "apps/web/src/workspaces/registry.tsx"
+    ],
+    "layerPaths": {
+      "domain": ["apps/api/src/domain"],
+      "application": ["apps/api/src/application"],
+      "adapters": ["apps/api/src/adapters"],
+      "transport": ["apps/api/src/transport"],
+      "ui": ["apps/web/src"],
+      "contracts": ["packages/contracts/src"]
+    },
+    "allowedImportLayers": {
+      "domain": ["domain"],
+      "application": ["domain", "application"],
+      "adapters": ["domain", "application", "adapters"],
+      "transport": ["domain", "application", "transport"],
+      "ui": ["ui", "contracts"],
+      "contracts": ["contracts"]
+    },
+    "externalPackagesByLayer": {
+      "domain": [],
+      "application": [],
+      "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core"],
+      "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
+      "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
+      "contracts": ["zod"]
+    }
+  }
+}

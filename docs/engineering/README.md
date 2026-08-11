@@ -3,6 +3,7 @@
 Status: canonical | Owner: engineering | Last verified: 2026-08-09
 
 - [Coding standards](coding-standards.md)
+- [Registering a domain](registering-a-domain.md)
 - [Testing strategy](testing-strategy.md)
 - [CI and release](ci-and-release.md)
 - [Local development](local-development.md)

@@ -1,0 +1,30 @@
+{
+  "id": "cfp",
+  "order": 40,
+  "index": "docs/product/specifications.md",
+  "specs": ["PRD-CFP-001", "PRD-CFP-002", "PRD-ABS-001"],
+  "journeys": ["JNY-001", "JNY-002"],
+  "acceptance": ["ACC-CFP"],
+  "plans": ["PLAN-002"],
+  "paths": [
+    "apps/api/src/application/cfp",
+    "apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts",
+    "apps/api/src/adapters/persistence/memory-submitted-proposal-adapter.ts",
+    "apps/api/src/domain/cfp",
+    "apps/api/src/adapters/persistence/d1-cfp-repository.ts",
+    "apps/api/src/adapters/persistence/memory-cfp-repository.ts",
+    "apps/api/migrations/0003_cfp.sql",
+    "apps/api/migrations/0004_cfp_published_snapshot.sql",
+    "apps/api/migrations/0005_cfp_snapshot_status.sql",
+    "apps/api/test/cfp-service.test.ts",
+    "apps/api/test/cfp-http.test.ts",
+    "apps/api/test/d1-cfp-repository.integration.test.ts",
+    "apps/web/src/api/cfp.ts",
+    "apps/web/src/CfpWorkspace.tsx",
+    "apps/web/test/cfp-composer.test.tsx",
+    "apps/web/test/cfp-republish-closed.test.tsx",
+    "apps/web/e2e/cfp.spec.ts",
+    "apps/api/src/transport/http/routes/cfp.ts",
+    "apps/web/src/workspaces/cfp.tsx"
+  ]
+}

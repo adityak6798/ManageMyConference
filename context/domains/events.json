@@ -1,0 +1,31 @@
+{
+  "id": "events",
+  "order": 30,
+  "index": "docs/product/specifications.md",
+  "specs": ["PRD-EVT-001"],
+  "journeys": [],
+  "acceptance": ["ACC-IDENTITY-EVENTS"],
+  "plans": ["PLAN-002"],
+  "paths": [
+    "apps/api/src/domain/events",
+    "apps/api/src/application/events",
+    "apps/api/src/adapters/persistence/d1-event-repository.ts",
+    "apps/api/src/adapters/persistence/event-mappers.ts",
+    "apps/api/src/adapters/persistence/memory-event-repository.ts",
+    "apps/api/test/d1-event-repository.integration.test.ts",
+    "apps/api/test/event-mappers.test.ts",
+    "apps/api/test/event-service.test.ts",
+    "apps/web/src/api/events.ts",
+    "apps/web/test/App.test.tsx",
+    "apps/web/test/error-fallback.test.tsx",
+    "apps/web/test/setup.ts",
+    "apps/web/e2e/reference-slice.spec.ts",
+    "apps/api/src/transport/http/routes/events.ts",
+    "apps/api/src/transport/http/event-mappers.ts"
+  ],
+  "symbols": {
+    "EventService": "apps/api/src/application/events/event-service.ts",
+    "EventRepository": "apps/api/src/application/events/event-repository.ts",
+    "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts"
+  }
+}

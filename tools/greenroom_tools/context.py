@@ -15,6 +15,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "context-manifest.json"
+CONTEXT_DIR = ROOT / "context"
+ARCHITECTURE_FRAGMENT = CONTEXT_DIR / "architecture.json"
+DOMAIN_FRAGMENTS = CONTEXT_DIR / "domains"
+DOMAIN_FIELDS = ("id", "index", "specs", "journeys", "acceptance", "plans", "paths")
 SPEC_PATTERN = re.compile(
     r"\b(?:PRD|ARC|ENG|JNY|ACC|ADR|API|EVT|PORT|TST|PLAN|EVD|GAP)"
     r"(?:-[A-Z0-9]+)+\b"
@@ -32,6 +36,66 @@ LAYER_ORDER = {
 
 def load_manifest() -> dict[str, Any]:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def domain_fragments() -> list[dict[str, Any]]:
+    """Every domain's own context declaration, in the order they declare."""
+    fragments = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(DOMAIN_FRAGMENTS.glob("*.json"))
+    ]
+    return sorted(fragments, key=lambda fragment: (fragment.get("order", 0), fragment["id"]))
+
+
+def compose_manifest() -> tuple[dict[str, Any], list[str]]:
+    """
+    Build the aggregate manifest from `context/`.
+
+    A domain declares its own specs, paths and symbols in `context/domains/<id>.json`; nothing
+    about adding one requires editing a file another domain also edits. `context-manifest.json`
+    is the generated join of those fragments, kept at its old path and shape so every reader of
+    it is unaffected.
+    """
+    architecture = json.loads(ARCHITECTURE_FRAGMENT.read_text(encoding="utf-8"))
+    problems: list[str] = []
+    domains: list[dict[str, Any]] = []
+    symbols: dict[str, str] = {}
+    symbol_owner: dict[str, str] = {}
+    seen_ids: dict[str, str] = {}
+    for fragment in domain_fragments():
+        identifier = fragment["id"]
+        missing = [field for field in DOMAIN_FIELDS if field not in fragment]
+        if missing:
+            problems.append(
+                f"context/domains/{identifier}.json is missing required "
+                f"field(s): {', '.join(missing)}"
+            )
+            continue
+        if identifier in seen_ids:
+            problems.append(f"Two context fragments declare the domain '{identifier}'")
+        seen_ids[identifier] = identifier
+        domains.append({field: fragment[field] for field in DOMAIN_FIELDS})
+        for symbol, path in (fragment.get("symbols") or {}).items():
+            owner = symbol_owner.get(symbol)
+            if owner is not None and owner != identifier:
+                problems.append(
+                    f"Symbol '{symbol}' is registered by both '{owner}' and '{identifier}'"
+                )
+                continue
+            symbol_owner[symbol] = identifier
+            symbols[symbol] = path
+    manifest = {
+        "schemaVersion": architecture["schemaVersion"],
+        "trustClasses": architecture["trustClasses"],
+        "architecture": architecture["architecture"],
+        "domains": domains,
+        "symbols": dict(sorted(symbols.items())),
+    }
+    return manifest, problems
+
+
+def rendered_manifest(manifest: dict[str, Any]) -> str:
+    return f"{json.dumps(manifest, indent=2)}\n"
 
 
 def all_files(suffixes: tuple[str, ...]) -> list[Path]:
@@ -225,6 +289,61 @@ def migration_schema(paths: list[Path]) -> dict[str, set[str]]:
     return tables
 
 
+ROUTE_TABLE_PATTERN = re.compile(r"const routes = \[(.*?)\] as const;", re.DOTALL)
+ROUTE_ENTRY_PATTERN = re.compile(r'"([A-Z]+ /[^"]*)"')
+WORKSPACE_PATH_PATTERN = re.compile(r'^\s*path: "(/[^"]*)",', re.MULTILINE)
+MODULE_DOMAIN_PATTERN = re.compile(r'^\s*domain: "([^"]+)",', re.MULTILINE)
+
+
+def duplicate_registration_problems(root: Path | None = None) -> list[str]:
+    """
+    Two domains claiming one HTTP route or one workspace route.
+
+    Both registries refuse this at runtime, but a duplicate is a merge accident and the point
+    of catching it here is that `npm run check` names both domains before anybody starts a
+    server. The declared tables are read rather than the handlers, which is exactly why the
+    tables are declared.
+    """
+    base = root or ROOT
+    problems: list[str] = []
+    for label, directory, extract in (
+        (
+            "HTTP route",
+            base / "apps/api/src/transport/http/routes",
+            lambda text: ROUTE_ENTRY_PATTERN.findall(
+                "".join(ROUTE_TABLE_PATTERN.findall(text)),
+            ),
+        ),
+        (
+            "workspace",
+            base / "apps/web/src/workspaces",
+            lambda text: WORKSPACE_PATH_PATTERN.findall(text),
+        ),
+    ):
+        if not directory.is_dir():
+            continue
+        owners: dict[str, str] = {}
+        for module in sorted(directory.iterdir()):
+            if module.name in {"contract.ts", "registry.ts", "registry.tsx"}:
+                continue
+            text = module.read_text(encoding="utf-8")
+            relative = module.relative_to(base)
+            declared = MODULE_DOMAIN_PATTERN.search(text)
+            if not declared:
+                problems.append(f"{relative} declares no owning domain")
+                continue
+            for route in extract(text):
+                owner = owners.get(route)
+                if owner is not None and owner != declared.group(1):
+                    problems.append(
+                        f"Duplicate {label} registration '{route}': claimed by both "
+                        f"'{owner}' and '{declared.group(1)}'"
+                    )
+                    continue
+                owners[route] = declared.group(1)
+    return problems
+
+
 def generated_index(manifest: dict[str, Any]) -> str:
     locations = context_locations()
     lines = [
@@ -285,6 +404,14 @@ def render(value: Any, as_json: bool) -> None:
 def check_repository() -> list[str]:
     manifest = load_manifest()
     problems: list[str] = []
+    composed, composition_problems = compose_manifest()
+    problems.extend(composition_problems)
+    if rendered_manifest(composed) != MANIFEST.read_text(encoding="utf-8"):
+        problems.append(
+            "context-manifest.json does not match the fragments in context/; "
+            "run `npm run context -- generate`"
+        )
+    problems.extend(duplicate_registration_problems())
     locations = context_locations()
     unique_owners: dict[str, str] = {}
     for domain in manifest["domains"]:
@@ -482,9 +609,15 @@ def command_why(query: str, as_json: bool) -> None:
 
 
 def command_generate() -> None:
+    composed, problems = compose_manifest()
+    if problems:
+        render(problems, False)
+        raise SystemExit(1)
+    MANIFEST.write_text(rendered_manifest(composed), encoding="utf-8")
+    print(f"Generated {MANIFEST.relative_to(ROOT)}")
     destination = ROOT / "docs/generated/context-index.md"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(generated_index(load_manifest()), encoding="utf-8")
+    destination.write_text(generated_index(composed), encoding="utf-8")
     print(f"Generated {destination.relative_to(ROOT)}")
 
 
