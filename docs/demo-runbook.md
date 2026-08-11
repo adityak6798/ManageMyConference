@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-LIFECYCLE` | Last verified: 2026-08-10
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-10
 
 ## Start from a clean checkout
 
@@ -36,6 +36,6 @@ npm run test:e2e
 npm run test:quality
 ```
 
-`test:e2e` runs the complete `ACC-*` browser suite serially against one clean D1 reset. `test:quality` is the fast evaluator gate: it checks role-aware lifecycle discovery, public semantics and labels, heading structure, responsive public behavior inherited from `ACC-PUBLIC`, and conservative loading/resource smoke budgets. CI separately runs unit/API tests, the complete D1 migration suite, builds, OpenAPI drift checks, security checks, and this browser evidence.
+`test:e2e` runs the current domain `ACC-*` browser scenarios serially against one clean D1 reset. Those scenarios use deterministic domain fixtures; they do not yet prove that one newly submitted proposal crosses every domain through publication. That chained acceptance remains tracked by issue #10. `test:quality` is the fast evaluator gate: it checks role-aware journey discovery, public semantics and labels, heading structure, responsive public behavior inherited from `ACC-PUBLIC`, and conservative loading/resource smoke budgets. CI separately runs unit/API tests, the complete D1 migration suite, builds, OpenAPI drift checks, security checks, and this browser evidence.
 
 If a step fails, preserve the displayed correlation reference and Playwright artifacts. Reset before retrying; never repair demo state with manual database edits.

@@ -3,7 +3,7 @@
 
 | Domain | Specs | Journeys | Acceptance | Plans | Index |
 |---|---|---|---|---|---|
-| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001` | — | `ACC-HARNESS`, `ACC-LIFECYCLE` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
+| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | — | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | events | `PRD-EVT-001` | — | `ACC-IDENTITY-EVENTS` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -40,6 +40,14 @@
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
+### `ACC-DEMO-SMOKE`
+- `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
+- `specification` / `normative`: [docs/demo-runbook.md](../../docs/demo-runbook.md)
+- `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
 ### `ACC-HARNESS`
 - `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/demo-session.test.ts](../../apps/api/test/demo-session.test.ts)
@@ -67,14 +75,6 @@
 - `test` / `repository-fact`: [apps/web/e2e/communications.spec.ts](../../apps/web/e2e/communications.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/communications.test.tsx](../../apps/web/test/communications.test.tsx)
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
-- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
-
-### `ACC-LIFECYCLE`
-- `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
-- `specification` / `normative`: [docs/demo-runbook.md](../../docs/demo-runbook.md)
-- `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
-- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
-- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-PUBLIC`

@@ -6,7 +6,7 @@ The repository is deliberately organized as an agent-readable context graph. Sta
 
 ## Reference slice
 
-The executable product now composes the complete proposal-to-publication lifecycle across organizer, reviewer, speaker, and public roles. Follow the [competition demo runbook](docs/demo-runbook.md) for the deterministic evaluator path.
+The executable product exposes proposal-to-publication journey surfaces across organizer, reviewer, speaker, and public roles. Follow the [competition demo runbook](docs/demo-runbook.md) for the deterministic evaluator path and its documented acceptance boundary.
 
 ```bash
 npm ci

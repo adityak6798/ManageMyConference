@@ -4,9 +4,9 @@ Status: canonical | Owner: delivery | Last verified: 2026-08-09
 
 ## `PLAN-002` Product lifecycle
 
-Status: active; lifecycle acceptance integrated locally 2026-08-10
+Status: active; evaluator smoke integrated locally 2026-08-10
 
-The bounded vertical slices for `JNY-001` through `JNY-009` are integrated through public application entrypoints. `ACC-LIFECYCLE` now provides the deterministic reset/runbook, role-aware evaluator path, aggregate browser evidence, accessibility/performance smoke, and scheduled quality gate. Hosted CI and the explicitly owned follow-ups in the issue remain before final closure.
+The bounded vertical slices for `JNY-001` through `JNY-009` are available through public application entrypoints. `ACC-DEMO-SMOKE` provides the deterministic reset/runbook, role-aware evaluator path, accessibility/performance smoke, and scheduled quality gate. Final lifecycle acceptance still requires one newly submitted proposal to cross review, acceptance, speaker work, scheduling, communications, and public publication; hosted CI and the explicitly owned follow-ups in issue #10 also remain before closure.
 
 ## `PLAN-003` Evaluation artifact
 

@@ -1,4 +1,4 @@
-// @acceptance ACC-LIFECYCLE
+// @acceptance ACC-DEMO-SMOKE
 import { expect, test } from "@playwright/test";
 
 test("makes the complete seeded lifecycle discoverable across every role", async ({ page }) => {
