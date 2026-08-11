@@ -1,0 +1,416 @@
+/*
+ * Abstract triage and the reviewer queue.
+ *
+ * Only what the shared primitives cannot express: the triage toolbar and bulk
+ * bar that live inside a tight card, the disclosure that demotes evaluation
+ * configuration below triage, and the reviewer's per-criterion score row.
+ *
+ * Selectors are scoped one class deeper than the shell equivalents on purpose —
+ * this sheet is imported from a component, so its position in the cascade is not
+ * guaranteed and specificity, not order, has to decide.
+ */
+
+/* =========================== triage =========================== */
+
+/* `.page-body` sizes its rows from content, so a wide table inside `.table-wrap`
+   still pushes the whole console sideways at phone widths — the scroll container
+   only clamps once something in the chain declares a zero minimum. These wrappers
+   are that declaration; without them /abstracts overflows by ~77px at 390px. */
+.triage-panel,
+.review-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.triage-toolbar {
+  align-items: flex-end;
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--line);
+}
+.triage-toolbar .triage-search {
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+.triage-toolbar .triage-search input {
+  width: 100%;
+  min-width: 0;
+}
+.triage-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bulk bar only exists while rows are selected, so it announces itself with
+   a tinted band rather than sitting permanently above the table. */
+.triage-bulk {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  min-width: 0;
+  margin: 0;
+  padding: var(--s-3) var(--s-5);
+  background: var(--green-50);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+.triage-bulk .selection-count {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding-bottom: 7px;
+  color: var(--green-800);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.triage-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.triage-action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.triage-action-row select {
+  width: auto;
+  min-width: 160px;
+}
+
+.triage-feedback .notice {
+  margin: var(--s-4) var(--s-5) 0;
+}
+
+.triage-skeleton {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-5);
+}
+
+/* --------------------------- table ---------------------------- */
+
+.triage-table th.select-cell,
+.triage-table td.select-cell {
+  width: 1%;
+  padding-right: 0;
+}
+.triage-table td.select-cell {
+  padding-top: var(--s-4);
+}
+.triage-table .cell-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 620;
+  text-align: left;
+}
+.triage-table .cell-link:hover {
+  background: none;
+  color: var(--green-800);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.triage-table tbody tr.is-open,
+.triage-table tbody tr.is-open:hover {
+  background: var(--green-50);
+}
+
+/* ------------------------ detail panel ------------------------ */
+
+.proposal-detail:focus {
+  outline: none;
+}
+.proposal-detail .card {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-md);
+}
+.detail-reviewers,
+.review-notes {
+  margin-top: var(--s-4);
+  font-size: var(--text-sm);
+}
+.detail-term {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+/* In the detail card the answers open the body, so the shared divider above them
+   would read as a stray rule under the card header. */
+.proposal-detail .proposal-answers {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.proposal-detail .triage-actions {
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+/* ====================== evaluation setup ====================== */
+
+/* Configuration is secondary work, so it collapses into a disclosure that reads
+   as one more card rather than two forms competing with the triage table. */
+.review-setup {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+.review-setup > summary {
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-lg);
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 620;
+  cursor: pointer;
+}
+.review-setup > summary .setup-summary-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 450;
+}
+.review-setup[open] > summary {
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+.review-setup-body {
+  display: grid;
+  gap: var(--s-8);
+  padding: var(--s-5);
+}
+
+.setup-form {
+  display: grid;
+  gap: var(--s-3);
+}
+.setup-heading h3 {
+  font-size: var(--text-base);
+}
+.setup-heading .hint {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  max-width: var(--measure);
+}
+.setup-actions {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin-top: var(--s-1);
+}
+
+.rubric-row,
+.status-row {
+  display: grid;
+  gap: var(--s-3);
+  align-items: end;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.rubric-row {
+  grid-template-columns: minmax(160px, 1.2fr) minmax(180px, 1.6fr) 110px 110px;
+}
+.status-row {
+  grid-template-columns: minmax(180px, 1fr) auto;
+}
+.rubric-row-actions {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+
+.rubric-summary {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+}
+.rubric-summary dt {
+  font-weight: 650;
+}
+.rubric-summary dd {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.rubric-summary .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* ========================== reviewer ========================== */
+
+.review-main {
+  display: grid;
+  gap: var(--s-5);
+  align-content: start;
+  min-width: 0;
+}
+.review-abstract {
+  margin-bottom: var(--s-2);
+  max-width: var(--measure);
+  color: var(--ink-2);
+}
+
+.review-fieldset {
+  min-width: 0;
+  margin: 0 0 var(--s-5);
+  padding: 0;
+  border: 0;
+}
+.review-fieldset > legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* One row per criterion: guidance on the left, the score control on the right,
+   and an explicit badge so "not scored" is a state a reviewer can see. */
+.criterion {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding: var(--s-4) 0;
+  border-bottom: 1px solid var(--line);
+}
+.criterion .field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.criterion .hint {
+  max-width: var(--measure);
+}
+.criterion-input {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.criterion-input select {
+  width: auto;
+  min-width: 130px;
+}
+
+.review-notes-field {
+  margin-bottom: var(--s-4);
+}
+/* The guard names what is still missing; it is referenced by the save buttons'
+   aria-describedby so the requirement is announced, not just shown. */
+.score-guard {
+  color: var(--warn-fg);
+  font-size: var(--text-xs);
+  font-weight: 620;
+}
+.review-actions {
+  margin-top: var(--s-4);
+}
+.conflict-form {
+  display: grid;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.review-scores {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-2) var(--s-4);
+  margin: var(--s-4) 0 0;
+  font-size: var(--text-sm);
+}
+.review-scores dt {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.review-scores dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  text-align: right;
+}
+
+.review-queue {
+  list-style: none;
+  display: grid;
+  margin: 0;
+  padding: 0;
+}
+.review-queue > li + li {
+  border-top: 1px solid var(--line);
+}
+.review-queue button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-3) var(--s-5);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.review-queue button:hover {
+  background: var(--surface-2);
+}
+.review-queue button[aria-current="true"] {
+  background: var(--green-50);
+  box-shadow: inset 3px 0 0 var(--green-700);
+  font-weight: 650;
+}
+.review-queue .queue-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ========================= responsive ========================= */
+
+@media (max-width: 700px) {
+  .rubric-row,
+  .status-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .triage-bulk,
+  .triage-actions {
+    gap: var(--s-3);
+  }
+  .triage-action-row select,
+  .criterion-input select {
+    min-width: 0;
+    flex: 1;
+  }
+  .criterion {
+    align-items: stretch;
+  }
+  .triage-count {
+    margin-left: 0;
+  }
+}

@@ -28,9 +28,15 @@
       "apps/web/src/AgendaWorkspace.tsx",
       "apps/api/src/application/publishing/publication-service.ts",
       "apps/web/src/PublicEventApp.tsx",
-      "apps/web/src/api/cfp.ts"
+      "apps/web/src/api/cfp.ts",
+      "apps/web/src/ui/primitives.tsx",
+      "apps/web/src/ui/icons.tsx"
     ],
-    "compositionRoots": ["apps/api/src/index.ts", "apps/web/src/App.tsx"],
+    "compositionRoots": [
+      "apps/api/src/index.ts",
+      "apps/web/src/App.tsx",
+      "apps/web/src/OverviewPage.tsx"
+    ],
     "layerPaths": {
       "domain": ["apps/api/src/domain"],
       "application": ["apps/api/src/application"],
@@ -82,7 +88,13 @@
         "apps/web/vite.config.ts",
         "apps/web/playwright.config.ts",
         "apps/web/e2e/lifecycle-demo.spec.ts",
-        "docs/demo-runbook.md"
+        "docs/demo-runbook.md",
+        "apps/web/src/AppShell.tsx",
+        "apps/web/src/OverviewPage.tsx",
+        "apps/web/src/router.ts",
+        "apps/web/src/ui/primitives.tsx",
+        "apps/web/src/ui/icons.tsx",
+        "apps/api/test/seed-state.integration.test.ts"
       ]
     },
     {
@@ -238,7 +250,8 @@
         "apps/api/test/agenda-service.test.ts",
         "apps/api/test/d1-agenda-repository.integration.test.ts",
         "apps/web/src/AgendaWorkspace.tsx",
-        "apps/web/src/api/agenda.ts"
+        "apps/web/src/api/agenda.ts",
+        "apps/web/e2e/agenda.spec.ts"
       ]
     },
     {

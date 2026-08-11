@@ -4,8 +4,8 @@ import {
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
   type UpdateContentSessionInput,
-  updateContentSessionInputSchema,
   type UpdateSpeakerProfileInput,
+  updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";

@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-10
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11
 
 ## Start from a clean checkout
 
@@ -9,33 +9,85 @@ Use Node from `.nvmrc`, npm 11.12.1, and a local Python supported by `uv`.
 ```bash
 npm ci
 uv sync --locked
+npx playwright install chromium   # only needed to run the browser suite
 npm run setup:local
 npm run reset
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The reset is deterministic and safe to repeat. It restores the same event, CFP, proposals, review assignments, speakers, CRM records, agenda, delivery history, and published projection. Local delivery and uploads use deterministic adapters and require no live credentials.
+Open `http://127.0.0.1:5173`. The reset is deterministic and safe to repeat. It restores the same
+event, CFP, proposals, review assignments, speakers, CRM records, agenda, delivery history, and
+published projection. Local delivery and uploads use deterministic adapters and require no live
+credentials.
+
+If port 5173 or 8787 is already taken — another checkout, another agent, another project — start the
+dev servers on free ports:
+
+```bash
+GREENROOM_WEB_PORT=5273 GREENROOM_API_PORT=8887 npm run dev
+```
+
+The API port matters beyond convenience. `npm run test:e2e` defaults to 4173 for the web server and
+**8787 for the API**, and Playwright reuses any server already answering on the port it wants
+(`reuseExistingServer` is on outside CI). A second checkout serving 8787 will therefore be tested in
+place of this one, silently. Give the suite free ports of its own when anything else is running:
+
+```bash
+GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e
+```
 
 ## Evaluator path
 
-1. Continue as **organizer**. Use the single event workspace to show CFP configuration, abstract triage, accepted sessions and speakers, agenda publication, CRM, and delivery history.
-2. Switch to **reviewer** and complete the seeded assignment. Role-limited navigation and forbidden organizer data demonstrate event-scoped authorization.
-3. Switch to **speaker** and show profile, tasks, private assets, calendar download, and assigned sessions.
-4. Switch to **public** to submit through the live CFP without gaining private workspace access.
-5. Open `/events/greenroom-demo-summit` and follow schedule, session, speaker, and CFP links. Open `/embed/events/greenroom-demo-summit/schedule` to show the same immutable public projection.
-6. Return as **organizer**, inspect communications history, and show queued, retrying, succeeded, and terminal delivery states plus the explicit retry control.
+Every workspace has its own URL, so each step below is directly linkable and survives a reload.
+`?event=<uuid>` selects the event workspace.
 
-The role switcher establishes signed development-only sessions and does not bypass application authorization. The API refuses demo mode outside the exact development environment.
+1. Continue as **organizer**. You land on **Overview** (`/`): the counts that matter, the alert
+   strip, and the table of speakers with outstanding onboarding tasks.
+2. **Abstracts** (`/abstracts`) — triage submissions by status tab, search, assign reviewers,
+   record decisions, inspect a proposal's submitted answers.
+3. **Sessions & speakers** (`/sessions`) — accepted content, speaker records, tasks, and assets.
+4. **Agenda** (`/agenda`) — place sessions on the room × time board by drag-and-drop or by
+   keyboard (Enter to pick up, arrows to move, Enter to drop, Escape to cancel). Switch between
+   List, Day, Week, Room, Track, and Conflicts; the chosen view is in the URL. Publish the schedule.
+5. **Call for proposals** (`/cfp`) — compose the public form, watch the draft diverge from the live
+   published form, publish, and copy the public link.
+6. **Speaker CRM** (`/speakers`) and **Communications** (`/communications`) — the outreach pipeline
+   and the delivery outbox with queued, retrying, succeeded, and terminal states plus explicit retry.
+7. Switch to **reviewer** — only `/reviews` is reachable. Score the seeded assignment against the
+   evaluation plan; unscored criteria are refused rather than silently scored at the minimum.
+8. Switch to **speaker** — only `/portal` is reachable. Complete a task, edit the profile, upload a
+   private asset, download the calendar file.
+9. Switch to **public**, then open `/events/greenroom-demo-summit` and follow schedule, sessions,
+   speakers, and CFP. Submit a proposal through the live public form. Open
+   `/embed/events/greenroom-demo-summit/schedule` to see the same published projection with the
+   marketing chrome stripped for embedding.
+
+The role switcher establishes signed development-only sessions and does not bypass application
+authorization. The API refuses demo mode outside the exact development environment.
 
 ## Reproduce the evidence
 
 ```bash
-npm run check
-npm run reset
-npm run test:e2e
-npm run test:quality
+npm run check          # format, context integrity, lint, typecheck, OpenAPI drift, unit tests, build
+npm run test:d1        # D1 integration suite, including the deterministic seed-state regression
+npm run test:e2e       # full browser acceptance suite (needs `npx playwright install chromium`)
+npm run test:quality   # the fast evaluator gate
 ```
 
-`test:e2e` runs the current domain `ACC-*` browser scenarios serially against one clean D1 reset. Those scenarios use deterministic domain fixtures; they do not yet prove that one newly submitted proposal crosses every domain through publication. That chained acceptance remains tracked by issue #10. `test:quality` is the fast evaluator gate: it checks role-aware journey discovery, public semantics and labels, heading structure, responsive public behavior inherited from `ACC-PUBLIC`, and conservative loading/resource smoke budgets. CI separately runs unit/API tests, the complete D1 migration suite, builds, OpenAPI drift checks, security checks, and this browser evidence.
+`npm run test:e2e` starts its own API and web server and resets the database first — but only when
+nothing is already answering on the ports it wants. Point it at **free** ports whenever other
+servers are running, as above; pointing it at ports something else already holds makes it reuse that
+process and skip the reset.
 
-If a step fails, preserve the displayed correlation reference and Playwright artifacts. Reset before retrying; never repair demo state with manual database edits.
+`npm run test:e2e` is repeatable because its own `webServer` step resets the database before each
+invocation. The specs are **not** idempotent against an already-mutated fixture: several assert
+seeded counts, and review completion is terminal by design. If you point the suite at servers that
+are already running — which skips that reset — expect failures. Run `npm run reset` first in that
+case.
+
+`test:quality` checks role-aware journey discovery, that every navigation destination renders,
+public semantics and labels, heading structure, mobile layout with no horizontal overflow, and
+conservative loading/resource budgets.
+
+If a step fails, preserve the displayed correlation reference and the Playwright artifacts under
+`apps/web/test-results/`. Reset before retrying; never repair demo state with manual database edits.

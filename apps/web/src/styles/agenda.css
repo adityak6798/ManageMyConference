@@ -1,0 +1,346 @@
+/*
+ * Agenda board.
+ *
+ * The board is a real grid of rooms and time slots, so its styles are about density
+ * and drop affordances: cards stay small enough that a whole conference day fits on
+ * screen, and every drop target announces itself with a dashed outline rather than a
+ * colour change alone. Everything is scoped under `.agenda` so these rules never leak
+ * into the shared workspace styles.
+ */
+
+.agenda {
+  display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+/* The shell's `button:hover` outranks `.tab`, so a hovered tab fills solid green and
+   its label disappears into the background. Scope the correction to this workspace
+   rather than editing the shared tab styles. */
+.agenda .tab:hover {
+  background: none;
+  color: var(--ink);
+}
+.agenda .tab[aria-selected="true"]:hover {
+  color: var(--green-800);
+}
+
+.agenda-toolbar {
+  gap: var(--s-3);
+}
+.agenda-toolbar .spacer {
+  flex: 1;
+}
+.agenda-toolbar .search {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+/* Toolbar controls keep their label on the same line so the strip stays one row deep. */
+.agenda-inline-field {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+  white-space: nowrap;
+}
+.agenda-inline-field select {
+  width: auto;
+  min-width: 130px;
+}
+
+.agenda-layout {
+  display: grid;
+  gap: var(--s-4);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  align-items: start;
+}
+.agenda-layout[data-rail="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 1080px) {
+  .agenda-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.agenda-count {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.agenda-panel {
+  min-width: 0;
+}
+
+/* Inline editors in the list view need room for a room or track name. */
+.agenda table.data td select {
+  min-width: 132px;
+}
+.agenda-panel:focus {
+  outline: none;
+}
+
+/* ---------------------------- board ---------------------------- */
+
+.agenda table.board {
+  min-width: 100%;
+}
+.agenda table.board th[scope="row"] {
+  position: static;
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: top;
+  font-size: var(--text-xs);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.agenda table.board td {
+  padding: var(--s-2);
+  min-width: 170px;
+  vertical-align: top;
+}
+.agenda table.board tbody tr:hover {
+  background: none;
+}
+.agenda .board-cell {
+  display: grid;
+  gap: var(--s-1);
+  align-content: start;
+}
+.agenda .board-cell[data-over="true"] {
+  outline: 2px dashed var(--green-600);
+  outline-offset: 2px;
+  border-radius: var(--r-md);
+  background: var(--green-50);
+}
+
+/* --------------------------- cards ----------------------------- */
+
+.agenda .sched-card,
+.agenda .sched-static {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+.agenda .sched-card {
+  cursor: grab;
+}
+.agenda .sched-card:hover {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.agenda .sched-card[data-carrying="true"] {
+  border-color: var(--green-600);
+  background: var(--green-50);
+  cursor: grabbing;
+}
+.agenda .sched-card[data-conflict="true"],
+.agenda .sched-static[data-conflict="true"] {
+  border-color: var(--danger-fg);
+  background: var(--danger-bg);
+}
+.agenda .sched-title {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 620;
+  line-height: var(--leading-snug);
+}
+.agenda .sched-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* The track colour is decorative; the track name always travels with it. */
+.agenda .track-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--r-full);
+  border: 1px solid rgba(15, 26, 21, 0.18);
+}
+
+/* ------------------------- drop targets ------------------------ */
+
+.agenda .dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  width: 100%;
+  min-height: 36px;
+  padding: var(--s-1) var(--s-2);
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.agenda .dropzone:hover,
+.agenda .dropzone:focus-visible {
+  border-color: var(--green-600);
+  border-style: solid;
+  background: var(--green-50);
+  color: var(--green-800);
+}
+.agenda .board-cell[data-over="true"] .dropzone {
+  border-color: var(--green-600);
+  border-style: solid;
+  background: var(--green-100);
+  color: var(--green-800);
+}
+.agenda .cell-empty {
+  color: var(--ink-4);
+  font-size: var(--text-xs);
+}
+
+/* --------------------------- carry ----------------------------- */
+
+.agenda-carry {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--green-600);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: var(--text-sm);
+}
+.agenda-carry .carry-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-left: auto;
+}
+
+/* ------------------------- conflicts --------------------------- */
+
+.agenda-conflict-summary {
+  display: grid;
+  gap: var(--s-2);
+  align-items: start;
+}
+.agenda-conflict-summary ul {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding-left: var(--s-5);
+}
+.agenda-conflict-kind {
+  font-weight: 700;
+}
+
+/* ---------------------------- rail ----------------------------- */
+
+.agenda-rail[data-over="true"] {
+  outline: 2px dashed var(--green-600);
+  outline-offset: 3px;
+}
+.agenda-rail-list {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+/* --------------------------- tracks ---------------------------- */
+
+.agenda-track-group + .agenda-track-group {
+  margin-top: var(--s-4);
+}
+.agenda-track-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--line);
+}
+.agenda-track-head h3 {
+  font-size: var(--text-sm);
+}
+.agenda-track-head .count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.agenda-track-swatch {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(15, 26, 21, 0.18);
+}
+.agenda-track-list {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ------------------------- resources --------------------------- */
+
+.agenda-resources {
+  padding: var(--s-4) var(--s-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+.agenda-resources > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.agenda-resources h3 {
+  margin-top: var(--s-4);
+  font-size: var(--text-sm);
+}
+.agenda-resources .resource-row {
+  margin: var(--s-2) 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.agenda-resources .resource-row .name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+/* ------------------------- responsive -------------------------- */
+
+@media (max-width: 780px) {
+  .agenda-rail-list {
+    max-height: none;
+  }
+  .agenda-carry .carry-actions {
+    margin-left: 0;
+  }
+}

@@ -1,0 +1,256 @@
+/*
+ * Sessions & speakers / speaker portal.
+ *
+ * Only the parts the shared primitives do not already cover: the workspace's own
+ * vertical rhythm, the inline session editor that expands inside the sessions
+ * table, and the follow-up and upload forms.
+ */
+
+/* The workspace is a single grid child of .page-body, so it reproduces the page
+   gap internally rather than letting its cards collapse against each other. */
+.content-workspace {
+  display: grid;
+  gap: var(--s-5);
+  align-content: start;
+  min-width: 0;
+}
+
+/* Column of cards inside one half of a .split. */
+.content-stack {
+  display: grid;
+  gap: var(--s-5);
+  align-content: start;
+  min-width: 0;
+}
+
+/* Grid items default to a min-content floor, which the data tables blow past on a
+   phone; the tables scroll inside .table-wrap instead of widening the page. */
+.content-workspace > *,
+.content-stack > *,
+.content-workspace .split > * {
+  min-width: 0;
+}
+
+/* Async actions stay clickable-looking but inert while a request is in flight:
+   disabling them mid-action moved keyboard focus to the document body and the
+   confirmation was then announced to nobody. */
+.content-workspace button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* A wide data table inside .table-wrap scrolls correctly, but its layout overflow
+   still leaked out to the document and made the whole phone viewport pan sideways.
+   Painting containment keeps the overflow inside the scroller where it belongs. */
+.content-workspace .table-wrap {
+  contain: paint;
+}
+
+/* -------------------- table chrome inside a tight card -------------------- */
+
+/* The tab strip's rule has to reach both card edges, so the inset lives on the
+   strip's contents rather than on a wrapper around it. */
+.content-tabs .tabs {
+  padding: 0 var(--s-5);
+}
+
+/* .tab inherits the button radius from shell.css, which bows the 2px selected
+   underline up at both ends. Flattened here; the same reset belongs on .tab itself. */
+.content-workspace .tab {
+  border-radius: 0;
+}
+
+.content-toolbar {
+  justify-content: space-between;
+  padding: var(--s-3) var(--s-5);
+  border-bottom: 1px solid var(--line);
+}
+.content-toolbar .field {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 420px;
+}
+.content-toolbar .field input {
+  min-width: 0;
+}
+.content-toolbar .hint {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* Feedback sits directly under the control cluster it belongs to. */
+.content-feedback:not(:empty) {
+  padding: var(--s-3) var(--s-5) 0;
+}
+
+/* Scoped so this workspace's inline hints match .field .hint without redefining a
+   shared class other surfaces also style. */
+.content-workspace .hint {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* --------------------------- inline session editor ------------------------ */
+
+.editor-row td {
+  padding: 0;
+  background: var(--surface-2);
+}
+.editor-row:hover td {
+  background: var(--surface-2);
+}
+
+.session-editor {
+  display: grid;
+  gap: var(--s-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  padding: var(--s-5);
+  border-left: 3px solid var(--green-700);
+}
+.session-editor-wide {
+  grid-column: 1 / -1;
+}
+.session-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+.speaker-checks {
+  display: grid;
+  gap: var(--s-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.speaker-checks legend {
+  padding: 0 var(--s-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.speaker-checks .check-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  font-size: var(--text-sm);
+}
+.speaker-checks .check-label input {
+  margin-top: 3px;
+}
+.speaker-checks .check-label small {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* ------------------------------ follow-up --------------------------------- */
+
+.outreach {
+  display: grid;
+  gap: var(--s-4);
+}
+.outreach-form {
+  display: grid;
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.outreach-form button {
+  justify-self: start;
+}
+
+/* --------------------------- portal: profile ------------------------------ */
+
+.profile-form {
+  display: grid;
+  gap: var(--s-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+.profile-form-wide {
+  grid-column: 1 / -1;
+}
+.profile-form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+/* --------------------------- portal: uploads ------------------------------ */
+
+.upload-form {
+  display: grid;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.upload-form button {
+  justify-self: start;
+}
+.upload-form input[type="file"] {
+  padding: 6px 8px;
+}
+
+.upload-list {
+  list-style: none;
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+}
+.upload-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.upload-name .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.upload-empty {
+  margin-top: var(--s-4);
+}
+
+/* --------------------------- portal: sessions ----------------------------- */
+
+.session-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.session-line-meta {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+/* Row actions read as one word, never as a two-line block inside a dense table.
+   Declared last so it outranks the form-button rules above it. */
+.content-workspace table.data button {
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .content-tabs .tabs,
+  .content-toolbar,
+  .content-feedback:not(:empty) {
+    padding-left: var(--s-4);
+    padding-right: var(--s-4);
+  }
+  .session-editor {
+    padding: var(--s-4);
+  }
+}

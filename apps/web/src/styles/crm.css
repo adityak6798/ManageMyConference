@@ -1,0 +1,232 @@
+/*
+ * Speaker CRM.
+ *
+ * Everything is scoped under .crm so these rules can extend the shared primitives
+ * (which are loaded from styles.css) without depending on stylesheet order.
+ */
+
+/* minmax(0, 1fr) keeps the pipeline table inside its scroll container instead of
+   widening the page track it sits in. */
+.crm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-5);
+}
+
+/* -------------------------- pipeline list -------------------------- */
+
+.crm .crm-toolbar-row {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5) 0;
+}
+
+.crm .crm-toolbar-row .toolbar .search {
+  max-width: 100%;
+}
+
+/* The tab strip is flush with the card edge so it reads as the table's header rail. */
+.crm .crm-toolbar-row .tabs {
+  margin: 0 calc(-1 * var(--s-5));
+  padding: 0 var(--s-5);
+}
+/* .tab inherits the shared button radius, which bows the selected underline into a
+   rounded box. Straighten it here until the primitive resets it. */
+.crm .crm-toolbar-row .tab {
+  border-radius: 0;
+}
+
+.crm .crm-create {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.crm .crm-form-actions {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+/* .visually-hidden is position:absolute, so inside an unpositioned scroll container it
+   escapes the clip and stretches the page. Anchoring the container keeps it inside. */
+.crm .table-wrap {
+  position: relative;
+}
+
+.crm .crm-skeletons {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-5);
+}
+.crm .crm-skeletons > div {
+  display: grid;
+  gap: var(--s-2);
+}
+
+/* A row opens the detail panel, so its name is a button that still reads as the
+   primary cell rather than as a second action in the row. */
+.crm .crm-row-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 620;
+  text-align: left;
+}
+.crm .crm-row-open:hover {
+  background: none;
+  color: var(--green-800);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.crm .crm-row-open[aria-current="true"] {
+  color: var(--green-800);
+}
+
+.crm table.data tr.is-selected {
+  background: var(--green-50);
+  box-shadow: inset 3px 0 0 var(--green-700);
+}
+.crm table.data tr.is-selected:hover {
+  background: var(--green-50);
+}
+
+/* --------------------------- detail panel -------------------------- */
+
+/* A long prospect name would otherwise push the Close action onto its own line. */
+.crm .split > .card:nth-child(2) > header {
+  flex-wrap: nowrap;
+}
+.crm .split > .card:nth-child(2) > header > div:first-child {
+  min-width: 0;
+}
+
+.crm .crm-detail {
+  display: grid;
+  gap: var(--s-5);
+}
+.crm .crm-detail section {
+  display: grid;
+  gap: var(--s-3);
+}
+.crm .crm-detail h3 {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.crm .crm-detail form {
+  display: grid;
+  gap: var(--s-3);
+}
+.crm .crm-detail form button {
+  justify-self: start;
+}
+.crm .crm-help {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.crm .crm-contacts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.crm .crm-contacts > li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.crm .crm-contact-name {
+  font-weight: 620;
+}
+.crm .crm-contacts a {
+  overflow-wrap: anywhere;
+}
+
+.crm .crm-details > summary {
+  cursor: pointer;
+  color: var(--green-800);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.crm .crm-details[open] > summary {
+  margin-bottom: var(--s-3);
+}
+
+/* ---------------------------- timeline ----------------------------- */
+
+.crm .crm-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--s-4);
+  display: grid;
+  gap: var(--s-4);
+  border-left: 2px solid var(--line);
+}
+.crm .crm-timeline > li {
+  position: relative;
+}
+/* The node sits on the rail, which is what makes the list read as a timeline. */
+.crm .crm-timeline > li::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--s-4) - 5px);
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--surface);
+  border: 2px solid var(--line-strong);
+}
+.crm .crm-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.crm .crm-timeline-head .pill {
+  text-transform: capitalize;
+}
+.crm .crm-timeline p {
+  font-size: var(--text-sm);
+}
+.crm .crm-private {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-full);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 700px) {
+  .crm .crm-toolbar-row {
+    padding: var(--s-3) var(--s-4) 0;
+  }
+  .crm .crm-toolbar-row .tabs {
+    margin: 0 calc(-1 * var(--s-4));
+    padding: 0 var(--s-4);
+  }
+  .crm .crm-skeletons {
+    padding: var(--s-4);
+  }
+}

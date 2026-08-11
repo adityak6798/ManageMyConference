@@ -1,11 +1,11 @@
 import {
   apiErrorEnvelopeSchema,
+  type CfpFormDto,
   cfpResponseSchema,
   cfpStateInputSchema,
   proposalConfirmationResponseSchema,
-  submitProposalInputSchema,
-  type CfpFormDto,
   type SaveCfpInput,
+  submitProposalInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
 export class CfpApiError extends Error {

@@ -1,0 +1,182 @@
+/*
+ * Greenroom design system — one token set, two surfaces.
+ *
+ * Console (organizer/reviewer/speaker operations) uses cool paper neutrals and high
+ * density. Public event pages use warm paper and editorial rhythm. Both draw from the
+ * same scale, radii, and status colours so they read as one product.
+ *
+ * Typography is deliberately not Inter/Roboto: an old-style serif carries the brand
+ * voice, a grotesque carries data. Both resolve from system faces so the app stays
+ * fast and works with no network — the competition rewards speed and offline demos.
+ */
+
+:root {
+  /* ---- type ---- */
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-ui:
+    ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.9rem;
+  --text-3xl: 2.5rem;
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+
+  /* ---- space (4px base) ---- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* ---- radius ---- */
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-full: 999px;
+
+  /* ---- brand ---- */
+  --green-900: #0a3a28;
+  --green-800: #0d4c34;
+  --green-700: #0f5c3f;
+  --green-600: #14724f;
+  --green-500: #1c8a61;
+  --green-100: #dbeee3;
+  --green-50: #eef7f1;
+
+  --clay-700: #8c3d1d;
+  --clay-600: #a34b26;
+  --clay-100: #f6e3d8;
+
+  /* ---- status ---- */
+  --ok-fg: #0f5c3f;
+  --ok-bg: var(--green-100);
+  --warn-fg: #8a5205;
+  --warn-bg: #fbeccd;
+  --danger-fg: #97202c;
+  --danger-bg: #fadfe2;
+  --info-fg: #1a5578;
+  --info-bg: #dceaf4;
+  --neutral-fg: #4c5a52;
+  --neutral-bg: #e8ece8;
+
+  /* ---- console surface (cool paper) ---- */
+  --ink: #0f1a15;
+  --ink-2: #35443b;
+  --ink-3: #5c6b62;
+  --ink-4: #86958c;
+  --muted: #64736a;
+  --canvas: #f3f6f3;
+  --surface: #ffffff;
+  --surface-2: #f8faf8;
+  --line: #e1e7e2;
+  --line-strong: #cbd5cd;
+
+  --focus: #1c8a61;
+  --focus-ring: 0 0 0 3px rgba(28, 138, 97, 0.32);
+
+  --shadow-sm: 0 1px 2px rgba(15, 26, 21, 0.06);
+  --shadow-md: 0 1px 3px rgba(15, 26, 21, 0.08), 0 6px 16px -8px rgba(15, 26, 21, 0.14);
+  --shadow-lg: 0 2px 6px rgba(15, 26, 21, 0.08), 0 18px 40px -18px rgba(15, 26, 21, 0.28);
+
+  --sidebar-w: 244px;
+  --topbar-h: 56px;
+  --measure: 68ch;
+}
+
+/* Public surfaces swap the neutral ramp to warm paper without changing the scale.
+   The swap is hoisted to :root as well, because <body> paints --canvas and would
+   otherwise show the console's cool ground behind a short public page or on
+   overscroll. */
+:root:has(.public-shell),
+:root:has(.public-state),
+.public-shell,
+.public-state {
+  --ink: #17332a;
+  --ink-2: #2f4b41;
+  --ink-3: #5a6c64;
+  --muted: #5a6c64;
+  --canvas: #f5f0e8;
+  --surface: #fffdf8;
+  --surface-2: #faf5ec;
+  --line: #e2d8c8;
+  --line-strong: #d4c9b9;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Data should always align in columns. */
+table,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.011em;
+  font-weight: 620;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--green-700);
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

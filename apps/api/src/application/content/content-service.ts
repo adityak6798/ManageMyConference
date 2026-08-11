@@ -226,6 +226,49 @@ export class ContentService {
     return updated;
   }
 
+  /**
+   * Read an uploaded asset's bytes.
+   *
+   * Assets were write-only, so an uploaded headshot could never be shown anywhere.
+   * Access mirrors how the asset was uploaded: organizers of the owning event and
+   * the speaker who owns the profile may read any of their assets; everyone else,
+   * including anonymous public traffic, may read only assets an organizer has
+   * explicitly marked publishable.
+   */
+  async readAsset(
+    actor: Actor | null,
+    assetId: string,
+  ): Promise<{ asset: SpeakerAsset; contentType: string; bytes: Uint8Array } | null> {
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    if (!asset) return null;
+
+    if (asset.visibility !== "publishable") {
+      // Missing and inaccessible collapse to the same null so the route cannot be used to
+      // discover which asset ids exist — `ARC-AUTH-001` in docs/architecture/authorization.md
+      // requires that errors not reveal whether an inaccessible record exists. This route is
+      // reachable anonymously, which is why it collapses rather than throwing the way the
+      // organizer-only mutations below do.
+      let authorized: Actor;
+      try {
+        authorized = requireCapability(actor, "content:read");
+      } catch {
+        // ERROR-INTENT: an unauthenticated or uncapable caller must not learn the asset exists.
+        return null;
+      }
+      const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
+      // Ownership is event-scoped: `content:read` is the union across every event the
+      // actor can touch, so matching the stored user id alone would keep serving this
+      // asset after the speaker's access to its event was removed.
+      const ownsProfile =
+        profile?.userId === authorized.id && hasEventRole(authorized, asset.eventId, "speaker");
+      if (!hasEventRole(authorized, asset.eventId, "organizer") && !ownsProfile) return null;
+    }
+
+    const stored = await this.dependencies.assetStorage.get(asset.storageKey);
+    if (!stored) return null;
+    return { asset, contentType: stored.contentType, bytes: stored.bytes };
+  }
+
   async publishAsset(actor: Actor | null, assetId: string) {
     const authorized = requireCapability(actor, "content:manage");
     const asset = await this.dependencies.repository.findAsset(assetId);

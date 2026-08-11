@@ -6,6 +6,10 @@ export interface R2BucketPort {
     value: Uint8Array,
     options: { httpMetadata: { contentType: string } },
   ): Promise<unknown>;
+  get(key: string): Promise<{
+    httpMetadata?: { contentType?: string };
+    arrayBuffer(): Promise<ArrayBuffer>;
+  } | null>;
   delete(key: string): Promise<void>;
 }
 
@@ -17,6 +21,16 @@ export class R2AssetStorage implements AssetStoragePort {
       httpMetadata: { contentType: input.contentType },
     });
     return { key: input.key };
+  }
+  async get(key: string) {
+    const object = await this.bucket.get(key);
+    if (!object) return null;
+    return {
+      // R2 does not guarantee stored metadata; fall back to an opaque type rather
+      // than letting a browser sniff the bytes.
+      contentType: object.httpMetadata?.contentType ?? "application/octet-stream",
+      bytes: new Uint8Array(await object.arrayBuffer()),
+    };
   }
   async delete(key: string) {
     await this.bucket.delete(key);
