@@ -257,6 +257,9 @@ export const apiErrorCodeSchema = z.enum([
   "NOT_FOUND",
   "CONFLICT",
   "AGENDA_CONFLICT",
+  // The unauthenticated CFP submission route is throttled per client and event; a caller
+  // that exceeds the window is told so rather than being given a misleading 4xx.
+  "RATE_LIMITED",
   "INTERNAL_ERROR",
 ]);
 
@@ -350,6 +353,15 @@ export const prospectListQuerySchema = z.object({
 });
 export const prospectResponseSchema = z.object({ prospect: prospectSchema });
 export const prospectListResponseSchema = z.object({ prospects: z.array(prospectSchema) });
+/**
+ * A user identity-access reports as assignable on this event. Ids are opaque identity strings
+ * (`seed-organizer`), not UUIDs, so the CRM never invents an owner the directory does not know.
+ */
+export const prospectOwnerSchema = z.object({ id: z.string(), name: z.string() });
+export const prospectOwnerListResponseSchema = z.object({
+  owners: z.array(prospectOwnerSchema),
+});
+export type ProspectOwnerDto = z.infer<typeof prospectOwnerSchema>;
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export const contentSessionSchema = z.object({
@@ -537,6 +549,27 @@ export const recordProposalDecisionInputSchema = z.object({
   note: z.string().trim().max(1000).default(""),
 });
 export type RecordProposalDecisionInput = z.infer<typeof recordProposalDecisionInputSchema>;
+/**
+ * What became of the content half of one accepted proposal.
+ *
+ * Accepting is two domains deep — the review decision authorizes the session — but it is one
+ * request: the transport records the decision and then runs content acceptance. The two are not
+ * one transaction, so this says which of them happened.
+ *
+ * - `content`: the decision is recorded and `sessionId` names the session it produced.
+ * - `decision_only`: the decision is recorded and durable, but the content domain refused the
+ *   session and said why in `detail`/`fieldErrors`. Nothing is lost and nothing is half-written:
+ *   re-posting the identical decision overwrites it and retries the session, so a retry heals
+ *   the gap once the cause is gone.
+ */
+export const proposalAcceptanceSchema = z.object({
+  proposalId: z.string().uuid(),
+  state: z.enum(["content", "decision_only"]),
+  sessionId: z.string().uuid().nullable(),
+  detail: z.string(),
+  fieldErrors: z.record(z.array(z.string())),
+});
+export type ProposalAcceptanceDto = z.infer<typeof proposalAcceptanceSchema>;
 export const reviewCriterionSchema = z
   .object({
     id: z
@@ -650,6 +683,11 @@ export const proposalStatusesResponseSchema = z.object({
 export const proposalDecisionResponseSchema = z.object({
   proposals: z.array(proposalSchema),
   decisions: z.array(proposalDecisionSchema),
+  /**
+   * One entry per decided proposal for an accepted outcome, empty for a decline. Defaulted so a
+   * client written against the pre-composition shape still parses this response.
+   */
+  acceptances: z.array(proposalAcceptanceSchema).default([]),
 });
 export const reviewConflictResponseSchema = z.object({ conflict: reviewConflictSchema });
 export const evaluationResponseSchema = z.object({ evaluation: evaluationSchema });
@@ -659,6 +697,25 @@ export type ReviewerQueueDto = z.infer<typeof reviewerQueueSchema>;
 export type SaveEvaluationInput = z.infer<typeof saveEvaluationInputSchema>;
 // @spec PRD-CFP-001 PRD-CFP-002
 export const cfpFieldTypeSchema = z.enum(["short_text", "long_text", "email", "select"]);
+/**
+ * The longest answer each field type accepts when the organizer states no explicit limit.
+ *
+ * The CFP domain repeats these numbers in `apps/api/src/domain/cfp/cfp.ts` because the
+ * application layer may not import this package; the two must stay in agreement. The
+ * authoritative value for any published form is the `maxLength` persisted on its fields,
+ * which is what both the form builder and `validateAnswers` read.
+ */
+export const CFP_FIELD_MAX_LENGTHS = {
+  short_text: 200,
+  long_text: 5_000,
+  // RFC 5321 section 4.5.3.1.3 caps a forward path at 256 octets including the angle brackets.
+  email: 254,
+  select: 120,
+} as const satisfies Record<z.infer<typeof cfpFieldTypeSchema>, number>;
+/** The longest answer any single field may accept, and the cap on an explicit `maxLength`. */
+export const CFP_ANSWER_MAX_LENGTH = 10_000;
+/** Answers are keyed by field id, so a submission can never carry more keys than a form has. */
+export const CFP_ANSWER_MAX_FIELDS = 40;
 export const cfpFieldSchema = z.object({
   id: z.string().min(1).max(80),
   type: cfpFieldTypeSchema,
@@ -666,7 +723,17 @@ export const cfpFieldSchema = z.object({
   guidance: z.string().trim().max(500).default(""),
   required: z.boolean().default(false),
   options: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+  /**
+   * The longest answer this field accepts. Optional so forms saved before limits existed
+   * still parse; `cfpFieldMaxLength` supplies the type default for those.
+   */
+  maxLength: z.number().int().min(1).max(CFP_ANSWER_MAX_LENGTH).optional(),
 });
+/** The limit the form builder must advertise and the validator must enforce, for one field. */
+export const cfpFieldMaxLength = (field: {
+  type: z.infer<typeof cfpFieldTypeSchema>;
+  maxLength?: number | undefined;
+}): number => field.maxLength ?? CFP_FIELD_MAX_LENGTHS[field.type];
 export const cfpStatusSchema = z.enum(["draft", "open", "closed"]);
 const cfpFieldsSchema = z
   .array(cfpFieldSchema)
@@ -704,9 +771,21 @@ export const cfpFormSchema = saveCfpInputSchema.extend({
 });
 export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
 export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close", "reopen"]) });
+/**
+ * The only unauthenticated write in the API, so its body is bounded before it reaches a domain.
+ *
+ * A key is a field id (`cfpFieldSchema.id`), a value is one answer, and a submission can carry
+ * no more keys than a form has fields (`cfpFieldsSchema.max(40)`). The per-value ceiling here is
+ * the absolute maximum any field may declare; `validateAnswers` then enforces the narrower,
+ * per-field `maxLength` the published form advertises.
+ */
 export const submitProposalInputSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(120),
-  answers: z.record(z.string()),
+  answers: z
+    .record(z.string().min(1).max(80), z.string().max(CFP_ANSWER_MAX_LENGTH))
+    .refine((answers) => Object.keys(answers).length <= CFP_ANSWER_MAX_FIELDS, {
+      message: `A proposal carries at most ${CFP_ANSWER_MAX_FIELDS} answers`,
+    }),
 });
 export const proposalConfirmationSchema = z.object({
   confirmationId: z.string().uuid(),
@@ -735,7 +814,9 @@ export const publicSpeakerSchema = z.object({
   slug: routeSlugSchema,
   name: z.string(),
   bio: z.string(),
-  headline: z.string(),
+  // Composed from the speaker profile's `organization`. It was published as `headline`,
+  // which promised a job title and delivered an employer.
+  organization: z.string(),
   photoUrl: z.string().optional(),
 });
 export const publicSessionSchema = z.object({

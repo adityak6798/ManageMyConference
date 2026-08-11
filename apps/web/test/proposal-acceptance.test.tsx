@@ -69,6 +69,16 @@ const decision = {
   note: "",
 };
 
+/** The content half of an acceptance, as the decisions route reports it. */
+const accepted = (overrides: Json = {}) => ({
+  proposalId,
+  state: "content" as const,
+  sessionId,
+  detail: "",
+  fieldErrors: {},
+  ...overrides,
+});
+
 const emptyContent = {
   sessions: [],
   speakers: [],
@@ -124,7 +134,7 @@ afterEach(() => {
 });
 
 describe("accepting a triaged proposal", () => {
-  it("posts the decision and then the proposal id alone, and announces the resolved title", async () => {
+  it("accepts in one call and announces the resolved title", async () => {
     let decided = false;
     const sent = stubApi((url) => {
       if (url.includes("/review/organizer"))
@@ -132,11 +142,14 @@ describe("accepting a triaged proposal", () => {
       if (url.endsWith("/review/decisions")) {
         decided = true;
         return jsonResponse(
-          { proposals: [proposal({ status: "accepted" })], decisions: [decision] },
+          {
+            proposals: [proposal({ status: "accepted" })],
+            decisions: [decision],
+            acceptances: [accepted()],
+          },
           201,
         );
       }
-      if (url.endsWith("/content/accept")) return jsonResponse(emptyContent, 201);
       return undefined;
     });
     render(<OrganizerReviewWorkspace eventId={eventId} />);
@@ -158,20 +171,15 @@ describe("accepting a triaged proposal", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirm acceptance" }));
 
-    await waitFor(() => expect(sent).toHaveLength(2));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    // One request, and the review domain's own route: the workspace never reaches into the
+    // content domain to finish an acceptance the server can finish itself.
     expect(sent[0]).toMatchObject({
       url: `/api/events/${eventId}/review/decisions`,
       method: "POST",
       body: { proposalIds: [proposalId], outcome: "accepted", note: "Strongest of the batch" },
     });
-    // Nothing but the proposal id crosses the wire: title, abstract, and speaker identity are
-    // the server's to resolve.
-    expect(sent[1]).toMatchObject({
-      url: `/api/events/${eventId}/content/accept`,
-      method: "POST",
-      body: { proposalId },
-    });
-    expect(Object.keys(sent[1]?.body ?? {})).toEqual(["proposalId"]);
+    expect(sent.some(({ url }) => url.includes("/content/accept"))).toBe(false);
 
     // Several live regions are permanently mounted, so the announcement is found by its text.
     const status = await screen.findByText(/is accepted\. It is now a session/);
@@ -203,19 +211,28 @@ describe("accepting a triaged proposal", () => {
     expect(sent.map(({ url }) => url)).toEqual([`/api/events/${eventId}/review/decisions`]);
   });
 
-  it("shows the server's field-level refusal next to the action and says the decision stands", async () => {
+  it("says the decision stands when the server could not create the session", async () => {
     const sent = stubApi((url) => {
       if (url.includes("/review/organizer")) return jsonResponse(organizerWorkspace());
       if (url.endsWith("/review/decisions"))
-        return jsonResponse({ proposals: [proposal()], decisions: [decision] }, 201);
-      if (url.endsWith("/content/accept"))
         return jsonResponse(
-          failure("VALIDATION_FAILED", "This proposal has no contact address.", {
-            "submitter.email": [
-              "The published form collected no email address, so no speaker can be created.",
+          {
+            proposals: [proposal()],
+            decisions: [decision],
+            acceptances: [
+              accepted({
+                state: "decision_only",
+                sessionId: null,
+                detail: "The speaker identity could not be created from this proposal.",
+                fieldErrors: {
+                  "submitter.email": [
+                    "The published form collected no email address, so no speaker can be created.",
+                  ],
+                },
+              }),
             ],
-          }),
-          400,
+          },
+          201,
         );
       return undefined;
     });
@@ -226,15 +243,48 @@ describe("accepting a triaged proposal", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Confirm acceptance" }));
 
-    await waitFor(() => expect(sent).toHaveLength(2));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    // The 2xx carried a partial outcome, so the workspace reports it as a failure rather than
+    // announcing an acceptance that produced no session.
     expect(
       await screen.findByText(/The published form collected no email address/),
     ).toBeInTheDocument();
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("The acceptance decision was recorded");
-    expect(alert).toHaveTextContent("Reference: trace-77");
-    // Confirm doubles as retry: both steps are idempotent server-side.
-    expect(screen.getByRole("button", { name: "Confirm acceptance" })).toBeInTheDocument();
+    expect(alert).toHaveTextContent("The speaker identity could not be created");
+    expect(alert).toHaveTextContent("Confirm again to finish acceptance");
+    // Confirm doubles as retry: re-posting the same decision heals server-side.
+    expect(screen.getByRole("button", { name: "Confirm acceptance" })).toBeEnabled();
+  });
+
+  it("refuses to offer an acceptance that could never produce a speaker", async () => {
+    const sent = stubApi((url) =>
+      url.includes("/review/organizer")
+        ? jsonResponse(
+            organizerWorkspace({
+              proposals: [proposal({ submitter: null, submitterName: "Applicant" })],
+            }),
+          )
+        : undefined,
+    );
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Accept Typed boundaries at scale" }),
+    );
+
+    const confirm = await screen.findByRole("button", { name: "Confirm acceptance" });
+    expect(confirm).toBeDisabled();
+    // The reason is the control's accessible description, not a sentence elsewhere on the page.
+    expect(confirm).toHaveAccessibleDescription(
+      /carries no contact address, so no speaker can be created from it and it cannot be accepted/,
+    );
+    fireEvent.click(confirm);
+    expect(sent).toHaveLength(0);
+
+    // Declining the same abstract is still offered: only acceptance needs an identity.
+    fireEvent.click(screen.getByRole("button", { name: "Decline Typed boundaries at scale" }));
+    expect(await screen.findByRole("button", { name: "Confirm decline" })).toBeEnabled();
   });
 
   it("declines without creating content", async () => {
@@ -245,6 +295,7 @@ describe("accepting a triaged proposal", () => {
           {
             proposals: [proposal({ status: "declined" })],
             decisions: [{ ...decision, outcome: "declined" }],
+            acceptances: [],
           },
           201,
         );

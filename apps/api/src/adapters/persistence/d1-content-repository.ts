@@ -274,6 +274,9 @@ export class D1ContentRepository
       asset.uploadedAt,
     );
   }
+  async deleteAsset(assetId: string) {
+    await this.run("DELETE FROM speaker_assets WHERE id=?", assetId);
+  }
   async addTask(task: SpeakerTask) {
     await this.run(
       "INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES (?,?,?,?,?,?,?)",

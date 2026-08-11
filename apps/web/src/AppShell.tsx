@@ -129,12 +129,12 @@ export function AppShell({
           ) : null}
 
           <label className="identity">
-            <span className="visually-hidden">Demo identity</span>
+            <span className="visually-hidden">Signed-in role</span>
             <span className="avatar" aria-hidden="true">
               {initials(session.actor.name)}
             </span>
             <select
-              aria-label="Demo identity"
+              aria-label="Signed-in role"
               value={session.actor.persona}
               disabled={busy}
               onChange={(changeEvent) => onSwitchPersona(changeEvent.target.value as Persona)}

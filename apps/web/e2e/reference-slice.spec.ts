@@ -26,7 +26,7 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);
 
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
   await expect(page.getByRole("link", { name: /Review assignments/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create event" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Event settings/ })).toHaveCount(0);
@@ -67,7 +67,8 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeDisabled();
 
   // Publication is immutable: the draft conflict must not reach the public projection.
-  const publicResponse = await request.get(`/api/public/events/${demoEventId}/schedule`);
+  // The public schedule is addressed by the published slug, not the internal event id.
+  const publicResponse = await request.get("/api/public/events/greenroom-demo-summit/schedule");
   expect(publicResponse.ok()).toBeTruthy();
   const body = await publicResponse.json();
   expect(body.schedule.version).toBeGreaterThanOrEqual(2);

@@ -167,7 +167,11 @@ export class D1CrmRepository implements CrmRepository {
         `D1 failed to create prospect atomically: ${failed.error ?? "unknown error"}`,
       );
   }
-  async update(prospect: Prospect, activity?: ProspectActivity, contact?: ProspectContact) {
+  async update(
+    prospect: Prospect,
+    activities: readonly ProspectActivity[] = [],
+    contact?: ProspectContact,
+  ) {
     const statements: D1Statement[] = [
       this.database
         .prepare(
@@ -183,7 +187,9 @@ export class D1CrmRepository implements CrmRepository {
           prospect.eventId,
         ),
     ];
-    if (activity) {
+    // Every activity this command produced rides the same batch as the row update, so a
+    // stage-change entry can never survive a failed transition or be lost after a saved one.
+    for (const activity of activities) {
       statements.push(
         this.database
           .prepare(

@@ -1,5 +1,6 @@
 // @acceptance ACC-CFP
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { submissionThrottle } from "../src/transport/http/throttle";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { CfpService } from "../src/application/cfp/cfp-service";
@@ -10,7 +11,27 @@ import {
 } from "../src/application/identity/demo-session";
 import { createHttpApp } from "../src/transport/http/app";
 const eventId = "00000000-0000-4000-8000-000000000001";
+const otherEventId = "00000000-0000-4000-8000-000000000002";
 const secret = "cfp-test-secret";
+/** Save a form and publish it, so the public submission route has something to validate against. */
+async function publish(
+  app: Awaited<ReturnType<typeof setup>>["app"],
+  cookie: Record<string, string>,
+  fields: Record<string, unknown>[],
+) {
+  const saved = await app.request(`/api/events/${eventId}/cfp`, {
+    method: "PUT",
+    headers: cookie,
+    body: JSON.stringify({ title: "Speak", description: "", fields }),
+  });
+  expect(saved.status).toBe(200);
+  const published = await app.request(`/api/events/${eventId}/cfp/state`, {
+    method: "POST",
+    headers: cookie,
+    body: JSON.stringify({ state: "publish" }),
+  });
+  expect(published.status).toBe(200);
+}
 async function setup() {
   let id = 0;
   const repository = new MemoryCfpRepository();
@@ -50,6 +71,10 @@ async function setup() {
   return { app, cookie };
 }
 describe("CFP HTTP journey", () => {
+  // The submission counter lives in the isolate, not in the app, because the worker builds a
+  // new app per request. Each test starts from an empty window.
+  beforeEach(() => submissionThrottle.reset());
+
   it("keeps drafts private, validates, publishes, and returns the same confirmation on retry", async () => {
     const { app, cookie } = await setup();
     const path = `/api/events/${eventId}/cfp`;
@@ -135,12 +160,185 @@ describe("CFP HTTP journey", () => {
   });
   it("lists event metadata for a direct public session", async () => {
     const { app } = await setup();
-    const response = await app.request("/api/public/events", {
+    const response = await app.request("/api/events/assigned", {
       headers: { cookie: `greenroom_session=${await createDemoSession("public", secret, 2_000)}` },
     });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       events: [{ id: eventId, name: "Public CFP Event" }],
     });
+  });
+
+  it("bounds the one unauthenticated write: per-answer, per-field, and per-key", async () => {
+    const { app, cookie } = await setup();
+    await publish(app, cookie, [
+      { id: "title", type: "short_text", label: "Title", required: true },
+      // The organizer's own limit, which the form advertises and the server enforces.
+      { id: "abstract", type: "long_text", label: "Abstract", maxLength: 400 },
+    ]);
+    const submissionPath = `/api/public/events/${eventId}/submissions`;
+    const submit = (answers: Record<string, string>, key = crypto.randomUUID()) =>
+      app.request(submissionPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: key, answers }),
+      });
+
+    // Issue #64 measured a 120 KB abstract accepted with 201 and persisted. The body schema
+    // now refuses it before any domain sees it.
+    const flood = await submit({ title: "Real", abstract: "x".repeat(120_000) });
+    expect(flood.status).toBe(400);
+    await expect(flood.json()).resolves.toMatchObject({
+      error: {
+        code: "VALIDATION_FAILED",
+        fieldErrors: { "answers.abstract": [expect.any(String)] },
+      },
+    });
+
+    // Under the schema ceiling but over what this field advertises: refused per field.
+    const overField = await submit({ title: "Real", abstract: "x".repeat(401) });
+    expect(overField.status).toBe(400);
+    await expect(overField.json()).resolves.toMatchObject({
+      error: { fieldErrors: { "answers.abstract": ["Keep this answer under 400 characters."] } },
+    });
+    // The type default applies to a field that declares no limit of its own.
+    const overDefault = await submit({ title: "x".repeat(201) });
+    expect(overDefault.status).toBe(400);
+    await expect(overDefault.json()).resolves.toMatchObject({
+      error: { fieldErrors: { "answers.title": ["Keep this answer under 200 characters."] } },
+    });
+
+    // More keys than any form can have fields.
+    const keys = Object.fromEntries(
+      Array.from({ length: 41 }, (_, index) => [`field-${index}`, "value"]),
+    );
+    expect((await submit(keys)).status).toBe(400);
+
+    // Nothing above was persisted: the next honest submission is the first one stored.
+    const accepted = await submit({ title: "Real", abstract: "Short enough" });
+    expect(accepted.status).toBe(201);
+    expect((await accepted.json()).submission.confirmationId).toBeTruthy();
+    // 201s are never stored by a cache — only public GETs are.
+    expect(accepted.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("throttles submissions per address and event", async () => {
+    const { app, cookie } = await setup();
+    await publish(app, cookie, [{ id: "title", type: "short_text", label: "Title" }]);
+    const submit = (path: string, address: string) =>
+      app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": address },
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), answers: { title: "Hi" } }),
+      });
+    const path = `/api/public/events/${eventId}/submissions`;
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 11; attempt += 1)
+      statuses.push((await submit(path, "203.0.113.7")).status);
+    expect(statuses.slice(0, 10)).toEqual(Array.from({ length: 10 }, () => 201));
+    const refused = await submit(path, "203.0.113.7");
+    expect(statuses.at(-1)).toBe(429);
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
+    await expect(refused.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
+    // The budget is per address and per event, so neither another submitter nor another
+    // event is affected by this one.
+    expect((await submit(path, "203.0.113.8")).status).toBe(201);
+    expect(
+      (await submit(`/api/public/events/${otherEventId}/submissions`, "203.0.113.7")).status,
+      // The other event has no published CFP, so the throttle is not what refuses this one.
+    ).toBe(404);
+  });
+
+  it("is embeddable and cacheable from a third-party origin", async () => {
+    const { app, cookie } = await setup();
+    await publish(app, cookie, [{ id: "title", type: "short_text", label: "Title" }]);
+    const path = `/api/public/events/${eventId}/cfp`;
+
+    // Preflight used to reach `app.notFound` and 404, which no browser accepts.
+    const preflight = await app.request(path, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://conference.example",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+    expect(preflight.headers.get("access-control-allow-methods")).toContain("GET");
+    expect(preflight.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(Number(preflight.headers.get("access-control-max-age"))).toBeGreaterThan(0);
+    // Preflight for the write path is answered too, not only for reads.
+    expect(
+      (
+        await app.request(`/api/public/events/${eventId}/submissions`, {
+          method: "OPTIONS",
+          headers: {
+            origin: "https://conference.example",
+            "access-control-request-method": "POST",
+          },
+        })
+      ).status,
+    ).toBe(204);
+
+    const cross = await app.request(path, { headers: { origin: "https://conference.example" } });
+    expect(cross.status).toBe(200);
+    expect(cross.headers.get("access-control-allow-origin")).toBe("*");
+    // A bounded lifetime, not `no-store` and not an unbounded one: 60 seconds is the longest
+    // a shared cache may keep serving something an organizer has retracted.
+    expect(cross.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    const validator = cross.headers.get("etag");
+    expect(validator).toBeTruthy();
+    expect(cross.headers.get("access-control-expose-headers")).toContain("etag");
+
+    // Revalidated from the same third-party origin, because `allowHeaders` invites
+    // `If-None-Match` and a browser discards a 304 that comes back without the CORS header.
+    const revalidated = await app.request(path, {
+      headers: {
+        origin: "https://conference.example",
+        "if-none-match": validator ?? "",
+        "x-correlation-id": "cfp-revalidation",
+      },
+    });
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    expect(revalidated.headers.get("access-control-allow-origin")).toBe("*");
+    // The correlation id survives the 304, or a caller could not report a bad response.
+    expect(revalidated.headers.get("x-correlation-id")).toBe("cfp-revalidation");
+
+    // "Not published" is never cached, so publishing later is visible at once.
+    const missing = await app.request(`/api/public/events/${otherEventId}/cfp`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("answers every public route anonymously and cross-origin, preflight included", async () => {
+    const { app, cookie } = await setup();
+    await publish(app, cookie, [{ id: "title", type: "short_text", label: "Title" }]);
+    const origin = "https://conference.example";
+    for (const path of [
+      `/api/public/events/${eventId}/cfp`,
+      `/api/public/events/${eventId}/submissions`,
+      "/api/public/events/some-published-slug",
+      "/api/public/events/some-published-slug/schedule",
+    ]) {
+      // No route in this namespace may demand a session.
+      const anonymous = await app.request(path, { headers: { origin } });
+      expect({ path, status: anonymous.status }).not.toEqual({ path, status: 401 });
+      // Whatever the outcome, a browser on another origin can read it.
+      expect({ path, allowed: anonymous.headers.get("access-control-allow-origin") }).toEqual({
+        path,
+        allowed: "*",
+      });
+      const preflight = await app.request(path, {
+        method: "OPTIONS",
+        headers: { origin, "access-control-request-method": "GET" },
+      });
+      expect({ path, status: preflight.status }).toEqual({ path, status: 204 });
+      expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+    }
+    // The one route that did demand a session has left the namespace entirely.
+    expect((await app.request("/api/public/events")).status).toBe(404);
   });
 });

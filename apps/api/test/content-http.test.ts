@@ -44,7 +44,11 @@ async function cookie(persona: "organizer" | "reviewer" | "speaker") {
  * The whole chain, in memory: proposals that came through the CFP, the review domain that can
  * decide on them, and the content service that may only act on a recorded decision.
  */
-function app() {
+function app(
+  /** Events whose public page is live; an asset is public only while its event is. */
+  publishedEvents: Set<string> = new Set(),
+  storage: DeterministicAssetStorage = new DeterministicAssetStorage(),
+) {
   let id = 0;
   const newId = () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`;
   const repository = new MemoryContentRepository({
@@ -124,9 +128,10 @@ function app() {
     undefined,
     new ContentService({
       repository,
-      assetStorage: new DeterministicAssetStorage(),
+      assetStorage: storage,
       proposals: review,
       speakerConversion: new MemorySpeakerConversion(repository, newId),
+      eventPublication: { isEventPublished: async (id) => publishedEvents.has(id) },
       newId,
       now: () => new Date("2026-08-10T12:00:00.000Z"),
     }),
@@ -244,7 +249,9 @@ describe("content HTTP transport", () => {
   });
 
   it("returns a speaker-scoped portal and denies reviewer access", async () => {
-    const api = app();
+    // The event's public page is live throughout, which is what lets a publishable asset be
+    // read anonymously at all; the withdrawal test below varies that.
+    const api = app(new Set([eventId]));
     const organizer = await cookie("organizer");
     await decide(api, organizer, { proposalIds: [submittedProposalId], outcome: "accepted" });
     expect((await accept(api, organizer, submittedProposalId)).status).toBe(201);
@@ -342,7 +349,9 @@ describe("content HTTP transport", () => {
     expect(anonymous.headers.get("content-type")).toBe("image/png");
     expect(anonymous.headers.get("x-content-type-options")).toBe("nosniff");
     expect(anonymous.headers.get("content-security-policy")).toContain("sandbox");
-    expect(anonymous.headers.get("cache-control")).toBe("public, max-age=3600");
+    // Bounded, because publication is now reversible: an hour of shared-cache lifetime would
+    // outlive any withdrawal an organizer makes.
+    expect(anonymous.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
     expect((await api.request("/api/speaker-assets/not-a-uuid")).status).toBe(400);
 
     const sessionId = portalBody.sessions[0]?.id;
@@ -394,5 +403,141 @@ describe("content HTTP transport", () => {
     });
     expect(emptyCalendar.status).toBe(404);
     await expect(emptyCalendar.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+  });
+
+  it("withdraws published assets by unpublishing the asset, the event, or deleting it", async () => {
+    const publishedEvents = new Set([eventId]);
+    const storage = new DeterministicAssetStorage();
+    const api = app(publishedEvents, storage);
+    const organizer = await cookie("organizer");
+    const speaker = await cookie("speaker");
+    await decide(api, organizer, { proposalIds: [submittedProposalId], outcome: "accepted" });
+    expect((await accept(api, organizer, submittedProposalId)).status).toBe(201);
+    const portal = await (
+      await api.request(`/api/events/${eventId}/content`, { headers: speaker })
+    ).json();
+    const profileId = portal.speakers[0]?.id;
+    const uploaded = await api.request("/api/speaker-assets", {
+      method: "POST",
+      headers: speaker,
+      body: JSON.stringify({
+        profileId,
+        name: "slides.pdf",
+        contentType: "application/pdf",
+        contentBase64: "AQID",
+      }),
+    });
+    expect(uploaded.status).toBe(201);
+    const assetId = (await uploaded.json()).asset.id;
+    const unknownAssetId = "00000000-0000-4000-8000-0000000000ff";
+    const anonymousRead = () => api.request(`/api/speaker-assets/${assetId}`);
+    const ownerRead = () => api.request(`/api/speaker-assets/${assetId}`, { headers: speaker });
+
+    expect(
+      (
+        await api.request(`/api/speaker-assets/${assetId}/publish`, {
+          method: "POST",
+          headers: organizer,
+        })
+      ).status,
+    ).toBe(200);
+    const live = await anonymousRead();
+    expect(live.status).toBe(200);
+    const validator = live.headers.get("etag");
+    expect(validator).toBeTruthy();
+    // Served bytes carry the correlation id like every other response; a raw `Response`
+    // used to drop it, leaving an asset failure undiagnosable.
+    expect(live.headers.get("x-correlation-id")).toBeTruthy();
+    // Revalidation is a bodyless 304, which is what makes the short public lifetime cheap.
+    const revalidated = await api.request(`/api/speaker-assets/${assetId}`, {
+      headers: { "if-none-match": validator ?? "" },
+    });
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+
+    // Unpublishing the *event* withdraws the bytes its public page exposed. Live before this
+    // change: an anonymous read stayed 200 whatever the event's publication state.
+    publishedEvents.delete(eventId);
+    expect((await anonymousRead()).status).toBe(404);
+    // The people who could always read it still can — and never through a shared cache.
+    const owner = await ownerRead();
+    expect(owner.status).toBe(200);
+    expect(owner.headers.get("cache-control")).toBe("private, no-store");
+    expect(
+      (await api.request(`/api/speaker-assets/${assetId}`, { headers: organizer })).status,
+    ).toBe(200);
+    // Publishing the event again restores it: nothing about the asset was rewritten.
+    publishedEvents.add(eventId);
+    expect((await anonymousRead()).status).toBe(200);
+
+    // Unpublishing the asset is organizer-only, and takes effect on the next read.
+    expect(
+      (
+        await api.request(`/api/speaker-assets/${assetId}/unpublish`, {
+          method: "POST",
+          headers: speaker,
+        })
+      ).status,
+    ).toBe(403);
+    const unpublished = await api.request(`/api/speaker-assets/${assetId}/unpublish`, {
+      method: "POST",
+      headers: organizer,
+    });
+    expect(unpublished.status).toBe(200);
+    expect((await unpublished.json()).asset.visibility).toBe("private");
+    expect((await anonymousRead()).status).toBe(404);
+    expect((await ownerRead()).status).toBe(200);
+    // An id that does not exist and one on another organizer's event are refused the same way.
+    for (const path of [`${unknownAssetId}/unpublish`, `${unknownAssetId}/publish`])
+      expect(
+        (await api.request(`/api/speaker-assets/${path}`, { method: "POST", headers: organizer }))
+          .status,
+      ).toBe(403);
+    expect(
+      (
+        await api.request(`/api/speaker-assets/not-a-uuid/unpublish`, {
+          method: "POST",
+          headers: organizer,
+        })
+      ).status,
+    ).toBe(400);
+
+    // Deletion removes the row and the object together.
+    expect(storage.objects.size).toBe(1);
+    expect((await api.request(`/api/speaker-assets/${assetId}`, { method: "DELETE" })).status).toBe(
+      401,
+    );
+    expect(
+      (
+        await api.request(`/api/speaker-assets/${assetId}`, {
+          method: "DELETE",
+          headers: await cookie("reviewer"),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api.request(`/api/speaker-assets/${unknownAssetId}`, {
+          method: "DELETE",
+          headers: speaker,
+        })
+      ).status,
+    ).toBe(403);
+    const deleted = await api.request(`/api/speaker-assets/${assetId}`, {
+      method: "DELETE",
+      headers: speaker,
+    });
+    expect(deleted.status).toBe(204);
+    expect(storage.objects.size).toBe(0);
+    for (const headers of [{}, speaker, organizer])
+      expect((await api.request(`/api/speaker-assets/${assetId}`, { headers })).status).toBe(404);
+    // A deleted asset is now indistinguishable from one that never existed.
+    expect(
+      (await api.request(`/api/speaker-assets/${assetId}`, { method: "DELETE", headers: speaker }))
+        .status,
+    ).toBe(403);
+    await expect(
+      (await api.request(`/api/events/${eventId}/content`, { headers: organizer })).json(),
+    ).resolves.toMatchObject({ assets: [] });
   });
 });

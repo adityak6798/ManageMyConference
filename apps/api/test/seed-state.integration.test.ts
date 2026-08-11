@@ -1,5 +1,4 @@
 // @acceptance ACC-CFP ACC-PUBLIC
-import { readdir, readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -8,6 +7,7 @@ import {
 } from "../src/adapters/persistence/d1-cfp-repository";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
 import { D1PublicationRepository } from "../src/adapters/persistence/d1-publication-repository";
+import { applySeed } from "./support/seeded-d1";
 
 /**
  * The deterministic seed is the demo. A defect in it cannot be caught by any suite
@@ -19,83 +19,12 @@ import { D1PublicationRepository } from "../src/adapters/persistence/d1-publicat
  * `npm run reset` does, and asserts the resulting state is actually demonstrable.
  */
 
-/**
- * Split SQL on statement boundaries. A plain `split(";")` corrupts the trigger
- * migrations, whose bodies contain their own semicolons between BEGIN and END.
- */
-function statements(sql: string): string[] {
-  const found: string[] = [];
-  let current = "";
-  let inString = false;
-  let blockDepth = 0;
-
-  for (let index = 0; index < sql.length; index += 1) {
-    const character = sql[index] as string;
-
-    if (inString) {
-      current += character;
-      // '' is an escaped quote inside a SQL string, not the end of one.
-      if (character === "'") {
-        if (sql[index + 1] === "'") {
-          current += "'";
-          index += 1;
-        } else inString = false;
-      }
-      continue;
-    }
-
-    if (character === "'") {
-      inString = true;
-      current += character;
-      continue;
-    }
-
-    const upcoming = sql.slice(index);
-    const beginMatch = /^BEGIN\b/i.exec(upcoming);
-    if (beginMatch) {
-      blockDepth += 1;
-      current += beginMatch[0];
-      index += beginMatch[0].length - 1;
-      continue;
-    }
-    const endMatch = /^END\b/i.exec(upcoming);
-    if (endMatch && blockDepth > 0) {
-      blockDepth -= 1;
-      current += endMatch[0];
-      index += endMatch[0].length - 1;
-      continue;
-    }
-
-    if (character === ";" && blockDepth === 0) {
-      if (current.trim()) found.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += character;
-  }
-
-  if (current.trim()) found.push(current.trim());
-  return found;
-}
-
 const demoEventId = "00000000-0000-4000-8000-000000000001";
 const demoSlug = "greenroom-demo-summit";
 
 async function seededDatabase(runtime: Miniflare) {
   const database = await runtime.getD1Database("DB");
-  const migrationsDirectory = new URL("../migrations/", import.meta.url);
-  // Read the directory rather than a hand-maintained list so a new migration is
-  // covered the moment it lands.
-  const migrations = (await readdir(migrationsDirectory))
-    .filter((name) => name.endsWith(".sql"))
-    .sort();
-  expect(migrations.length).toBeGreaterThan(0);
-  for (const migration of migrations) {
-    const sql = await readFile(new URL(migration, migrationsDirectory), "utf8");
-    for (const statement of statements(sql)) await database.prepare(statement).run();
-  }
-  const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-  for (const statement of statements(reset)) await database.prepare(statement).run();
+  await applySeed(database);
   return database;
 }
 

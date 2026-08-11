@@ -218,6 +218,12 @@
   text-transform: uppercase;
 }
 
+/* The shared rule covers inputs and textareas; the owner control is the CRM's only select
+   that can carry a server-side refusal. */
+.crm select[aria-invalid="true"] {
+  border-color: var(--danger-fg);
+}
+
 @media (max-width: 700px) {
   .crm .crm-toolbar-row {
     padding: var(--s-3) var(--s-4) 0;

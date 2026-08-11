@@ -219,7 +219,7 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
   ).toHaveAttribute("value", "shortlisted");
 
   // ---- the reviewer scores the abstract that was just assigned -------------
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
   await page.goto(QUEUE);
 
   const queue = page.getByRole("region", { name: "Your queue" });
@@ -259,7 +259,7 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
   );
 
   // ---- the organizer, and only the organizer, sees the aggregate -----------
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("organizer");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
   await page.goto(TRIAGE);
   await expect(
     page

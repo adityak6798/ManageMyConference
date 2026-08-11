@@ -204,7 +204,9 @@ function ProjectionPreview({ projection, timezone }: { projection: Projection; t
               {projection.speakers.map((speaker) => (
                 <li key={speaker.slug}>
                   <strong>{speaker.name}</strong>
-                  <span className="publishing-sub">{speaker.headline || "no headline"}</span>
+                  <span className="publishing-sub">
+                    {speaker.organization || "no organization"}
+                  </span>
                 </li>
               ))}
             </ul>

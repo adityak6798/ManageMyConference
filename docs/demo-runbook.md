@@ -54,7 +54,10 @@ Every workspace has its own URL, so each step below is directly linkable and sur
 6. **Publishing** (`/publishing`) — the public projection, end to end and without touching the seed.
    **Preview** composes the payload from the current draft and publishes nothing; **Publish** freezes
    that payload as an immutable snapshot and reveals the public link; **Unpublish** takes it down and
-   the public routes go back to the standard not-published response. The panel names which parts of
+   the public routes — the event page, `/api/public/events/greenroom-demo-summit/schedule`, and the
+   speaker headshots that snapshot exposed — go back to the standard not-published response. On a
+   clean reset the seeded snapshot is already exactly what Publish composes, so pressing Publish
+   before changing anything is a visible no-op rather than a collapse of the page. The panel names which parts of
    the draft have moved ahead of the snapshot, so "why is my edit not on the site" is answered on
    screen. Both embed views are here with their addresses, a paste-ready `<iframe>` snippet behind a
    copy button, and a live frame of the real embed:

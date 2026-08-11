@@ -178,9 +178,15 @@
 }
 /* Kept clickable-looking but inert in flight: disabling the control mid-request
    moves focus to the document body and the outcome is announced to nobody. */
-.decision-actions button[aria-disabled="true"] {
+.decision-actions button[aria-disabled="true"]:not(:disabled) {
   opacity: 0.55;
   cursor: progress;
+}
+/* A truly disabled Confirm is not waiting on anything — it is an acceptance that can never
+   succeed — so it must not borrow the in-flight cursor above. */
+.decision-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .decision-actions {
   align-items: center;

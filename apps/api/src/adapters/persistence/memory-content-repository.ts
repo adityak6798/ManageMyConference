@@ -3,6 +3,7 @@ import {
   type AcceptedContent,
   ContentConflictError,
 } from "../../application/content/content-repository";
+import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
   SpeakerConversionCommand,
   SpeakerConversionPort,
@@ -14,7 +15,14 @@ import type {
   SpeakerTask,
 } from "../../domain/content/content";
 
-export class MemoryContentRepository implements ContentRepository {
+const by =
+  <T>(key: (item: T) => string) =>
+  (left: T, right: T) =>
+    key(left) < key(right) ? -1 : key(left) > key(right) ? 1 : 0;
+
+export class MemoryContentRepository
+  implements ContentRepository, AgendaContentQuery, PublishingContentQuery
+{
   private sessions: ContentWorkspace["sessions"] = [];
   private speakers: ContentWorkspace["speakers"] = [];
   private tasks: ContentWorkspace["tasks"] = [];
@@ -61,12 +69,76 @@ export class MemoryContentRepository implements ContentRepository {
         item.eventId === eventId &&
         (!userId || item.speakerProfileIds.some((id) => profileIds.has(id))),
     );
+    // Same ordering the D1 repository's `ORDER BY` clauses produce, so a projection
+    // composed against this repository has the same shape as one composed in production.
+    return {
+      sessions: sessions.toSorted(by((item) => item.title)),
+      speakers: speakers.toSorted(by((item) => item.name)),
+      tasks: this.tasks
+        .filter((item) => profileIds.has(item.speakerProfileId))
+        .toSorted(by((item) => `${item.dueAt}\u0000${item.title}`)),
+      assets: this.assets
+        .filter((item) => profileIds.has(item.speakerProfileId))
+        .toSorted(by((item) => item.uploadedAt)),
+      messages: this.messages
+        .filter((item) => profileIds.has(item.speakerProfileId))
+        .toSorted(by((item) => item.sentAt)),
+    };
+  }
+
+  /**
+   * The agenda and publishing domains read content through these two public application
+   * interfaces, never through `workspace`. They mirror `D1ContentRepository` exactly —
+   * including the filters that keep draft sessions and private assets out of anything
+   * publishable — so a test that composes against this repository exercises the real join.
+   */
+  async listSchedulableSessions(eventId: string) {
+    const workspace = await this.workspace(eventId);
+    return workspace.sessions.map(({ id, title, speakerProfileIds, tracks }) => ({
+      id,
+      title,
+      speakerProfileIds,
+      tracks,
+    }));
+  }
+
+  async publishedEventContent(eventId: string) {
+    const workspace = await this.workspace(eventId);
+    const sessions = workspace.sessions
+      .filter(({ publicationState }) => publicationState === "published")
+      .map(({ id, title, abstract, format, speakerProfileIds, tags, tracks }) => ({
+        id,
+        title,
+        abstract,
+        format,
+        speakerProfileIds,
+        tags,
+        tracks,
+      }));
+    const speakerIds = new Set(sessions.flatMap(({ speakerProfileIds }) => speakerProfileIds));
     return {
       sessions,
-      speakers,
-      tasks: this.tasks.filter((item) => profileIds.has(item.speakerProfileId)),
-      assets: this.assets.filter((item) => profileIds.has(item.speakerProfileId)),
-      messages: this.messages.filter((item) => profileIds.has(item.speakerProfileId)),
+      speakers: workspace.speakers
+        .filter(({ id }) => speakerIds.has(id))
+        .map(({ id, name, bio, pronouns, organization, photoAssetId }) => ({
+          id,
+          name,
+          bio,
+          pronouns,
+          organization,
+          ...(photoAssetId ? { photoAssetId } : {}),
+        })),
+      assets: workspace.assets
+        .filter(
+          ({ speakerProfileId, visibility }) =>
+            speakerIds.has(speakerProfileId) && visibility === "publishable",
+        )
+        .map(({ id, speakerProfileId, name, contentType }) => ({
+          id,
+          speakerProfileId,
+          name,
+          contentType,
+        })),
     };
   }
   async updateProfile(profile: SpeakerProfile) {
@@ -83,6 +155,9 @@ export class MemoryContentRepository implements ContentRepository {
   }
   async addAsset(asset: SpeakerAsset) {
     this.assets = [...this.assets, asset];
+  }
+  async deleteAsset(assetId: string) {
+    this.assets = this.assets.filter(({ id }) => id !== assetId);
   }
   async addTask(task: SpeakerTask) {
     this.tasks = [...this.tasks, task];

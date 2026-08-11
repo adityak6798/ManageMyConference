@@ -102,20 +102,20 @@ const projection = {
       slug: "maya-chen",
       name: "Maya Chen",
       bio: "Maya helps growing communities build humane operational practices.",
-      headline: "Greenroom Labs",
+      organization: "Greenroom Labs",
       photoUrl: PHOTO_URL,
     },
     {
       slug: "jordan-bell",
       name: "Jordan Bell",
       bio: "Jordan works with event teams on inclusive experiences.",
-      headline: "Accessibility lead",
+      organization: "Accessibility lead",
     },
     {
       slug: "ana-ruiz",
       name: "Ana Ruiz",
       bio: "Ana runs a volunteer-led community conference.",
-      headline: "Harbor Collective",
+      organization: "Harbor Collective",
     },
   ],
 };
@@ -216,8 +216,8 @@ describe("public speaker gallery", () => {
 
     expect(container.querySelectorAll("h1")).toHaveLength(1);
     expect(container.querySelectorAll(".pub-profile .pub-avatar")).toHaveLength(1);
-    // `headline` is composed from the speaker's organization, so it is labelled as an
-    // affiliation instead of being announced as a job title.
+    // The projection publishes the speaker profile's `organization`, so the line is
+    // labelled as an affiliation instead of being announced as a job title.
     const headline = container.querySelector(".pub-speaker-headline");
     expect(headline?.textContent).toBe("Affiliation: Harbor Collective");
     expect(headline?.querySelector(".pub-sr")?.textContent).toBe("Affiliation: ");

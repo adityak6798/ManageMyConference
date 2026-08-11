@@ -87,7 +87,10 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Event workspace" })).toHaveValue(eventId);
     expect(screen.getByRole("link", { name: /Event settings/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Agenda/ })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Demo identity" })).toHaveValue("organizer");
+    expect(screen.getByRole("combobox", { name: "Signed-in role" })).toHaveValue("organizer");
+    // The organizer console is the product, not a walkthrough of one: no shipped copy calls
+    // the seeded identities a demo (issue #35).
+    expect((document.body.textContent ?? "").toLowerCase()).not.toContain("demo");
   });
 
   it("does not mount communications for a selected event where the actor is not organizer", async () => {
@@ -193,8 +196,8 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    await screen.findByRole("combobox", { name: "Demo identity" });
-    expect(fetchMock).toHaveBeenCalledWith("/api/public/events");
+    await screen.findByRole("combobox", { name: "Signed-in role" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/events/assigned");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
   });
 

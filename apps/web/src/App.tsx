@@ -8,8 +8,8 @@ import {
   ApiError,
   createEvent,
   getSession,
+  listAssignedEvents,
   listEvents,
-  listPublicEvents,
   startDemoSession,
 } from "./api/events";
 import { CfpWorkspace } from "./CfpWorkspace";
@@ -85,7 +85,7 @@ export function App() {
     const loadedEvents = currentSession.capabilities.includes("events:read")
       ? await listEvents()
       : currentSession.actor.persona === "public"
-        ? await listPublicEvents()
+        ? await listAssignedEvents()
         : [];
     setSession(currentSession);
     setEvents(loadedEvents);
@@ -248,7 +248,7 @@ export function App() {
       <main className="page-body" style={{ maxWidth: 560, margin: "12vh auto" }}>
         <PageHeader
           eyebrow="Project Greenroom"
-          title="Choose a demo workspace"
+          title="Choose a workspace role"
           subtitle="Each seeded identity sees exactly the access its role grants."
         />
         <Card>
@@ -334,7 +334,7 @@ export function App() {
       <PageHeader title="No access to this workspace" subtitle={selectedEvent?.name} />
       <Card>
         <EmptyState title="Your role on this event does not include this workspace">
-          Switch to an event you organize, or change demo identity from the top right.
+          Switch to an event you organize, or change the signed-in role from the top right.
         </EmptyState>
       </Card>
     </>
@@ -347,7 +347,7 @@ export function App() {
           <PageHeader title="No event workspace" />
           <Card>
             <EmptyState title="This identity has no event assigned">
-              Switch demo identity from the top right to see an assigned workspace.
+              Switch the signed-in role from the top right to see an assigned workspace.
             </EmptyState>
           </Card>
         </>

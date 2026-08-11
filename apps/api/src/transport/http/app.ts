@@ -22,6 +22,7 @@ import {
   profileParamsSchema,
   prospectListQuerySchema,
   prospectPathSchema,
+  type ProposalAcceptanceDto,
   proposalStatusSchema,
   recordProposalDecisionInputSchema,
   reviewAssignmentParamsSchema,
@@ -40,10 +41,14 @@ import {
   retryDeliveryInputSchema,
   triggerDeliveryInputSchema,
   publicEventProjectionSchema,
+  publicEventSlugParamsSchema,
   publicationPreviewResponseSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
+import { cors } from "hono/cors";
+import { etag, RETAINED_304_HEADERS } from "hono/etag";
+import { clientAddress, submissionThrottle } from "./throttle";
 import type { EventService } from "../../application/events/event-service";
 import {
   CommunicationsConflictError,
@@ -65,6 +70,7 @@ import {
   ProspectAlreadyConvertedError,
   ProspectContactRequiredError,
   ProspectNotFoundError,
+  ProspectOwnerNotEligibleError,
 } from "../../application/crm/public";
 import {
   ReviewConflictError,
@@ -109,6 +115,11 @@ export type RuntimeAuthConfig =
   | { demoMode: false; now?: () => number };
 class MalformedJsonError extends Error {}
 const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
+/**
+ * How long a shared cache may serve a public representation, and therefore the longest a
+ * withdrawn event or asset can still be visible. See the middleware that applies it.
+ */
+const PUBLIC_CACHE_CONTROL = "public, max-age=60, must-revalidate";
 
 const envelope = (
   code: ApiErrorEnvelope["error"]["code"],
@@ -205,6 +216,62 @@ export function createHttpApp(
     else if (context.res.status < 500) logger.info(fields, "request.completed");
   });
 
+  /*
+   * `/api/public/*` is a public API, and these three middlewares are what make that true
+   * for every route in it at once rather than route by route.
+   *
+   * CORS: the namespace is anonymous by construction — no route under it reads the session
+   * — so `Access-Control-Allow-Origin: *` without credentials is safe, and it is what lets a
+   * conference's own site embed the schedule. `OPTIONS` used to fall through to `notFound`
+   * and 404, which no preflight accepts.
+   *
+   * ETag + caching: the embed hits these endpoints on every page load, so `no-store` was
+   * paying full price every time. 60 seconds is chosen against withdrawal, not against
+   * traffic: unpublishing an event or retracting an asset must take effect promptly, and
+   * `max-age` is exactly how long a shared cache may keep serving something an organizer has
+   * already retracted. `must-revalidate` forbids serving stale content past that window (so
+   * no `stale-while-revalidate` grace on top of it), and the ETag makes the revalidation a
+   * bodyless 304. A minute of collapsed traffic is worth at most a minute of staleness;
+   * anything longer trades a withdrawal guarantee for cache hits, which is not ours to trade.
+   * Anything that is not a 200 — a 404 for an unpublished event, a submission response — is
+   * explicitly `no-store`, so a cache cannot pin "not published" over a later publish.
+   */
+  app.use(
+    "/api/public/*",
+    cors({
+      origin: "*",
+      allowMethods: ["GET", "HEAD", "POST", "OPTIONS"],
+      allowHeaders: ["content-type", "if-none-match", "x-correlation-id"],
+      exposeHeaders: ["etag", "x-correlation-id"],
+      maxAge: 86_400,
+    }),
+  );
+  app.use(
+    "/api/public/*",
+    // A 304 keeps only the headers the RFC names, and two of ours have to outlive that.
+    // The correlation id is the only way a caller can report a bad response. The CORS
+    // headers matter even more: `allowHeaders` invites a third-party page to send
+    // `If-None-Match`, and a browser rejects the 304 that comes back unless it still
+    // carries `Access-Control-Allow-Origin`, so revalidation would fail from every origin
+    // the namespace exists to serve.
+    etag({
+      retainedHeaders: [
+        ...RETAINED_304_HEADERS,
+        "x-correlation-id",
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+      ],
+    }),
+  );
+  app.use("/api/public/*", async (context, next) => {
+    await next();
+    // HEAD is advertised in `allowMethods` and answered by the same handlers as GET, so it
+    // carries the same policy; anything else, and any non-200, is never stored.
+    const cacheable =
+      (context.req.method === "GET" || context.req.method === "HEAD") && context.res.status === 200;
+    context.res.headers.set("cache-control", cacheable ? PUBLIC_CACHE_CONTROL : "no-store");
+  });
+
   app.get("/health", (context) =>
     context.json({
       status: "ok",
@@ -226,7 +293,8 @@ export function createHttpApp(
         envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
         404,
       );
-    context.header("cache-control", "no-store");
+    // Cache policy for this namespace belongs to the `/api/public/*` middleware above, which
+    // gives every public representation the same bounded lifetime and an ETag.
     return context.json({ projection: parsed.data });
   });
   app.get("/api/publishing/events/:eventId/preview", async (context) => {
@@ -319,6 +387,19 @@ export function createHttpApp(
   });
   app.get("/api/events", async (context) =>
     context.json({ events: (await service.list(context.get("actor"))).map(eventToDto) }),
+  );
+  /*
+   * Every event the signed-in actor holds any role on, whatever capabilities that role
+   * carries — which is how the public demo identity, who holds no `events:read`, still sees
+   * the event it was invited to.
+   *
+   * It lived at `GET /api/public/events` and answered 401 to anonymous callers, which made
+   * "public" a lie and left the one namespace that has to work without a session holding a
+   * route that cannot. Registered before `/api/events/:eventId` so the static segment wins
+   * over the parameter.
+   */
+  app.get("/api/events/assigned", async (context) =>
+    context.json({ events: (await service.listAssigned(context.get("actor"))).map(eventToDto) }),
   );
   app.post("/api/events", async (context) => {
     requireCapability(context.get("actor"), "events:create");
@@ -605,25 +686,38 @@ export function createHttpApp(
         400,
       );
     if (!content) throw new Error("Content service is unavailable");
-    // Authorization lives in the service: publishable assets are readable by anyone,
-    // private ones only by the owning speaker or an organizer of the event.
+    // Authorization lives in the service: an asset is public only while it is publishable
+    // *and* its event is published; private ones reach only the owning speaker or an
+    // organizer of the event. A withheld asset and a missing one are the same 404, so ids
+    // cannot be enumerated (`ARC-AUTH-001`).
     const found = await content.readAsset(context.get("actor"), params.data.assetId);
     if (!found)
       return context.json(
         envelope("NOT_FOUND", "The asset was not found.", context.get("correlationId")),
         404,
       );
-    return new Response(found.bytes as unknown as BodyInit, {
-      headers: {
-        "content-type": found.contentType,
-        "content-length": String(found.bytes.byteLength),
-        // Private assets must never be stored by a shared cache.
-        "cache-control":
-          found.asset.visibility === "publishable" ? "public, max-age=3600" : "private, no-store",
-        // Uploaded files are untrusted; never let a browser execute one inline.
-        "content-security-policy": "default-src 'none'; sandbox",
-        "x-content-type-options": "nosniff",
-      },
+    // Uploaded bytes never change — there is no replace route — so identity plus upload
+    // instant is a strong validator, and revalidating the short public lifetime below costs
+    // a bodyless 304 rather than the file.
+    const validator = `"${found.asset.id}-${found.asset.uploadedAt}"`;
+    const headers = {
+      // Only bytes served through the *public* door may be stored by a shared cache: the
+      // same publishable asset is also served to its owner while the event is unpublished,
+      // and that response must never end up in front of the public.
+      "cache-control": found.publiclyReadable ? PUBLIC_CACHE_CONTROL : "private, no-store",
+      etag: validator,
+      // Uploaded files are untrusted; never let a browser execute one inline.
+      "content-security-policy": "default-src 'none'; sandbox",
+      "x-content-type-options": "nosniff",
+    };
+    // `context.body` rather than a raw `Response`: a raw one drops the headers prepared by
+    // the middleware above, which is how these bytes used to be served with no correlation id.
+    if (context.req.header("if-none-match")?.includes(validator))
+      return context.body(null, 304, headers);
+    return context.body(found.bytes as unknown as ArrayBuffer, 200, {
+      ...headers,
+      "content-type": found.contentType,
+      "content-length": String(found.bytes.byteLength),
     });
   });
   app.post("/api/speaker-assets/:assetId/publish", async (context) => {
@@ -638,6 +732,42 @@ export function createHttpApp(
     return context.json({
       asset: await content.publishAsset(context.get("actor"), params.data.assetId),
     });
+  });
+  /*
+   * Publication is reversible. An asset published by mistake goes back to `private`, which
+   * closes the public door immediately; the shared-cache window is bounded by the short
+   * `max-age` the read above serves. Organizer-only, like publishing it.
+   */
+  app.post("/api/speaker-assets/:assetId/unpublish", async (context) => {
+    requireCapability(context.get("actor"), "content:manage");
+    const params = speakerAssetParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Asset ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      asset: await content.unpublishAsset(context.get("actor"), params.data.assetId),
+    });
+  });
+  /*
+   * Deletion removes the row and the stored object together. The speaker who uploaded the
+   * file may take it back, and an organizer of the event may remove one that should never
+   * have been received. An unknown id and an asset on someone else's event are refused
+   * identically, so neither reveals the other (`ARC-AUTH-001`).
+   */
+  app.delete("/api/speaker-assets/:assetId", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const params = speakerAssetParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Asset ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    await content.deleteAsset(context.get("actor"), params.data.assetId);
+    return context.body(null, 204);
   });
   app.post("/api/speaker-assets", async (context) => {
     requireCapability(context.get("actor"), "content:read");
@@ -831,6 +961,36 @@ export function createHttpApp(
       mode: "atomic" as const,
     });
   });
+  /**
+   * A content refusal the organizer can act on, or `null` for anything else.
+   *
+   * Only the content domain's typed input refusals answer here. Anything else — a denied
+   * capability, a dropped connection, a broken query — is rethrown so `app.onError` gives it its
+   * own status and correlation id, rather than being flattened into a 201 that claims the
+   * request was fine.
+   */
+  const acceptanceRefusal = (error: unknown) => {
+    if (error instanceof ProposalSubmitterUnavailableError)
+      return {
+        detail: "This proposal has no contact address, so no speaker could be created from it.",
+        fieldErrors: {
+          "submitter.email": [
+            "The published form collected no email address, so no speaker can be created.",
+          ],
+        },
+      };
+    if (error instanceof SpeakerIdentityUnavailableError)
+      return {
+        detail: "The speaker identity could not be created from this proposal.",
+        fieldErrors: error.fields,
+      };
+    if (error instanceof ProposalNotAcceptedError || error instanceof ProposalNotFoundError)
+      return {
+        detail: "The content domain no longer sees an acceptance decision for this proposal.",
+        fieldErrors: { proposalId: ["This proposal is not accepted."] },
+      };
+    return null;
+  };
   app.post("/api/events/:eventId/review/decisions", async (context) => {
     const params = reviewEventParamsSchema.safeParse(context.req.param());
     if (!params.success)
@@ -851,16 +1011,65 @@ export function createHttpApp(
         400,
       );
     if (!reviewService) throw new Error("Review service is not configured");
-    return context.json(
-      await reviewService.decide(
-        context.get("actor"),
-        params.data.eventId,
-        parsed.data.proposalIds,
-        parsed.data.outcome,
-        parsed.data.note,
-      ),
-      201,
+    const { eventId } = params.data;
+    // Acceptance is one request. Transport composes the two application services — the review
+    // decision authorizes the session, and content creates it — so the client never orchestrates
+    // across a domain boundary. Neither service imports the other: content depends on review's
+    // public `AcceptedProposalQuery`, and review stays unaware of content.
+    const contentService = parsed.data.outcome === "accepted" ? content : undefined;
+    if (parsed.data.outcome === "accepted") {
+      if (!contentService) throw new Error("Content service is unavailable");
+      // Checked before anything is recorded: an actor who could not create the session must not
+      // leave a decision behind.
+      requireCapability(context.get("actor"), "content:manage");
+    }
+    const decided = await reviewService.decide(
+      context.get("actor"),
+      eventId,
+      parsed.data.proposalIds,
+      parsed.data.outcome,
+      parsed.data.note,
     );
+    const acceptances: ProposalAcceptanceDto[] = [];
+    if (contentService)
+      for (const { proposalId } of decided.decisions) {
+        try {
+          const workspace = await contentService.accept(
+            context.get("actor"),
+            { eventId, proposalId },
+            context.get("correlationId"),
+          );
+          acceptances.push({
+            proposalId,
+            state: "content",
+            sessionId:
+              workspace.sessions.find((session) => session.proposalId === proposalId)?.id ?? null,
+            detail: "",
+            fieldErrors: {},
+          });
+        } catch (error) {
+          const refusal = acceptanceRefusal(error);
+          if (!refusal) throw error;
+          // The decision is already durable and is not what failed, so it is reported as
+          // recorded with the session missing rather than the whole request as refused.
+          // Re-posting the identical decision overwrites it and retries the session, which
+          // heals the gap.
+          logger.warn(
+            {
+              correlationId: context.get("correlationId"),
+              operation: context.get("operation"),
+              actorId: context.get("actor")?.id,
+              eventId,
+              proposalId,
+              errorName: error instanceof Error ? error.name : "unknown",
+              errorMessage: error instanceof Error ? error.message : String(error),
+            },
+            "review.acceptance.incomplete",
+          );
+          acceptances.push({ proposalId, state: "decision_only", sessionId: null, ...refusal });
+        }
+      }
+    return context.json({ ...decided, acceptances }, 201);
   });
   app.get("/api/events/:eventId/review/assignments", async (context) => {
     const params = reviewEventParamsSchema.safeParse(context.req.param());
@@ -1018,9 +1227,6 @@ export function createHttpApp(
       );
     return context.json({ cfp: await cfpService.getPublished(parsed.data.eventId) });
   });
-  app.get("/api/public/events", async (context) =>
-    context.json({ events: (await service.listAssigned(context.get("actor"))).map(eventToDto) }),
-  );
   app.post("/api/public/events/:eventId/submissions", async (context) => {
     if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
     const params = eventIdParamsSchema.safeParse(context.req.param());
@@ -1029,6 +1235,27 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
         400,
       );
+    /*
+     * The only write in the API that needs no session, so it is the only one an anonymous
+     * flood can reach. The counter is per address *and* per event: one abusive submitter
+     * cannot spend another event's budget, and it is checked before the body is parsed so a
+     * refused caller costs nothing but a map lookup. Best effort by design — see `throttle.ts`.
+     */
+    const throttled = submissionThrottle.check(
+      `${clientAddress(context.req.raw.headers)}:${params.data.eventId}`,
+      (auth.now ?? Date.now)(),
+    );
+    if (!throttled.allowed) {
+      context.header("retry-after", String(throttled.retryAfterSeconds));
+      return context.json(
+        envelope(
+          "RATE_LIMITED",
+          "Too many proposals from this address. Try again shortly.",
+          context.get("correlationId"),
+        ),
+        429,
+      );
+    }
     const parsed = submitProposalInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -1094,6 +1321,19 @@ export function createHttpApp(
       },
       201,
     );
+  });
+  // Registered before `/prospects/:prospectId` so the literal segment is not swallowed by the
+  // parameterised route.
+  app.get("/api/events/:eventId/prospects/owners", async (context) => {
+    requireCapability(context.get("actor"), "crm:manage");
+    if (!crm) throw new Error("CRM service is not configured");
+    const path = eventIdParamsSchema.safeParse(context.req.param());
+    if (!path.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    return context.json({ owners: await crm.listOwners(context.get("actor"), path.data.eventId) });
   });
   app.get("/api/events/:eventId/prospects/:prospectId", async (context) => {
     requireCapability(context.get("actor"), "crm:manage");
@@ -1228,16 +1468,27 @@ export function createHttpApp(
       201,
     );
   });
-  app.get("/api/public/events/:eventId/schedule", async (context) => {
-    if (!agenda) throw new AgendaNotFoundError("Schedule not configured");
-    const parsed = agendaIdParamsSchema.safeParse(context.req.param());
-    if (!parsed.success)
-      return context.json(
-        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
-        400,
+  /*
+   * The public schedule is addressed by the event's public slug, like every other public
+   * route, and is gated on the publication being live: unpublishing has to take the whole
+   * public surface down, and the internal event UUID is not an address the public is given.
+   * Publishing owns "is this event public"; agenda owns the snapshot. Neither reads the
+   * other's tables — this route composes their two public application interfaces.
+   */
+  app.get("/api/public/events/:slug/schedule", async (context) => {
+    const notPublished = () =>
+      context.json(
+        envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
+        404,
       );
-    const schedule = await agenda.published(parsed.data.eventId);
-    if (!schedule) throw new AgendaNotFoundError("Published schedule not found");
+    const parsed = publicEventSlugParamsSchema.safeParse(context.req.param());
+    // An unknown slug, a malformed slug, an unpublished event and an unpublished agenda
+    // are one indistinguishable response, so the route cannot be used to enumerate events.
+    if (!parsed.success || !agenda || !publishing) return notPublished();
+    const projection = await publishing.publicBySlug(parsed.data.slug);
+    if (!projection) return notPublished();
+    const schedule = await agenda.published(projection.event.eventId);
+    if (!schedule) return notPublished();
     return context.json({ schedule });
   });
   app.notFound((context) =>
@@ -1295,6 +1546,18 @@ export function createHttpApp(
       return context.json(
         envelope("VALIDATION_FAILED", "Converted prospects cannot be changed.", correlationId),
         409,
+      );
+    // An owner the identity directory does not list for this event is a typed refusal with the
+    // offending field named, not the foreign-key crash the organizer used to see as a 500.
+    if (error instanceof ProspectOwnerNotEligibleError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Choose an owner who works on this event.",
+          correlationId,
+          error.fields,
+        ),
+        400,
       );
     if (error instanceof ReviewValidationError)
       return context.json(

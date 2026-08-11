@@ -45,7 +45,7 @@ const projection = {
       slug: "ada-lovelace",
       name: "Ada Lovelace",
       bio: "Analytical engines and their programmes.",
-      headline: "Greenroom Labs",
+      organization: "Greenroom Labs",
     },
   ],
 };

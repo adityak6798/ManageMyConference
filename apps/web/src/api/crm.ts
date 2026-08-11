@@ -1,13 +1,17 @@
 import {
   apiErrorEnvelopeSchema,
   type ProspectDto,
+  type ProspectOwnerDto,
   prospectListResponseSchema,
+  prospectOwnerListResponseSchema,
   prospectResponseSchema,
 } from "@greenroom/contracts";
 export class CrmApiError extends Error {
   constructor(
     readonly correlationId: string,
     message: string,
+    /** Server-named input paths, e.g. `ownerId`, so a refusal can be shown on its own control. */
+    readonly fieldErrors: Record<string, string[]> = {},
   ) {
     super(message);
   }
@@ -18,10 +22,30 @@ async function decode(response: Response) {
   if (!response.ok) {
     const error = apiErrorEnvelopeSchema.safeParse(body);
     if (error.success)
-      throw new CrmApiError(error.data.error.correlationId, error.data.error.message);
+      throw new CrmApiError(
+        error.data.error.correlationId,
+        error.data.error.message,
+        error.data.error.fieldErrors ?? {},
+      );
     throw new Error(`CRM API failed with status ${response.status}`);
   }
   return body;
+}
+
+/** Field-level detail from a handled CRM failure, keyed by the input path the server named. */
+export function crmFieldErrors(reason: unknown): Record<string, string[]> {
+  return reason instanceof CrmApiError ? reason.fieldErrors : {};
+}
+
+/**
+ * The identities the server will accept as a prospect owner on this event. The CRM cannot
+ * derive this list — event staffing belongs to identity-access — so the select is populated
+ * from the same query the write path validates against.
+ */
+export async function listProspectOwners(eventId: string): Promise<ProspectOwnerDto[]> {
+  return prospectOwnerListResponseSchema.parse(
+    await decode(await fetch(`/api/events/${eventId}/prospects/owners`)),
+  ).owners;
 }
 export async function listProspects(eventId: string, filter = "all"): Promise<ProspectDto[]> {
   const query = filter === "all" ? "" : filter === "overdue" ? "?overdue=true" : `?stage=${filter}`;

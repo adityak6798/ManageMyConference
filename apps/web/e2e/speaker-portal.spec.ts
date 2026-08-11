@@ -62,7 +62,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   ).toBeVisible();
 
   // ---- speaker portal ----
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("speaker");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await page.goto(PORTAL);
 
@@ -104,7 +104,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   // Only an organizer can clear a private upload for publication. Switching identity off
   // the speaker portal lands on the organizer's own home, since /portal is not a route an
   // organizer can reach; navigate to the sessions workspace from there.
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("organizer");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await page.goto(SESSIONS);
   await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
@@ -114,12 +114,15 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await expect(assets.getByRole("cell", { name: "headshot.png image/png" })).toBeVisible();
   await assets.getByRole("button", { name: /^Mark publishable/ }).click();
   // The spent control stays in place so keyboard focus survives the round trip.
-  await expect(assets.getByRole("button", { name: /^Publishable/ })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  // The seed already ships one publishable headshot, so scope the assertion to the row
+  // for the file this test uploaded.
+  await expect(
+    assets
+      .getByRole("row", { name: /headshot\.png/ })
+      .getByRole("button", { name: /^Publishable/ }),
+  ).toHaveAttribute("aria-disabled", "true");
 
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("speaker");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await page.goto(PORTAL);
   const calendar = page.getByRole("link", { name: "Download calendar (.ics)" });

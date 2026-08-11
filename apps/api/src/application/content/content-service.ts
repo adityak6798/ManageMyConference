@@ -12,6 +12,7 @@ import {
   type AssetStoragePort,
   ContentConflictError,
   type ContentRepository,
+  type EventPublicationQuery,
 } from "./content-repository";
 
 /**
@@ -42,6 +43,12 @@ export interface ContentServiceDependencies {
   proposals: AcceptedProposalQuery;
   /** Idempotent speaker provisioning, shared with CRM conversion (`ARC-FLOW-003`). */
   speakerConversion: SpeakerConversionPort;
+  /**
+   * Publication state of the owning event, consulted before any asset is served publicly.
+   * Omitted means "no event is published", so an unwired deployment withholds bytes rather
+   * than exposing them.
+   */
+  eventPublication?: EventPublicationQuery;
   newId: () => string;
   now: () => Date;
 }
@@ -342,50 +349,117 @@ export class ContentService {
    * Access mirrors how the asset was uploaded: organizers of the owning event and
    * the speaker who owns the profile may read any of their assets; everyone else,
    * including anonymous public traffic, may read only assets an organizer has
-   * explicitly marked publishable.
+   * explicitly marked publishable *while that event's public page is live*.
+   *
+   * Tying the public door to the event's publication state is deliberate. `publishAsset`
+   * means "this may appear on the event's public page"; if the organizer takes the page
+   * down, the bytes it exposed have to go with it, or `POST /unpublish` is not a withdrawal
+   * at all. Deriving it at read time rather than rewriting every asset's visibility keeps
+   * re-publishing the event lossless and leaves the organizer's own decision intact.
+   *
+   * `publiclyReadable` reports which door opened, because only bytes served through the
+   * public one may be stored by a shared cache.
    */
   async readAsset(
     actor: Actor | null,
     assetId: string,
-  ): Promise<{ asset: SpeakerAsset; contentType: string; bytes: Uint8Array } | null> {
+  ): Promise<{
+    asset: SpeakerAsset;
+    contentType: string;
+    bytes: Uint8Array;
+    publiclyReadable: boolean;
+  } | null> {
     const asset = await this.dependencies.repository.findAsset(assetId);
     if (!asset) return null;
-
-    if (asset.visibility !== "publishable") {
-      // Missing and inaccessible collapse to the same null so the route cannot be used to
-      // discover which asset ids exist — `ARC-AUTH-001` in docs/architecture/authorization.md
-      // requires that errors not reveal whether an inaccessible record exists. This route is
-      // reachable anonymously, which is why it collapses rather than throwing the way the
-      // organizer-only mutations below do.
-      let authorized: Actor;
-      try {
-        authorized = requireCapability(actor, "content:read");
-      } catch {
-        // ERROR-INTENT: an unauthenticated or uncapable caller must not learn the asset exists.
-        return null;
-      }
-      const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
-      // Ownership is event-scoped: `content:read` is the union across every event the
-      // actor can touch, so matching the stored user id alone would keep serving this
-      // asset after the speaker's access to its event was removed.
-      const ownsProfile =
-        profile?.userId === authorized.id && hasEventRole(authorized, asset.eventId, "speaker");
-      if (!hasEventRole(authorized, asset.eventId, "organizer") && !ownsProfile) return null;
-    }
-
+    // Missing and inaccessible collapse to the same null so the route cannot be used to
+    // discover which asset ids exist — `ARC-AUTH-001` in docs/architecture/authorization.md
+    // requires that errors not reveal whether an inaccessible record exists. This route is
+    // reachable anonymously, which is why it collapses rather than throwing the way the
+    // organizer-only mutations below do.
+    const publiclyReadable =
+      asset.visibility === "publishable" &&
+      (await (this.dependencies.eventPublication?.isEventPublished(asset.eventId) ??
+        Promise.resolve(false)));
+    if (!publiclyReadable && !(await this.mayReadPrivately(actor, asset))) return null;
     const stored = await this.dependencies.assetStorage.get(asset.storageKey);
     if (!stored) return null;
-    return { asset, contentType: stored.contentType, bytes: stored.bytes };
+    return { asset, contentType: stored.contentType, bytes: stored.bytes, publiclyReadable };
+  }
+
+  /** The owning speaker and organizers of the event read an asset whatever its visibility. */
+  private async mayReadPrivately(actor: Actor | null, asset: SpeakerAsset): Promise<boolean> {
+    let authorized: Actor;
+    try {
+      authorized = requireCapability(actor, "content:read");
+    } catch {
+      // ERROR-INTENT: an unauthenticated or uncapable caller must not learn the asset exists.
+      return false;
+    }
+    if (hasEventRole(authorized, asset.eventId, "organizer")) return true;
+    const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
+    // Ownership is event-scoped: `content:read` is the union across every event the actor can
+    // touch, so matching the stored user id alone would keep serving this asset after the
+    // speaker's access to its event was removed.
+    return profile?.userId === authorized.id && hasEventRole(authorized, asset.eventId, "speaker");
   }
 
   async publishAsset(actor: Actor | null, assetId: string) {
+    return this.setAssetVisibility(actor, assetId, "publishable");
+  }
+
+  /**
+   * Return a published asset to `private`.
+   *
+   * The reverse of `publishAsset` and organizer-only for the same reason: publication is the
+   * organizer's decision, so retracting one is too. An unknown id and an asset belonging to
+   * another organizer's event fail identically, so neither can be told apart (`ARC-AUTH-001`).
+   */
+  async unpublishAsset(actor: Actor | null, assetId: string) {
+    return this.setAssetVisibility(actor, assetId, "private");
+  }
+
+  private async setAssetVisibility(
+    actor: Actor | null,
+    assetId: string,
+    visibility: SpeakerAsset["visibility"],
+  ) {
     const authorized = requireCapability(actor, "content:manage");
     const asset = await this.dependencies.repository.findAsset(assetId);
     if (!asset || !hasEventRole(authorized, asset.eventId, "organizer"))
       throw new CapabilityDeniedError("Organizer asset access denied");
-    const updated: SpeakerAsset = { ...asset, visibility: "publishable" };
+    const updated: SpeakerAsset = { ...asset, visibility };
     await this.dependencies.repository.updateAsset(updated);
     return updated;
+  }
+
+  /**
+   * Delete an asset: the stored object first, then the row that points at it.
+   *
+   * The speaker who owns the profile may withdraw their own upload, and an organizer of the
+   * event may remove one they should never have received. The stored object goes first so a
+   * failure part-way through leaves a row whose bytes are already gone — reads 404 either way
+   * — rather than an orphaned object nobody can reach to delete. A profile photo that pointed
+   * at this asset is cleared first, so no public projection is left advertising a dead URL.
+   */
+  async deleteAsset(actor: Actor | null, assetId: string): Promise<void> {
+    const authorized = requireCapability(actor, "content:read");
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    const profile = asset
+      ? await this.dependencies.repository.findProfile(asset.speakerProfileId)
+      : null;
+    const isOwner = Boolean(
+      profile &&
+        profile.userId === authorized.id &&
+        hasEventRole(authorized, profile.eventId, "speaker"),
+    );
+    if (!asset || (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer")))
+      throw new CapabilityDeniedError("Speaker asset access denied");
+    if (profile?.photoAssetId === asset.id) {
+      const { photoAssetId: _removed, ...withoutPhoto } = profile;
+      await this.dependencies.repository.updateProfile(withoutPhoto);
+    }
+    await this.dependencies.assetStorage.delete(asset.storageKey);
+    await this.dependencies.repository.deleteAsset(asset.id);
   }
 
   async upload(

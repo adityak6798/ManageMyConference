@@ -31,6 +31,7 @@ import {
   healthResponseSchema,
   prospectListQuerySchema,
   prospectListResponseSchema,
+  prospectOwnerListResponseSchema,
   prospectPathSchema,
   prospectResponseSchema,
   organizerReviewWorkspaceSchema,
@@ -233,7 +234,7 @@ registry.registerPath({
   method: "post",
   path: "/api/events/{eventId}/review/decisions",
   description:
-    "Records an accept/decline decision and moves the proposal to the matching reserved status. Only an accepted decision authorizes content acceptance.",
+    "Records an accept/decline decision and moves the proposal to the matching reserved status. For an accepted outcome the same request also creates the session, because the recorded decision is what authorizes it; `acceptances` reports which half happened per proposal. A `decision_only` entry means the decision is durable and the session was refused, so re-posting the identical decision retries it.",
   security: [{ sessionCookie: [] }],
   request: {
     params: reviewEventParamsSchema,
@@ -336,10 +337,15 @@ registry.registerPath({
 });
 registry.registerPath({
   method: "get",
-  path: "/api/public/events",
+  path: "/api/events/assigned",
+  // Requires a session and answers 401 without one, which is why it is not under
+  // `/api/public`: nothing in that namespace may demand a session.
   security: [{ sessionCookie: [] }],
   responses: {
-    200: { description: "Publicly assigned events", content: json(eventListResponseSchema) },
+    200: {
+      description: "Events the session holds any role on",
+      content: json(eventListResponseSchema),
+    },
     401: errorResponse,
     500: errorResponse,
   },
@@ -386,6 +392,8 @@ registry.registerPath({
     },
     400: errorResponse,
     404: errorResponse,
+    // Throttled per client address and event; the response carries `Retry-After`.
+    429: errorResponse,
     500: errorResponse,
   },
 });
@@ -483,11 +491,27 @@ registry.registerPath({
   responses: {
     200: {
       description:
-        "Raw asset bytes. Publishable assets are readable by anyone; private assets only by the owning speaker or an event organizer.",
+        "Raw asset bytes. Readable by anyone while the asset is publishable and its event is published; otherwise only by the owning speaker or an event organizer.",
       content: { "*/*": { schema: { type: "string", format: "binary" } } },
     },
+    304: { description: "Unchanged since the ETag the caller supplied" },
     400: errorResponse,
     404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/speaker-assets/{assetId}",
+  // The uploading speaker or an organizer of the event. An unknown id and an asset on
+  // another event are refused identically, so neither can be told from the other.
+  security: [{ sessionCookie: [] }],
+  request: { params: speakerAssetParamsSchema },
+  responses: {
+    204: { description: "Asset row and stored object removed" },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
     500: errorResponse,
   },
 });
@@ -499,6 +523,22 @@ registry.registerPath({
   responses: {
     200: {
       description: "Organizer-approved publishable asset",
+      content: json(z.object({ asset: speakerAssetSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/speaker-assets/{assetId}/unpublish",
+  security: [{ sessionCookie: [] }],
+  request: { params: speakerAssetParamsSchema },
+  responses: {
+    200: {
+      description: "Asset returned to private, ending anonymous reads",
       content: json(z.object({ asset: speakerAssetSchema })),
     },
     400: errorResponse,
@@ -668,14 +708,13 @@ registry.registerPath({
 });
 registry.registerPath({
   method: "get",
-  path: "/api/public/events/{eventId}/schedule",
-  request: { params: agendaIdParamsSchema },
+  path: "/api/public/events/{slug}/schedule",
+  request: { params: publicEventSlugParamsSchema },
   responses: {
     200: {
-      description: "Latest public-safe published schedule",
+      description: "Latest public-safe published schedule for a published event",
       content: json(z.object({ schedule: publicScheduleSchema })),
     },
-    400: errorResponse,
     404: errorResponse,
     500: errorResponse,
   },
@@ -767,6 +806,22 @@ registry.registerPath({
   },
   responses: {
     201: { description: "Created prospect", content: json(prospectResponseSchema) },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/events/{eventId}/prospects/owners",
+  security: [{ sessionCookie: [] }],
+  request: { params: eventIdParamsSchema },
+  responses: {
+    200: {
+      description: "Users assignable as the owner of a prospect on this event",
+      content: json(prospectOwnerListResponseSchema),
+    },
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,

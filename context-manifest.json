@@ -58,7 +58,7 @@
       "domain": [],
       "application": [],
       "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core"],
-      "transport": ["@greenroom/contracts", "hono", "hono/cookie"],
+      "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
       "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
       "contracts": ["zod"]
     }
@@ -233,6 +233,7 @@
         "apps/api/test/d1-crm-repository.integration.test.ts",
         "apps/web/src/CrmWorkspace.tsx",
         "apps/web/src/api/crm.ts",
+        "apps/web/test/crm-owner-assignment.test.tsx",
         "apps/web/e2e/crm.spec.ts"
       ]
     },
@@ -296,6 +297,7 @@
         "apps/api/migrations/0020_public_event_projections.sql",
         "apps/api/test/publication.test.ts",
         "apps/api/test/d1-publication-repository.integration.test.ts",
+        "apps/api/test/support/seeded-d1.ts",
         "apps/web/src/PublicEventApp.tsx",
         "apps/web/src/PublishingWorkspace.tsx",
         "apps/web/src/styles/publishing.css",

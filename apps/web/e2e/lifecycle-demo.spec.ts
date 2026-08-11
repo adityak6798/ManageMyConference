@@ -36,16 +36,16 @@ test("makes the complete seeded lifecycle discoverable across every role", async
   await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "Event settings" })).toBeVisible();
 
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
   await expect(page.getByRole("heading", { level: 1, name: "Review assignments" })).toBeVisible();
   for (const forbidden of [/Speaker CRM/, /Communications/, /Event settings/])
     await expect(navigation.getByRole("link", { name: forbidden })).toHaveCount(0);
 
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("speaker");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await expect(navigation.getByRole("link", { name: /Abstracts/ })).toHaveCount(0);
 
-  await page.getByRole("combobox", { name: "Demo identity" }).selectOption("public");
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("public");
   await expect(page.getByRole("button", { name: "Create event" })).toHaveCount(0);
 
   expect(consoleErrors).toEqual([]);

@@ -74,8 +74,11 @@ function setup(
     proposals?: AcceptedProposalQuery;
     speakerConversion?: (repository: MemoryContentRepository, newId: () => string) => unknown;
     seedSpeaker?: boolean;
+    /** Events whose public page is live. An asset is public only while its event is. */
+    publishedEvents?: Set<string>;
   } = {},
 ) {
+  const publishedEvents = options.publishedEvents ?? new Set([eventId]);
   const repository = new MemoryContentRepository(
     options.seedSpeaker === false
       ? undefined
@@ -87,6 +90,7 @@ function setup(
   return {
     repository,
     storage,
+    publishedEvents,
     service: new ContentService({
       repository,
       assetStorage: storage,
@@ -98,6 +102,7 @@ function setup(
         ]),
       speakerConversion: (options.speakerConversion?.(repository, newId) ??
         new MemorySpeakerConversion(repository, newId)) as SpeakerConversionPort,
+      eventPublication: { isEventPublished: async (id) => publishedEvents.has(id) },
       newId,
       now: () => new Date("2026-08-10T12:00:00.000Z"),
     }),
@@ -306,9 +311,68 @@ describe("ContentService", () => {
     await service.publishAsset(organizer, asset.id);
     await expect(service.readAsset(null, asset.id)).resolves.toMatchObject({
       asset: { visibility: "publishable" },
+      // Only this door permits a shared cache to keep the bytes.
+      publiclyReadable: true,
     });
 
     expect(await service.readAsset(organizer, "00000000-0000-4000-8000-0000000000ff")).toBeNull();
+  });
+
+  it("ties a published asset to the event's publication state and to deletion", async () => {
+    const { service, storage, repository, publishedEvents } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const speaker = await resolveSeededDemoActor("speaker");
+    await service.accept(organizer, command, correlationId);
+    const profileId = (await service.workspace(speaker, eventId)).speakers[0]?.id as string;
+    const asset = await service.upload(speaker, {
+      profileId,
+      name: "headshot.png",
+      contentType: "image/png",
+      bytes: new Uint8Array([7]),
+    });
+    await service.publishAsset(organizer, asset.id);
+    expect(await service.readAsset(null, asset.id)).not.toBeNull();
+
+    // Taking the event's public page down takes its assets with it. The organizer and the
+    // owning speaker keep their own access, and it is not marked cacheable for them.
+    publishedEvents.delete(eventId);
+    expect(await service.readAsset(null, asset.id)).toBeNull();
+    await expect(service.readAsset(speaker, asset.id)).resolves.toMatchObject({
+      publiclyReadable: false,
+    });
+    await expect(service.readAsset(organizer, asset.id)).resolves.toMatchObject({
+      publiclyReadable: false,
+    });
+    // Nothing was rewritten, so publishing the event again restores the public read.
+    publishedEvents.add(eventId);
+    await expect(service.readAsset(null, asset.id)).resolves.toMatchObject({
+      publiclyReadable: true,
+    });
+
+    // Retracting the asset itself is organizer work, and reversible in its own right.
+    await expect(service.unpublishAsset(speaker, asset.id)).rejects.toThrow();
+    await expect(service.unpublishAsset(organizer, asset.id)).resolves.toMatchObject({
+      visibility: "private",
+    });
+    expect(await service.readAsset(null, asset.id)).toBeNull();
+    await service.publishAsset(organizer, asset.id);
+
+    // A profile photo that pointed at the asset must not survive it, or the public page
+    // would advertise a URL that 404s.
+    await repository.updateProfile({
+      ...(await repository.findProfile(profileId)),
+      photoAssetId: asset.id,
+    } as NonNullable<Awaited<ReturnType<typeof repository.findProfile>>>);
+    await expect(
+      service.deleteAsset(await resolveSeededDemoActor("reviewer"), asset.id),
+    ).rejects.toThrow();
+    await service.deleteAsset(speaker, asset.id);
+    expect(storage.objects.size).toBe(0);
+    expect(await repository.findAsset(asset.id)).toBeNull();
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
+    expect(await service.readAsset(organizer, asset.id)).toBeNull();
+    // Deleting again is refused exactly like deleting something that never existed.
+    await expect(service.deleteAsset(organizer, asset.id)).rejects.toThrow();
   });
 
   it("persists canonical bytes through the production R2 port", async () => {

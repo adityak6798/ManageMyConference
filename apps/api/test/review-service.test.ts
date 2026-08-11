@@ -1,15 +1,16 @@
 // @acceptance ACC-REVIEW
 import { describe, expect, it } from "vitest";
+import { D1SubmittedProposalAdapter } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
-import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import { requireEventCapability } from "../src/application/identity/actor";
+import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import { ProposalNotAcceptedError, ProposalNotFoundError } from "../src/application/review/public";
 import {
   ReviewConflictError,
   ReviewService,
   ReviewValidationError,
 } from "../src/application/review/review-service";
-import { ProposalNotAcceptedError, ProposalNotFoundError } from "../src/application/review/public";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const proposalId = "10000000-0000-4000-8000-000000000001";
@@ -216,39 +217,169 @@ describe("review workflow", () => {
     expect(JSON.stringify(queue)).not.toContain("Robin Submitter");
   });
 
-  it("supplies the reserved decision statuses to an event that never configured them", async () => {
+  it("hides a person's name from reviewers without hiding a field that merely says 'name'", async () => {
+    // The projection the reviewer queue reads is built by the D1 adapter, so it is exercised
+    // here against a stubbed database rather than through the memory adapter's canned rows.
+    const answers = {
+      title: "Designing the calm conference",
+      name: "The Calm Conference",
+      speaker_name: "Alex Morgan",
+      email: "alex.morgan@example.test",
+    };
+    const fields = [
+      { id: "title", type: "short_text", label: "Proposal title" },
+      // Ambiguous id, unambiguous label: this is the session's name, not a person's.
+      { id: "name", type: "short_text", label: "Session name" },
+      { id: "speaker_name", type: "short_text", label: "Who is presenting" },
+      { id: "email", type: "email", label: "Contact email" },
+    ];
+    const row = {
+      id: proposalId,
+      event_id: eventId,
+      answers_json: JSON.stringify(answers),
+      form_fields_json: JSON.stringify(fields),
+      status: "submitted",
+    };
+    const statement = {
+      bind: () => statement,
+      run: async () => ({ success: true }),
+      all: async <T>() => ({ success: true, results: [row as T] }),
+    };
+    const adapter = new D1SubmittedProposalAdapter({
+      prepare: () => statement,
+      batch: async () => [{ success: true }],
+    });
+
+    const projected = await adapter.find(eventId, proposalId);
+    // The id rule used to short-circuit ahead of the anchored label pattern, so "Session name"
+    // was withheld from reviewers as if it were the applicant's name.
+    expect(projected?.answers.map(({ fieldId }) => fieldId)).toEqual(["title", "name"]);
+    expect(projected?.answers.find(({ fieldId }) => fieldId === "name")?.value).toBe(
+      "The Calm Conference",
+    );
+    // The field that really does name a person is still withheld and still identifies the
+    // submitter for organizers.
+    expect(projected?.submitter).toEqual({
+      name: "Alex Morgan",
+      email: "alex.morgan@example.test",
+    });
+    expect(JSON.stringify(projected?.answers)).not.toContain("Alex Morgan");
+  });
+
+  it("keeps a person-name field masked when its label describes the name in prose", async () => {
+    // Organizers write labels, not identifiers. A label rule that vetoes an unambiguous
+    // person-name id put the applicant's name straight into the reviewer's answer list and
+    // left the organizer's submitter name as the raw email address.
+    const cases = [
+      { id: "speaker_name", label: "Speaker's name" },
+      { id: "full_name", label: "Your full name" },
+      { id: "submitter_name", label: "Name of the submitting author" },
+      { id: "name", label: "Presenter name" },
+    ];
+    for (const { id, label } of cases) {
+      const row = {
+        id: proposalId,
+        event_id: eventId,
+        answers_json: JSON.stringify({
+          title: "Designing the calm conference",
+          [id]: "Alex Morgan",
+          email: "alex.morgan@example.test",
+        }),
+        form_fields_json: JSON.stringify([
+          { id: "title", type: "short_text", label: "Proposal title" },
+          { id, type: "short_text", label },
+          { id: "email", type: "email", label: "Contact email" },
+        ]),
+        status: "submitted",
+      };
+      const statement = {
+        bind: () => statement,
+        run: async () => ({ success: true }),
+        all: async <T>() => ({ success: true, results: [row as T] }),
+      };
+      const projected = await new D1SubmittedProposalAdapter({
+        prepare: () => statement,
+        batch: async () => [{ success: true }],
+      }).find(eventId, proposalId);
+
+      expect(JSON.stringify(projected?.answers), `${id} / ${label}`).not.toContain("Alex Morgan");
+      expect(projected?.submitter?.name, `${id} / ${label}`).toBe("Alex Morgan");
+    }
+  });
+
+  it("persists the reserved decision statuses it advertises rather than projecting them", async () => {
     const { service, proposals } = build();
     const organizer = await resolveSeededDemoActor("organizer");
     // The CFP insert trigger seeds only `submitted` for a newly created event.
     await proposals.saveStatuses(eventId, [{ key: "submitted", label: "Submitted", sortOrder: 0 }]);
-    expect(
-      (await service.organizerWorkspace(organizer, eventId)).statuses.map(({ key }) => key),
-    ).toEqual(["submitted", "accepted", "declined"]);
-    // And deciding heals storage rather than failing on an unconfigured status.
+
+    const advertised = (await service.organizerWorkspace(organizer, eventId)).statuses.map(
+      ({ key }) => key,
+    );
+    expect(advertised).toEqual(["submitted", "accepted", "declined"]);
+    // Storage is the single source of truth: reading the workspace stored what it advertised.
+    expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toEqual(advertised);
+    // And every status the workspace offered is one a transition accepts, which is the exact
+    // sequence that used to answer 400 for `accepted`.
+    for (const toStatus of advertised)
+      await expect(
+        service.bulkTransition(organizer, eventId, [proposalId], toStatus),
+      ).resolves.toMatchObject([{ status: toStatus }]);
+    // Deciding still heals storage for an event that never went through the workspace.
+    await proposals.saveStatuses(eventId, [{ key: "declined", label: "Declined", sortOrder: 0 }]);
     await expect(
       service.decide(organizer, eventId, [proposalId], "accepted"),
     ).resolves.toMatchObject({ proposals: [{ status: "accepted" }] });
     expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toContain("accepted");
   });
 
-  it("refuses to let an organizer configure the reserved decision statuses away", async () => {
-    const { service } = build();
+  it("completes a status set that leaves the reserved decision statuses out, rather than refusing it", async () => {
+    const { service, proposals } = build();
     const organizer = await resolveSeededDemoActor("organizer");
-    // ERROR-INTENT: the rejection is the assertion subject; it is inspected on the next lines.
-    const refused = await service
-      .configureStatuses(organizer, eventId, [
-        { key: "submitted", label: "Submitted", sortOrder: 0 },
-      ])
-      .catch((error: ReviewValidationError) => error);
-    expect(refused).toBeInstanceOf(ReviewValidationError);
-    expect((refused as ReviewValidationError).fields.statuses?.[0]).toContain("accepted, declined");
+
+    // The pipeline an organizer actually configures says nothing about decisions.
+    const saved = await service.configureStatuses(organizer, eventId, [
+      { key: "submitted", label: "Submitted", sortOrder: 0 },
+      { key: "under_review", label: "Under review", sortOrder: 1 },
+    ]);
+    expect(saved.map(({ key }) => key)).toEqual([
+      "submitted",
+      "under_review",
+      "accepted",
+      "declined",
+    ]);
+    expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toEqual(
+      saved.map(({ key }) => key),
+    );
+    // Relabelling and reordering a reserved status is the organizer's to do; deleting it is not,
+    // so their definition survives and the missing one is filled in.
+    const relabelled = await service.configureStatuses(organizer, eventId, [
+      { key: "accepted", label: "In the programme", sortOrder: 0 },
+      { key: "submitted", label: "Submitted", sortOrder: 1 },
+    ]);
+    expect(relabelled).toEqual([
+      { key: "accepted", label: "In the programme", sortOrder: 0 },
+      { key: "submitted", label: "Submitted", sortOrder: 1 },
+      { key: "declined", label: "Declined", sortOrder: 91 },
+    ]);
+    // A non-reserved status still in use may not be dropped — that guard is untouched.
+    await service.configureStatuses(organizer, eventId, [
+      { key: "submitted", label: "Submitted", sortOrder: 0 },
+      { key: "under_review", label: "Under review", sortOrder: 1 },
+    ]);
+    await service.bulkTransition(organizer, eventId, [proposalId], "under_review");
     await expect(
       service.configureStatuses(organizer, eventId, [
         { key: "submitted", label: "Submitted", sortOrder: 0 },
-        { key: "accepted", label: "In the programme", sortOrder: 1 },
-        { key: "declined", label: "Not this year", sortOrder: 2 },
       ]),
-    ).resolves.toHaveLength(3);
+    ).rejects.toBeInstanceOf(ReviewValidationError);
+    // Duplicate keys are still rejected outright.
+    await expect(
+      service.configureStatuses(organizer, eventId, [
+        { key: "submitted", label: "Submitted", sortOrder: 0 },
+        { key: "submitted", label: "Again", sortOrder: 1 },
+      ]),
+    ).rejects.toBeInstanceOf(ReviewValidationError);
   });
 
   it("fails safely for cross-event, unassigned, unauthorized, invalid scores, and conflicts", async () => {

@@ -97,10 +97,14 @@ export async function transitionProposals(
   );
 }
 /**
- * Record an accept/decline decision.
+ * Record an accept/decline decision, and — for an acceptance — create the session in the same
+ * request.
  *
- * The decision is what authorizes content: `POST /content/accept` consults the recorded
- * outcome, never the status label, so acceptance always runs this first.
+ * One call, because the two halves belong to two domains and sequencing them is the server's
+ * job, not the client's: the recorded decision is what authorizes the session, and a client that
+ * had to make the second call could leave a proposal accepted with nothing to show for it. The
+ * response's `acceptances` says which half happened for every proposal; a `decision_only` entry
+ * means the decision stands and re-posting it retries the session.
  */
 export async function recordProposalDecision(
   eventId: string,

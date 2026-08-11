@@ -27,6 +27,17 @@ const setup = () => {
     speakerConversion: {
       createOrLink: async () => ({ speakerId: "40000000-0000-4000-8000-000000000001" }),
     },
+    // The seeded staff of event one, exactly as the identity directory reports them: the
+    // speaker persona is absent, and nobody from another event appears.
+    identities: {
+      listAssignableOwnersForEvent: async (scopedEventId) =>
+        scopedEventId === eventId
+          ? [
+              { id: "seed-organizer", name: "Olivia Organizer" },
+              { id: "seed-reviewer", name: "Ravi Reviewer" },
+            ]
+          : [],
+    },
     newId: () => ids.shift() ?? crypto.randomUUID(),
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });
@@ -79,7 +90,10 @@ describe("ACC-CRM HTTP", () => {
         stage: "contacted",
         nextAction: "Call tomorrow",
         contacts: [{ email: "primary@example.test" }, { email: "assistant@example.test" }],
-        activities: [{ summary: "Private note", private: true }],
+        activities: [
+          { kind: "stage-change", summary: "identified → contacted", private: false },
+          { summary: "Private note", private: true },
+        ],
       },
     });
     expect(
@@ -101,6 +115,58 @@ describe("ACC-CRM HTTP", () => {
         })
       ).status,
     ).toBe(409);
+  });
+
+  it("serves the assignable owners and refuses one it did not offer with a field error", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    const owners = await app.request(`/api/events/${eventId}/prospects/owners`, { headers });
+    expect(owners.status).toBe(200);
+    await expect(owners.json()).resolves.toEqual({
+      owners: [
+        { id: "seed-organizer", name: "Olivia Organizer" },
+        { id: "seed-reviewer", name: "Ravi Reviewer" },
+      ],
+    });
+
+    // Free text used to reach the `crm_prospects.owner_id` foreign key and surface as a 500.
+    const refused = await app.request(`/api/events/${eventId}/prospects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "HTTP Prospect",
+        ownerId: "not-a-real-user-at-all",
+        contact: { name: "Primary", email: "primary@example.test" },
+      }),
+    });
+    expect(refused.status).toBe(400);
+    await expect(refused.json()).resolves.toMatchObject({
+      error: {
+        code: "VALIDATION_FAILED",
+        fieldErrors: { ownerId: ["Choose an organizer or reviewer assigned to this event."] },
+      },
+    });
+
+    const created = await app.request(`/api/events/${eventId}/prospects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "HTTP Prospect",
+        ownerId: "seed-organizer",
+        contact: { name: "Primary", email: "primary@example.test" },
+      }),
+    });
+    const prospect = (await created.json()).prospect;
+    // A speaker-only identity is not staff, so it cannot own a prospect either.
+    const speakerOwner = await app.request(`/api/events/${eventId}/prospects/${prospect.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ ownerId: "seed-speaker" }),
+    });
+    expect(speakerOwner.status).toBe(400);
+    await expect(speakerOwner.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { ownerId: expect.any(Array) } },
+    });
   });
 
   it("denies every non-organizer and cross-event request before lookup", async () => {

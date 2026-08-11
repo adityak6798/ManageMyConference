@@ -9,13 +9,19 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
+import type { Actor, Capability } from "../src/application/identity/actor";
+import { PublicationService } from "../src/application/publishing/publication-service";
 import { createHttpApp, type StructuredLogger } from "../src/transport/http/app";
+
+type Persona = "organizer" | "reviewer" | "speaker" | "public";
 
 const secret = "test-session-secret";
 const testCrm = () =>
   new CrmService({
     repository: new MemoryCrmRepository(),
     speakerConversion: { createOrLink: async () => ({ speakerId: crypto.randomUUID() }) },
+    // These harness cases never assign an owner; the CRM's own suites cover eligibility.
+    identities: { listAssignableOwnersForEvent: async () => [] },
     newId: () => crypto.randomUUID(),
     now: () => new Date("2026-08-09T12:00:00.000Z"),
   });
@@ -132,6 +138,105 @@ describe("events HTTP transport", () => {
       (await app.request("/api/events", { ...malformed, headers: await cookieFor("reviewer") }))
         .status,
     ).toBe(403);
+  });
+
+  it("serves assigned events from /api/events/assigned, never from the public namespace", async () => {
+    const { app } = createTestApp();
+    // The route this replaced lived under `/api/public` and answered 401 to anonymous
+    // callers. It is authenticated, so it is named as such — and the old path is gone.
+    expect((await app.request("/api/events/assigned")).status).toBe(401);
+    expect((await app.request("/api/public/events")).status).toBe(404);
+    // The public demo identity holds no `events:read`, so `/api/events` refuses it; the
+    // assigned list is exactly what that identity is allowed to see.
+    const publicHeaders = await cookieFor("public");
+    expect((await app.request("/api/events", { headers: publicHeaders })).status).toBe(403);
+    const assigned = await app.request("/api/events/assigned", { headers: publicHeaders });
+    expect(assigned.status).toBe(200);
+    await expect(assigned.json()).resolves.toEqual({ events: [] });
+    // The static segment has to beat `/api/events/:eventId`, which would 400 on "assigned".
+    expect(
+      (await app.request("/api/events/assigned", { headers: await cookieFor("organizer") })).status,
+    ).toBe(200);
+  });
+
+  it("authorizes an event role by capability, whatever order the directory returns roles in", async () => {
+    // The seeded organizer is also a reviewer of the demo event. Authorization used to read
+    // only the first access entry, so it survived on `ORDER BY role` alone: reverse the two
+    // and the organizer lost the event (`ARC-AUTH-001`).
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const reviewerAccess = {
+      eventId,
+      role: "reviewer" as const,
+      capabilities: new Set<Capability>(["events:read", "review:evaluate"]),
+    };
+    const appFor = (resolveActor: (persona: Persona) => Promise<Actor | null>) =>
+      createHttpApp(
+        new EventService({
+          repository: new MemoryEventRepository(),
+          newId: () => crypto.randomUUID(),
+          now: () => new Date(),
+        }),
+        { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        { demoMode: true, sessionSecret: secret, now: () => 1_000, resolveActor },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        new PublicationService({
+          // Nothing is stored, so an authorized organizer gets 404 "nothing published yet"
+          // and a denied one gets 403. That difference is the whole assertion.
+          findPublicBySlug: async () => null,
+          findByEventId: async () => null,
+          publish: async () => null,
+          unpublish: async () => null,
+        }),
+      );
+    const withRoleOrder = (reviewerFirst: boolean) => async (persona: Persona) => {
+      const actor = await resolveSeededDemoActor(persona);
+      if (persona !== "organizer") return actor;
+      const organizerAccess = actor.eventAccess.filter((access) => access.eventId === eventId);
+      return {
+        ...actor,
+        eventAccess: reviewerFirst
+          ? [reviewerAccess, ...organizerAccess]
+          : [...organizerAccess, reviewerAccess],
+      };
+    };
+    for (const reviewerFirst of [false, true]) {
+      const app = appFor(withRoleOrder(reviewerFirst));
+      const headers = await cookieFor("organizer");
+      for (const path of [
+        `/api/publishing/events/${eventId}/preview`,
+        `/api/publishing/events/${eventId}/publish`,
+      ]) {
+        const method = path.endsWith("preview") ? "GET" : "POST";
+        const response = await app.request(path, { method, headers });
+        expect({ reviewerFirst, path, status: response.status }).toEqual({
+          reviewerFirst,
+          path,
+          status: 404,
+        });
+        await expect(response.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+        // `/api/publishing/*` is organizer-only and must never pick up the public
+        // namespace's CORS or shared-cache policy just because its prefix looks similar.
+        expect(response.headers.get("access-control-allow-origin")).toBeNull();
+        expect(response.headers.get("cache-control")).toBeNull();
+      }
+    }
+    // A reviewer-only actor is still refused, in either shape.
+    const reviewerOnly = appFor(async (persona) =>
+      persona === "reviewer"
+        ? { ...(await resolveSeededDemoActor("reviewer")), eventAccess: [reviewerAccess] }
+        : resolveSeededDemoActor(persona),
+    );
+    const denied = await reviewerOnly.request(`/api/publishing/events/${eventId}/publish`, {
+      method: "POST",
+      headers: await cookieFor("reviewer"),
+    });
+    expect(denied.status).toBe(403);
+    await expect(denied.json()).resolves.toMatchObject({ error: { code: "FORBIDDEN" } });
   });
 
   it("ignores attacker-controlled roles and malformed correlation IDs", async () => {

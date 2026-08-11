@@ -10,7 +10,6 @@
 
 import type { OrganizerReviewWorkspaceDto, ReviewerQueueDto } from "@greenroom/contracts";
 import { type FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { acceptContent, ContentApiError, contentFieldErrors } from "./api/content";
 import {
   assignReviewer,
   configureProposalStatuses,
@@ -18,8 +17,8 @@ import {
   declareReviewConflict,
   getOrganizerReview,
   getReviewerQueue,
-  recordProposalDecision,
   ReviewApiError,
+  recordProposalDecision,
   saveReviewEvaluation,
   transitionProposals,
 } from "./api/review";
@@ -35,17 +34,15 @@ type Decision = NonNullable<OrganizerReviewWorkspaceDto["decisions"]>[number];
 type DecisionOutcome = Decision["outcome"];
 type PillTone = "neutral" | "ok" | "warn" | "danger" | "info" | "strong";
 
-/** Acceptance crosses two domains, so both clients' handled failures read the same way here. */
+/** A handled API failure, with the reference an organizer can quote when reporting it. */
 const message = (error: unknown, fallback = "Review work could not be loaded. Please retry.") =>
-  error instanceof ReviewApiError || error instanceof ContentApiError
+  error instanceof ReviewApiError
     ? `${error.message} Reference: ${error.envelope.error.correlationId}`
     : fallback;
 
-/** Field-level detail the server attached to a handled failure, from either client. */
+/** Field-level detail the server attached to a handled failure. */
 const fieldErrorsOf = (error: unknown): Record<string, string[]> =>
-  error instanceof ReviewApiError
-    ? (error.envelope.error.fieldErrors ?? {})
-    : contentFieldErrors(error);
+  error instanceof ReviewApiError ? (error.envelope.error.fieldErrors ?? {}) : {};
 
 const OUTCOME_LABEL: Record<DecisionOutcome, string> = {
   accepted: "Accepted",
@@ -200,6 +197,13 @@ function DecisionForm({
   const [note, setNote] = useState(decided?.note ?? "");
   const panel = useRef<HTMLDivElement>(null);
   const noteId = `decision-note-${proposal.id}`;
+  const reasonId = `decision-reason-${proposal.id}`;
+  /**
+   * Acceptance provisions a speaker from the submitter's contact address, so a submission that
+   * carries none cannot be accepted at all. Offering an enabled Confirm here only produced a
+   * recorded decision the content domain then refused; the control says why instead.
+   */
+  const unacceptable = outcome === "accepted" && !proposal.submitter;
   // Same rule as the detail panel: the surface the action opened takes focus, so the
   // keyboard lands on what it just summoned instead of staying behind in the table.
   useEffect(() => {
@@ -214,11 +218,11 @@ function DecisionForm({
       <p className="decision-question">
         {outcome === "accepted" ? "Accept" : "Decline"} <strong>{proposal.title}</strong>?
       </p>
-      <p className="hint">
+      <p className="hint" id={reasonId}>
         {outcome === "accepted"
           ? proposal.submitter
             ? `Creates a session from this abstract and links ${proposal.submitter.name} (${proposal.submitter.email}) as its speaker.`
-            : "This submission carries no contact address, so no speaker can be created from it."
+            : "This submission carries no contact address, so no speaker can be created from it and it cannot be accepted. Ask the submitter for an address, or add an email field to the published form and have them resubmit."
           : `Records the outcome against ${proposal.submitterName} and moves the abstract to Declined. Nothing is sent to the submitter.`}
       </p>
       <div className="field">
@@ -247,9 +251,13 @@ function DecisionForm({
       <div className="toolbar decision-actions">
         <button
           type="button"
-          aria-disabled={busy}
+          disabled={unacceptable}
+          aria-disabled={busy || unacceptable}
+          // The hint above is the reason, so it is the control's accessible description rather
+          // than a sentence a screen-reader user has to go looking for.
+          aria-describedby={unacceptable ? reasonId : undefined}
           onClick={() => {
-            if (busy) return;
+            if (busy || unacceptable) return;
             onConfirm(note);
           }}
         >
@@ -363,23 +371,40 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   }
 
   /**
-   * Record the decision, then — for an acceptance — turn the proposal into program content.
+   * Decide one abstract.
    *
-   * Two calls, in this order, because the decision is what authorizes the second: content
-   * acceptance reads the recorded outcome and refuses a proposal that has none. The board is
-   * reloaded between them, so a decision that was recorded before session creation failed is
-   * still visible on the row; acceptance changes nothing else this workspace displays. Both
-   * steps are idempotent server-side, so Confirm doubles as Retry.
+   * One request: the server records the decision and, for an acceptance, creates the session in
+   * the same call. This workspace does not reach into the content domain to finish the job — it
+   * could not have made that pair atomic anyway, and a failure between the two calls used to
+   * leave an abstract recorded as accepted with no session and no way to repair it from here.
+   * The response says which half happened; when the session is missing the decision still
+   * stands, so Confirm doubles as Retry.
    */
   async function decide(proposal: Proposal, outcome: DecisionOutcome, note: string) {
     setBusy(true);
     setDecisionErrors({});
-    let recorded = false;
     try {
-      await recordProposalDecision(eventId, { proposalIds: [proposal.id], outcome, note });
-      recorded = true;
+      const result = await recordProposalDecision(eventId, {
+        proposalIds: [proposal.id],
+        outcome,
+        note,
+      });
       await load();
-      if (outcome === "accepted") await acceptContent(eventId, { proposalId: proposal.id });
+      // Absent for a decline, and — for a response that predates the composed route — absent for
+      // an acceptance too, which is reported as unfinished rather than announced as done.
+      const acceptance = (result.acceptances ?? []).find(
+        ({ proposalId }) => proposalId === proposal.id,
+      );
+      if (outcome === "accepted" && acceptance?.state !== "content") {
+        setDecisionErrors(acceptance?.fieldErrors ?? {});
+        decisionFeedback.announce(
+          "error",
+          `The acceptance decision was recorded, but the session was not created. ${
+            acceptance?.detail ?? "The server did not say what happened."
+          } Confirm again to finish acceptance.`,
+        );
+        return;
+      }
       decisionFeedback.announce(
         "success",
         outcome === "accepted"
@@ -391,9 +416,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
       // ERROR-INTENT: the confirmation panel reports the handled failure in its own live region.
       decisionFeedback.announce(
         "error",
-        recorded
-          ? `The acceptance decision was recorded, but the session was not created. ${message(reason, "Confirm again to finish acceptance.")}`
-          : message(reason, `“${proposal.title}” could not be decided. Please retry.`),
+        message(reason, `“${proposal.title}” could not be decided. Please retry.`),
       );
     } finally {
       setBusy(false);
@@ -677,7 +700,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
             title={
               pending.outcome === "accepted" ? "Accept this abstract" : "Decline this abstract"
             }
-            hint="The decision is recorded in review; acceptance is what creates the session."
+            hint="Accepting records the decision and creates the session in one step; declining records the decision only."
           >
             <DecisionForm
               // Remount per row and per outcome so the note never carries over from the

@@ -75,6 +75,7 @@ export default {
       grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
     const contentRepository = new D1ContentRepository(environment.DB);
+    const publicationRepository = new D1PublicationRepository(environment.DB);
     const speakerConversion = new D1SpeakerConversion(
       environment.DB,
       () => crypto.randomUUID(),
@@ -88,6 +89,7 @@ export default {
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
       speakerConversion,
+      identities: identityDirectory,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -130,6 +132,12 @@ export default {
       assetStorage: new R2AssetStorage(environment.ASSETS),
       proposals: reviewService,
       speakerConversion,
+      // Publishing owns "is this event public"; content asks rather than reading the
+      // projection table, so unpublishing an event withdraws the assets its page exposed.
+      eventPublication: {
+        isEventPublished: async (eventId) =>
+          (await publicationRepository.findByEventId(eventId))?.state === "published",
+      },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -139,7 +147,7 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
-    const publishing = new PublicationService(new D1PublicationRepository(environment.DB), {
+    const publishing = new PublicationService(publicationRepository, {
       event: async (actor, eventId) => {
         const event = await service.get(actor, eventId);
         return event ? { name: event.name, timezone: event.timezone } : null;

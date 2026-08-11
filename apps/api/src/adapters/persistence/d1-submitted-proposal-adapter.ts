@@ -1,12 +1,13 @@
 import {
   MASKED_SUBMITTER_NAME,
-  ProposalStatusConfigurationError,
   type ProposalStatus,
   type ProposalStatusAudit,
+  ProposalStatusConfigurationError,
   type ProposalSubmitter,
   type SubmittedProposal,
   type SubmittedProposalInterface,
 } from "../../application/cfp/submitted-proposal-interface";
+
 interface D1Result<T> {
   results?: T[];
   success: boolean;
@@ -45,19 +46,46 @@ type AuditRow = {
 };
 type StatusRow = { key: string; label: string; sort_order: number };
 /**
- * Field ids and labels that name a person rather than the proposal. The submitter's name is not
- * a field *type* the CFP builder offers, so it is recognised by identity — an explicit id first,
- * then a labelled text field — and never guessed from arbitrary prose.
+ * Field ids that name a person and nothing else. The submitter's name is not a field *type* the
+ * CFP builder offers, so it is recognised by identity and never guessed from arbitrary prose.
+ * `name` is deliberately absent: see `AMBIGUOUS_NAME_FIELD_ID`.
  */
-const NAME_FIELD_IDS = ["name", "full_name", "fullname", "speaker_name", "submitter_name"];
+const PERSON_NAME_FIELD_IDS = ["full_name", "fullname", "speaker_name", "submitter_name"];
 /**
- * Deliberately anchored. A loose `/name/i` would also claim "Session name" or "Track name" and
- * hide the proposal's own title from the review queue.
+ * The one id a label may overrule. `name` is as ordinary an id for a field labelled "Session
+ * name" as for the applicant's own name, so it alone defers to a label that says the field
+ * names something other than a person.
  */
-const PERSON_NAME_LABEL = /^(?:your |speaker |submitter |presenter |contact |full )?name$/i;
-const isNameField = (field: SnapshotField) =>
-  NAME_FIELD_IDS.includes(field.id.toLowerCase()) ||
-  (field.type === "short_text" && PERSON_NAME_LABEL.test(field.label.trim()));
+const AMBIGUOUS_NAME_FIELD_ID = "name";
+/** Every id that identifies a name field, used when a submission has no stored form snapshot. */
+const NAME_FIELD_IDS = [AMBIGUOUS_NAME_FIELD_ID, ...PERSON_NAME_FIELD_IDS];
+/**
+ * Deliberately anchored: a person's name, and nothing that merely contains the word. Qualifiers
+ * stack ("Your full name") because organizers write labels, not identifiers.
+ */
+const PERSON_NAME_LABEL =
+  /^(?:(?:your|speaker|submitter|presenter|contact|full|preferred|first|last)\s+)*names?$/i;
+/**
+ * A label that names the proposal, the event, or an organization rather than a person — the
+ * only thing that overrules `AMBIGUOUS_NAME_FIELD_ID`.
+ */
+const OBJECT_NAME_LABEL =
+  /\b(?:session|talk|proposal|abstract|title|track|workshop|event|room|project|product|company|organisation|organization|team)(?:['’]s)?\s+names?\b/i;
+/**
+ * Is this field the submitter's own name, and therefore organizer-only?
+ *
+ * A label that names a person always wins, and an id that can only be a person's name is
+ * trusted whatever the label says — an id rule that a loose label check could veto was how
+ * `{id: "speaker_name", label: "Speaker's name"}` leaked an applicant's name into the reviewer
+ * queue. Only the ambiguous bare `name` id defers, and only to a label that explicitly names
+ * something else, so `{id: "name", label: "Session name"}` stays visible.
+ */
+const isNameField = (field: SnapshotField) => {
+  const label = field.label.trim();
+  if (PERSON_NAME_LABEL.test(label)) return true;
+  if (PERSON_NAME_FIELD_IDS.includes(field.id.toLowerCase())) return true;
+  return field.id.toLowerCase() === AMBIGUOUS_NAME_FIELD_ID && !OBJECT_NAME_LABEL.test(label);
+};
 
 /**
  * The submitter, read out of the stored answers using the published form's own field types.

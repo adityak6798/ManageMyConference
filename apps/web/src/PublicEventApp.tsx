@@ -241,18 +241,16 @@ function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean })
 }
 
 /*
- * `headline` is composed from the speaker's *organization* today, so this line may hold
- * an employer ("Greenroom Labs") or a role, depending on how the projection was built.
- * It is therefore labelled as an affiliation rather than announced as a job title;
- * repointing the composer at a real title field is publishing-side work and lands with
- * the projection change, not here.
+ * The projection field this renders is now named `organization`, because that is what the
+ * speaker profile stores and what it always held: an employer, never a job title. The
+ * visible line and its screen-reader label say "affiliation" for the same reason.
  */
 function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
-  if (!speaker.headline.trim()) return null;
+  if (!speaker.organization.trim()) return null;
   return (
     <p className="pub-speaker-headline">
       <span className="pub-sr">Affiliation: </span>
-      {speaker.headline}
+      {speaker.organization}
     </p>
   );
 }
@@ -700,7 +698,7 @@ export function PublicEventApp() {
   const speakerNeedle = speakerQuery.trim().toLowerCase();
   const visibleSpeakers = projection.speakers.filter((item) =>
     speakerNeedle
-      ? `${item.name} ${item.headline} ${item.bio}`.toLowerCase().includes(speakerNeedle)
+      ? `${item.name} ${item.organization} ${item.bio}`.toLowerCase().includes(speakerNeedle)
       : true,
   );
   const zoneLine = `All times in ${model.timezone}${model.zone ? ` (${model.zone})` : ""}.`;

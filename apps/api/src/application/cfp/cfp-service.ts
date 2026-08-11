@@ -1,4 +1,9 @@
-import type { CfpField, CfpForm, ProposalSubmission } from "../../domain/cfp/cfp";
+import {
+  type CfpField,
+  type CfpForm,
+  cfpFieldMaxLength,
+  type ProposalSubmission,
+} from "../../domain/cfp/cfp";
 import type { Actor } from "../identity/actor";
 import { AuthenticationRequiredError, CapabilityDeniedError } from "../identity/actor";
 import type { CfpRepository } from "./cfp-repository";
@@ -131,7 +136,13 @@ function validateAnswers(fields: readonly CfpField[], answers: Record<string, st
     if (!ids.has(key)) errors[`answers.${key}`] = ["This field is not part of the published form."];
   for (const field of fields) {
     const value = answers[field.id]?.trim() ?? "";
+    const limit = cfpFieldMaxLength(field);
     if (field.required && !value) errors[`answers.${field.id}`] = ["This field is required."];
+    // The limit the published form advertises is the limit the submission is held to, so a
+    // form cannot promise room the server refuses — nor accept a 120 KB answer it never asked
+    // for. `submitProposalInputSchema` bounds the body first; this bounds each field.
+    else if (value.length > limit)
+      errors[`answers.${field.id}`] = [`Keep this answer under ${limit} characters.`];
     else if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
       errors[`answers.${field.id}`] = ["Enter a valid email address."];
     else if (value && field.type === "select" && !field.options.includes(value))

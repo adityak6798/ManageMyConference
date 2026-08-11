@@ -25,11 +25,12 @@ export class AgendaService {
 
   private async organizer(actor: Actor | null, eventId: string): Promise<Actor> {
     const authorized = requireCapability(actor, "agenda:manage");
-    const access = authorized.eventAccess.find(({ eventId: id }) => id === eventId);
-    if (
-      !access?.capabilities.has("agenda:manage") &&
-      !(await this.canManageEvent(authorized, eventId))
-    )
+    // Every grant on the event is considered: a first-match lookup made this depend on the
+    // order the identity directory returned an actor's roles in (`ARC-AUTH-001`).
+    const scoped = authorized.eventAccess.some(
+      ({ eventId: id, capabilities }) => id === eventId && capabilities.has("agenda:manage"),
+    );
+    if (!scoped && !(await this.canManageEvent(authorized, eventId)))
       throw new CapabilityDeniedError("Agenda access denied");
     return authorized;
   }

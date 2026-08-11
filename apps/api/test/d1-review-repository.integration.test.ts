@@ -108,20 +108,27 @@ describe("review D1 persistence", () => {
     ).rejects.toThrow("currently in use");
     // The seed's accepted proposal carries a real decision record, which is what content
     // acceptance is gated on — `reset.sql` no longer names a proposal id that exists nowhere.
-    await expect(
-      reviews.findDecision(eventId, "10000000-0000-4000-8000-000000000010"),
-    ).resolves.toMatchObject({ outcome: "accepted", decidedBy: "seed-organizer" });
-    await expect(reviews.listDecisions(eventId)).resolves.toHaveLength(1);
+    const seededProposalId = "10000000-0000-4000-8000-000000000010";
+    await expect(reviews.findDecision(eventId, seededProposalId)).resolves.toMatchObject({
+      outcome: "accepted",
+      decidedBy: "seed-organizer",
+    });
+    // Counted relative to whatever the seed carries rather than against a literal, so the
+    // overwrite claim below survives the seed gaining another accepted proposal.
+    const seededDecisions = await reviews.listDecisions(eventId);
+    expect(seededDecisions.filter(({ proposalId: id }) => id === seededProposalId)).toHaveLength(1);
     // Deciding again overwrites rather than duplicating, so a retry after a partial failure heals.
     await reviews.saveDecision({
       eventId,
-      proposalId: "10000000-0000-4000-8000-000000000010",
+      proposalId: seededProposalId,
       outcome: "declined",
       decidedBy: "seed-organizer",
       decidedAt: "2026-08-10T13:00:00.000Z",
       note: "Reversed",
     });
-    await expect(reviews.listDecisions(eventId)).resolves.toMatchObject([
+    const afterOverwrite = await reviews.listDecisions(eventId);
+    expect(afterOverwrite).toHaveLength(seededDecisions.length);
+    expect(afterOverwrite.filter(({ proposalId: id }) => id === seededProposalId)).toMatchObject([
       { outcome: "declined", note: "Reversed" },
     ]);
     // A decision must reference a real submission of that event.

@@ -1,5 +1,5 @@
 import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
-import type { Prospect, ProspectActivity } from "../../domain/crm/prospect";
+import type { Prospect, ProspectActivity, ProspectContact } from "../../domain/crm/prospect";
 
 export class MemoryCrmRepository implements CrmRepository {
   private readonly prospects = new Map<string, Prospect>();
@@ -20,7 +20,16 @@ export class MemoryCrmRepository implements CrmRepository {
   async create(prospect: Prospect) {
     this.prospects.set(prospect.id, prospect);
   }
-  async update(prospect: Prospect) {
+  /**
+   * The caller hands over an already-merged prospect, so the new activities and contact are
+   * carried inside it. They stay in the signature because storing the row and appending its
+   * history is one write for the D1 adapter, and tests assert on what a single call received.
+   */
+  async update(
+    prospect: Prospect,
+    _activities: readonly ProspectActivity[] = [],
+    _contact?: ProspectContact,
+  ) {
     this.prospects.set(prospect.id, prospect);
   }
   async recordConversion(

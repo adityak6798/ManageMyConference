@@ -1,12 +1,4 @@
 import {
-  MASKED_SUBMITTER_NAME,
-  ProposalStatusConfigurationError,
-  type SubmittedProposal,
-  type SubmittedProposalInterface,
-} from "../cfp/submitted-proposal-interface";
-import type { ProposalStatus, ProposalStatusDefinition } from "../cfp/submitted-proposal-interface";
-import { type Actor, CapabilityDeniedError, requireEventCapability } from "../identity/actor";
-import {
   ACCEPTED_PROPOSAL_STATUS,
   type DecisionOutcome,
   type Evaluation,
@@ -17,7 +9,16 @@ import {
   type ReviewAssignment,
   type ReviewCompletedEvent,
 } from "../../domain/review/review";
-import { type ReviewRepository, ReviewStateConflictError } from "./review-repository";
+import type { ProposalStatus, ProposalStatusDefinition } from "../cfp/submitted-proposal-interface";
+import {
+  MASKED_SUBMITTER_NAME,
+  ProposalStatusConfigurationError,
+  type SubmittedProposal,
+  type SubmittedProposalInterface,
+} from "../cfp/submitted-proposal-interface";
+import type { EventService } from "../events/event-service";
+import { type Actor, CapabilityDeniedError, requireEventCapability } from "../identity/actor";
+import type { IdentityDirectory } from "../identity/identity-directory";
 import {
   type AcceptedProposal,
   type AcceptedProposalQuery,
@@ -25,8 +26,7 @@ import {
   ProposalNotFoundError,
   ProposalSubmitterUnavailableError,
 } from "./public";
-import type { IdentityDirectory } from "../identity/identity-directory";
-import type { EventService } from "../events/event-service";
+import { type ReviewRepository, ReviewStateConflictError } from "./review-repository";
 
 export class ReviewValidationError extends Error {
   constructor(readonly fields: Record<string, string[]>) {
@@ -71,11 +71,13 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
 });
 
 /**
- * The configured statuses plus any reserved decision status missing from them.
+ * The given statuses with every missing reserved decision status appended.
  *
- * Migration 0021 backfilled every event that existed then, but the CFP's own insert trigger
- * only seeds `submitted` for an event created afterwards. Without this an organizer's first
- * acceptance on a new event would hit "choose a configured proposal status".
+ * Completion, never rejection: an organizer may relabel or reorder `accepted`/`declined` — a
+ * definition they supply for one of those keys wins — but cannot delete the decision vocabulary
+ * the content domain acts on, so a missing key comes back with its default label. Migration 0021
+ * backfilled every event that existed then, and the CFP's own insert trigger seeds only
+ * `submitted` for an event created afterwards; both arrive here and leave complete.
  */
 const withReservedStatuses = (
   statuses: readonly ProposalStatusDefinition[],
@@ -96,6 +98,26 @@ export class ReviewService implements AcceptedProposalQuery {
     return requireEventCapability(actor, eventId, "review:evaluate");
   }
 
+  /**
+   * The event's configured statuses, persisting the reserved decision statuses first if storage
+   * is missing them.
+   *
+   * Storage is the single source of truth. The organizer projection used to synthesize the
+   * reserved keys on the way out while `transitionAtomically` validated against what was
+   * actually stored, so the board advertised `accepted`/`declined` and the very next transition
+   * to one of them answered 400. Everything that reads or advertises a status set goes through
+   * here, so what is shown is what is stored.
+   */
+  private async storedStatuses(eventId: string): Promise<readonly ProposalStatusDefinition[]> {
+    const statuses = await this.dependencies.proposals.listStatuses(eventId);
+    const completed = withReservedStatuses(statuses);
+    // Additive only — no configured key is ever removed here — so the CFP's in-use guard on
+    // `saveStatuses` cannot fire from this call.
+    if (completed.length !== statuses.length)
+      await this.dependencies.proposals.saveStatuses(eventId, completed);
+    return completed;
+  }
+
   async organizerWorkspace(actor: Actor | null, eventId: string, status?: ProposalStatus) {
     this.organizer(actor, eventId);
     const [proposals, plan, assignments, outcomes, audit, statuses, reviewers, decisions] =
@@ -105,20 +127,11 @@ export class ReviewService implements AcceptedProposalQuery {
         this.dependencies.repository.listAssignments(eventId),
         this.dependencies.repository.listOutcomes(eventId),
         this.dependencies.proposals.listAudit(eventId),
-        this.dependencies.proposals.listStatuses(eventId),
+        this.storedStatuses(eventId),
         this.dependencies.identities.listReviewersForEvent(eventId),
         this.dependencies.repository.listDecisions(eventId),
       ]);
-    return {
-      proposals,
-      plan,
-      assignments,
-      outcomes,
-      audit,
-      statuses: withReservedStatuses(statuses),
-      reviewers,
-      decisions,
-    };
+    return { proposals, plan, assignments, outcomes, audit, statuses, reviewers, decisions };
   }
 
   async configureStatuses(
@@ -127,30 +140,27 @@ export class ReviewService implements AcceptedProposalQuery {
     statuses: readonly { key: string; label: string; sortOrder: number }[],
   ) {
     this.organizer(actor, eventId);
-    const keys = new Set(statuses.map(({ key }) => key));
-    if (keys.size !== statuses.length)
+    if (new Set(statuses.map(({ key }) => key)).size !== statuses.length)
       throw new ReviewValidationError({ statuses: ["Status keys must be unique"] });
-    const missingReserved = RESERVED_PROPOSAL_STATUSES.filter(({ key }) => !keys.has(key));
-    // Acceptance is not a label an organizer can delete out from under the content domain.
-    if (missingReserved.length)
-      throw new ReviewValidationError({
-        statuses: [
-          `Keep the reserved decision statuses: ${missingReserved.map(({ key }) => key).join(", ")}`,
-        ],
-      });
+    // Acceptance is not a label an organizer can delete out from under the content domain — but
+    // leaving it out is not an error either. The request is completed rather than refused, so a
+    // caller that only ever configured its own pipeline keeps working and still ends up with a
+    // stored set the decision routes can transition into.
+    const completed = withReservedStatuses(statuses);
+    const keys = new Set(completed.map(({ key }) => key));
     const proposals = await this.dependencies.proposals.list(eventId);
     if (proposals.some(({ status }) => !keys.has(status)))
       throw new ReviewValidationError({
         statuses: ["Configured statuses must include every status currently in use"],
       });
     try {
-      await this.dependencies.proposals.saveStatuses(eventId, statuses);
+      await this.dependencies.proposals.saveStatuses(eventId, completed);
     } catch (error) {
       if (error instanceof ProposalStatusConfigurationError)
         throw new ReviewValidationError({ statuses: [error.message] });
       throw error;
     }
-    return statuses;
+    return completed;
   }
 
   async configurePlan(
@@ -271,11 +281,9 @@ export class ReviewService implements AcceptedProposalQuery {
     const found = await this.dependencies.proposals.findMany(eventId, uniqueProposalIds);
     if (found.length !== uniqueProposalIds.length)
       throw new ReviewNotFoundError("Proposal not found");
-    const configured = await this.dependencies.proposals.listStatuses(eventId);
-    // Self-healing: an event whose status set predates or postdates the reserved keys gets them
+    // Self-healing: an event whose status set predates the reserved keys gets them persisted
     // before the transition rather than a "choose a configured proposal status" failure.
-    if (!configured.some(({ key }) => key === outcome))
-      await this.dependencies.proposals.saveStatuses(eventId, withReservedStatuses(configured));
+    await this.storedStatuses(eventId);
     const decidedAt = this.dependencies.now().toISOString();
     const proposals = await this.dependencies.proposals.transitionAtomically({
       eventId,
