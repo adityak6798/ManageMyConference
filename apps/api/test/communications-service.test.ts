@@ -111,6 +111,19 @@ describe("communications outbox", () => {
     expect(await test.repository.attempts(delivery.id)).toHaveLength(2);
   });
 
+  it("denies recovery when an organization organizer is not the delivery event organizer", async () => {
+    const test = harness("timeout");
+    const delivery = await templateAndTrigger(test);
+    await test.worker.runOne();
+    const mixedRoleActor: Actor = {
+      ...organizer,
+      eventAccess: [{ eventId, role: "reviewer", capabilities: new Set(["events:read"]) }],
+    };
+    await expect(test.service.retry(mixedRoleActor, organizationId, delivery.id)).rejects.toThrow(
+      "Event access denied",
+    );
+  });
+
   it("stores an idempotent versioned provider projection after success", async () => {
     const test = harness();
     const delivery = await test.service.trigger(organizer, {

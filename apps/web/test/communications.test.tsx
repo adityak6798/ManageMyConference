@@ -236,4 +236,100 @@ describe("communications history", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     },
   );
+
+  it("discards a deferred retry failure after the organizer switches events", async () => {
+    let rejectRetry: (reason: Error) => void = () => undefined;
+    const deferredRetry = new Promise<Response>((_resolve, reject) => {
+      rejectRetry = reject;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                actor: { id: "seed-organizer", name: "Olivia Organizer", persona: "organizer" },
+                organizations: [{ id: organizationId }],
+                eventAccess: [eventId, secondEventId].map((assignedEventId) => ({
+                  eventId: assignedEventId,
+                  role: "organizer",
+                  capabilities: ["events:read"],
+                })),
+                capabilities: ["events:read", "communications:manage"],
+              }),
+            ),
+          );
+        if (url.endsWith("/api/events"))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                events: [
+                  {
+                    id: eventId,
+                    organizationId,
+                    name: "Summit",
+                    timezone: "UTC",
+                    createdAt: "2026-08-10T12:00:00.000Z",
+                  },
+                  {
+                    id: secondEventId,
+                    organizationId,
+                    name: "Workshop",
+                    timezone: "UTC",
+                    createdAt: "2026-08-11T12:00:00.000Z",
+                  },
+                ],
+              }),
+            ),
+          );
+        if (url.includes("/retry")) return deferredRetry;
+        if (url.includes("/api/communications/history"))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                history: [
+                  {
+                    delivery: {
+                      id: "terminal-retry",
+                      organizationId,
+                      eventId,
+                      idempotencyKey: "retry",
+                      triggerType: "projection.requested",
+                      channel: "airtable",
+                      templateId: null,
+                      templateVersion: null,
+                      recipientRef: "session:retry",
+                      payload: {},
+                      projectionVersion: 1,
+                      state: "terminal",
+                      attemptCount: 1,
+                      nextAttemptAt: "2026-08-10T12:00:01.000Z",
+                      leaseToken: null,
+                      createdAt: "2026-08-10T12:00:00.000Z",
+                      updatedAt: "2026-08-10T12:00:01.000Z",
+                    },
+                    attempts: [],
+                  },
+                ],
+                nextCursor: null,
+              }),
+            ),
+          );
+        return Promise.resolve(new Response("{}", { status: 404 }));
+      }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect delivery history" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry session:retry" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
+      target: { value: secondEventId },
+    });
+    rejectRetry(new Error("event A retry unavailable"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Inspect delivery history" })).toBeEnabled(),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

@@ -289,7 +289,11 @@ export function App() {
             activeEventCapabilities.includes("crm:manage") ? (
               <CrmWorkspace eventId={selectedEvent.id} ownerId={session.actor.id} />
             ) : null}
-            {selectedEvent && session.capabilities.includes("communications:manage") ? (
+            {selectedEvent &&
+            session.capabilities.includes("communications:manage") &&
+            session.eventAccess.some(
+              ({ eventId, role }) => eventId === selectedEvent.id && role === "organizer",
+            ) ? (
               <CommunicationsWorkspace event={selectedEvent} onError={reportError} />
             ) : null}
             {error ? (

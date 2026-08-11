@@ -41,13 +41,14 @@ export function CommunicationsWorkspace({ event, onError }: CommunicationsWorksp
   }
 
   async function recover(deliveryId: string) {
+    const requestedEventId = event.id;
     setBusy(true);
     try {
       await retryDelivery(event.organizationId, deliveryId);
       await load();
     } catch (reason: unknown) {
       // ERROR-INTENT: The shared workspace error surface renders this retry failure.
-      onError(reason);
+      if (eventIdRef.current === requestedEventId) onError(reason);
     } finally {
       setBusy(false);
     }

@@ -140,10 +140,11 @@ export class CommunicationsService {
   }
 
   async retry(actor: Actor | null, organizationId: string, deliveryId: string) {
-    this.organization(actor, organizationId);
+    const authorized = this.organization(actor, organizationId);
     const delivery = await this.dependencies.repository.get(deliveryId);
     if (!delivery || delivery.organizationId !== organizationId)
       throw new CommunicationsNotFoundError("Delivery not found");
+    await this.event(authorized, delivery.eventId, organizationId);
     if (delivery.leaseToken)
       throw new CommunicationsConflictError("Delivery is currently being processed");
     if (delivery.state !== "retrying" && delivery.state !== "terminal")

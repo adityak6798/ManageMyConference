@@ -53,6 +53,32 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Create event" })).toBeEnabled();
   });
 
+  it("does not mount communications for a selected event where the actor is not organizer", async () => {
+    const mixedRoleSession = {
+      ...organizerSession,
+      eventAccess: [{ eventId, role: "reviewer", capabilities: ["events:read"] }],
+      capabilities: ["events:read", "communications:manage"],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              String(input).endsWith("/api/session") ? mixedRoleSession : { events: [event] },
+            ),
+            { status: 200 },
+          ),
+        ),
+      ),
+    );
+    render(<App />);
+    await screen.findByRole("heading", { name: "Greenroom Summit" });
+    expect(
+      screen.queryByRole("button", { name: "Inspect delivery history" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows a safe unauthenticated state with correlation reference", async () => {
     vi.stubGlobal(
       "fetch",
