@@ -93,6 +93,16 @@ describe("review HTTP API", () => {
     });
     expect(workspace.status).toBe(200);
     expect(await workspace.json()).toMatchObject({ proposals: [{ id: proposalId }], outcomes: [] });
+    const malformed = { method: "PUT", body: "{", headers: { "content-type": "application/json" } };
+    expect((await app.request(`/api/events/${eventId}/review/plan`, malformed)).status).toBe(401);
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/review/plan`, {
+          ...malformed,
+          headers: await cookie("reviewer"),
+        })
+      ).status,
+    ).toBe(403);
   });
 
   it("validates a plan and returns an explicitly atomic bulk contract", async () => {

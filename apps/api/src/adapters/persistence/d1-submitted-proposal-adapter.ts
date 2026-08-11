@@ -112,6 +112,19 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
       throw new Error(`D1 failed to find proposal: ${result.error ?? "unknown error"}`);
     return result.results?.[0] ? proposal(result.results[0]) : null;
   }
+  async findMany(eventId: string, proposalIds: readonly string[]) {
+    if (!proposalIds.length) return [];
+    const placeholders = proposalIds.map(() => "?").join(", ");
+    const result = await this.database
+      .prepare(
+        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) ORDER BY submitted_at, id`,
+      )
+      .bind(eventId, ...proposalIds)
+      .all<ProposalRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to find proposals: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map(proposal);
+  }
   async listStatuses(eventId: string) {
     const result = await this.database
       .prepare(
@@ -166,9 +179,10 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
     if (!input.proposalIds.length) return [];
     if (!(await this.listStatuses(input.eventId)).some(({ key }) => key === input.toStatus))
       throw new ProposalStatusConfigurationError("Choose a configured proposal status");
-    const current = await Promise.all(input.proposalIds.map((id) => this.find(input.eventId, id)));
-    if (current.some((item) => !item)) throw new Error("Atomic proposal transition failed");
-    const statements = (current as SubmittedProposal[]).flatMap((item, index) => [
+    const current = await this.findMany(input.eventId, input.proposalIds);
+    if (current.length !== input.proposalIds.length)
+      throw new Error("Atomic proposal transition failed");
+    const statements = current.flatMap((item, index) => [
       this.database
         .prepare(
           "INSERT INTO cfp_status_audit (id, event_id, proposal_id, from_status, to_status, actor_id, occurred_at) SELECT ?, event_id, id, status, ?, ?, ? FROM cfp_submissions WHERE event_id = ? AND id = ?",
@@ -197,7 +211,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
       throw new ProposalStatusConfigurationError("Choose a configured proposal status");
     if (results.some((result) => !result.success))
       throw new Error("Atomic proposal transition failed");
-    return (current as SubmittedProposal[]).map((item) => ({ ...item, status: input.toStatus }));
+    return current.map((item) => ({ ...item, status: input.toStatus }));
   }
   async listAudit(eventId: string) {
     const result = await this.database

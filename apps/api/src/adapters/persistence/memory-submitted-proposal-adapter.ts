@@ -24,6 +24,12 @@ export class MemorySubmittedProposalAdapter implements SubmittedProposalInterfac
     const proposal = this.proposals.get(proposalId);
     return proposal?.eventId === eventId ? proposal : null;
   }
+  async findMany(eventId: string, proposalIds: readonly string[]) {
+    const ids = new Set(proposalIds);
+    return [...this.proposals.values()].filter(
+      (proposal) => proposal.eventId === eventId && ids.has(proposal.id),
+    );
+  }
   async listStatuses(eventId: string) {
     return (
       this.statuses.get(eventId) ?? [

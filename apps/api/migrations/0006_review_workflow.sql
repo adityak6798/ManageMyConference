@@ -10,6 +10,9 @@ CREATE TABLE cfp_statuses (
   PRIMARY KEY(event_id, key)
 );
 
+INSERT INTO cfp_statuses (event_id, key, label, sort_order)
+SELECT DISTINCT event_id, 'submitted', 'Submitted', 0 FROM cfp_submissions;
+
 CREATE TABLE cfp_status_audit (
   id TEXT PRIMARY KEY NOT NULL,
   event_id TEXT NOT NULL REFERENCES events(id),

@@ -127,10 +127,8 @@ export class ReviewService {
     if (!(await this.dependencies.identities.isReviewerForEvent(reviewerId, eventId)))
       throw new ReviewValidationError({ reviewerId: ["Choose a reviewer assigned to this event"] });
     const uniqueProposalIds = [...new Set(proposalIds)];
-    const proposals = await Promise.all(
-      uniqueProposalIds.map((proposalId) => this.dependencies.proposals.find(eventId, proposalId)),
-    );
-    if (proposals.some((proposal) => !proposal))
+    const proposals = await this.dependencies.proposals.findMany(eventId, uniqueProposalIds);
+    if (proposals.length !== uniqueProposalIds.length)
       throw new ReviewNotFoundError("Proposal not found");
     const existing = await this.dependencies.repository.listAssignments(eventId);
     const now = this.dependencies.now().toISOString();

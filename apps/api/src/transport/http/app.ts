@@ -36,6 +36,7 @@ import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
   requireCapability,
+  requireEventCapability,
 } from "../../application/identity/actor";
 import { createDemoSession, resolveDemoSession } from "../../application/identity/demo-session";
 import { createEventInputToCommand, eventToDto } from "./event-mappers";
@@ -264,6 +265,7 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
         400,
       );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
     const parsed = configureReviewPlanInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -291,6 +293,7 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
         400,
       );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
     const parsed = configureProposalStatusesInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -318,6 +321,7 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
         400,
       );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
     const parsed = assignReviewersInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -349,6 +353,7 @@ export function createHttpApp(
         envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
         400,
       );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
     const parsed = bulkProposalTransitionInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -394,6 +399,7 @@ export function createHttpApp(
         ),
         400,
       );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:evaluate");
     const parsed = declareConflictInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(
@@ -426,6 +432,7 @@ export function createHttpApp(
         ),
         400,
       );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:evaluate");
     const parsed = saveEvaluationInputSchema.safeParse(await readJson(context.req));
     if (!parsed.success)
       return context.json(

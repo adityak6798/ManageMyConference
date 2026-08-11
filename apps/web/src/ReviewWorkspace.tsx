@@ -47,6 +47,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     setError(null);
     try {
       await action();
+      setSelected([]);
       await load();
     } catch (reason) {
       setError(message(reason));
@@ -196,23 +197,25 @@ function StatusForm({
   onSaved: () => Promise<void>;
   onError: (value: string) => void;
 }) {
-  const [labels, setLabels] = useState(data.statuses.map(({ label }) => label).join(", "));
+  const [statuses, setStatuses] = useState(data.statuses.map((status) => ({ ...status })));
+  useEffect(() => {
+    setStatuses(data.statuses.map((status) => ({ ...status })));
+  }, [data.statuses]);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const statuses = labels
-      .split(",")
-      .map((label) => label.trim())
-      .filter(Boolean)
-      .map((label, sortOrder) => ({
-        key: label
+    const configured = statuses.map((status, sortOrder) => ({
+      ...status,
+      key:
+        status.key ||
+        status.label
           .toLowerCase()
           .replaceAll(/[^a-z0-9]+/g, "_")
           .replace(/^_|_$/g, ""),
-        label,
-        sortOrder,
-      }));
+      label: status.label.trim(),
+      sortOrder,
+    }));
     try {
-      await configureProposalStatuses(eventId, { statuses });
+      await configureProposalStatuses(eventId, { statuses: configured });
       await onSaved();
     } catch (reason) {
       // ERROR-INTENT: The status form reports the handled failure through its parent alert.
@@ -228,13 +231,45 @@ function StatusForm({
       }}
     >
       <h3>Proposal statuses</h3>
-      <label htmlFor="status-labels">Ordered status labels</label>
-      <div className="form-row">
-        <input
-          id="status-labels"
-          value={labels}
-          onChange={(event) => setLabels(event.target.value)}
-        />
+      {statuses.map((status, index) => (
+        <div className="form-row" key={status.key || `new-${index}`}>
+          <label>
+            Status {index + 1} label
+            <input
+              value={status.label}
+              onChange={(event) =>
+                setStatuses((current) =>
+                  current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, label: event.target.value } : item,
+                  ),
+                )
+              }
+              required
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() =>
+              setStatuses((current) => current.filter((_, itemIndex) => itemIndex !== index))
+            }
+          >
+            Remove status
+          </button>
+        </div>
+      ))}
+      <div className="review-toolbar">
+        <button
+          type="button"
+          onClick={() =>
+            setStatuses((current) => [
+              ...current,
+              { key: "", label: "", sortOrder: current.length },
+            ])
+          }
+        >
+          Add status
+        </button>
         <button type="submit">Save statuses</button>
       </div>
     </form>
@@ -252,21 +287,24 @@ function RubricForm({
   onSaved: () => Promise<void>;
   onError: (value: string) => void;
 }) {
-  const [name, setName] = useState(data.plan?.criteria[0]?.name ?? "Audience fit");
+  const [criteria, setCriteria] = useState(
+    data.plan?.criteria.map((criterion) => ({ ...criterion })) ?? [
+      {
+        id: "primary",
+        name: "Audience fit",
+        description: "Overall strength for this event",
+        minScore: 1,
+        maxScore: 5,
+      },
+    ],
+  );
+  useEffect(() => {
+    if (data.plan) setCriteria(data.plan.criteria.map((criterion) => ({ ...criterion })));
+  }, [data.plan]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     try {
-      await configureReviewPlan(eventId, {
-        criteria: [
-          {
-            id: "primary",
-            name,
-            description: "Overall strength for this event",
-            minScore: 1,
-            maxScore: 5,
-          },
-        ],
-      });
+      await configureReviewPlan(eventId, { criteria });
       await onSaved();
     } catch (reason) {
       // ERROR-INTENT: The form reports the handled request failure through its parent alert.
@@ -281,17 +319,131 @@ function RubricForm({
       }}
     >
       <h3>Evaluation plan</h3>
-      <label htmlFor="criterion-name">Primary criterion</label>
-      <div className="form-row">
-        <input
-          id="criterion-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-        />
+      {criteria.map((criterion, index) => (
+        <div className="form-row" key={criterion.id}>
+          <label>
+            Criterion {index + 1} name
+            <input
+              value={criterion.name}
+              onChange={(event) =>
+                setCriteria((current) =>
+                  current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, name: event.target.value } : item,
+                  ),
+                )
+              }
+              required
+            />
+          </label>
+          <label>
+            Guidance for criterion {index + 1}
+            <input
+              value={criterion.description}
+              onChange={(event) =>
+                setCriteria((current) =>
+                  current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, description: event.target.value } : item,
+                  ),
+                )
+              }
+              required
+            />
+          </label>
+          <label>
+            Minimum score
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={criterion.minScore}
+              onChange={(event) =>
+                setCriteria((current) =>
+                  current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, minScore: Number(event.target.value) } : item,
+                  ),
+                )
+              }
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            disabled={index === 0}
+            onClick={() =>
+              setCriteria((current) => {
+                const next = [...current];
+                const [criterionToMove] = next.splice(index, 1);
+                if (criterionToMove) next.splice(index - 1, 0, criterionToMove);
+                return next;
+              })
+            }
+          >
+            Move up
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={index === criteria.length - 1}
+            onClick={() =>
+              setCriteria((current) => {
+                const next = [...current];
+                const [criterionToMove] = next.splice(index, 1);
+                if (criterionToMove) next.splice(index + 1, 0, criterionToMove);
+                return next;
+              })
+            }
+          >
+            Move down
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={criteria.length === 1}
+            onClick={() =>
+              setCriteria((current) => current.filter((_, itemIndex) => itemIndex !== index))
+            }
+          >
+            Remove criterion
+          </button>
+          <label>
+            Maximum score
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={criterion.maxScore}
+              onChange={(event) =>
+                setCriteria((current) =>
+                  current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, maxScore: Number(event.target.value) } : item,
+                  ),
+                )
+              }
+            />
+          </label>
+        </div>
+      ))}
+      <div className="review-toolbar">
+        <button
+          type="button"
+          onClick={() =>
+            setCriteria((current) => [
+              ...current,
+              {
+                id: `c_${crypto.randomUUID().replaceAll("-", "")}`,
+                name: "",
+                description: "",
+                minScore: 1,
+                maxScore: 5,
+              },
+            ])
+          }
+        >
+          Add criterion
+        </button>
         <button type="submit">Save rubric</button>
       </div>
-      <p className="empty">Explicit 1–5 scale</p>
+      <p className="empty">Configure a score range for each criterion.</p>
     </form>
   );
 }

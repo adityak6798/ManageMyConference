@@ -34,6 +34,7 @@ export interface ProposalStatusAudit {
 export interface SubmittedProposalQuery {
   list(eventId: string, status?: ProposalStatus): Promise<readonly SubmittedProposal[]>;
   find(eventId: string, proposalId: string): Promise<SubmittedProposal | null>;
+  findMany(eventId: string, proposalIds: readonly string[]): Promise<readonly SubmittedProposal[]>;
   listStatuses(eventId: string): Promise<readonly ProposalStatusDefinition[]>;
 }
 
