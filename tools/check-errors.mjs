@@ -50,15 +50,16 @@ function handledCatch(block) {
     if (ts.isThrowStatement(node)) handled = true;
     if (ts.isCallExpression(node)) {
       const called = node.expression.getText();
-      // `<name>Feedback.announce("error", …)` renders the failure next to the control
-      // that caused it and announces it through a live region, so it reports rather
-      // than suppresses. See docs/architecture/error-observability.md.
-      if (
-        /^(?:logger\.(?:error|warn)|setError|reportError|\w*[Ff]eedback\.announce|announce)$/.test(
-          called,
-        )
-      )
-        handled = true;
+      if (/^(?:logger\.(?:error|warn)|setError|reportError)$/.test(called)) handled = true;
+      // `<name>Feedback.announce("error", …)` renders the failure next to the control that
+      // caused it and publishes it to a live region, so it reports rather than suppresses.
+      // The first argument must be the literal "error": announcing a success in a catch
+      // block is exactly the silent discard this gate exists to catch.
+      // See docs/architecture/error-observability.md.
+      if (/^(?:\w*[Ff]eedback\.)?announce$/.test(called)) {
+        const [tone] = node.arguments;
+        if (tone && ts.isStringLiteralLike(tone) && tone.text === "error") handled = true;
+      }
     }
     ts.forEachChild(node, visit);
   }

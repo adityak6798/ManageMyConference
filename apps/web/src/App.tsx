@@ -141,12 +141,10 @@ export function App() {
       ({ eventId, role }) => eventId === selectedEventId && role === "organizer",
     ),
   );
-  const canReadContent =
-    (activeRole === "organizer" || activeRole === "speaker") &&
-    Boolean(
-      session?.capabilities.includes("content:read") ||
-        activeEventCapabilities.includes("content:read"),
-    );
+  // Scoped to the selected event on purpose. The actor-level capability set is the union
+  // of every event the actor can touch, so testing it would let an organizer of event A
+  // mount event B's workspace and fire its requests.
+  const canReadContent = activeEventCapabilities.includes("content:read");
 
   const allowed = useMemo(
     () => routesFor(activeRole, activeEventCapabilities),
@@ -161,19 +159,20 @@ export function App() {
     navigate(`${allowed[0]?.href ?? "/"}${query}`, { replace: true });
   }, [allowed, loading, path, query, session]);
 
-  // A failure from the previous surface must not follow the user to the next one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clearing is keyed on the route.
-  useEffect(() => setError(null), [path]);
+  // A failure raised for one surface, or for one event, must not follow the user to the
+  // next one — switching event keeps the same path, so both axes have to clear it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clearing is keyed on the destination.
+  useEffect(() => setError(null), [path, selectedEventId]);
 
   // The public slug is server-assigned, so it has to be read rather than guessed.
   useEffect(() => {
-    if (!selectedEventId || !isEventOrganizer) {
-      setPublication(null);
-      return;
-    }
+    // Drop the previous event's slug immediately; keeping it while the next request is in
+    // flight would point "View public site" at the event the organizer just left.
+    setPublication(null);
+    if (!selectedEventId || !isEventOrganizer) return;
     let active = true;
-    // ERROR-INTENT: the outbound link is convenience; getPublicationSummary already
-    // resolves to null for any failure, and the link is simply not offered.
+    // ERROR-INTENT: the outbound link is convenience only. getPublicationSummary catches
+    // its own failures and resolves to null, so the link is simply not offered.
     void getPublicationSummary(selectedEventId).then((summary) => {
       if (active) setPublication(summary);
     });
@@ -313,6 +312,22 @@ export function App() {
   // Only offer the link once the event is actually published under a known slug.
   const publicHref = publication?.state === "published" ? `/events/${publication.slug}` : null;
 
+  /**
+   * Shown when a surface refuses. The route stays in this persona's allowlist, so the
+   * redirect effect will not move them — rendering nothing would strand the user on a
+   * blank page with the nav item still highlighted.
+   */
+  const noAccess = (
+    <>
+      <PageHeader title="No access to this workspace" subtitle={selectedEvent?.name} />
+      <Card>
+        <EmptyState title="Your role on this event does not include this workspace">
+          Switch to an event you organize, or change demo identity from the top right.
+        </EmptyState>
+      </Card>
+    </>
+  );
+
   function renderPage() {
     if (!selectedEvent)
       return (
@@ -331,17 +346,15 @@ export function App() {
         if (activeRole === "organizer") return <OverviewPage event={selectedEvent} query={query} />;
         return (
           <>
-            <PageHeader title={selectedEvent.name} subtitle="Published event" />
+            <PageHeader title={selectedEvent.name} subtitle="Attendee view" />
             <Card>
-              {publicHref ? (
-                <EmptyState title="Browse the published event">
-                  <a href={publicHref}>Open the public event page</a>
-                </EmptyState>
-              ) : (
-                <EmptyState title="This event is not published yet">
-                  Its public page appears here once an organizer publishes it.
-                </EmptyState>
-              )}
+              {/* The public slug is only readable by an organizer, so this identity cannot
+                  be told whether the event is published — say what is true instead of
+                  guessing either way. */}
+              <EmptyState title="This event has a public site of its own">
+                Its schedule, sessions, speakers, and call for proposals are published at a separate
+                address. An organizer can copy that link from the workspace.
+              </EmptyState>
             </Card>
           </>
         );
@@ -373,7 +386,9 @@ export function App() {
               eventId={selectedEventId}
             />
           </>
-        ) : null;
+        ) : (
+          noAccess
+        );
       case "/reviews":
         return activeEventCapabilities.includes("review:evaluate") ? (
           <>
@@ -387,7 +402,9 @@ export function App() {
               eventId={selectedEventId}
             />
           </>
-        ) : null;
+        ) : (
+          noAccess
+        );
       case "/sessions":
       case "/portal":
         // The route allowlist redirect is an effect, so it runs *after* children mount and
@@ -410,7 +427,9 @@ export function App() {
               onError={reportError}
             />
           </>
-        ) : null;
+        ) : (
+          noAccess
+        );
       case "/agenda":
         return activeEventCapabilities.includes("agenda:manage") ? (
           <>
@@ -421,7 +440,9 @@ export function App() {
             />
             <AgendaWorkspace key={selectedEvent.id} eventId={selectedEvent.id} onError={setError} />
           </>
-        ) : null;
+        ) : (
+          noAccess
+        );
       case "/speakers":
         return activeEventCapabilities.includes("crm:manage") ? (
           <>
@@ -432,7 +453,9 @@ export function App() {
             />
             <CrmWorkspace eventId={selectedEvent.id} ownerId={session?.actor.id ?? ""} />
           </>
-        ) : null;
+        ) : (
+          noAccess
+        );
       case "/communications":
         return session?.capabilities.includes("communications:manage") && isEventOrganizer ? (
           <>
@@ -443,7 +466,9 @@ export function App() {
             />
             <CommunicationsWorkspace event={selectedEvent} onError={reportError} />
           </>
-        ) : null;
+        ) : (
+          noAccess
+        );
       case "/settings":
         return (
           <>

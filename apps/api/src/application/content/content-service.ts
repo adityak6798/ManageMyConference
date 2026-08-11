@@ -245,8 +245,9 @@ export class ContentService {
     if (asset.visibility !== "publishable") {
       // Missing and inaccessible collapse to the same null so the route cannot be used to
       // discover which asset ids exist — `ARC-AUTH-001` in docs/architecture/authorization.md
-      // requires that errors not reveal whether an inaccessible record exists. Every sibling
-      // method in this service behaves the same way.
+      // requires that errors not reveal whether an inaccessible record exists. This route is
+      // reachable anonymously, which is why it collapses rather than throwing the way the
+      // organizer-only mutations below do.
       let authorized: Actor;
       try {
         authorized = requireCapability(actor, "content:read");

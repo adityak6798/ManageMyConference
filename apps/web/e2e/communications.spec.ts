@@ -9,6 +9,9 @@ test("organizer sees every delivery state inline and recovers a terminal deliver
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; navigating before its cookie lands loads the outbox
+  // unauthenticated and the shell bounces to the sign-in surface.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(COMMUNICATIONS);
   await expect(page.getByRole("heading", { name: "Communications", level: 1 })).toBeVisible();
 

@@ -196,9 +196,10 @@ function initials(name: string) {
 }
 
 /*
- * Uploaded headshots are write-only today — no API route serves the asset back —
- * so the gallery draws a deterministic initials tile instead of leaving a hole.
- * `photoUrl` is honoured the moment the projection starts carrying one.
+ * `GET /api/speaker-assets/:assetId` now serves an uploaded asset, but the public
+ * projection still carries no `photoUrl`, so this page has no id to ask for. The gallery
+ * draws a deterministic initials tile rather than leaving a hole, and honours `photoUrl`
+ * the moment the projection starts populating it (#55).
  */
 function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean }) {
   const className = large ? "pub-avatar is-large" : "pub-avatar";

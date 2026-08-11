@@ -56,3 +56,25 @@ test("requires intent for error-related suppressions", () => {
     [],
   );
 });
+
+test("announcing an error handles a catch, announcing anything else does not", () => {
+  // The UI reports failures through a useActionFeedback handle rather than setError.
+  assert.deepEqual(
+    inspectText('try { work(); } catch (error) { feedback.announce("error", message(error)); }'),
+    [],
+  );
+  assert.deepEqual(
+    inspectText('try { work(); } catch (error) { pipelineFeedback.announce("error", "Failed."); }'),
+    [],
+  );
+  // A success announcement inside a catch is the silent discard this gate exists to catch.
+  assert.notEqual(
+    inspectText('try { work(); } catch (error) { feedback.announce("success", "Saved."); }'),
+    [],
+  );
+  assert.notEqual(inspectText("try { work(); } catch (error) { announce(); }"), []);
+  assert.notEqual(
+    inspectText('try { work(); } catch (error) { unrelated.announce("error"); }'),
+    [],
+  );
+});

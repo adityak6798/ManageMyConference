@@ -12,6 +12,9 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; navigating before its cookie lands loads the CRM
+  // unauthenticated and the shell bounces to the sign-in surface.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(CRM);
   await expect(page.getByRole("heading", { name: "Speaker CRM", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prospect pipeline" })).toBeVisible();
@@ -72,6 +75,9 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
 test("the pipeline searches by contact and explains an empty stage", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; navigating before its cookie lands loads the CRM
+  // unauthenticated and the shell bounces to the sign-in surface.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(CRM);
 
   await page.getByLabel("Search prospects").fill("morgan@example.test");

@@ -18,11 +18,18 @@ export async function getPublicationSummary(
   eventId: string,
   fetcher: typeof fetch = fetch,
 ): Promise<{ slug: string; state: string } | null> {
-  const response = await fetcher(`/api/publishing/events/${encodeURIComponent(eventId)}/preview`);
-  if (!response.ok) return null;
-  const parsed = publicationPreviewResponseSchema.safeParse(await response.json());
-  if (!parsed.success) return null;
-  return { slug: parsed.data.publication.slug, state: parsed.data.publication.state };
+  try {
+    const response = await fetcher(`/api/publishing/events/${encodeURIComponent(eventId)}/preview`);
+    if (!response.ok) return null;
+    const parsed = publicationPreviewResponseSchema.safeParse(await response.json());
+    if (!parsed.success) return null;
+    return { slug: parsed.data.publication.slug, state: parsed.data.publication.state };
+  } catch {
+    // ERROR-INTENT: this only decides whether an outbound convenience link is offered.
+    // A network failure or a non-JSON body must resolve to "unknown", never reject —
+    // an unhandled rejection here would surface as a page error in the console.
+    return null;
+  }
 }
 
 // @spec PRD-PUB-001

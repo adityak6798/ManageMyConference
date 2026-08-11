@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-10
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11
 
 ## Start from a clean checkout
 
@@ -19,12 +19,20 @@ event, CFP, proposals, review assignments, speakers, CRM records, agenda, delive
 published projection. Local delivery and uploads use deterministic adapters and require no live
 credentials.
 
-If ports 5173 or 8787 are already taken — another checkout, another agent, another project — set
-both explicitly, because the browser suite will otherwise silently reuse whatever is already
-answering on those ports:
+If port 5173 or 8787 is already taken — another checkout, another agent, another project — start the
+dev servers on free ports:
 
 ```bash
 GREENROOM_WEB_PORT=5273 GREENROOM_API_PORT=8887 npm run dev
+```
+
+The API port matters beyond convenience. `npm run test:e2e` defaults to 4173 for the web server and
+**8787 for the API**, and Playwright reuses any server already answering on the port it wants
+(`reuseExistingServer` is on outside CI). A second checkout serving 8787 will therefore be tested in
+place of this one, silently. Give the suite free ports of its own when anything else is running:
+
+```bash
+GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e
 ```
 
 ## Evaluator path
@@ -65,9 +73,10 @@ npm run test:e2e       # full browser acceptance suite
 npm run test:quality   # the fast evaluator gate
 ```
 
-`npm run test:e2e` starts its own API and web server and resets the database first. If other
-servers already occupy the default ports, pass `GREENROOM_WEB_PORT` / `GREENROOM_API_PORT` — the
-suite reuses an existing server on those ports and will otherwise test the wrong process.
+`npm run test:e2e` starts its own API and web server and resets the database first — but only when
+nothing is already answering on the ports it wants. Point it at **free** ports whenever other
+servers are running, as above; pointing it at ports something else already holds makes it reuse that
+process and skip the reset.
 
 `npm run test:e2e` is repeatable because its own `webServer` step resets the database before each
 invocation. The specs are **not** idempotent against an already-mutated fixture: several assert
