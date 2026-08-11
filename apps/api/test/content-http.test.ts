@@ -349,9 +349,9 @@ describe("content HTTP transport", () => {
     expect(anonymous.headers.get("content-type")).toBe("image/png");
     expect(anonymous.headers.get("x-content-type-options")).toBe("nosniff");
     expect(anonymous.headers.get("content-security-policy")).toContain("sandbox");
-    // Bounded, because publication is now reversible: an hour of shared-cache lifetime would
-    // outlive any withdrawal an organizer makes.
-    expect(anonymous.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    // Validator-based, because publication is reversible: any lifetime at all would outlive
+    // a withdrawal by exactly that much.
+    expect(anonymous.headers.get("cache-control")).toBe("public, no-cache");
     expect((await api.request("/api/speaker-assets/not-a-uuid")).status).toBe(400);
 
     const sessionId = portalBody.sessions[0]?.id;
@@ -448,12 +448,12 @@ describe("content HTTP transport", () => {
     // Served bytes carry the correlation id like every other response; a raw `Response`
     // used to drop it, leaving an asset failure undiagnosable.
     expect(live.headers.get("x-correlation-id")).toBeTruthy();
-    // Revalidation is a bodyless 304, which is what makes the short public lifetime cheap.
+    // Revalidation is a bodyless 304, which is what makes revalidating every read cheap.
     const revalidated = await api.request(`/api/speaker-assets/${assetId}`, {
       headers: { "if-none-match": validator ?? "" },
     });
     expect(revalidated.status).toBe(304);
-    expect(revalidated.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    expect(revalidated.headers.get("cache-control")).toBe("public, no-cache");
 
     // Unpublishing the *event* withdraws the bytes its public page exposed. Live before this
     // change: an anonymous read stayed 200 whatever the event's publication state.

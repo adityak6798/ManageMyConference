@@ -98,14 +98,24 @@ function linkProps(to: string) {
 
 /* ----------------------------- formatting ----------------------------- */
 
+/**
+ * The projection derives `startsOn`/`endsOn` from the published agenda's timeslots, so an event
+ * published before anything is scheduled carries empty strings. `new Date("T12:00:00Z")` is an
+ * Invalid Date and `Intl` throws `RangeError` on one, which would take the whole page down —
+ * the public surface must degrade rather than fail on a projection the contract permits.
+ */
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /** `startsOn`/`endsOn` are plain calendar dates, so they are read in UTC, not the venue zone. */
 function calendarDate(value: string, options: Intl.DateTimeFormatOptions) {
+  if (!CALENDAR_DAY.test(value)) return "";
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options }).format(
     new Date(`${value}T12:00:00Z`),
   );
 }
 
 function eventDates({ startsOn, endsOn }: { startsOn: string; endsOn: string }) {
+  if (!CALENDAR_DAY.test(startsOn) || !CALENDAR_DAY.test(endsOn)) return "Dates to be announced";
   if (startsOn === endsOn) return calendarDate(startsOn, { dateStyle: "long" });
   // Intl mangles a day+year request ("2026 (day: 18)"), so a same-month range is
   // assembled from single-field formats instead of one call.
@@ -119,46 +129,56 @@ function eventDates({ startsOn, endsOn }: { startsOn: string; endsOn: string }) 
       })}`;
 }
 
+/**
+ * Every instant formatter goes through here. A session may legitimately carry no start, and
+ * `Intl` throws `RangeError` on an Invalid Date, so an absent or malformed instant renders as
+ * nothing rather than blanking the page it appears on.
+ */
+const formatInstant = (value: string, options: Intl.DateTimeFormatOptions) => {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", options).format(instant);
+};
+
 const clockTime = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  formatInstant(value, { timeZone: timezone, hour: "numeric", minute: "2-digit" });
 
 /** Outside the day-grouped itinerary a bare clock is ambiguous on a multi-day event. */
-const dayAndTime = (value: string, timezone: string) =>
-  `${new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    month: "short",
-    day: "numeric",
-  }).format(new Date(value))}, ${clockTime(value, timezone)}`;
+const dayAndTime = (value: string, timezone: string) => {
+  const day = formatInstant(value, { timeZone: timezone, month: "short", day: "numeric" });
+  const time = clockTime(value, timezone);
+  return day && time ? `${day}, ${time}` : "";
+};
 
-const dayKey = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-CA", {
+const dayKey = (value: string, timezone: string) => {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date(value));
+  }).format(instant);
+};
 
 const dayLabel = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", {
+  formatInstant(value, {
     timeZone: timezone,
     weekday: "long",
     month: "long",
     day: "numeric",
-  }).format(new Date(value));
+  });
 
 const fullTime = (value: string, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    dateStyle: "full",
-    timeStyle: "short",
-  }).format(new Date(value));
+  formatInstant(value, { timeZone: timezone, dateStyle: "full", timeStyle: "short" });
 
-/** "PDT" for the week the event runs, so summer/winter zones read correctly. */
+/**
+ * "PDT" for the week the event runs, so summer/winter zones read correctly. An event with no
+ * scheduled days has no such week, and the zone name is dropped rather than guessed from today —
+ * the full IANA name is still printed beside it.
+ */
 function zoneAbbreviation(timezone: string, referenceDate: string) {
+  if (!CALENDAR_DAY.test(referenceDate)) return "";
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     timeZoneName: "short",
@@ -764,8 +784,9 @@ export function PublicEventApp() {
         {section === "home" && (
           <>
             <div className="pub-hero">
+              {/* A newly published event has no venue yet; the separator goes with it. */}
               <p className="kicker">
-                {model.dates} · {projection.event.venue}
+                {[model.dates, projection.event.venue].filter(Boolean).join(" · ")}
               </p>
               <h1>{projection.event.name}</h1>
               <p className="lede">{projection.event.summary}</p>

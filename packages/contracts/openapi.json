@@ -179,7 +179,7 @@
                               "bio": {
                                 "type": "string"
                               },
-                              "headline": {
+                              "organization": {
                                 "type": "string"
                               },
                               "photoUrl": {
@@ -190,7 +190,7 @@
                               "slug",
                               "name",
                               "bio",
-                              "headline"
+                              "organization"
                             ]
                           }
                         }
@@ -229,6 +229,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -281,6 +282,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -504,7 +506,7 @@
                                   "bio": {
                                     "type": "string"
                                   },
-                                  "headline": {
+                                  "organization": {
                                     "type": "string"
                                   },
                                   "photoUrl": {
@@ -515,7 +517,7 @@
                                   "slug",
                                   "name",
                                   "bio",
-                                  "headline"
+                                  "organization"
                                 ]
                               }
                             }
@@ -670,7 +672,7 @@
                                   "bio": {
                                     "type": "string"
                                   },
-                                  "headline": {
+                                  "organization": {
                                     "type": "string"
                                   },
                                   "photoUrl": {
@@ -681,7 +683,7 @@
                                   "slug",
                                   "name",
                                   "bio",
-                                  "headline"
+                                  "organization"
                                 ]
                               }
                             }
@@ -735,6 +737,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -787,6 +790,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -839,6 +843,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -891,6 +896,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -943,6 +949,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1166,7 +1173,7 @@
                                   "bio": {
                                     "type": "string"
                                   },
-                                  "headline": {
+                                  "organization": {
                                     "type": "string"
                                   },
                                   "photoUrl": {
@@ -1177,7 +1184,7 @@
                                   "slug",
                                   "name",
                                   "bio",
-                                  "headline"
+                                  "organization"
                                 ]
                               }
                             }
@@ -1332,7 +1339,7 @@
                                   "bio": {
                                     "type": "string"
                                   },
-                                  "headline": {
+                                  "organization": {
                                     "type": "string"
                                   },
                                   "photoUrl": {
@@ -1343,7 +1350,7 @@
                                   "slug",
                                   "name",
                                   "bio",
-                                  "headline"
+                                  "organization"
                                 ]
                               }
                             }
@@ -1397,6 +1404,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1449,6 +1457,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1501,6 +1510,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1553,6 +1563,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1605,6 +1616,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1828,7 +1840,7 @@
                                   "bio": {
                                     "type": "string"
                                   },
-                                  "headline": {
+                                  "organization": {
                                     "type": "string"
                                   },
                                   "photoUrl": {
@@ -1839,7 +1851,7 @@
                                   "slug",
                                   "name",
                                   "bio",
-                                  "headline"
+                                  "organization"
                                 ]
                               }
                             }
@@ -1994,7 +2006,7 @@
                                   "bio": {
                                     "type": "string"
                                   },
-                                  "headline": {
+                                  "organization": {
                                     "type": "string"
                                   },
                                   "photoUrl": {
@@ -2005,7 +2017,7 @@
                                   "slug",
                                   "name",
                                   "bio",
-                                  "headline"
+                                  "organization"
                                 ]
                               }
                             }
@@ -2059,6 +2071,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2111,6 +2124,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2163,6 +2177,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2215,6 +2230,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2267,6 +2283,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2452,6 +2469,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2504,6 +2522,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2961,6 +2980,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3013,6 +3033,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3065,6 +3086,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3117,6 +3139,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3321,6 +3344,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3373,6 +3397,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3425,6 +3450,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3477,6 +3503,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3639,6 +3666,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3691,6 +3719,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3743,6 +3772,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3795,6 +3825,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3947,6 +3978,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3999,6 +4031,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4051,6 +4084,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4103,6 +4137,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4155,6 +4190,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4517,6 +4553,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4569,6 +4606,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4621,6 +4659,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4673,6 +4712,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4890,6 +4930,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4942,6 +4983,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4994,6 +5036,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5046,6 +5089,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5098,6 +5142,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5136,7 +5181,7 @@
     },
     "/api/events/{eventId}/review/decisions": {
       "post": {
-        "description": "Records an accept/decline decision and moves the proposal to the matching reserved status. Only an accepted decision authorizes content acceptance.",
+        "description": "Records an accept/decline decision and moves the proposal to the matching reserved status. For an accepted outcome the same request also creates the session, because the recorded decision is what authorizes it; `acceptances` reports which half happened per proposal. A `decision_only` entry means the decision is durable and the session was refused, so re-posting the identical decision retries it.",
         "security": [
           {
             "sessionCookie": []
@@ -5327,6 +5372,50 @@
                           "note"
                         ]
                       }
+                    },
+                    "acceptances": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "content",
+                              "decision_only"
+                            ]
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "nullable": true,
+                            "format": "uuid"
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "fieldErrors": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "proposalId",
+                          "state",
+                          "sessionId",
+                          "detail",
+                          "fieldErrors"
+                        ]
+                      },
+                      "default": []
                     }
                   },
                   "required": [
@@ -5356,6 +5445,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5408,6 +5498,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5460,6 +5551,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5512,6 +5604,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5564,6 +5657,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5707,6 +5801,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5759,6 +5854,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5811,6 +5907,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5863,6 +5960,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6059,6 +6157,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6111,6 +6210,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6163,6 +6263,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6215,6 +6316,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6267,6 +6369,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6384,6 +6487,11 @@
                                 },
                                 "maxItems": 30,
                                 "default": []
+                              },
+                              "maxLength": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10000
                               }
                             },
                             "required": [
@@ -6463,6 +6571,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6515,6 +6624,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6567,6 +6677,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6619,6 +6730,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6671,6 +6783,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6782,6 +6895,11 @@
                           },
                           "maxItems": 30,
                           "default": []
+                        },
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
                         }
                       },
                       "required": [
@@ -6865,6 +6983,11 @@
                                 },
                                 "maxItems": 30,
                                 "default": []
+                              },
+                              "maxLength": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10000
                               }
                             },
                             "required": [
@@ -6944,6 +7067,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6996,6 +7120,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7048,6 +7173,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7100,6 +7226,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7136,7 +7263,7 @@
         }
       }
     },
-    "/api/public/events": {
+    "/api/events/assigned": {
       "get": {
         "security": [
           {
@@ -7145,7 +7272,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Publicly assigned events",
+            "description": "Events the session holds any role on",
             "content": {
               "application/json": {
                 "schema": {
@@ -7211,6 +7338,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7263,6 +7391,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7403,6 +7532,11 @@
                                 },
                                 "maxItems": 30,
                                 "default": []
+                              },
+                              "maxLength": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10000
                               }
                             },
                             "required": [
@@ -7482,6 +7616,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7534,6 +7669,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7586,6 +7722,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7638,6 +7775,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7690,6 +7828,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7802,6 +7941,11 @@
                                 },
                                 "maxItems": 30,
                                 "default": []
+                              },
+                              "maxLength": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10000
                               }
                             },
                             "required": [
@@ -7881,6 +8025,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7933,6 +8078,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7985,6 +8131,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8049,7 +8196,8 @@
                   "answers": {
                     "type": "object",
                     "additionalProperties": {
-                      "type": "string"
+                      "type": "string",
+                      "maxLength": 10000
                     }
                   }
                 },
@@ -8113,6 +8261,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8165,6 +8314,60 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8217,6 +8420,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8581,6 +8785,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8633,6 +8838,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8685,6 +8891,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8737,6 +8944,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9121,6 +9329,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9173,6 +9382,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9225,6 +9435,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9277,6 +9488,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9329,6 +9541,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9381,6 +9594,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9555,6 +9769,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9607,6 +9822,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9659,6 +9875,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9711,6 +9928,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10084,6 +10302,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10136,6 +10355,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10188,6 +10408,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10240,6 +10461,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10406,6 +10628,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10458,6 +10681,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10510,6 +10734,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10562,6 +10787,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10613,7 +10839,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Raw asset bytes. Publishable assets are readable by anyone; private assets only by the owning speaker or an event organizer.",
+            "description": "Raw asset bytes. Readable by anyone while the asset is publishable and its event is published; otherwise only by the owning speaker or an event organizer.",
             "content": {
               "*/*": {
                 "schema": {
@@ -10622,6 +10848,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "description": "Unchanged since the ETag the caller supplied"
           },
           "400": {
             "description": "Standard error envelope",
@@ -10642,6 +10871,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10694,6 +10924,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10746,6 +10977,242 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "assetId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Asset row and stored object removed"
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10882,6 +11349,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10934,6 +11402,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10986,6 +11455,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11038,6 +11508,303 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/speaker-assets/{assetId}/unpublish": {
+      "post": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "assetId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset returned to private, ending anonymous reads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "speakerProfileId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "storageKey": {
+                          "type": "string"
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "enum": [
+                            "private",
+                            "publishable"
+                          ]
+                        },
+                        "uploadedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "eventId",
+                        "speakerProfileId",
+                        "name",
+                        "contentType",
+                        "storageKey",
+                        "visibility",
+                        "uploadedAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "asset"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11276,6 +12043,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11328,6 +12096,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11380,6 +12149,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11432,6 +12202,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11583,6 +12354,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11635,6 +12407,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11687,6 +12460,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11739,6 +12513,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11873,6 +12648,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11925,6 +12701,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11977,6 +12754,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12029,6 +12807,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12114,6 +12893,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12166,6 +12946,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12218,6 +12999,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12270,6 +13052,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12322,6 +13105,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12589,6 +13373,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12641,6 +13426,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12693,6 +13479,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12745,6 +13532,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12797,6 +13585,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13153,6 +13942,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13205,6 +13995,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13257,6 +14048,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13309,6 +14101,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13361,6 +14154,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13675,6 +14469,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13727,6 +14522,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13779,6 +14575,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13831,6 +14628,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13883,6 +14681,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13966,6 +14765,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14018,6 +14818,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14070,6 +14871,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14122,6 +14924,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14174,6 +14977,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14432,6 +15236,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14484,6 +15289,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14536,6 +15342,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14588,6 +15395,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14640,6 +15448,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14692,6 +15501,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14728,22 +15538,22 @@
         }
       }
     },
-    "/api/public/events/{eventId}/schedule": {
+    "/api/public/events/{slug}/schedule": {
       "get": {
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "format": "uuid"
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
             },
             "required": true,
-            "name": "eventId",
+            "name": "slug",
             "in": "path"
           }
         ],
         "responses": {
           "200": {
-            "description": "Latest public-safe published schedule",
+            "description": "Sessions the published projection places, under the agenda publication in force",
             "content": {
               "application/json": {
                 "schema": {
@@ -14752,9 +15562,9 @@
                     "schedule": {
                       "type": "object",
                       "properties": {
-                        "eventId": {
+                        "eventSlug": {
                           "type": "string",
-                          "format": "uuid"
+                          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                         },
                         "version": {
                           "type": "integer",
@@ -14765,210 +15575,69 @@
                           "type": "string",
                           "format": "date-time"
                         },
-                        "agenda": {
-                          "type": "object",
-                          "properties": {
-                            "eventId": {
-                              "type": "string",
-                              "format": "uuid"
-                            },
-                            "rooms": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "id": {
-                                    "type": "string"
-                                  },
-                                  "name": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "id",
-                                  "name"
-                                ]
+                        "sessions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slug": {
+                                "type": "string",
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "abstract": {
+                                "type": "string"
+                              },
+                              "format": {
+                                "type": "string"
+                              },
+                              "track": {
+                                "type": "string"
+                              },
+                              "speakerSlugs": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                }
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "endsAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "room": {
+                                "type": "string"
                               }
                             },
-                            "tracks": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "id": {
-                                    "type": "string"
-                                  },
-                                  "name": {
-                                    "type": "string"
-                                  },
-                                  "color": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "id",
-                                  "name",
-                                  "color"
-                                ]
-                              }
-                            },
-                            "slots": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "id": {
-                                    "type": "string"
-                                  },
-                                  "startsAt": {
-                                    "type": "string",
-                                    "format": "date-time"
-                                  },
-                                  "endsAt": {
-                                    "type": "string",
-                                    "format": "date-time"
-                                  }
-                                },
-                                "required": [
-                                  "id",
-                                  "startsAt",
-                                  "endsAt"
-                                ]
-                              }
-                            },
-                            "sessions": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "id": {
-                                    "type": "string"
-                                  },
-                                  "title": {
-                                    "type": "string"
-                                  },
-                                  "speakerIds": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "id",
-                                  "title",
-                                  "speakerIds"
-                                ]
-                              }
-                            },
-                            "placements": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "id": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "sessionId": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "roomId": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "trackId": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "slotId": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  }
-                                },
-                                "required": [
-                                  "id",
-                                  "sessionId",
-                                  "roomId",
-                                  "trackId",
-                                  "slotId"
-                                ]
-                              }
-                            }
-                          },
-                          "required": [
-                            "eventId",
-                            "rooms",
-                            "tracks",
-                            "slots",
-                            "sessions",
-                            "placements"
-                          ]
+                            "required": [
+                              "slug",
+                              "title",
+                              "abstract",
+                              "format",
+                              "track",
+                              "speakerSlugs",
+                              "startsAt",
+                              "endsAt"
+                            ]
+                          }
                         }
                       },
                       "required": [
-                        "eventId",
+                        "eventSlug",
                         "version",
                         "publishedAt",
-                        "agenda"
+                        "sessions"
                       ]
                     }
                   },
                   "required": [
                     "schedule"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Standard error envelope",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string",
-                          "enum": [
-                            "UNAUTHORIZED",
-                            "FORBIDDEN",
-                            "VALIDATION_FAILED",
-                            "NOT_FOUND",
-                            "CONFLICT",
-                            "AGENDA_CONFLICT",
-                            "INTERNAL_ERROR"
-                          ]
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "correlationId": {
-                          "type": "string"
-                        },
-                        "fieldErrors": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message",
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
                   ]
                 }
               }
@@ -14993,6 +15662,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15045,6 +15715,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15161,6 +15832,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15268,6 +15940,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15320,6 +15993,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15372,6 +16046,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15491,6 +16166,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15543,6 +16219,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15595,6 +16272,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15647,6 +16325,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15699,6 +16378,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15810,6 +16490,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15862,6 +16543,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15914,6 +16596,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16050,6 +16733,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16102,6 +16786,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16154,6 +16839,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16206,6 +16892,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16475,6 +17162,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16527,6 +17215,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16579,6 +17268,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16631,6 +17321,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16914,6 +17605,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16966,6 +17658,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17018,6 +17711,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17070,6 +17764,274 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/prospects/owners": {
+      "get": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users assignable as the owner of a prospect on this event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "owners": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "owners"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17311,6 +18273,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17363,6 +18326,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17415,6 +18379,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17467,6 +18432,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17519,6 +18485,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17620,8 +18587,7 @@
                           "note",
                           "email",
                           "call",
-                          "meeting",
-                          "stage-change"
+                          "meeting"
                         ]
                       },
                       "summary": {
@@ -17845,6 +18811,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17897,6 +18864,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17949,6 +18917,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18001,6 +18970,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18053,6 +19023,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18105,6 +19076,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18346,6 +19318,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18398,6 +19371,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18450,6 +19424,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18502,6 +19477,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18554,6 +19530,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18606,6 +19583,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18790,6 +19768,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18842,6 +19821,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18894,6 +19874,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18946,6 +19927,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19210,6 +20192,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19262,6 +20245,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19314,6 +20298,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19366,6 +20351,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19418,6 +20404,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19716,6 +20703,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19768,6 +20756,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19820,6 +20809,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19872,6 +20862,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20079,6 +21070,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20131,6 +21123,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20183,6 +21176,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20235,6 +21229,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20287,6 +21282,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20339,6 +21335,7 @@
                             "NOT_FOUND",
                             "CONFLICT",
                             "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
                             "INTERNAL_ERROR"
                           ]
                         },

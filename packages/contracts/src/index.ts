@@ -116,8 +116,6 @@ export const publishedScheduleSchema = z.object({
   publishedBy: z.string(),
   agenda: agendaDraftSchema.omit({ conflicts: true }),
 });
-export const publicScheduleSchema = publishedScheduleSchema.omit({ publishedBy: true });
-export type PublicScheduleDto = z.infer<typeof publicScheduleSchema>;
 export const sessionEventAccessSchema = z.object({
   eventId: z.string().uuid(),
   role: demoPersonaSchema,
@@ -288,9 +286,24 @@ export const prospectContactSchema = z.object({
   email: z.string().email(),
   isPrimary: z.boolean(),
 });
+/*
+ * Two vocabularies, deliberately different sizes. `stage-change` and `conversion` are
+ * written by the CRM service as the transition they describe is applied, so they are part
+ * of what a timeline returns but not of what a client may submit: a caller who could post
+ * one could tell the timeline a prospect moved when it never did.
+ */
+export const prospectActivityKindSchema = z.enum([
+  "note",
+  "email",
+  "call",
+  "meeting",
+  "stage-change",
+  "conversion",
+]);
+export const recordableProspectActivityKindSchema = z.enum(["note", "email", "call", "meeting"]);
 export const prospectActivitySchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(["note", "email", "call", "meeting", "stage-change", "conversion"]),
+  kind: prospectActivityKindSchema,
   summary: z.string(),
   private: z.boolean(),
   occurredAt: z.string().datetime(),
@@ -328,7 +341,7 @@ export const updateProspectInputSchema = z
     nextActionAt: z.string().datetime().nullable().optional(),
     activity: z
       .object({
-        kind: z.enum(["note", "email", "call", "meeting", "stage-change"]),
+        kind: recordableProspectActivityKindSchema,
         summary: z.string().trim().min(1).max(1000),
         private: z.boolean().default(true),
       })
@@ -854,6 +867,29 @@ export const publicEventProjectionSchema = z.object({
 export type PublicEventProjectionDto = z.infer<typeof publicEventProjectionSchema>;
 export const publicEventResponseSchema = z.object({ projection: publicEventProjectionSchema });
 export const publicEventSlugParamsSchema = z.object({ slug: routeSlugSchema });
+/*
+ * The public schedule is a view of the published projection, not of the agenda draft.
+ *
+ * It used to be the agenda publication verbatim — every session on the organizer's board,
+ * including ones whose content is still a draft, keyed by `content_sessions` and
+ * `speaker_profiles` primary keys. A session appears here only if the event's published
+ * snapshot publishes it, and it is named by the same slug that snapshot assigned, so the
+ * schedule and the event hub address one session by one public identifier and no storage
+ * id crosses the boundary. `version` and `publishedAt` stay: they are the agenda's own
+ * statement of which numbered immutable snapshot is in force (`PRD-AGD-001`).
+ */
+// @spec PRD-AGD-001 PRD-PUB-001
+export const publicScheduleSessionSchema = publicSessionSchema.required({
+  startsAt: true,
+  endsAt: true,
+});
+export const publicScheduleSchema = z.object({
+  eventSlug: routeSlugSchema,
+  version: z.number().int().positive(),
+  publishedAt: z.string().datetime(),
+  sessions: z.array(publicScheduleSessionSchema),
+});
+export type PublicScheduleDto = z.infer<typeof publicScheduleSchema>;
 export const publicationPreviewResponseSchema = z.object({
   publication: z.object({
     eventId: z.string().uuid(),

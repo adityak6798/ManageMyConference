@@ -712,7 +712,8 @@ registry.registerPath({
   request: { params: publicEventSlugParamsSchema },
   responses: {
     200: {
-      description: "Latest public-safe published schedule for a published event",
+      description:
+        "Sessions the published projection places, under the agenda publication in force",
       content: json(z.object({ schedule: publicScheduleSchema })),
     },
     404: errorResponse,

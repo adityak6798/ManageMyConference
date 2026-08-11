@@ -97,6 +97,72 @@ export const allowlistPublicProjection = (
   })),
 });
 
+/**
+ * A session the published snapshot places: everything `PublicSession` carries, with the
+ * clock no longer optional. A session without a time is published but not scheduled.
+ */
+export interface PublicScheduleSession extends PublicSession {
+  readonly startsAt: string;
+  readonly endsAt: string;
+}
+
+/**
+ * The public schedule. `version` and `publishedAt` identify the agenda's numbered
+ * immutable snapshot; the sessions are the published projection's own, so the schedule
+ * can only ever name content the organizer has published, under the same public slug the
+ * event hub uses for it.
+ */
+export interface PublicScheduleProjection {
+  readonly eventSlug: string;
+  readonly version: number;
+  readonly publishedAt: string;
+  readonly sessions: readonly PublicScheduleSession[];
+}
+
+const isScheduled = (session: PublicSession): session is PublicScheduleSession =>
+  Boolean(session.startsAt && session.endsAt);
+
+/**
+ * Compose the public schedule from a published projection and the agenda publication in
+ * force.
+ *
+ * The projection is the only source of session material here. The agenda snapshot is
+ * keyed by `content_sessions` and `speaker_profiles` primary keys and covers the whole
+ * organizer board — including sessions whose content is still a draft — so nothing but
+ * its identity crosses this boundary. Fields are copied one by one for the same reason
+ * `allowlistPublicProjection` copies them: a stored snapshot is JSON, and a spread would
+ * publish whatever an older writer happened to leave in it.
+ */
+export const composePublicSchedule = (
+  projection: PublicEventProjection,
+  publication: { readonly version: number; readonly publishedAt: string },
+): PublicScheduleProjection => ({
+  eventSlug: projection.event.slug,
+  version: publication.version,
+  publishedAt: publication.publishedAt,
+  sessions: projection.sessions
+    .filter(isScheduled)
+    .map((session) => ({
+      slug: session.slug,
+      title: session.title,
+      abstract: session.abstract,
+      format: session.format,
+      track: session.track,
+      speakerSlugs: [...session.speakerSlugs],
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      ...(session.room ? { room: session.room } : {}),
+    }))
+    // Programme order, and the same order on every read: two sessions that start together
+    // are separated by room and then by title rather than by storage order.
+    .sort(
+      (left, right) =>
+        left.startsAt.localeCompare(right.startsAt) ||
+        (left.room ?? "").localeCompare(right.room ?? "") ||
+        left.title.localeCompare(right.title),
+    ),
+});
+
 /*
  * Public URLs are part of the product. `/sessions/designing-the-calm-conference` is
  * readable, quotable, and survives being pasted into a programme; the storage UUID this

@@ -28,6 +28,7 @@
       "apps/api/src/application/agenda/public.ts",
       "apps/web/src/AgendaWorkspace.tsx",
       "apps/api/src/application/publishing/publication-service.ts",
+      "apps/api/src/application/publishing/public.ts",
       "apps/web/src/PublicEventApp.tsx",
       "apps/web/src/api/cfp.ts",
       "apps/web/src/ui/primitives.tsx",
@@ -89,10 +90,13 @@
         "apps/web/vite.config.ts",
         "apps/web/playwright.config.ts",
         "apps/web/e2e/lifecycle-demo.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts",
+        "apps/web/e2e/00-seed-state.spec.ts",
         "docs/demo-runbook.md",
         "apps/web/src/AppShell.tsx",
         "apps/web/src/OverviewPage.tsx",
         "apps/web/src/router.ts",
+        "apps/web/test/router.test.tsx",
         "apps/web/src/ui/primitives.tsx",
         "apps/web/src/ui/icons.tsx",
         "apps/api/test/seed-state.integration.test.ts"
@@ -157,6 +161,7 @@
         "apps/api/test/d1-cfp-repository.integration.test.ts",
         "apps/web/src/api/cfp.ts",
         "apps/web/src/CfpWorkspace.tsx",
+        "apps/web/test/cfp-composer.test.tsx",
         "apps/web/e2e/cfp.spec.ts"
       ]
     },
@@ -305,7 +310,8 @@
         "apps/web/src/api/publication.ts",
         "apps/web/test/publishing.test.tsx",
         "apps/web/test/public-event-pages.test.tsx",
-        "apps/web/e2e/public-event.spec.ts"
+        "apps/web/e2e/public-event.spec.ts",
+        "apps/web/e2e/publishing.spec.ts"
       ]
     }
   ],
@@ -325,6 +331,7 @@
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
     "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
-    "PublicationService": "apps/api/src/application/publishing/publication-service.ts"
+    "PublicationService": "apps/api/src/application/publishing/publication-service.ts",
+    "composePublicSchedule": "apps/api/src/application/publishing/public.ts"
   }
 }

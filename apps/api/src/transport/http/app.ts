@@ -42,6 +42,7 @@ import {
   triggerDeliveryInputSchema,
   publicEventProjectionSchema,
   publicEventSlugParamsSchema,
+  publicScheduleSchema,
   publicationPreviewResponseSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
@@ -98,7 +99,10 @@ import {
   requireEventCapability,
 } from "../../application/identity/actor";
 import { createDemoSession, resolveDemoSession } from "../../application/identity/demo-session";
-import type { PublicationService } from "../../application/publishing/publication-service";
+import {
+  composePublicSchedule,
+  type PublicationService,
+} from "../../application/publishing/public";
 import { createEventInputToCommand, eventToDto } from "./event-mappers";
 
 export interface StructuredLogger {
@@ -116,10 +120,10 @@ export type RuntimeAuthConfig =
 class MalformedJsonError extends Error {}
 const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
 /**
- * How long a shared cache may serve a public representation, and therefore the longest a
- * withdrawn event or asset can still be visible. See the middleware that applies it.
+ * The caching policy for a public representation: any cache may keep it, none may use it
+ * without asking first. See the middleware that applies it.
  */
-const PUBLIC_CACHE_CONTROL = "public, max-age=60, must-revalidate";
+const PUBLIC_CACHE_CONTROL = "public, no-cache";
 
 const envelope = (
   code: ApiErrorEnvelope["error"]["code"],
@@ -226,15 +230,16 @@ export function createHttpApp(
    * and 404, which no preflight accepts.
    *
    * ETag + caching: the embed hits these endpoints on every page load, so `no-store` was
-   * paying full price every time. 60 seconds is chosen against withdrawal, not against
-   * traffic: unpublishing an event or retracting an asset must take effect promptly, and
-   * `max-age` is exactly how long a shared cache may keep serving something an organizer has
-   * already retracted. `must-revalidate` forbids serving stale content past that window (so
-   * no `stale-while-revalidate` grace on top of it), and the ETag makes the revalidation a
-   * bodyless 304. A minute of collapsed traffic is worth at most a minute of staleness;
-   * anything longer trades a withdrawal guarantee for cache hits, which is not ours to trade.
-   * Anything that is not a 200 — a 404 for an unpublished event, a submission response — is
-   * explicitly `no-store`, so a cache cannot pin "not published" over a later publish.
+   * paying full price every time. The saving is taken with a validator, not with a
+   * lifetime. `PRD-PUB-001` promises that the applicant view reflects close and reopen
+   * immediately and that unpublishing removes the public snapshot immediately; any
+   * `max-age` at all is a window in which a browser answers from its own store without
+   * asking us, so a closed CFP would keep advertising itself for the length of that
+   * window. `no-cache` keeps the response storable but forces revalidation on every read,
+   * and the ETag makes an unchanged answer a bodyless 304 — the bandwidth `#64` wanted,
+   * with no staleness to trade for it. Anything that is not a 200 — a 404 for an
+   * unpublished event, a submission response — is `no-store`, so a cache cannot pin
+   * "not published" over a later publish.
    */
   app.use(
     "/api/public/*",
@@ -697,13 +702,14 @@ export function createHttpApp(
         404,
       );
     // Uploaded bytes never change — there is no replace route — so identity plus upload
-    // instant is a strong validator, and revalidating the short public lifetime below costs
-    // a bodyless 304 rather than the file.
+    // instant is a strong validator, and the revalidation the policy below demands costs a
+    // bodyless 304 rather than the file.
     const validator = `"${found.asset.id}-${found.asset.uploadedAt}"`;
     const headers = {
       // Only bytes served through the *public* door may be stored by a shared cache: the
       // same publishable asset is also served to its owner while the event is unpublished,
-      // and that response must never end up in front of the public.
+      // and that response must never end up in front of the public. Storable, never used
+      // unvalidated — returning an asset to private has to be visible on the next request.
       "cache-control": found.publiclyReadable ? PUBLIC_CACHE_CONTROL : "private, no-store",
       etag: validator,
       // Uploaded files are untrusted; never let a browser execute one inline.
@@ -735,8 +741,8 @@ export function createHttpApp(
   });
   /*
    * Publication is reversible. An asset published by mistake goes back to `private`, which
-   * closes the public door immediately; the shared-cache window is bounded by the short
-   * `max-age` the read above serves. Organizer-only, like publishing it.
+   * closes the public door immediately: the read above serves no lifetime a cache could
+   * spend on the withdrawn bytes. Organizer-only, like publishing it.
    */
   app.post("/api/speaker-assets/:assetId/unpublish", async (context) => {
     requireCapability(context.get("actor"), "content:manage");
@@ -1357,12 +1363,17 @@ export function createHttpApp(
     if (!crm) throw new Error("CRM service is not configured");
     const path = prospectPathSchema.safeParse(context.req.param());
     const input = updateProspectInputSchema.safeParse(await readJson(context.req));
+    // Named fields, because one of the ways this refuses a body is subtle: `stage-change`
+    // and `conversion` are activity kinds the CRM service narrates for itself, and a client
+    // that submits one is told which field it may not write rather than only that something
+    // was wrong.
     if (!path.success || !input.success)
       return context.json(
         envelope(
           "VALIDATION_FAILED",
           "The prospect could not be updated.",
           context.get("correlationId"),
+          input.success ? undefined : validationFields(input.error.issues),
         ),
         400,
       );
@@ -1474,6 +1485,20 @@ export function createHttpApp(
    * public surface down, and the internal event UUID is not an address the public is given.
    * Publishing owns "is this event public"; agenda owns the snapshot. Neither reads the
    * other's tables — this route composes their two public application interfaces.
+   *
+   * What each contributes is deliberate. The agenda publication says *whether* a numbered
+   * immutable snapshot exists and *which* one is in force; the published projection says
+   * what may be shown. Handing back the agenda snapshot itself published the organizer's
+   * whole board — a session still in `draft` came out with its title, and every session
+   * and speaker arrived as its storage UUID — on the one route whose entire purpose is the
+   * published surface (`ACC-AGENDA`, `PRD-PUB-001`).
+   *
+   * So the placement detail here is the projection's copy, which is the same copy the event
+   * hub serves: the two public views of one session can never disagree. Republishing the
+   * agenda advances `version` before that detail follows, exactly as republishing any other
+   * source moves ahead of the snapshot until the organizer publishes the site again — which
+   * is the rule `PRD-PUB-001` states for the whole public surface, and which the publishing
+   * workspace already reports on screen.
    */
   app.get("/api/public/events/:slug/schedule", async (context) => {
     const notPublished = () =>
@@ -1487,9 +1512,13 @@ export function createHttpApp(
     if (!parsed.success || !agenda || !publishing) return notPublished();
     const projection = await publishing.publicBySlug(parsed.data.slug);
     if (!projection) return notPublished();
-    const schedule = await agenda.published(projection.event.eventId);
-    if (!schedule) return notPublished();
-    return context.json({ schedule });
+    const publication = await agenda.published(projection.event.eventId);
+    if (!publication) return notPublished();
+    // Parsed, not merely composed: the contract is what leaves the process, and a stored
+    // snapshot that cannot satisfy it is withheld exactly like an unpublished one.
+    const schedule = publicScheduleSchema.safeParse(composePublicSchedule(projection, publication));
+    if (!schedule.success) return notPublished();
+    return context.json({ schedule: schedule.data });
   });
   app.notFound((context) =>
     context.json(

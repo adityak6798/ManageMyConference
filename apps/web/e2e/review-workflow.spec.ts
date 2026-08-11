@@ -1,5 +1,8 @@
 // @acceptance ACC-REVIEW
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+// One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
+test.use({ extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.5" } });
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const WORKSHOP_EVENT = "00000000-0000-4000-8000-000000000002";
@@ -22,6 +25,11 @@ const BASELINE_PLAN = {
     },
   ],
 };
+/**
+ * Only the configurable part of the pipeline is restated. `accepted` and `declined` are the
+ * review domain's reserved decision statuses: a saved set that omits them is completed with
+ * them rather than refused, so both events end this reset with those two on the end.
+ */
 const BASELINE_STATUSES = { statuses: [{ key: "submitted", label: "Submitted", sortOrder: 0 }] };
 
 /** The seeded pipeline and proposal placement for the demo event, restated for the same reason. */
@@ -36,18 +44,14 @@ const DEMO_STATUSES = {
   ],
 };
 
-test("organizer triages abstracts and a reviewer completes an unbiased evaluation", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Continue as organizer" }).click();
-  // The click posts the demo session; the fixture requests below are authenticated by
-  // its cookie, so wait for the signed-in shell before issuing any of them.
-  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
-
-  // The journey mutates the fixture, so it first restores the exact pipeline and
-  // placement it asserts against. Completion stays terminal by design, so the
-  // final scoring step still expects a freshly reset fixture.
+/**
+ * Put the seeded pipeline back the way this file asserts it.
+ *
+ * Both journeys below mutate the shared fixture — one moves an abstract between statuses,
+ * the other one is accepted by `speaker-portal.spec.ts` — so each starts by restating the
+ * exact statuses and placements it goes on to assert.
+ */
+async function restoreSeededPipeline(page: Page) {
   const statusReset = await page.request.put(`/api/events/${DEMO_EVENT}/review/statuses`, {
     data: DEMO_STATUSES,
   });
@@ -63,7 +67,89 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
         })
       ).ok(),
     ).toBe(true);
+}
 
+async function signInAsOrganizer(page: Page) {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; the fixture requests below are authenticated by
+  // its cookie, so wait for the signed-in shell before issuing any of them.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+}
+
+/**
+ * Switch the signed-in persona, and wait for the switch to actually land.
+ *
+ * `switchPersona` (apps/web/src/App.tsx) is fired from the select's change handler and
+ * deliberately not awaited, so `selectOption` returns while `POST /api/demo-session` is
+ * still in flight. A `page.goto` issued straight afterwards aborts that request, the next
+ * document is fetched with the previous identity's cookie, and `routesFor` sends the
+ * organizer off `/reviews` to the overview — where the queue this journey needs does not
+ * exist. The window widens as the shared fixture grows, so it fails the second or third
+ * run rather than the first. Waiting for the response is what closes it: the new session
+ * cookie arrives with those headers.
+ */
+async function switchRole(page: Page, persona: "organizer" | "reviewer") {
+  const role = page.getByRole("combobox", { name: "Signed-in role" });
+  const switched = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/demo-session") && response.request().method() === "POST",
+  );
+  await role.selectOption(persona);
+  expect((await switched).ok(), "the persona switch was refused").toBe(true);
+  // The select is rendered from the session, so its value is the shell agreeing.
+  await expect(role).toHaveValue(persona);
+}
+
+interface PublishedField {
+  id: string;
+  type: "short_text" | "long_text" | "email" | "select";
+  label: string;
+  required: boolean;
+  options: string[];
+}
+
+/**
+ * File an abstract through the public call for proposals.
+ *
+ * Evaluation is terminal by design: a completed evaluation can never be reopened, and a
+ * declared conflict locks its assignment for good. A journey that scores a *seeded*
+ * abstract therefore passes exactly once per reset. Each run files its own abstracts
+ * instead, so what is scored below is always something this run created.
+ *
+ * The answers are built from whatever the published form currently asks for rather than
+ * from a fixed shape: `cfp.spec.ts` publishes an extra required question whose field id is
+ * a fresh UUID on every run, so no literal key would survive.
+ *
+ * Setup for another domain, which is why it goes through the public API rather than the
+ * browser — `cfp.spec.ts` and `00-seed-state.spec.ts` own the submission journey itself.
+ */
+async function fileAbstract(page: Page, title: string): Promise<string> {
+  const form = await page.request.get(`/api/public/events/${DEMO_EVENT}/cfp`);
+  expect(form.ok(), `reading the published form failed: ${await form.text()}`).toBe(true);
+  const fields = ((await form.json()) as { cfp: { fields: PublishedField[] } }).cfp.fields;
+  const email = `${title.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}@example.test`;
+  const answers: Record<string, string> = {};
+  for (const field of fields) {
+    if (field.id === "title") answers[field.id] = title;
+    else if (field.type === "email") answers[field.id] = email;
+    else if (field.type === "select") answers[field.id] = field.options[0] ?? "";
+    else if (field.id === "abstract" || field.type === "long_text")
+      answers[field.id] = `Filed by the review journey for ${title}.`;
+    else if (field.required) answers[field.id] = `Author of ${title}`;
+  }
+  const submitted = await page.request.post(`/api/public/events/${DEMO_EVENT}/submissions`, {
+    data: { idempotencyKey: `review-e2e-${title}`, answers },
+  });
+  expect(submitted.status(), `submitting ${title} failed: ${await submitted.text()}`).toBe(201);
+  return email;
+}
+
+test("organizer triages abstracts, assigns a reviewer, and configures the pipeline", async ({
+  page,
+}) => {
+  await signInAsOrganizer(page);
+  await restoreSeededPipeline(page);
   await page.goto(TRIAGE);
 
   await expect(page.getByRole("heading", { level: 1, name: "Abstracts" })).toBeVisible();
@@ -94,7 +180,10 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toBeVisible();
 
   // ---- the detail panel shows answers under their configured labels ----------
-  await page.getByRole("button", { name: "Designing for the hallway track" }).click();
+  // Every triage row carries three controls whose accessible name contains the title — the
+  // row link plus Accept and Decline — and Playwright matches names by substring, so the
+  // row link has to be addressed exactly.
+  await page.getByRole("button", { name: "Designing for the hallway track", exact: true }).click();
   const detail = page.getByRole("region", { name: "Designing for the hallway track" });
   // The submitted answers used to render their raw storage keys ("abstract").
   await expect(detail.getByRole("term").filter({ hasText: "Abstract" })).toBeVisible();
@@ -143,7 +232,9 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
   await expect(statusLabel).toHaveValue("Submitted");
 
   // ---- a single proposal can be assigned from its detail panel ---------------
-  await page.getByRole("button", { name: "Typed boundaries at scale" }).click();
+  // Assignment is idempotent: a reviewer already reviewing this abstract is not assigned
+  // twice, so a second run re-runs this step against the same seeded row.
+  await page.getByRole("button", { name: "Typed boundaries at scale", exact: true }).click();
   const typed = page.getByRole("region", { name: "Typed boundaries at scale" });
   const assigned = page.waitForResponse(
     (response) =>
@@ -201,8 +292,14 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
   await expect(page.getByLabel("Criterion 2 name")).toHaveValue("Program relevance");
 
   // ---- a new status joins the pipeline and its tab -------------------------
+  // `accepted` and `declined` are reserved: the service completes any saved set with them,
+  // so the configured pipeline is longer than what this spec wrote and the row a click on
+  // "Add status" appends is addressed as the last one rather than by a fixed number.
   await page.getByRole("button", { name: "Add status" }).click();
-  await page.getByLabel("Status 2 label").fill("Shortlisted");
+  await page
+    .getByLabel(/^Status \d+ label$/)
+    .last()
+    .fill("Shortlisted");
   const statusesSaved = page.waitForResponse(
     (response) =>
       response.url().endsWith("/review/statuses") && response.request().method() === "PUT",
@@ -217,36 +314,81 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
       .getByLabel("Move selection to")
       .getByRole("option", { name: "Shortlisted" }),
   ).toHaveAttribute("value", "shortlisted");
+});
+
+test("a reviewer scores and declares a conflict, and only the organizer sees the aggregate", async ({
+  page,
+}) => {
+  const run = Date.now();
+  const scored = `Reviewed abstract ${run}`;
+  const conflicted = `Conflicted abstract ${run}`;
+
+  await signInAsOrganizer(page);
+  await restoreSeededPipeline(page);
+  await fileAbstract(page, scored);
+  await fileAbstract(page, conflicted);
+  await page.goto(TRIAGE);
+
+  const table = page.getByRole("table").first();
+  // Nothing has been scored yet, so the aggregate column says so rather than showing a
+  // number nobody produced.
+  await expect(table.getByRole("row", { name: new RegExp(scored) })).toContainText("Not scored");
+
+  // ---- both new abstracts go to the same reviewer --------------------------
+  for (const title of [scored, conflicted]) {
+    await page.getByRole("button", { name: title, exact: true }).click();
+    const panel = page.getByRole("region", { name: title });
+    await panel.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
+    await panel.getByRole("button", { name: "Assign" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
+    ).toBeVisible();
+    await expect(table.getByRole("row", { name: new RegExp(title) })).toContainText(
+      "Ravi Reviewer",
+    );
+    await panel.getByRole("button", { name: "Close" }).click();
+  }
 
   // ---- the reviewer scores the abstract that was just assigned -------------
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
+  await switchRole(page, "reviewer");
   await page.goto(QUEUE);
 
   const queue = page.getByRole("region", { name: "Your queue" });
-  await queue.getByRole("button", { name: /Typed boundaries at scale/ }).click();
+  await queue.getByRole("button", { name: new RegExp(scored) }).click();
   const evaluation = page.getByRole("region", { name: "Your evaluation" });
-  await expect(page.getByRole("region", { name: "Typed boundaries at scale" })).toBeVisible();
+  await expect(page.getByRole("region", { name: scored })).toBeVisible();
 
   // Reviewers must never see aggregate outcomes before they submit.
   await expect(page.getByText(/average/i)).toHaveCount(0);
+  // Nor the submitter: the queue is blind.
+  await expect(page.getByText("Blind review")).toBeVisible();
 
   // Unscored criteria are explicit, and completing without them is refused
   // rather than silently defaulting each one to its minimum score.
   await expect(evaluation.getByText("2 of 2 criteria still need a score.")).toBeVisible();
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
   await expect(page.getByRole("alert")).toContainText("Relevance, Clarity");
-  await expect(queue.getByRole("button", { name: /Typed boundaries at scale/ })).toContainText(
+  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
     "Not started",
   );
 
+  // Distinct, non-default scores: the minimum on this rubric is 1, so an average of 4.5
+  // is only reachable if the select actually wrote 4 and 5 into the submitted evaluation.
   await evaluation.getByLabel("Relevance").selectOption("4");
   await evaluation.getByLabel("Clarity").selectOption("5");
   await evaluation.getByLabel("Private notes").fill("Clear and relevant.");
   await evaluation.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
-  await expect(queue.getByRole("button", { name: /Typed boundaries at scale/ })).toContainText(
+  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
     "Draft saved",
   );
+  // A draft is durable without being final: a reload brings the same scores back and the
+  // assignment is still open for editing.
+  await page.reload();
+  await queue.getByRole("button", { name: new RegExp(scored) }).click();
+  await expect(evaluation.getByLabel("Relevance")).toHaveValue("4");
+  await expect(evaluation.getByLabel("Clarity")).toHaveValue("5");
+  await expect(evaluation.getByLabel("Private notes")).toHaveValue("Clear and relevant.");
 
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Evaluation completed" })).toBeVisible();
@@ -254,17 +396,97 @@ test("organizer triages abstracts and a reviewer completes an unbiased evaluatio
   await expect(evaluation.getByRole("button", { name: "Complete evaluation" })).toHaveCount(0);
   await expect(evaluation.getByRole("button", { name: "Declare a conflict" })).toHaveCount(0);
   await expect(evaluation).toContainText("Scores and conflicts are now locked");
-  await expect(queue.getByRole("button", { name: /Typed boundaries at scale/ })).toContainText(
-    "Completed",
+  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText("Completed");
+
+  // ---- and declines the one they cannot judge ------------------------------
+  await queue.getByRole("button", { name: new RegExp(conflicted) }).click();
+  await expect(page.getByRole("region", { name: conflicted })).toBeVisible();
+  const second = page.getByRole("region", { name: "Your evaluation" });
+  await second.getByRole("button", { name: "Declare a conflict" }).click();
+  await second
+    .getByLabel("Why can you not review this abstract?")
+    .fill("Co-authored a paper with the submitter");
+  await second.getByRole("button", { name: "Confirm conflict" }).click();
+  await expect(second).toContainText(
+    "Conflict declared: Co-authored a paper with the submitter. This assignment can no longer be scored.",
+  );
+  // Declaring one locks it: the scoring form is gone, not merely hidden.
+  await expect(second.getByLabel("Relevance")).toHaveCount(0);
+  await expect(second.getByRole("button", { name: "Complete evaluation" })).toHaveCount(0);
+  await expect(queue.getByRole("button", { name: new RegExp(conflicted) })).toContainText(
+    "Conflict declared",
   );
 
   // ---- the organizer, and only the organizer, sees the aggregate -----------
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
+  await switchRole(page, "organizer");
   await page.goto(TRIAGE);
+  const scoredRow = page
+    .getByRole("table")
+    .first()
+    .getByRole("row", { name: new RegExp(scored) });
+  await expect(scoredRow).toContainText("4.5");
+  await expect(scoredRow).toContainText("1 completed");
+  // A declared conflict is not a score.
   await expect(
     page
       .getByRole("table")
       .first()
-      .getByRole("row", { name: /Typed boundaries at scale/ }),
-  ).toContainText("4.5");
+      .getByRole("row", { name: new RegExp(conflicted) }),
+  ).toContainText("Not scored");
+
+  /*
+   * ---- a second reviewer moves the average ---------------------------------
+   *
+   * Olivia Organizer holds the `reviewer` role on this event as well as `organizer`, so
+   * she is offerable in the assignment control and the assignment itself is made here
+   * through the UI. Her *evaluation* is filed through the API because the console gives
+   * one persona one home: `routesFor` (apps/web/src/App.tsx) grants `/reviews` to the
+   * reviewer persona only, and the demo directory resolves exactly one identity per
+   * persona, so no second reviewer can reach the queue in a browser. The assertion that
+   * matters — the organizer's rendered average across two reviewers — is still made on
+   * screen.
+   */
+  await page.getByRole("button", { name: scored, exact: true }).click();
+  const panel = page.getByRole("region", { name: scored });
+  await panel.getByLabel("Assign this abstract to").selectOption({ label: "Olivia Organizer" });
+  await panel.getByRole("button", { name: "Assign" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Olivia Organizer is now reviewing" }),
+  ).toBeVisible();
+
+  const workspace = await page.request.get(`/api/events/${DEMO_EVENT}/review/organizer`);
+  expect(workspace.ok()).toBe(true);
+  const { proposals, assignments } = (await workspace.json()) as {
+    proposals: { id: string; title: string }[];
+    assignments: { id: string; proposalId: string; reviewerId: string }[];
+  };
+  const proposalId = proposals.find(({ title }) => title === scored)?.id;
+  const oliviaAssignment = assignments.find(
+    (assignment) =>
+      assignment.proposalId === proposalId && assignment.reviewerId === "seed-organizer",
+  );
+  expect(oliviaAssignment, "the assignment made above must be readable back").toBeDefined();
+  const filed = await page.request.put(
+    `/api/events/${DEMO_EVENT}/review/assignments/${oliviaAssignment?.id}/evaluation`,
+    {
+      data: {
+        scores: [
+          { criterionId: "relevance", score: 2 },
+          { criterionId: "clarity", score: 3 },
+        ],
+        notes: "Weaker fit.",
+        complete: true,
+      },
+    },
+  );
+  expect(filed.ok(), `the second evaluation was refused: ${await filed.text()}`).toBe(true);
+
+  // Four scores across two completed evaluations: (4 + 5 + 2 + 3) / 4.
+  await page.reload();
+  const combined = page
+    .getByRole("table")
+    .first()
+    .getByRole("row", { name: new RegExp(scored) });
+  await expect(combined).toContainText("3.5");
+  await expect(combined).toContainText("2 completed");
 });

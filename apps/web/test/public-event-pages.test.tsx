@@ -552,3 +552,53 @@ describe("390px safety rules in the public stylesheets", () => {
     expect(css).toContain(".public-shell.embed .pub-day > h2");
   });
 });
+
+/*
+ * The projection derives `startsOn`/`endsOn` from the published agenda's timeslots, so an event
+ * published before anything is scheduled emits empty strings — and `venue`/`summary` are empty
+ * until an organizer fills them in. `new Date("T12:00:00Z")` is an Invalid Date and `Intl` throws
+ * `RangeError` on one, which took the whole public page down. These pin the degradation.
+ */
+describe("an event published before anything is scheduled", () => {
+  const undated = {
+    ...projection,
+    event: { ...projection.event, startsOn: "", endsOn: "", venue: "", summary: "" },
+    sessions: projection.sessions.map(({ startsAt, endsAt, room, ...rest }) => rest),
+  };
+
+  beforeEach(() => {
+    fetchMock = vi.fn((input: RequestInfo | URL) =>
+      String(input).includes(`/api/public/events/${SLUG}`)
+        ? Promise.resolve(new Response(JSON.stringify({ projection: undated }), { status: 200 }))
+        : Promise.resolve(new Response("{}", { status: 404 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("renders the landing page instead of throwing on an empty date range", async () => {
+    const { container } = mountAt(`/events/${SLUG}`);
+    await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
+    expect(container.textContent).toContain("Dates to be announced");
+    // No dangling separator where the venue would have been.
+    expect(container.textContent).not.toContain("· ·");
+    expect(container.querySelector(".kicker")?.textContent).toBe("Dates to be announced");
+  });
+
+  it("renders a schedule of unscheduled sessions in every view", async () => {
+    for (const view of ["list", "day", "track", "room"]) {
+      window.history.pushState({}, "", `/events/${SLUG}/schedule?view=${view}`);
+      const { container, unmount } = render(<PublicEventApp />);
+      await screen.findByRole("heading", { level: 1, name: "Plan your time" });
+      expect(container.textContent).toContain("Accessible by default");
+      unmount();
+    }
+  });
+
+  it("drops the zone abbreviation rather than reading it off today's clock", async () => {
+    const { container } = mountAt(`/events/${SLUG}/schedule`);
+    await screen.findByRole("heading", { level: 1, name: "Plan your time" });
+    expect(container.textContent).toContain("All times in America/Los_Angeles.");
+    expect(container.textContent).not.toContain("(PDT)");
+    expect(container.textContent).not.toContain("(PST)");
+  });
+});

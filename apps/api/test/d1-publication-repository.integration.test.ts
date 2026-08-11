@@ -285,9 +285,40 @@ describe("D1PublicationRepository", () => {
     const anonymous = await app.request(`/api/speaker-assets/${SEEDED_HEADSHOT}`);
     expect(anonymous.status).toBe(200);
     expect(anonymous.headers.get("content-type")).toBe("image/png");
+    // Storable, but never usable without asking: unpublishing has to be visible at once.
+    expect(anonymous.headers.get("cache-control")).toBe("public, no-cache");
     const served = new Uint8Array(await anonymous.arrayBuffer());
     expect(served.byteLength).toBe(bytes.byteLength);
     expect([...served.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+
+    // The public schedule off the real seed, through the real D1 agenda and publication
+    // repositories: the placed session under its public slug, and no storage id at all.
+    const schedule = await app.request(`/api/public/events/${DEMO_SLUG}/schedule`);
+    expect(schedule.status).toBe(200);
+    expect(schedule.headers.get("cache-control")).toBe("public, no-cache");
+    const scheduleBody = await schedule.text();
+    expect(JSON.parse(scheduleBody)).toEqual({
+      schedule: {
+        eventSlug: DEMO_SLUG,
+        version: 1,
+        publishedAt: "2026-08-10T20:00:00.000Z",
+        sessions: [
+          {
+            slug: "designing-the-calm-conference",
+            title: "Designing the calm conference",
+            abstract: "A practical guide to reducing operational noise.",
+            format: "45-minute talk",
+            track: "Platform",
+            speakerSlugs: ["sam-speaker"],
+            startsAt: "2026-09-01T16:00:00.000Z",
+            endsAt: "2026-09-01T17:00:00.000Z",
+            room: "Main stage",
+          },
+        ],
+      },
+    });
+    expect(scheduleBody).not.toMatch(UUID_PATTERN);
+    expect(scheduleBody).not.toMatch(/room-main|track-platform|slot-0900|placement-opening/);
 
     // Unpublishing the event withdraws the bytes it exposed.
     await publishing.unpublish(await resolveSeededDemoActor("organizer"), DEMO_EVENT);

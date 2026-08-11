@@ -117,6 +117,67 @@ describe("ACC-CRM HTTP", () => {
     ).toBe(409);
   });
 
+  it("refuses a client-authored stage-change and narrates the real one itself", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    const created = await app.request(`/api/events/${eventId}/prospects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Timeline Prospect",
+        ownerId: "seed-organizer",
+        contact: { name: "Primary", email: "primary@example.test" },
+      }),
+    });
+    const prospect = (await created.json()).prospect;
+    const path = `/api/events/${eventId}/prospects/${prospect.id}`;
+
+    // `stage-change` is written by the service as it applies the transition. A client that
+    // could submit one could put a transition on the timeline that never happened — three
+    // of them, on a prospect that moved once.
+    const forged = await app.request(path, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        activity: { kind: "stage-change", summary: "invited → converted", private: false },
+      }),
+    });
+    expect(forged.status).toBe(400);
+    await expect(forged.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { "activity.kind": expect.any(Array) } },
+    });
+    // `conversion` is the service's word too, and the refusal costs nothing else: the
+    // prospect is untouched and still holds an empty timeline.
+    expect(
+      (
+        await app.request(path, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            activity: { kind: "conversion", summary: "Converted", private: false },
+          }),
+        })
+      ).status,
+    ).toBe(400);
+    await expect((await app.request(path, { headers })).json()).resolves.toMatchObject({
+      prospect: { stage: "identified", activities: [] },
+    });
+
+    // One real transition, narrated once, by the only writer allowed to narrate it.
+    const moved = await app.request(path, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ stage: "contacted" }),
+    });
+    expect(moved.status).toBe(200);
+    await expect(moved.json()).resolves.toMatchObject({
+      prospect: {
+        stage: "contacted",
+        activities: [{ kind: "stage-change", summary: "identified → contacted", private: false }],
+      },
+    });
+  });
+
   it("serves the assignable owners and refuses one it did not offer with a field error", async () => {
     const app = setup(),
       headers = await cookie("organizer");

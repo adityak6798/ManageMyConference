@@ -67,8 +67,12 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
   const timeline = page.getByRole("region", { name: "Activity timeline" });
   await expect(timeline.getByText("identified → engaged")).toBeVisible();
   await expect(timeline.getByText("identified → engaged")).toHaveCount(1);
-  // The reassignment reached the pipeline: the row now names the reviewer as its owner.
-  await expect(pipeline.getByText("Ravi Reviewer")).toBeVisible();
+  // The reassignment reached the pipeline: this prospect's row now names the reviewer as
+  // its owner. Scoped to the row this run created — the pipeline is a shared fixture and
+  // every earlier run left a prospect owned by the same reviewer behind.
+  await expect(pipeline.getByRole("row", { name: new RegExp(name) })).toContainText(
+    "Ravi Reviewer",
+  );
 
   // Saving again without moving the stage records nothing further.
   await page.getByLabel("Next action", { exact: true }).fill("Confirm the outline");

@@ -9,7 +9,7 @@
     "migrate:local": "XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler d1 migrations apply greenroom-local --local",
     "reset": "npm run migrate:local && XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler d1 execute greenroom-local --local --file seed/reset.sql && npm run reset:assets",
     "reset:assets": "XDG_CONFIG_HOME=.wrangler/config WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler r2 object put greenroom-assets/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001 --local --file seed/assets/speaker-portrait.png --content-type image/png",
-    "test": "vitest run",
+    "test": "vitest run --coverage --coverage.reporter=text --coverage.include='src/**'",
     "test:d1": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit"
   },

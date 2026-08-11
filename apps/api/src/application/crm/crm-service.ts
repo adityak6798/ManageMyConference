@@ -18,12 +18,21 @@ export interface CreateProspectCommand {
   nextActionAt?: string | undefined;
   contact: { name: string; email: string };
 }
+/**
+ * The activity kinds a caller may record. `stage-change` and `conversion` are narrated by
+ * this service as it applies the transition they describe, so accepting one here would let
+ * a caller write a transition into the timeline that the prospect never made.
+ */
+export type RecordableActivityKind = Exclude<
+  ProspectActivity["kind"],
+  "stage-change" | "conversion"
+>;
 export interface UpdateProspectCommand {
   stage?: ProspectStage | undefined;
   ownerId?: string | undefined;
   nextAction?: string | null | undefined;
   nextActionAt?: string | null | undefined;
-  activity?: { kind: ProspectActivity["kind"]; summary: string; private: boolean } | undefined;
+  activity?: { kind: RecordableActivityKind; summary: string; private: boolean } | undefined;
   contact?: { name: string; email: string; isPrimary: boolean } | undefined;
 }
 
@@ -125,8 +134,9 @@ export class CrmService {
       await this.requireAssignableOwner(eventId, command.ownerId);
     const now = this.dependencies.now().toISOString();
     // One write carries every consequence of this command. The stage transition is recorded
-    // here rather than by the caller, so the timeline cannot disagree with the stage, and it
-    // lands in the same repository call as the organizer's note.
+    // here rather than by the caller — `UpdateProspectCommand` cannot express one, and the
+    // HTTP schema refuses it — so the timeline cannot disagree with the stage, and it lands
+    // in the same repository call as the organizer's note.
     const activities: ProspectActivity[] = [];
     if (command.stage !== undefined && command.stage !== current.stage)
       activities.push({

@@ -285,9 +285,11 @@ describe("CFP HTTP journey", () => {
     const cross = await app.request(path, { headers: { origin: "https://conference.example" } });
     expect(cross.status).toBe(200);
     expect(cross.headers.get("access-control-allow-origin")).toBe("*");
-    // A bounded lifetime, not `no-store` and not an unbounded one: 60 seconds is the longest
-    // a shared cache may keep serving something an organizer has retracted.
-    expect(cross.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    // Storable by anyone, usable by nobody without asking: `PRD-PUB-001` promises the
+    // applicant view reflects close and reopen immediately, and any `max-age` is exactly a
+    // window in which a browser answers "open" out of its own store instead of asking.
+    expect(cross.headers.get("cache-control")).toBe("public, no-cache");
+    expect(cross.headers.get("cache-control")).not.toMatch(/max-age|s-maxage|stale-while/);
     const validator = cross.headers.get("etag");
     expect(validator).toBeTruthy();
     expect(cross.headers.get("access-control-expose-headers")).toContain("etag");
@@ -302,10 +304,44 @@ describe("CFP HTTP journey", () => {
       },
     });
     expect(revalidated.status).toBe(304);
-    expect(revalidated.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    // The saving is here: an unchanged form costs a bodyless 304 on every read.
+    expect(revalidated.headers.get("cache-control")).toBe("public, no-cache");
     expect(revalidated.headers.get("access-control-allow-origin")).toBe("*");
     // The correlation id survives the 304, or a caller could not report a bad response.
     expect(revalidated.headers.get("x-correlation-id")).toBe("cfp-revalidation");
+
+    // Closing the CFP is visible to the very next conditional read, which is the whole
+    // point of validating instead of expiring: the same `If-None-Match` that was answered
+    // 304 a moment ago now gets the closed form back.
+    const closed = await app.request(`/api/events/${eventId}/cfp/state`, {
+      method: "POST",
+      headers: cookie,
+      body: JSON.stringify({ state: "close" }),
+    });
+    expect(closed.status).toBe(200);
+    const afterClose = await app.request(path, {
+      headers: { origin: "https://conference.example", "if-none-match": validator ?? "" },
+    });
+    expect(afterClose.status).toBe(200);
+    await expect(afterClose.json()).resolves.toMatchObject({ cfp: { status: "closed" } });
+    const closedValidator = afterClose.headers.get("etag");
+    expect(closedValidator).not.toBe(validator);
+
+    // And reopening is visible the same way, with no window in between.
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/cfp/state`, {
+          method: "POST",
+          headers: cookie,
+          body: JSON.stringify({ state: "reopen" }),
+        })
+      ).status,
+    ).toBe(200);
+    const afterReopen = await app.request(path, {
+      headers: { origin: "https://conference.example", "if-none-match": closedValidator ?? "" },
+    });
+    expect(afterReopen.status).toBe(200);
+    await expect(afterReopen.json()).resolves.toMatchObject({ cfp: { status: "open" } });
 
     // "Not published" is never cached, so publishing later is visible at once.
     const missing = await app.request(`/api/public/events/${otherEventId}/cfp`);

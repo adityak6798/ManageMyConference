@@ -20,7 +20,11 @@ import { AgendaService } from "../src/application/agenda/agenda-service";
 import { CfpService } from "../src/application/cfp/cfp-service";
 import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
 import { createHttpApp } from "../src/transport/http/app";
-import { publicEventProjectionSchema } from "@greenroom/contracts";
+import {
+  publicEventProjectionSchema,
+  publicScheduleSchema,
+  type PublicScheduleDto,
+} from "@greenroom/contracts";
 
 const safeProjection = {
   event: {
@@ -477,9 +481,9 @@ describe("publication snapshots", () => {
 
     const response = await app.request("/api/public/events/safe-event");
     expect(response.status).toBe(200);
-    // A published projection is a shared-cache-safe public representation with a bounded
-    // lifetime, so an unpublish is visible to every reader within that window.
-    expect(response.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    // A published projection may be stored by any cache and used by none without asking
+    // first, so an unpublish is visible to every reader on their next read.
+    expect(response.headers.get("cache-control")).toBe("public, no-cache");
     const body = await response.json();
     expect(body).toMatchObject({ projection: { event: { name: "Safe Event" } } });
     expect(JSON.stringify(body)).not.toMatch(/private-org|crmNotes|private@example.com/);
@@ -613,15 +617,50 @@ describe("publication snapshots", () => {
     const live = await app.request(`/api/public/events/${slug}/schedule`);
     expect(live.status).toBe(200);
     const liveBody = await live.text();
-    expect(JSON.parse(liveBody)).toMatchObject({
-      schedule: {
-        eventId: EVENT_ID,
-        version: 1,
-        agenda: { placements: [{ id: "placement-opening" }] },
-      },
+    const { schedule } = JSON.parse(liveBody) as { schedule: PublicScheduleDto };
+    // The published projection's session, under the agenda publication in force: the same
+    // public slug the event hub uses, the room and clock that placed it, and nothing the
+    // organizer has not published.
+    expect(schedule).toEqual({
+      eventSlug: "safe-event",
+      version: 1,
+      publishedAt: "2026-08-10T20:00:00.000Z",
+      sessions: [
+        {
+          slug: "designing-the-calm-conference",
+          title: "Designing the calm conference",
+          abstract: "A practical guide to reducing operational noise.",
+          format: "45-minute talk",
+          track: "Platform",
+          speakerSlugs: ["sam-speaker"],
+          startsAt: "2026-09-01T16:00:00.000Z",
+          endsAt: "2026-09-01T17:00:00.000Z",
+          room: "Main stage",
+        },
+      ],
     });
+    // The contract is the boundary, so hold the body to it rather than to a shape.
+    expect(publicScheduleSchema.safeParse(schedule).success).toBe(true);
     // Audit-only identity never crosses the public boundary.
     expect(liveBody).not.toMatch(/publishedBy/);
+    // No storage identifier of any kind: not the event's, not a session's, not a
+    // speaker profile's, and not the agenda's internal room/track/slot/placement keys.
+    expect(liveBody).not.toMatch(UUID_PATTERN);
+    expect(liveBody).not.toMatch(/room-main|track-platform|slot-0900|placement-opening/);
+
+    // Cheap to embed, impossible to serve stale: every read revalidates, an unchanged
+    // schedule costs a bodyless 304, and that 304 still carries the CORS header a
+    // cross-origin embed needs to accept it.
+    expect(live.headers.get("cache-control")).toBe("public, no-cache");
+    const revalidated = await app.request(`/api/public/events/${slug}/schedule`, {
+      headers: {
+        origin: "https://conference.example",
+        "if-none-match": live.headers.get("etag") ?? "",
+      },
+    });
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get("access-control-allow-origin")).toBe("*");
+    expect(revalidated.headers.get("cache-control")).toBe("public, no-cache");
 
     // The internal UUID was the address before; it must no longer resolve at all.
     expect((await app.request(`/api/public/events/${EVENT_ID}/schedule`)).status).toBe(404);
@@ -637,5 +676,52 @@ describe("publication snapshots", () => {
     // Unpublished and never-published are indistinguishable to an anonymous reader.
     expect(retractedBody.error.code).toBe(unknownBody.error.code);
     expect(retractedBody.error.message).toBe(unknownBody.error.message);
+  });
+
+  it("keeps a session the organizer placed but never published off the public schedule", async () => {
+    const { service, agenda } = await composedFixture();
+    const organizer = await resolveSeededDemoActor("organizer");
+    // The board is the organizer's workspace: a session whose content is still a draft is
+    // schedulable, and here it is scheduled. Publishing the agenda freezes it into the
+    // snapshot together with its `content_sessions` and `speaker_profiles` primary keys.
+    await agenda.place(organizer, EVENT_ID, {
+      id: "placement-draft",
+      sessionId: DRAFT_SESSION,
+      roomId: "room-lab",
+      trackId: "track-practice",
+      slotId: "slot-day2",
+    });
+    const published = await agenda.publish(organizer, EVENT_ID);
+    expect(published.version).toBe(2);
+    expect(JSON.stringify(published)).toMatch(/Still in draft/);
+    await service.publish(organizer, EVENT_ID);
+
+    const app = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date(),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      { demoMode: false },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agenda,
+      undefined,
+      service,
+    );
+    const response = await app.request("/api/public/events/safe-event/schedule");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    const { schedule } = JSON.parse(body) as { schedule: PublicScheduleDto };
+    // The agenda publication in force is version 2 — and none of the draft session it
+    // carries reaches the public: not its title, not its id, not its speaker.
+    expect(schedule.version).toBe(2);
+    expect(schedule.sessions.map(({ slug }) => slug)).toEqual(["designing-the-calm-conference"]);
+    expect(body).not.toMatch(/Still in draft/);
+    expect(body).not.toMatch(UUID_PATTERN);
+    expect(body).not.toMatch(/Workshop lab|placement-draft/);
   });
 });
