@@ -60,7 +60,15 @@ export class D1CfpRepository implements CfpRepository {
     if (!result.success)
       throw new Error(`D1 failed to find published CFP: ${result.error ?? "unknown error"}`);
     const value = result.results?.[0]?.published_json;
-    return value ? (JSON.parse(value) as CfpForm) : null;
+    if (!value) return null;
+    const snapshot = JSON.parse(value) as Partial<CfpForm>;
+    // A snapshot without its fields silently produces a form nobody can submit, and the
+    // failure only surfaces as a 500 deep inside submission. Reject it at the boundary.
+    if (!Array.isArray(snapshot.fields))
+      throw new Error(
+        `Published CFP snapshot for event ${eventId} is missing its fields array; republish the form`,
+      );
+    return snapshot as CfpForm;
   }
   async saveForm(form: CfpForm) {
     const result = await this.database

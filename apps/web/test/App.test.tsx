@@ -1,6 +1,6 @@
 // @acceptance ACC-IDENTITY-EVENTS
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { bytesToBase64 } from "../src/ContentWorkspace";
 
@@ -22,35 +22,72 @@ const event = {
   createdAt: "2026-08-09T12:00:00.000Z",
 };
 
+/** Empty-but-valid payloads for the overview fan-out so the landing page settles. */
+const emptyWorkspaces: Record<string, unknown> = {
+  content: { sessions: [], speakers: [], tasks: [], assets: [], messages: [] },
+  "review/organizer": {
+    proposals: [],
+    plan: { eventId, criteria: [], updatedAt: "2026-08-09T12:00:00.000Z" },
+    assignments: [],
+    outcomes: [],
+    audit: [],
+    statuses: [],
+    reviewers: [],
+  },
+  agenda: {
+    eventId,
+    rooms: [],
+    tracks: [],
+    slots: [],
+    sessions: [],
+    placements: [],
+    conflicts: [],
+  },
+};
+
+function workspaceBody(url: string) {
+  for (const [suffix, body] of Object.entries(emptyWorkspaces))
+    if (url.includes(`/${suffix}`)) return body;
+  return null;
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return Promise.resolve(new Response(JSON.stringify(body), { status }));
+}
+
 describe("App", () => {
-  it("encodes files larger than the JavaScript argument limit", () => {
-    const bytes = new Uint8Array(200_000).map((_, index) => index % 251);
-    expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  beforeEach(() => {
+    // Routing is real now, so each test must start from the app root.
+    window.history.replaceState(null, "", "/");
   });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  it("loads the role-aware shell and persisted events", async () => {
+  it("encodes files larger than the JavaScript argument limit", () => {
+    const bytes = new Uint8Array(200_000).map((_, index) => index % 251);
+    expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  });
+
+  it("lands an organizer on the overview with role-aware navigation", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: RequestInfo | URL) =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify(
-              String(input).endsWith("/api/session") ? organizerSession : { events: [event] },
-            ),
-            { status: 200 },
-          ),
-        ),
-      ),
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
+      }),
     );
     render(<App />);
-    await screen.findByRole("heading", { name: "Greenroom Summit" });
-    expect(screen.getByText("Olivia Organizer")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Event settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create event" })).toBeEnabled();
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Event workspace" })).toHaveValue(eventId);
+    expect(screen.getByRole("link", { name: /Event settings/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Agenda/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Demo identity" })).toHaveValue("organizer");
   });
 
   it("does not mount communications for a selected event where the actor is not organizer", async () => {
@@ -61,43 +98,39 @@ describe("App", () => {
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: RequestInfo | URL) =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify(
-              String(input).endsWith("/api/session") ? mixedRoleSession : { events: [event] },
-            ),
-            { status: 200 },
-          ),
-        ),
-      ),
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session")) return jsonResponse(mixedRoleSession);
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
+      }),
     );
     render(<App />);
-    await screen.findByRole("heading", { name: "Greenroom Summit" });
-    expect(
-      screen.queryByRole("button", { name: "Inspect delivery history" }),
-    ).not.toBeInTheDocument();
+
+    // A reviewer-only actor never sees the organizer's communications entry point.
+    await screen.findByRole("link", { name: /Review assignments/ });
+    expect(screen.queryByRole("link", { name: /Communications/ })).not.toBeInTheDocument();
   });
 
   it("shows a safe unauthenticated state with correlation reference", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify({
-              error: {
-                code: "UNAUTHORIZED",
-                message: "Sign in to continue.",
-                correlationId: "trace-123",
-              },
-            }),
-            { status: 401 },
-          ),
+        jsonResponse(
+          {
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Sign in to continue.",
+              correlationId: "trace-123",
+            },
+          },
+          401,
         ),
       ),
     );
     render(<App />);
+
     expect(await screen.findByRole("alert")).toHaveTextContent("Reference: trace-123");
     expect(screen.getByRole("button", { name: "Continue as organizer" })).toBeEnabled();
   });
@@ -116,37 +149,35 @@ describe("App", () => {
         const url = String(input);
         if (url.endsWith("/api/demo-session")) {
           signedIn = true;
-          return Promise.resolve(
-            new Response(JSON.stringify({ persona: "reviewer" }), { status: 200 }),
-          );
+          return jsonResponse({ persona: "reviewer" });
         }
         if (!signedIn)
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                error: {
-                  code: "UNAUTHORIZED",
-                  message: "Sign in to continue.",
-                  correlationId: "initial-trace",
-                },
-              }),
-              { status: 401 },
-            ),
+          return jsonResponse(
+            {
+              error: {
+                code: "UNAUTHORIZED",
+                message: "Sign in to continue.",
+                correlationId: "initial-trace",
+              },
+            },
+            401,
           );
-        return Promise.resolve(
-          new Response(
-            JSON.stringify(url.endsWith("/api/session") ? reviewerSession : { events: [event] }),
-            { status: 200 },
-          ),
-        );
+        if (url.endsWith("/api/session")) return jsonResponse(reviewerSession);
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
       }),
     );
     render(<App />);
+
     await screen.findByText("Reference: initial-trace", { exact: false });
     fireEvent.click(screen.getByRole("button", { name: "Continue as reviewer" }));
-    await screen.findByRole("link", { name: "Review assignments" });
+
+    await screen.findByRole("link", { name: /Review assignments/ });
+    // Role-limited means the organizer surfaces are absent, not merely disabled.
+    expect(screen.queryByRole("link", { name: /Event settings/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Speaker CRM/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create event" })).toBeNull();
-    expect(screen.getByText("Role-limited access")).toBeInTheDocument();
   });
 
   it("keeps the public identity out of private event APIs", async () => {
@@ -157,18 +188,12 @@ describe("App", () => {
       capabilities: [],
     };
     const fetchMock = vi.fn((input: RequestInfo | URL) =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify(String(input).endsWith("/api/session") ? publicSession : { events: [] }),
-          { status: 200 },
-        ),
-      ),
+      jsonResponse(String(input).endsWith("/api/session") ? publicSession : { events: [] }),
     );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
-    await screen.findByText("Pat Attendee");
-    expect(screen.getByRole("link", { name: "Published event" })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await screen.findByRole("combobox", { name: "Demo identity" });
     expect(fetchMock).toHaveBeenCalledWith("/api/public/events");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
   });
@@ -177,26 +202,27 @@ describe("App", () => {
     const created = { ...event, id: "223e4567-e89b-42d3-a456-426614174000", name: "New Summit" };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/session"))
-        return Promise.resolve(new Response(JSON.stringify(organizerSession), { status: 200 }));
+      if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
       if (url.endsWith("/api/events") && init?.method === "POST")
-        return Promise.resolve(new Response(JSON.stringify({ event: created }), { status: 201 }));
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            events: fetchMock.mock.calls.some(([, options]) => options?.method === "POST")
-              ? [event, created]
-              : [event],
-          }),
-          { status: 200 },
-        ),
-      );
+        return jsonResponse({ event: created }, 201);
+      const workspace = workspaceBody(url);
+      if (workspace) return jsonResponse(workspace);
+      return jsonResponse({
+        events: fetchMock.mock.calls.some(([, options]) => options?.method === "POST")
+          ? [event, created]
+          : [event],
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
-    await screen.findByRole("heading", { name: "Greenroom Summit" });
-    fireEvent.change(screen.getByLabelText("Event name"), { target: { value: "New Summit" } });
+
+    // Event creation lives on its own route now, so navigate the way a user would.
+    fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
+    fireEvent.change(await screen.findByLabelText("Event name"), {
+      target: { value: "New Summit" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+
     await waitFor(() =>
       expect(screen.getByRole("combobox", { name: "Event workspace" })).toHaveValue(created.id),
     );

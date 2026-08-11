@@ -6,6 +6,9 @@ export class DeterministicAssetStorage implements AssetStoragePort {
     this.objects.set(input.key, { contentType: input.contentType, bytes: input.bytes });
     return { key: input.key };
   }
+  async get(key: string) {
+    return this.objects.get(key) ?? null;
+  }
   async delete(key: string) {
     this.objects.delete(key);
   }

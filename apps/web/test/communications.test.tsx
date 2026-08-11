@@ -1,6 +1,6 @@
 // @acceptance ACC-INTEGRATION
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
@@ -8,9 +8,14 @@ const eventId = "00000000-0000-4000-8000-000000000001";
 const secondEventId = "00000000-0000-4000-8000-000000000002";
 
 describe("communications history", () => {
+  beforeEach(() => {
+    // The outbox is its own route now and loads its history on mount.
+    window.history.replaceState(null, "", "/communications");
+  });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
   });
 
   it("shows observable states and an explicit terminal recovery action", async () => {
@@ -114,9 +119,13 @@ describe("communications history", () => {
       }),
     );
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Inspect delivery history" }));
+    await screen.findByRole("button", { name: "Refresh outbox" });
     expect(await screen.findByText("terminal", { exact: true })).toBeInTheDocument();
-    expect(screen.getByText(/Attempt 1: terminal_failure — PROVIDER_REJECTED/)).toBeInTheDocument();
+    // Attempt history is collapsed by default; open it before asserting the failure.
+    fireEvent.click(screen.getByRole("button", { name: /attempt history for session:42/ }));
+    expect(
+      await screen.findByText(/Attempt 1: terminal_failure — PROVIDER_REJECTED/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry session:42" })).toBeEnabled();
     fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
       target: { value: secondEventId },
@@ -176,7 +185,13 @@ describe("communications history", () => {
                 }),
               ),
             );
-          if (url.includes("/api/communications/history")) return deferredHistory;
+          // Only the first event's history is deferred; the second resolves at once
+          // and empty, so anything from the first event that lands afterwards is
+          // unambiguously stale and must be discarded.
+          if (url.includes("/api/communications/history")) {
+            if (url.includes(`eventId=${eventId}`)) return deferredHistory;
+            return Promise.resolve(new Response(JSON.stringify({ history: [], nextCursor: null })));
+          }
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -192,7 +207,7 @@ describe("communications history", () => {
         }),
       );
       render(<App />);
-      fireEvent.click(await screen.findByRole("button", { name: "Inspect delivery history" }));
+      await screen.findByRole("button", { name: "Refresh outbox" });
       fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
         target: { value: secondEventId },
       });
@@ -230,7 +245,7 @@ describe("communications history", () => {
         );
       else rejectHistory(new Error("event A unavailable"));
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: "Inspect delivery history" })).toBeEnabled(),
+        expect(screen.getByRole("button", { name: "Refresh outbox" })).toBeEnabled(),
       );
       expect(screen.queryByText("session:stale")).not.toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -321,14 +336,14 @@ describe("communications history", () => {
       }),
     );
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Inspect delivery history" }));
+    await screen.findByRole("button", { name: "Refresh outbox" });
     fireEvent.click(await screen.findByRole("button", { name: "Retry session:retry" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
       target: { value: secondEventId },
     });
     rejectRetry(new Error("event A retry unavailable"));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Inspect delivery history" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "Refresh outbox" })).toBeEnabled(),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

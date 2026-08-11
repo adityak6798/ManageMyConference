@@ -584,6 +584,35 @@ export function createHttpApp(
       ),
     });
   });
+  app.get("/api/speaker-assets/:assetId", async (context) => {
+    const params = speakerAssetParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Asset ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    // Authorization lives in the service: publishable assets are readable by anyone,
+    // private ones only by the owning speaker or an organizer of the event.
+    const found = await content.readAsset(context.get("actor"), params.data.assetId);
+    if (!found)
+      return context.json(
+        envelope("NOT_FOUND", "The asset was not found.", context.get("correlationId")),
+        404,
+      );
+    return new Response(found.bytes as unknown as BodyInit, {
+      headers: {
+        "content-type": found.contentType,
+        "content-length": String(found.bytes.byteLength),
+        // Private assets must never be stored by a shared cache.
+        "cache-control":
+          found.asset.visibility === "publishable" ? "public, max-age=3600" : "private, no-store",
+        // Uploaded files are untrusted; never let a browser execute one inline.
+        "content-security-policy": "default-src 'none'; sandbox",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  });
   app.post("/api/speaker-assets/:assetId/publish", async (context) => {
     requireCapability(context.get("actor"), "content:manage");
     const params = speakerAssetParamsSchema.safeParse(context.req.param());

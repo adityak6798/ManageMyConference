@@ -226,6 +226,35 @@ export class ContentService {
     return updated;
   }
 
+  /**
+   * Read an uploaded asset's bytes.
+   *
+   * Assets were write-only, so an uploaded headshot could never be shown anywhere.
+   * Access mirrors how the asset was uploaded: organizers of the owning event and
+   * the speaker who owns the profile may read any of their assets; everyone else,
+   * including anonymous public traffic, may read only assets an organizer has
+   * explicitly marked publishable.
+   */
+  async readAsset(
+    actor: Actor | null,
+    assetId: string,
+  ): Promise<{ asset: SpeakerAsset; contentType: string; bytes: Uint8Array } | null> {
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    if (!asset) return null;
+
+    if (asset.visibility !== "publishable") {
+      const authorized = requireCapability(actor, "content:read");
+      const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
+      const ownsProfile = profile?.userId === authorized.id;
+      if (!hasEventRole(authorized, asset.eventId, "organizer") && !ownsProfile)
+        throw new CapabilityDeniedError("Speaker asset access denied");
+    }
+
+    const stored = await this.dependencies.assetStorage.get(asset.storageKey);
+    if (!stored) return null;
+    return { asset, contentType: stored.contentType, bytes: stored.bytes };
+  }
+
   async publishAsset(actor: Actor | null, assetId: string) {
     const authorized = requireCapability(actor, "content:manage");
     const asset = await this.dependencies.repository.findAsset(assetId);

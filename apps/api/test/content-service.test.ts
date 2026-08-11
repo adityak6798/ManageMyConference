@@ -77,9 +77,51 @@ describe("ContentService", () => {
     expect(organizerWorkspace.speakers).toHaveLength(2);
   });
 
+  it("serves uploaded assets only to the owner or an organizer until they are published", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.accept(organizer, command);
+
+    const speaker = await resolveSeededDemoActor("speaker");
+    const workspace = await service.workspace(speaker, eventId);
+    const profileId = workspace.speakers[0]?.id as string;
+    const asset = await service.upload(speaker, {
+      profileId,
+      name: "headshot.png",
+      contentType: "image/png",
+      bytes: new Uint8Array([7, 7, 7]),
+    });
+
+    // The speaker who owns the profile, and organizers of the event, can read it.
+    await expect(service.readAsset(speaker, asset.id)).resolves.toMatchObject({
+      contentType: "image/png",
+      bytes: new Uint8Array([7, 7, 7]),
+    });
+    await expect(service.readAsset(organizer, asset.id)).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+
+    // Nobody else can, including anonymous traffic and other roles on the event.
+    await expect(service.readAsset(null, asset.id)).rejects.toThrow();
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    await expect(service.readAsset(reviewer, asset.id)).rejects.toThrow();
+
+    // Publishing is what makes it public — nothing else.
+    await service.publishAsset(organizer, asset.id);
+    await expect(service.readAsset(null, asset.id)).resolves.toMatchObject({
+      asset: { visibility: "publishable" },
+    });
+
+    expect(await service.readAsset(organizer, "00000000-0000-4000-8000-0000000000ff")).toBeNull();
+  });
+
   it("persists canonical bytes through the production R2 port", async () => {
     const put = vi.fn().mockResolvedValue(undefined);
-    const storage = new R2AssetStorage({ put, delete: vi.fn().mockResolvedValue(undefined) });
+    const storage = new R2AssetStorage({
+      put,
+      get: vi.fn().mockResolvedValue(null),
+      delete: vi.fn().mockResolvedValue(undefined),
+    });
     await expect(
       storage.put({
         key: "event/profile/asset",

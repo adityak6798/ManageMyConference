@@ -50,7 +50,15 @@ function handledCatch(block) {
     if (ts.isThrowStatement(node)) handled = true;
     if (ts.isCallExpression(node)) {
       const called = node.expression.getText();
-      if (/^(?:logger\.(?:error|warn)|setError|reportError)$/.test(called)) handled = true;
+      // `<name>Feedback.announce("error", …)` renders the failure next to the control
+      // that caused it and announces it through a live region, so it reports rather
+      // than suppresses. See docs/architecture/error-observability.md.
+      if (
+        /^(?:logger\.(?:error|warn)|setError|reportError|\w*[Ff]eedback\.announce|announce)$/.test(
+          called,
+        )
+      )
+        handled = true;
     }
     ts.forEachChild(node, visit);
   }

@@ -1,0 +1,121 @@
+/*
+ * Communications outbox.
+ *
+ * Scoped under .comms so these rules extend the shared delivery-state pills and the
+ * data table without depending on which stylesheet the bundler injects first.
+ */
+
+/* minmax(0, 1fr) stops the wide delivery table from stretching the page: without it
+   the grid track sizes to the table and the whole console scrolls sideways. */
+.comms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-5);
+}
+
+.comms .comms-toolbar {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5) 0;
+}
+.comms .comms-toolbar .tabs {
+  margin: 0 calc(-1 * var(--s-5));
+  padding: 0 var(--s-5);
+}
+/* .tab inherits the shared button radius, which bows the selected underline into a
+   rounded box. Straighten it here until the primitive resets it. */
+.comms .comms-toolbar .tab {
+  border-radius: 0;
+}
+
+.comms .comms-skeletons {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-5);
+}
+.comms .comms-skeletons > div {
+  display: grid;
+  gap: var(--s-2);
+}
+
+/* The state pill gains room for its icon; the icon is what distinguishes the four
+   states when colour is unavailable. */
+.comms .delivery-state {
+  gap: 5px;
+}
+.comms .delivery-state svg {
+  flex: none;
+}
+
+/* .visually-hidden is position:absolute, so inside an unpositioned scroll container it
+   escapes the clip and stretches the page. Anchoring the container keeps it inside. */
+.comms .table-wrap {
+  position: relative;
+}
+
+.comms .comms-channel {
+  text-transform: capitalize;
+}
+.comms .comms-muted {
+  color: var(--muted);
+}
+.comms .comms-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* Attempt counts are a disclosure control, so they stay right-aligned with the
+   numbers above and below them rather than looking like a row action. */
+.comms .comms-expand {
+  display: inline-flex;
+  gap: var(--s-1);
+  padding: 2px 6px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+}
+.comms .comms-chevron {
+  color: var(--muted);
+}
+
+.comms table.data tr.is-open {
+  background: var(--surface-2);
+}
+.comms .comms-attempts-row td {
+  padding-top: 0;
+  background: var(--surface-2);
+}
+/* The rows already say "Attempt N", so the ordered-list markers would number them twice. */
+.comms .comms-attempts-row .attempt-history {
+  margin: 0 0 0 var(--s-4);
+  padding-left: 0;
+  list-style: none;
+}
+.comms .comms-attempts-row .attempt-history li {
+  padding: var(--s-1) 0;
+  font-size: var(--text-xs);
+}
+.comms .comms-attempts-row .attempt-history .sub {
+  display: block;
+  color: var(--ink-4);
+}
+
+.comms .comms-more {
+  padding: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 700px) {
+  .comms .comms-toolbar {
+    padding: var(--s-3) var(--s-4) 0;
+  }
+  .comms .comms-toolbar .tabs {
+    margin: 0 calc(-1 * var(--s-4));
+    padding: 0 var(--s-4);
+  }
+  .comms .comms-skeletons,
+  .comms .comms-more {
+    padding: var(--s-4);
+  }
+}

@@ -1,0 +1,382 @@
+/*
+ * Call for proposals composer.
+ *
+ * Two panes: the editor on the left, the public form on the right. The right pane
+ * borrows the public surface's warm-paper token set (`public-state` in tokens.css)
+ * so the organizer is comparing against the real thing, not a console-flavoured
+ * approximation. Nothing here defines a colour or a size of its own.
+ */
+
+/* ========================= publication bar ========================= */
+
+.cfp-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding: var(--s-4) var(--s-5);
+}
+
+.cfp-status-state {
+  display: grid;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.cfp-pills {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.cfp-status-meta {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.cfp-actions {
+  justify-content: flex-end;
+}
+
+/* Feedback lands here — directly under the buttons that produce it. The audit found
+   the old confirmation ~750px further down the page, which is to say off screen. */
+.cfp-status-foot {
+  display: grid;
+  gap: var(--s-2);
+  padding: 0 var(--s-5) var(--s-4);
+}
+
+.cfp-link {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.cfp-link code {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-2);
+}
+
+.cfp-loading {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.cfp-recovery-hint {
+  margin-top: var(--s-3);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  max-width: var(--measure);
+}
+
+/* ============================ two panes ============================ */
+
+.cfp-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  gap: var(--s-5);
+  align-items: start;
+}
+
+.cfp-pane {
+  display: grid;
+  gap: var(--s-5);
+  align-content: start;
+  min-width: 0;
+}
+
+/* The preview follows the organizer down a long field list. */
+.cfp-pane-preview {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--s-4));
+}
+
+.cfp-details {
+  display: grid;
+  gap: var(--s-4);
+}
+
+/* ========================= question cards ========================= */
+
+.cfp-general-errors {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5) 0;
+}
+
+.cfp-questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  counter-reset: none;
+}
+
+.cfp-question {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--line);
+}
+.cfp-question:last-child {
+  border-bottom: 0;
+}
+.cfp-question:hover {
+  background: var(--surface-2);
+}
+
+.cfp-question-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.cfp-grip {
+  display: grid;
+  place-items: center;
+  color: var(--ink-4);
+}
+
+.cfp-question-index {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cfp-question-name {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfp-question-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 190px);
+  gap: var(--s-3);
+}
+.cfp-question-body .cfp-span {
+  grid-column: 1 / -1;
+}
+
+.cfp-question-error {
+  margin: 0;
+}
+
+.cfp-question-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+.cfp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.cfp-check input {
+  width: auto;
+}
+
+/* The field ID is the key submitted answers are stored under, so it is worth showing —
+   but generated IDs are long, and letting one wrap would push the row's actions onto a
+   second line. Truncated here, with the full value on the element's title. */
+.cfp-code {
+  max-width: 20ch;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfp-question-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.cfp-remove {
+  color: var(--danger-fg);
+}
+.cfp-remove:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+/* ======================== the public form ========================= */
+
+.cfp-preview-tabs {
+  padding: 0 var(--s-4);
+}
+
+.cfp-preview-panel {
+  padding: var(--s-4);
+  max-height: min(72vh, 900px);
+  overflow-y: auto;
+}
+.cfp-preview-panel:focus-visible {
+  outline-offset: -2px;
+}
+
+/* `public-state` carries the warm-paper token swap, which is exactly what the preview
+   wants — but public-event.css also hangs page-level layout (a 640px column centred
+   12vh down) on the same class, and that stylesheet ships in the console bundle too.
+   The two-class selector keeps the palette and drops the page furniture regardless of
+   which stylesheet the bundler happens to emit last. */
+.cfp-preview.public-state {
+  max-width: none;
+  margin: 0;
+  padding: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-base);
+}
+
+.cfp-preview-kicker {
+  color: var(--clay-600);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cfp-preview-title {
+  margin-top: var(--s-1);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+}
+
+.cfp-preview-lede {
+  margin-top: var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.cfp-preview-status {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.cfp-preview-form {
+  display: grid;
+  gap: var(--s-4);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+/* A disabled fieldset is the honest way to say "preview": nothing is focusable and
+   nothing submits. It must still read like a live form, so the UA's grey-out is
+   undone rather than inherited. */
+.cfp-preview-form :disabled {
+  opacity: 1;
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  background: var(--surface);
+  cursor: default;
+}
+
+.cfp-preview-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  background: var(--green-700);
+  color: #fff;
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+
+.cfp-answer {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.cfp-answer > label {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.cfp-answer-guidance {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.cfp-required-mark {
+  color: var(--danger-fg);
+}
+
+.cfp-public-form {
+  display: grid;
+  gap: var(--s-5);
+  max-width: var(--measure);
+}
+.cfp-public-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+/* ========================== responsive ============================ */
+
+@media (max-width: 1180px) {
+  .cfp-composer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cfp-pane-preview {
+    position: static;
+  }
+  .cfp-preview-panel {
+    max-height: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .cfp-question-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cfp-status,
+  .cfp-actions {
+    justify-content: flex-start;
+  }
+  .cfp-actions {
+    width: 100%;
+  }
+  .cfp-question-actions {
+    margin-left: 0;
+  }
+}

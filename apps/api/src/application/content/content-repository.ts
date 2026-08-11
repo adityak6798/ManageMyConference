@@ -35,5 +35,6 @@ export class ContentConflictError extends Error {}
 
 export interface AssetStoragePort {
   put(input: { key: string; contentType: string; bytes: Uint8Array }): Promise<{ key: string }>;
+  get(key: string): Promise<{ contentType: string; bytes: Uint8Array } | null>;
   delete(key: string): Promise<void>;
 }
