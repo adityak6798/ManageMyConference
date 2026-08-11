@@ -36,9 +36,14 @@ export type HttpApp = Hono<{ Variables: Variables }>;
  * (`"organizerWorkspace" in reviewOrCfpService`), so passing the wrong one in the wrong slot
  * was a silent no-op rather than a type error.
  *
- * The services are optional because a test may compose only the domains it exercises. A
- * module whose service is absent must degrade to its documented not-found behaviour, never
- * throw.
+ * The services are optional because a test may compose only the domains it exercises.
+ *
+ * A module whose service is absent does **not** promise a graceful answer, and this is worth
+ * being exact about. Some raise a typed domain error their own `translateError` maps to a 404
+ * (agenda, CFP); others raise a plain `Error`, which the boundary handler turns into a 500. The
+ * second is deliberate: a route reached with its service unwired is a composition bug, not a
+ * caller mistake, and a 500 with the failure logged once is the honest answer to it. What none
+ * of them do is answer as though the resource merely did not exist.
  */
 export interface HttpDependencies {
   events: EventService;

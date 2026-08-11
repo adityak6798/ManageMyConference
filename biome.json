@@ -12,7 +12,8 @@
       "!**/test-results",
       "!**/openapi.json",
       "!context-manifest.json",
-      "!prototype.html"
+      "!prototype.html",
+      "!.claude/worktrees"
     ]
   },
   "formatter": {

@@ -71,6 +71,10 @@ function main(argv) {
 
   const startedAt = new Date().toISOString();
   const started = Date.now();
+  // Sampled *before* the suite runs. A D1 or Playwright run takes minutes, and another process
+  // committing during it would otherwise attribute results from the old checkout state to the
+  // new HEAD — evidence for code that was never tested.
+  const commit = headCommit(ROOT);
   // Piped so the output can be parsed, and echoed so a developer still watches it live.
   const result = spawnSync(command[0], command.slice(1), {
     cwd: ROOT,
@@ -85,10 +89,14 @@ function main(argv) {
   const record = {
     suite,
     command: command.join(" "),
-    exitCode: result.status ?? (result.error ? 1 : 0),
+    // `status` is null when the child was killed by a signal, and an interrupted suite must
+    // never be recorded as a pass. Any of a signal, a spawn error, or a null status without
+    // either is a failure.
+    exitCode: result.signal ? 1 : (result.status ?? 1),
+    ...(result.signal ? { signal: result.signal } : {}),
     startedAt,
     durationMs: Date.now() - started,
-    commit: headCommit(ROOT),
+    commit,
     counts: parseCounts(output),
   };
   const written = writeRecord(record);

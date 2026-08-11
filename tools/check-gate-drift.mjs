@@ -61,7 +61,10 @@ const PINNED_NPM = /^npm install --global npm@(\S+)$/;
  * is matched, because moving the bootstrap into a composite action must not quietly take the
  * npm-version check out of service along with it.
  */
-const PINNED_NPM_IN_ACTION = /npm install --global npm@(\S+)/;
+// Anchored to an actual `- run:` step. Unanchored, a comment — or `echo npm install --global
+// npm@…` — would satisfy the check, and the gate would report a pinned npm the action never
+// installs.
+const PINNED_NPM_IN_ACTION = /^\s*-?\s*run:\s*npm install --global npm@(\S+)\s*$/m;
 
 const GATE_INVOCATION = /^npm run (gate:[A-Za-z0-9:_-]+)$/;
 

@@ -173,9 +173,21 @@ def allowlist(manifest: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
     return {entry["path"]: entry for entry in manifest["architecture"][name] if "path" in entry}
 
 
-def allowlist_problems(manifest: dict[str, Any]) -> list[str]:
-    """Every allowlist entry has to say what it is for, and under whose authority."""
+def allowlist_problems(manifest: dict[str, Any], known_ids: set[str] | None = None) -> list[str]:
+    """
+    Every allowlist entry has to say what it is for, and under whose authority.
+
+    The `governing` id is resolved against the normative documents, not merely shape-checked: a
+    plausible-looking `ARC-DOES-NOT-EXIST` would otherwise pass and leave the exemption citing
+    an authority nobody wrote.
+    """
     problems: list[str] = []
+    if known_ids is None:
+        known_ids = {
+            identifier
+            for identifier, records in context_locations().items()
+            if any(record["trust"] == "normative" for record in records)
+        }
     for name in ("publicApplicationEntryPoints", "compositionRoots"):
         seen: set[str] = set()
         for index, entry in enumerate(manifest["architecture"][name]):
@@ -205,6 +217,11 @@ def allowlist_problems(manifest: dict[str, Any]) -> list[str]:
                     "'ARC-DOM-001'; received {governing!r}".replace(
                         "{governing!r}", repr(governing)
                     )
+                )
+            elif governing not in known_ids:
+                problems.append(
+                    f"{where} ('{path}') cites governing id '{governing}', which no normative "
+                    "document defines. An exemption cannot rest on an authority nobody wrote."
                 )
     return problems
 

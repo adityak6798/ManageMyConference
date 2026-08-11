@@ -194,14 +194,24 @@ export function staleMigrationDiagnostic(recorded, current, environment) {
  * when the server answers but reports none, or `null` when nothing is listening.
  */
 export async function probeServerIdentity(url) {
+  let response;
   try {
-    const response = await fetch(url, { headers: { accept: "application/json" } });
-    if (!response.ok) return undefined;
-    return (await response.json()).build;
+    response = await fetch(url, { headers: { accept: "application/json" } });
   } catch {
     // ERROR-INTENT: a refused connection is the ordinary case — no server is up yet, and
-    // Playwright is about to start ours. It is not a failure and must not read as one.
+    // Playwright is about to start ours. It is not a failure and must not read as one. This
+    // catch covers *only* the connection, because anything a server actually answered has to
+    // fall through to `undefined`: something is listening, and it has not identified itself.
     return null;
+  }
+  if (!response.ok) return undefined;
+  try {
+    return (await response.json()).build;
+  } catch {
+    // ERROR-INTENT: a 200 that is not the health document is a server we cannot identify, not
+    // an absent one. Collapsing it to `null` would read as "nothing listening" and let the run
+    // adopt it unchecked — the exact hole this guard exists to close.
+    return undefined;
   }
 }
 

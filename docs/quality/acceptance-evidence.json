@@ -13,7 +13,7 @@
   },
   "rows": {
     "ACC-HARNESS": {
-      "suites": ["test-build"],
+      "suites": ["test-build", "d1"],
       "specs": [
         "tools/tests/check-errors.test.mjs",
         "tools/tests/check-gate-drift.test.mjs",
@@ -26,7 +26,9 @@
         "apps/api/test/event-service.test.ts",
         "apps/api/test/event-mappers.test.ts",
         "apps/web/test/router.test.tsx",
-        "apps/web/test/error-fallback.test.tsx"
+        "apps/web/test/error-fallback.test.tsx",
+        "apps/api/test/d1-event-repository.integration.test.ts",
+        "apps/api/test/d1-harness.integration.test.ts"
       ]
     },
     "ACC-IDENTITY-EVENTS": {

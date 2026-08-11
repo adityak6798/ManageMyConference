@@ -20,6 +20,12 @@ import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 const routes = [
   "GET /api/public/events/:slug",
   "GET /api/publishing/events/:eventId/preview",
+  // Registered by the loop below rather than one call each, which is exactly why they are
+  // listed by hand: the table is what the duplicate check reads, so a route it cannot see is a
+  // route another domain could claim without the construction-time failure this registry
+  // promises.
+  "POST /api/publishing/events/:eventId/publish",
+  "POST /api/publishing/events/:eventId/unpublish",
   "GET /api/public/events/:slug/schedule",
 ] as const;
 

@@ -1,6 +1,11 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (commit `330b916`)
+Status: canonical | Owner: quality | Last verified: 2026-08-11
+
+The commit each verdict was measured against is **not written here**. It lives in the run records
+under `.evidence/`, which is where `gate:evidence` reads it, and duplicating it in this header is
+how it went stale before: a hand-copied SHA has no gate behind it and drifts on the next commit.
+Run `npm run gate:evidence` to see the head every row is currently bound to.
 
 ## How to read this
 

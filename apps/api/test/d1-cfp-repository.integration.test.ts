@@ -1,10 +1,9 @@
 // @acceptance ACC-CFP
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { Miniflare } from "miniflare";
+import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applySeedData, createMigratedDatabase, statements } from "./support/seeded-d1";
 import {
   D1CfpRepository,
   type D1CfpDatabasePort,
@@ -18,11 +17,6 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { ContentConflictError } from "../src/application/content/content-repository";
-const statements = (sql: string) =>
-  sql
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean);
 describe("D1CfpRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
@@ -170,9 +164,20 @@ describe("the DDL rendered from schema.ts", () => {
       ],
       { encoding: "utf8" },
     );
-    const migrated = await createMigratedDatabase({ label: "cfp-defaults", seed: true });
-    runtime = migrated.runtime;
-    const database = migrated.database;
+    // Built from the *declared* DDL, deliberately not from the migrations. This case exists to
+    // prove schema.ts carries the constraints the repositories depend on; running it against a
+    // migrated database would let a default or a uniqueness constraint disappear from schema.ts
+    // while these assertions stayed green — which is precisely what it is here to catch. It is
+    // the one fixture in the suite that does not use the shared migration harness, and the
+    // reason is this comment.
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: `cfp-declared-ddl-${crypto.randomUUID()}` },
+    });
+    const database = await runtime.getD1Database("DB");
+    for (const statement of statements(declaredDdl)) await database.prepare(statement).run();
+    await applySeedData(database);
 
     const eventId = "00000000-0000-4000-8000-000000000001";
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);

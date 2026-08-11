@@ -1,6 +1,7 @@
 // @acceptance ACC-HARNESS
 // @spec ENG-DEV-001 TST-005
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { test } from "node:test";
 import {
   derivePorts,
   describeServerIdentityMismatch,
+  probeServerIdentity,
   migrationIdentity,
   PORT_BLOCK_BASE,
   PORT_BLOCK_COUNT,
@@ -186,6 +188,32 @@ test("a server that reports no identity is fatal", () => {
   const { fatal } = describeServerIdentityMismatch(HERE, undefined, PROBE);
   assert.match(fatal ?? "", /reports no build identity/);
   assert.match(fatal ?? "", /npm run dev/);
+});
+
+test("a server answering with something that is not the health document is fatal", async () => {
+  // `undefined`, not `null`. Something is listening and has not identified itself, which is the
+  // case the guard exists for; reading it as "nothing listening" would let the run adopt it.
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end("<html>not json</html>");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const actual = await probeServerIdentity(`http://127.0.0.1:${port}/health`);
+    assert.equal(actual, undefined);
+    assert.match(
+      describeServerIdentityMismatch(HERE, actual, PROBE).fatal ?? "",
+      /no build identity/,
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("nothing listening probes as null, which is not a mismatch", async () => {
+  // Port 1 is privileged and unbound in every environment this runs in.
+  assert.equal(await probeServerIdentity("http://127.0.0.1:1/health"), null);
 });
 
 test("our own checkout at another commit warns but does not abort", () => {

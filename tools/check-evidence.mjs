@@ -61,6 +61,16 @@ export function analyse(declaration, verdicts, context) {
       );
       continue;
     }
+    // An empty declaration is the same uncheckable state as a missing one: both loops below
+    // would simply do nothing and the row would pass on the strength of saying nothing.
+    if ((row.suites ?? []).length === 0 || (row.specs ?? []).length === 0) {
+      problems.push(
+        `${identifier} declares an empty \`suites\` or \`specs\` list in ${EVIDENCE_DECLARATION}. ` +
+          "A row rests on at least one suite and at least one spec file, or its verdict is not " +
+          "checkable at all.",
+      );
+      continue;
+    }
     for (const specification of row.specs ?? []) {
       if (!exists(specification))
         problems.push(

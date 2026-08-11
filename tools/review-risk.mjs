@@ -29,8 +29,14 @@ export const DIMENSIONS = [
     id: "authorization",
     depth: "deep",
     why: "A missing capability check is invisible to every gate here: the tests that would catch it are the ones nobody wrote.",
+    // Every route and workspace module counts, not only the identity ones. Each enforces
+    // capabilities itself, so removing a check from `routes/review.ts` is an authorization
+    // change even though nothing in its name says so — and a filename classifier that misses
+    // that marks the most dangerous edit in the repository as ordinary product behaviour.
     matches: (file) =>
-      /identity\/actor|demo-session|runtime-auth|\/routes\/identity\.ts$/.test(file) ||
+      /identity\/actor|demo-session|runtime-auth/.test(file) ||
+      /^apps\/api\/src\/transport\/http\/routes\//.test(file) ||
+      /^apps\/web\/src\/workspaces\//.test(file) ||
       /capabilit|authoriz/i.test(file),
   },
   {
@@ -56,8 +62,10 @@ export const DIMENSIONS = [
     id: "public-contracts",
     depth: "deep",
     why: "A published shape is a promise to callers this repository does not control.",
+    // `openapi/` as well as `src/`: since #24 the domain fragments there *are* the published
+    // HTTP contract, and leaving them out would exempt the contract from contract review.
     matches: (file) =>
-      /^packages\/contracts\/src\//.test(file) ||
+      /^packages\/contracts\/(src|openapi|scripts)\//.test(file) ||
       /\/routes\/publishing\.ts$|PublicEventApp/.test(file),
   },
   {

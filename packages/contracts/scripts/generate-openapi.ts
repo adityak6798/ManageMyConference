@@ -37,10 +37,13 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
 // are checked against each other before anything is generated.
 const claimed = new Map<string, string>();
 for (const fragment of openApiFragments) {
-  const before = new Set(registry.definitions.map((definition) => JSON.stringify(definition)));
+  // The count, not the set of serialised values: two fragments registering an *identical*
+  // definition would produce a value already present, and the conflict would go unreported —
+  // which is the one case this check exists for.
+  const before = registry.definitions.length;
   fragment.register(registry, { json, errorResponse });
-  for (const definition of registry.definitions) {
-    if (before.has(JSON.stringify(definition)) || definition.type !== "route") continue;
+  for (const definition of registry.definitions.slice(before)) {
+    if (definition.type !== "route") continue;
     const key = `${definition.route.method.toUpperCase()} ${definition.route.path}`;
     const owner = claimed.get(key);
     if (owner && owner !== fragment.domain)
