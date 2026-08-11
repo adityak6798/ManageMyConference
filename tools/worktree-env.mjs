@@ -47,6 +47,22 @@ export function worktreeRoot(cwd = TOOLS_ROOT) {
   }
 }
 
+/** The commit this checkout is on, or "unknown" outside a git checkout. */
+export function headCommit(cwd = TOOLS_ROOT) {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    // ERROR-INTENT: an export with no git history still has a usable path identity, which is
+    // the half that decides whether a server belongs to this checkout. Reporting the commit as
+    // unknown is more useful than refusing to start.
+    return "unknown";
+  }
+}
+
 /** Map a checkout path onto its port block. Same path in, same ports out, on every machine. */
 export function derivePorts(root) {
   const digest = createHash("sha256").update(path.resolve(root)).digest();
@@ -171,6 +187,76 @@ export function staleMigrationDiagnostic(recorded, current, environment) {
     "",
     "That deletes only this instance's directory; other worktrees and other ports are untouched.",
   ].join("\n");
+}
+
+/**
+ * Ask a running server who it belongs to. Returns the reported build identity, `undefined`
+ * when the server answers but reports none, or `null` when nothing is listening.
+ */
+export async function probeServerIdentity(url) {
+  try {
+    const response = await fetch(url, { headers: { accept: "application/json" } });
+    if (!response.ok) return undefined;
+    return (await response.json()).build;
+  } catch {
+    // ERROR-INTENT: a refused connection is the ordinary case — no server is up yet, and
+    // Playwright is about to start ours. It is not a failure and must not read as one.
+    return null;
+  }
+}
+
+/**
+ * Decide whether a server already answering on our port is ours.
+ *
+ * The **path** is the decisive half and a mismatch is fatal: a server rooted in another
+ * checkout is serving another branch's code, and every assertion made against it is
+ * meaningless (issue #90 records a run that reported 16/19 against a stranger's clone).
+ *
+ * A differing **commit** is reported but not fatal, because `wrangler dev` reloads source on
+ * change: a server started three commits ago is serving the working tree as it is now, so
+ * aborting on it would be a false alarm in the ordinary edit-and-rerun loop. The case where a
+ * stale process genuinely matters — the database it holds was built from different migrations
+ * — is caught precisely, by the migration identity check, rather than guessed at from a SHA.
+ */
+export function describeServerIdentityMismatch(expected, actual, probe) {
+  if (actual === null) return { fatal: null, warning: null };
+  const where = `${probe.label} on ${probe.url}`;
+  if (!actual || typeof actual.root !== "string")
+    return {
+      fatal: [
+        `${where} answered, but reports no build identity.`,
+        "",
+        "It was not started by this repository's launcher, so there is no way to tell which",
+        "checkout it belongs to. Stop it and start the servers with `npm run dev`, or let the",
+        "suite start its own by freeing the port.",
+      ].join("\n"),
+      warning: null,
+    };
+  if (path.resolve(actual.root) !== path.resolve(expected.root))
+    return {
+      fatal: [
+        `${where} belongs to a different checkout.`,
+        "",
+        `  this checkout:  ${expected.root}`,
+        `  the server's:   ${actual.root}`,
+        "",
+        "Every API assertion in this run would have been made against that checkout's code.",
+        "Stop that server, or give this run its own ports:",
+        "",
+        "  npm run worktree:status        # the ports this checkout resolves to",
+        "  GREENROOM_API_PORT=… GREENROOM_WEB_PORT=… npm run test:e2e",
+      ].join("\n"),
+      warning: null,
+    };
+  if (actual.commit !== expected.commit)
+    return {
+      fatal: null,
+      warning:
+        `${where} was started at commit ${String(actual.commit).slice(0, 12)}, and this ` +
+        `checkout is on ${String(expected.commit).slice(0, 12)}. Wrangler reloads source on ` +
+        "change, so this is usually harmless — but restart it if migrations moved.",
+    };
+  return { fatal: null, warning: null };
 }
 
 /** Everything a contributor needs to see, and nothing that is a secret. */

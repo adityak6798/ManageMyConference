@@ -40,6 +40,11 @@ You no longer have to find free ports by hand, and `npm run test:e2e` resolves t
 GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e
 ```
 
+If a server from another checkout is holding one of your ports, the suite now stops before its first
+spec and names the foreign path rather than testing that checkout's code and reporting the result as
+yours. `/health` carries the checkout root and commit it was started from for exactly that purpose;
+see [local development](engineering/local-development.md#a-test-run-proves-whose-server-it-is-talking-to).
+
 Two instances of **this** worktree are also safe now: local D1 and R2 state lives under
 `apps/api/.wrangler/instances/<api-port>/`, so a demo server on one port and the suite on another own
 separate databases. That was the sharp edge `GAP-004` recorded — both processes used to open the same

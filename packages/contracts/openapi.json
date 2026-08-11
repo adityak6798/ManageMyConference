@@ -17302,6 +17302,154 @@
                       "enum": [
                         "structured-json"
                       ]
+                    },
+                    "build": {
+                      "type": "object",
+                      "properties": {
+                        "root": {
+                          "type": "string"
+                        },
+                        "commit": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "root",
+                        "commit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "checks",
+                    "providerMode",
+                    "logFormat"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "description": "The same readiness document under the `/api` prefix, so a caller behind a dev proxy that forwards `/api/*` can read the build identity of the API it actually reaches.",
+        "responses": {
+          "200": {
+            "description": "Runtime readiness",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "database": {
+                          "type": "string",
+                          "enum": [
+                            "configured"
+                          ]
+                        },
+                        "sessionSigning": {
+                          "type": "string",
+                          "enum": [
+                            "configured",
+                            "disabled"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "database",
+                        "sessionSigning"
+                      ]
+                    },
+                    "providerMode": {
+                      "type": "string",
+                      "enum": [
+                        "sql-r2"
+                      ]
+                    },
+                    "logFormat": {
+                      "type": "string",
+                      "enum": [
+                        "structured-json"
+                      ]
+                    },
+                    "build": {
+                      "type": "object",
+                      "properties": {
+                        "root": {
+                          "type": "string"
+                        },
+                        "commit": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "root",
+                        "commit"
+                      ]
                     }
                   },
                   "required": [

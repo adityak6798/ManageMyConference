@@ -7,6 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   derivePorts,
+  describeServerIdentityMismatch,
   migrationIdentity,
   PORT_BLOCK_BASE,
   PORT_BLOCK_COUNT,
@@ -141,6 +142,63 @@ test("a migration record round-trips, and an unreadable one reads as absent", ()
   assert.deepEqual(readMigrationRecord(environment.migrationRecordPath), identity);
   writeFileSync(environment.migrationRecordPath, "{ truncated", "utf8");
   assert.equal(readMigrationRecord(environment.migrationRecordPath), null);
+});
+
+const PROBE = { label: "The API server", url: "http://127.0.0.1:20192/health" };
+const HERE = { root: "/repo/worktrees/mine", commit: "a".repeat(40) };
+
+test("a server from another checkout is fatal and names both paths", () => {
+  const { fatal, warning } = describeServerIdentityMismatch(
+    HERE,
+    { root: "/Users/x/GH/ManageMyConference-issue-10-20260810-a7f3", commit: "b".repeat(40) },
+    PROBE,
+  );
+  assert.match(fatal ?? "", /belongs to a different checkout/);
+  assert.match(fatal ?? "", /ManageMyConference-issue-10-20260810-a7f3/);
+  assert.match(fatal ?? "", /\/repo\/worktrees\/mine/);
+  assert.equal(warning, null);
+});
+
+test("our own server at our own commit is accepted silently", () => {
+  assert.deepEqual(describeServerIdentityMismatch(HERE, { ...HERE }, PROBE), {
+    fatal: null,
+    warning: null,
+  });
+});
+
+test("a trailing-slash or unnormalised root is still our own server", () => {
+  const { fatal } = describeServerIdentityMismatch(
+    HERE,
+    { root: `${HERE.root}/`, commit: HERE.commit },
+    PROBE,
+  );
+  assert.equal(fatal, null);
+});
+
+test("nothing listening is not a mismatch — the suite starts its own server", () => {
+  assert.deepEqual(describeServerIdentityMismatch(HERE, null, PROBE), {
+    fatal: null,
+    warning: null,
+  });
+});
+
+test("a server that reports no identity is fatal", () => {
+  const { fatal } = describeServerIdentityMismatch(HERE, undefined, PROBE);
+  assert.match(fatal ?? "", /reports no build identity/);
+  assert.match(fatal ?? "", /npm run dev/);
+});
+
+test("our own checkout at another commit warns but does not abort", () => {
+  // `wrangler dev` reloads source on change, so a server started at an older commit is serving
+  // the current working tree. The case that genuinely matters — a database built from
+  // different migrations — is caught precisely by the migration identity check instead.
+  const { fatal, warning } = describeServerIdentityMismatch(
+    HERE,
+    { root: HERE.root, commit: "c".repeat(40) },
+    PROBE,
+  );
+  assert.equal(fatal, null);
+  assert.match(warning ?? "", /was started at commit cccccccccccc/);
 });
 
 test("the status report resolves paths and never prints a secret", () => {

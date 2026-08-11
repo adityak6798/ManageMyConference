@@ -13,6 +13,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  headCommit,
   migrationIdentity,
   readMigrationRecord,
   resolveWorktreeEnvironment,
@@ -104,6 +105,12 @@ function main(argv) {
         String(environment.apiPort),
         "--persist-to",
         environment.stateDir,
+        // Stamped into `/health` so a test run can prove the server answering its port is this
+        // checkout's and not another clone's (issue #90). Both are non-secret.
+        "--var",
+        `GREENROOM_WORKTREE_ROOT:${environment.root}`,
+        "--var",
+        `GREENROOM_COMMIT:${headCommit(environment.root)}`,
       ],
       environment,
     );

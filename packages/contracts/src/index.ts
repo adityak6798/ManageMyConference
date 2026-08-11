@@ -136,6 +136,20 @@ export const healthResponseSchema = z.object({
   }),
   providerMode: z.literal("sql-r2"),
   logFormat: z.literal("structured-json"),
+  /**
+   * Which checkout started this Worker, and at which commit. Present only when the local
+   * launcher supplied it, so a deployed instance simply omits it.
+   *
+   * This exists so a test run can prove it is talking to *its own* server. Both values are
+   * non-secret by construction: a filesystem path and a commit SHA, the same two facts `git`
+   * prints to anyone with the repository.
+   */
+  build: z
+    .object({
+      root: z.string(),
+      commit: z.string(),
+    })
+    .optional(),
 });
 
 // @spec PRD-COM-001 PRD-INT-001

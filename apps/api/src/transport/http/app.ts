@@ -46,7 +46,7 @@ import {
   publicScheduleSchema,
   publicationPreviewResponseSchema,
 } from "@greenroom/contracts";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
 import { etag, RETAINED_304_HEADERS } from "hono/etag";
@@ -119,6 +119,14 @@ type ActorResolver = (
 export type RuntimeAuthConfig =
   | { demoMode: true; sessionSecret: string; now?: () => number; resolveActor: ActorResolver }
   | { demoMode: false; now?: () => number };
+/**
+ * Which checkout started this Worker, and at which commit. Supplied by the local launcher and
+ * absent everywhere else, so a test run can tell its own server from a stranger's.
+ */
+export interface BuildIdentity {
+  root: string;
+  commit: string;
+}
 class MalformedJsonError extends Error {}
 const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
 /**
@@ -168,6 +176,7 @@ export function createHttpApp(
   agenda?: AgendaService,
   communicationsArgument?: CommunicationsService,
   publishingArgument?: PublicationService,
+  buildIdentity?: BuildIdentity,
 ) {
   const reviewService =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -279,14 +288,25 @@ export function createHttpApp(
     context.res.headers.set("cache-control", cacheable ? PUBLIC_CACHE_CONTROL : "no-store");
   });
 
-  app.get("/health", (context) =>
+  /*
+   * `/health` is also mounted under `/api` so that a caller reaching the Worker *through the
+   * web dev server's proxy* can read the same identity. The browser suite uses exactly that to
+   * prove the Vite server in front of it is proxying to this API and not to another
+   * checkout's; the proxy forwards `/api/*` only, so an unprefixed `/health` could never
+   * answer that question.
+   */
+  const health = (context: Context<{ Variables: Variables }>) =>
     context.json({
       status: "ok",
       checks: { database: "configured", sessionSigning: auth.demoMode ? "configured" : "disabled" },
       providerMode: "sql-r2",
       logFormat: "structured-json",
-    }),
-  );
+      // Omitted rather than set to undefined: a deployed instance reports no build identity at
+      // all, and `exactOptionalPropertyTypes` makes that distinction the type system's problem.
+      ...(buildIdentity ? { build: buildIdentity } : {}),
+    });
+  app.get("/health", health);
+  app.get("/api/health", health);
   app.get("/api/public/events/:slug", async (context) => {
     const slug = context.req.param("slug");
     if (!publishing || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))

@@ -9,6 +9,9 @@ const { apiPort, webPort } = environment;
 
 export default defineConfig({
   testDir: "./e2e",
+  // Runs before any spec and aborts the run when a server on either port belongs to another
+  // checkout. `reuseExistingServer` below is what makes that possible in the first place.
+  globalSetup: "./e2e/global-setup.ts",
   outputDir: environment.playwrightOutputDir,
   reporter: [["html", { outputFolder: environment.playwrightReportDir, open: "never" }]],
   // The acceptance journeys intentionally share and mutate one deterministic local D1 fixture.
@@ -30,7 +33,9 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: "npm run dev --workspace @greenroom/web -- --host 127.0.0.1",
+      // Host and port both come from vite.config.ts, which resolves them the same way this
+      // file does; passing either again on the command line is how they last drifted apart.
+      command: "npm run dev --workspace @greenroom/web",
       cwd: "../..",
       env: { GREENROOM_WEB_PORT: String(webPort), GREENROOM_API_PORT: String(apiPort) },
       url: `http://127.0.0.1:${webPort}`,

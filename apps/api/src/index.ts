@@ -28,6 +28,12 @@ export interface Environment {
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
   ENVIRONMENT?: string;
+  /**
+   * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
+   * can say which checkout and commit it belongs to. Absent in a deployment.
+   */
+  GREENROOM_WORKTREE_ROOT?: string;
+  GREENROOM_COMMIT?: string;
 }
 
 const communicationsRepository = (environment: Environment) =>
@@ -186,6 +192,9 @@ export default {
       agenda,
       communications,
       publishing,
+      environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
+        ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
+        : undefined,
     );
     return Promise.resolve(app.fetch(request));
   },

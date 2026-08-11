@@ -30,10 +30,29 @@ export interface MigrationIdentity {
   digest: string;
 }
 
+/** Which checkout started a server, and at which commit. */
+export interface BuildIdentity {
+  root: string;
+  commit: string;
+}
+
+export interface IdentityProbe {
+  label: string;
+  url: string;
+}
+
 export const PORT_BLOCK_BASE: number;
 export const PORT_BLOCK_COUNT: number;
 
 export function worktreeRoot(cwd?: string): string;
+export function headCommit(cwd?: string): string;
+/** The server's reported identity, `undefined` if it reports none, `null` if nothing answers. */
+export function probeServerIdentity(url: string): Promise<BuildIdentity | undefined | null>;
+export function describeServerIdentityMismatch(
+  expected: BuildIdentity,
+  actual: BuildIdentity | undefined | null,
+  probe: IdentityProbe,
+): { fatal: string | null; warning: string | null };
 export function derivePorts(root: string): { apiPort: number; webPort: number };
 export function resolveWorktreeEnvironment(
   env?: NodeJS.ProcessEnv | Record<string, string | undefined>,

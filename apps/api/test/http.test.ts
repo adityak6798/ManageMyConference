@@ -56,7 +56,53 @@ describe("events HTTP transport", () => {
     const { app } = createTestApp();
     const response = await app.request("/health");
     expect(response.status).toBe(200);
-    expect(healthResponseSchema.parse(await response.json()).providerMode).toBe("sql-r2");
+    const health = healthResponseSchema.parse(await response.json());
+    expect(health.providerMode).toBe("sql-r2");
+    // A deployment supplies no build identity, and the field is absent rather than null.
+    expect(health.build).toBeUndefined();
+  });
+
+  it("reports the checkout and commit it was started from when the launcher supplies them", async () => {
+    const service = new EventService({
+      repository: new MemoryEventRepository(),
+      newId: () => "123e4567-e89b-12d3-a456-426614174000",
+      now: () => new Date("2026-08-09T12:00:00.000Z"),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const build = { root: "/repo/worktrees/mine", commit: "a".repeat(40) };
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      testCrm(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      build,
+    );
+    // Both routes answer, because the browser suite reads the proxied one through Vite to
+    // prove the web server in front of it points at this API (issue #90).
+    for (const route of ["/health", "/api/health"]) {
+      const response = await app.request(route);
+      expect(response.status).toBe(200);
+      expect(healthResponseSchema.parse(await response.json()).build).toEqual(build);
+    }
+  });
+
+  it("keeps health free of secrets and cookies", async () => {
+    const { app } = createTestApp();
+    const body = await (await app.request("/health")).text();
+    expect(body).not.toContain(secret);
+    expect(body.toLowerCase()).not.toContain("cookie");
+    expect(body.toLowerCase()).not.toContain("sessionsecret");
   });
 
   it("returns the seeded identity, memberships, event roles, and capabilities", async () => {
