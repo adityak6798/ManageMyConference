@@ -13,8 +13,8 @@
 import type { ContentWorkspaceDto, UpdateContentSessionInput } from "@greenroom/contracts";
 import { type FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  acceptContent,
   completeSpeakerTask,
+  contentFieldErrors,
   getContent,
   publishSpeakerAsset,
   recordSpeakerMessage,
@@ -30,7 +30,6 @@ import {
   IconClock,
   IconInbox,
   IconLink,
-  IconPlus,
   IconSend,
   IconSessions,
   IconSpeakers,
@@ -50,8 +49,22 @@ type ContentSession = Workspace["sessions"][number];
 type SpeakerProfile = Workspace["speakers"][number];
 type PublicationState = ContentSession["publicationState"];
 
-/** Resolves to true when the mutation succeeded, so callers can announce an outcome. */
-type Run = (action: () => Promise<unknown>) => Promise<boolean>;
+/**
+ * The outcome of a mutation. The failure carries the rejection itself so a form can render the
+ * server's field-level detail against the input that caused it, not only announce that it failed.
+ */
+type RunResult = { ok: true } | { ok: false; error: unknown };
+type Run = (action: () => Promise<unknown>) => Promise<RunResult>;
+
+/** One paragraph per message, tied to its control through aria-describedby. */
+function FieldErrors({ id, messages }: { id: string; messages: readonly string[] | undefined }) {
+  if (!messages?.length) return null;
+  return (
+    <p className="error-text" id={id}>
+      {messages.join(" ")}
+    </p>
+  );
+}
 
 const PUBLICATION_TONE: Record<PublicationState, "neutral" | "info" | "ok"> = {
   draft: "neutral",
@@ -300,12 +313,10 @@ function SessionEditor({
 /* ============================== organizer view ============================== */
 
 function OrganizerView({
-  eventId,
   workspace,
   busy,
   run,
 }: {
-  eventId: string;
   workspace: Workspace;
   busy: boolean;
   run: Run;
@@ -321,9 +332,13 @@ function OrganizerView({
   // The organizer picks who the task or message is for; this used to be hardcoded to
   // the first speaker in the workspace, which made both actions unusable in practice.
   const [speakerChoice, setSpeakerChoice] = useState("");
-  const [taskTitle, setTaskTitle] = useState("Upload final presentation");
-  const [taskDue, setTaskDue] = useState("2026-09-01");
-  const [messageSubject, setMessageSubject] = useState("Speaker preparation reminder sent");
+  // Both forms start empty. They used to be pre-filled with a title, a due date, and a
+  // subject that no organizer had typed, so one click wrote invented rows into the event.
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDue, setTaskDue] = useState("");
+  const [taskErrors, setTaskErrors] = useState<Record<string, string[]>>({});
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageErrors, setMessageErrors] = useState<Record<string, string[]>>({});
   const taskTitleRef = useRef<HTMLInputElement>(null);
 
   const now = Date.now();
@@ -375,37 +390,9 @@ function OrganizerView({
       .includes(needle);
   });
 
-  function acceptDemoProposal() {
-    if (busy) return;
-    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() =>
-      acceptContent(eventId, {
-        proposalId: "demo-accepted-proposal",
-        title: "A newly accepted session",
-        abstract: "Accepted once and linked without duplicate entry.",
-        format: "Talk",
-        tags: ["community"],
-        tracks: ["Main"],
-        speakers: [
-          {
-            userId: "seed-speaker",
-            sourcePersonId: "proposal-person-sam",
-            name: "Sam Speaker",
-            email: "sam@example.test",
-          },
-        ],
-      }),
-    ).then((ok) =>
-      sessionFeedback.announce(
-        ok ? "success" : "error",
-        ok ? "Accepted proposal linked as a session." : "The proposal could not be accepted.",
-      ),
-    );
-  }
-
   function saveSession(sessionId: string, input: UpdateContentSessionInput) {
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => updateContentSession(sessionId, input)).then((ok) =>
+    void run(() => updateContentSession(sessionId, input)).then(({ ok }) =>
       sessionFeedback.announce(
         ok ? "success" : "error",
         ok ? `Saved “${input.title}”.` : "That session could not be saved.",
@@ -416,42 +403,68 @@ function OrganizerView({
   function requestTask(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy || !selectedSpeaker) return;
+    const title = taskTitle.trim();
+    // The request carries what the organizer typed, so it is checked here before it is sent
+    // rather than relying on browser constraint validation the submit path can bypass.
+    const problems: Record<string, string[]> = {};
+    if (!title) problems.title = ["Say what you need from this speaker."];
+    if (!taskDue) problems.dueAt = ["Choose the day this is due."];
+    else if (Number.isNaN(new Date(`${taskDue}T23:59:00.000Z`).getTime()))
+      problems.dueAt = ["That is not a real date."];
+    setTaskErrors(problems);
+    if (Object.keys(problems).length) {
+      outreachFeedback.announce("error", "That request is incomplete. Check the fields above.");
+      return;
+    }
     const name = selectedSpeaker.name;
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
     void run(() =>
       requestSpeakerTask({
         profileId: selectedSpeaker.id,
-        title: taskTitle,
+        title,
         // The picker collects a day; speakers are given until the end of it.
         dueAt: new Date(`${taskDue}T23:59:00.000Z`).toISOString(),
       }),
-    ).then((ok) =>
+    ).then((result) => {
+      if (result.ok) {
+        setTaskTitle("");
+        setTaskDue("");
+      } else setTaskErrors(contentFieldErrors(result.error));
       outreachFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `Requested “${taskTitle}” from ${name}.` : "That task could not be requested.",
-      ),
-    );
+        result.ok ? "success" : "error",
+        result.ok ? `Requested “${title}” from ${name}.` : "That task could not be requested.",
+      );
+    });
   }
 
   function recordMessage(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy || !selectedSpeaker) return;
+    const subject = messageSubject.trim();
+    if (!subject) {
+      setMessageErrors({ subject: ["Say what you sent this speaker."] });
+      outreachFeedback.announce("error", "Enter the subject of the message you sent.");
+      return;
+    }
+    setMessageErrors({});
     const name = selectedSpeaker.name;
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() =>
-      recordSpeakerMessage({ profileId: selectedSpeaker.id, subject: messageSubject }),
-    ).then((ok) =>
-      outreachFeedback.announce(
-        ok ? "success" : "error",
-        ok ? `Logged a message to ${name}.` : "That message could not be recorded.",
-      ),
+    void run(() => recordSpeakerMessage({ profileId: selectedSpeaker.id, subject })).then(
+      (result) => {
+        if (result.ok) setMessageSubject("");
+        else setMessageErrors(contentFieldErrors(result.error));
+        outreachFeedback.announce(
+          result.ok ? "success" : "error",
+          result.ok ? `Logged “${subject}” to ${name}.` : "That message could not be recorded.",
+        );
+      },
     );
   }
 
   function publishAsset(assetId: string, name: string) {
     if (busy) return;
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => publishSpeakerAsset(assetId)).then((ok) =>
+    void run(() => publishSpeakerAsset(assetId)).then(({ ok }) =>
       assetFeedback.announce(
         ok ? "success" : "error",
         ok ? `“${name}” is now publishable.` : "That asset could not be published.",
@@ -502,16 +515,12 @@ function OrganizerView({
 
       <div className="split">
         <div className="content-stack">
+          {/* Sessions are created by accepting an abstract in review, never from here: the
+              acceptance command names a proposal and the server resolves the rest of it. */}
           <Card
             labelledBy="accepted-sessions"
             title="Accepted sessions"
             hint="Content that survived review. Edit a row to change how it will be published."
-            actions={
-              <button type="button" aria-disabled={busy} onClick={acceptDemoProposal}>
-                <IconPlus size={15} />
-                Accept demo proposal
-              </button>
-            }
             tight
           >
             <div className="content-tabs">
@@ -809,7 +818,11 @@ function OrganizerView({
                       onChange={(changeEvent) => setTaskTitle(changeEvent.target.value)}
                       required
                       maxLength={160}
+                      placeholder="What you need from them"
+                      aria-invalid={Boolean(taskErrors.title?.length)}
+                      aria-describedby={taskErrors.title?.length ? "task-title-error" : undefined}
                     />
+                    <FieldErrors id="task-title-error" messages={taskErrors.title} />
                   </div>
                   <div className="field">
                     <label htmlFor="task-due">Due date</label>
@@ -819,11 +832,19 @@ function OrganizerView({
                       value={taskDue}
                       onChange={(changeEvent) => setTaskDue(changeEvent.target.value)}
                       required
+                      aria-invalid={Boolean(taskErrors.dueAt?.length)}
+                      aria-describedby={
+                        taskErrors.dueAt?.length ? "task-due-error task-due-hint" : "task-due-hint"
+                      }
                     />
+                    <p className="hint" id="task-due-hint">
+                      The speaker has until the end of this day.
+                    </p>
+                    <FieldErrors id="task-due-error" messages={taskErrors.dueAt} />
                   </div>
                   <button type="submit" aria-disabled={busy}>
                     <IconTask size={15} />
-                    Request presentation asset
+                    Request this task
                   </button>
                 </form>
 
@@ -836,11 +857,22 @@ function OrganizerView({
                       onChange={(changeEvent) => setMessageSubject(changeEvent.target.value)}
                       required
                       maxLength={200}
+                      placeholder="Subject of what you sent"
+                      aria-invalid={Boolean(messageErrors.subject?.length)}
+                      aria-describedby={
+                        messageErrors.subject?.length
+                          ? "message-subject-error message-subject-hint"
+                          : "message-subject-hint"
+                      }
                     />
+                    <p className="hint" id="message-subject-hint">
+                      Logged as history for the whole organizing team. Nothing is sent from here.
+                    </p>
+                    <FieldErrors id="message-subject-error" messages={messageErrors.subject} />
                   </div>
                   <button type="submit" className="secondary" aria-disabled={busy}>
                     <IconSend size={15} />
-                    Record communication
+                    Record this message
                   </button>
                 </form>
 
@@ -934,11 +966,12 @@ function SpeakerView({
   );
   const openTasks = tasks.filter(({ status }) => status === "open");
   const overdue = openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length;
+  const scheduled = workspace.sessions.filter((session) => session.schedule);
 
   function completeTask(taskId: string, title: string) {
     if (busy) return;
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => completeSpeakerTask(eventId, taskId)).then((ok) =>
+    void run(() => completeSpeakerTask(eventId, taskId)).then(({ ok }) =>
       taskFeedback.announce(
         ok ? "success" : "error",
         ok ? `“${title}” marked complete.` : "That task could not be completed.",
@@ -950,7 +983,7 @@ function SpeakerView({
     formEvent.preventDefault();
     if (busy) return;
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => updateSpeakerProfile(profile.id, draft)).then((ok) =>
+    void run(() => updateSpeakerProfile(profile.id, draft)).then(({ ok }) =>
       profileFeedback.announce(
         ok ? "success" : "error",
         ok ? "Profile saved. Organizers see this version." : "Your profile could not be saved.",
@@ -976,7 +1009,7 @@ function SpeakerView({
         contentType: file.type as "image/jpeg" | "image/png" | "application/pdf",
         contentBase64,
       });
-    }).then((ok) => {
+    }).then(({ ok }) => {
       if (ok) uploadFormRef.current?.reset();
       uploadFeedback.announce(
         ok ? "success" : "error",
@@ -998,7 +1031,7 @@ function SpeakerView({
         <Stat
           label="Your sessions"
           value={workspace.sessions.length}
-          hint={`${workspace.sessions.filter((session) => session.schedule).length} scheduled`}
+          hint={`${scheduled.length} scheduled`}
           icon={<IconSessions size={15} />}
         />
         <Stat
@@ -1208,10 +1241,16 @@ function SpeakerView({
         title="Your sessions"
         hint="Times are shown in your device's timezone."
         actions={
-          <a className="download" href={`/api/events/${eventId}/speaker-calendar.ics`} download>
-            <IconCalendar size={15} />
-            Download calendar (.ics)
-          </a>
+          // A calendar with no VEVENT is not a calendar: the export answers 404 until at
+          // least one session is scheduled, so the link is not offered before then.
+          scheduled.length ? (
+            <a className="download" href={`/api/events/${eventId}/speaker-calendar.ics`} download>
+              <IconCalendar size={15} />
+              Download calendar (.ics)
+            </a>
+          ) : (
+            <span className="hint">Downloadable once a session has a time.</span>
+          )
         }
         tight
       >
@@ -1295,12 +1334,13 @@ export function ContentWorkspace({ eventId, role, onError }: Props) {
     try {
       await action();
       setWorkspace(await getContent(eventId));
-      return true;
+      return { ok: true };
     } catch (error) {
       // ERROR-INTENT: The parent shell renders the normalized API failure with its correlation ID;
-      // the caller additionally announces the failure next to the control that triggered it.
+      // the caller additionally announces the failure next to the control that triggered it and
+      // renders any field-level detail the server attached against the input that caused it.
       onError(error);
-      return false;
+      return { ok: false, error };
     } finally {
       setBusy(false);
     }
@@ -1308,8 +1348,7 @@ export function ContentWorkspace({ eventId, role, onError }: Props) {
 
   if (!workspace) return <LoadingWorkspace />;
 
-  if (role === "organizer")
-    return <OrganizerView eventId={eventId} workspace={workspace} busy={busy} run={run} />;
+  if (role === "organizer") return <OrganizerView workspace={workspace} busy={busy} run={run} />;
 
   const profile = workspace.speakers[0];
   if (!profile)

@@ -6,26 +6,42 @@ import type {
   SpeakerTask,
 } from "../../domain/content/content";
 import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
+import type { AcceptedProposalQuery } from "../review/public";
+import type { SpeakerConversionPort } from "./speaker-conversion";
 import {
   type AssetStoragePort,
   ContentConflictError,
   type ContentRepository,
 } from "./content-repository";
 
+/**
+ * Acceptance carries a proposal reference and nothing else.
+ *
+ * Everything else — title, abstract, format, and the speaker's identity — is resolved server-side
+ * through the review domain's public application interface and the speaker conversion port. A
+ * client that could name the title and the speaker could invent both, which is exactly how a
+ * fabricated proposal id used to become a session with a ghost speaker. Organizers edit the
+ * session afterwards through `PATCH /api/content-sessions/{id}`, so no override belongs here.
+ */
 export interface AcceptContentCommand {
   eventId: string;
   proposalId: string;
-  title: string;
-  abstract: string;
-  format: string;
-  tags: string[];
-  tracks: string[];
-  speakers: { userId: string; sourcePersonId: string; name: string; email: string }[];
+}
+
+/** The speaker identity could not be provisioned from the accepted proposal. */
+export class SpeakerIdentityUnavailableError extends Error {
+  constructor(readonly fields: Record<string, string[]>) {
+    super("Speaker identity could not be resolved for this proposal");
+  }
 }
 
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   assetStorage: AssetStoragePort;
+  /** The review domain's answer to "may this proposal become content?". */
+  proposals: AcceptedProposalQuery;
+  /** Idempotent speaker provisioning, shared with CRM conversion (`ARC-FLOW-003`). */
+  speakerConversion: SpeakerConversionPort;
   newId: () => string;
   now: () => Date;
 }
@@ -110,88 +126,109 @@ function calendarDateTime(value: string) {
 export class ContentService {
   constructor(private readonly dependencies: ContentServiceDependencies) {}
 
+  /**
+   * Turn an accepted proposal into program content.
+   *
+   * Idempotent per `(eventId, proposalId)`: the session's unique constraint is the arbiter, and a
+   * loser of that race retries and finds the winner's session. `ARC-FLOW-001`.
+   */
   async accept(
     actor: Actor | null,
     command: AcceptContentCommand,
+    correlationId: string,
     conflictRetries = 2,
   ): Promise<ContentWorkspace> {
     const authorized = requireCapability(actor, "content:manage");
     if (!hasEventRole(authorized, command.eventId, "organizer"))
       throw new CapabilityDeniedError("Organizer event access required");
+    // Throws a typed 4xx for unknown, foreign, undecided, or identity-less proposals.
+    const accepted = await this.dependencies.proposals.acceptedProposal(
+      command.eventId,
+      command.proposalId,
+    );
     const existing = await this.dependencies.repository.findSessionByProposal(
       command.eventId,
       command.proposalId,
     );
     if (!existing) {
-      const resolved = await Promise.all(
-        command.speakers.map(async (speaker) => {
-          const existingProfile = await this.dependencies.repository.findProfileBySource(
-            command.eventId,
-            speaker.sourcePersonId,
-          );
-          return {
-            isNew: !existingProfile,
-            profile: existingProfile ?? {
-              id: this.dependencies.newId(),
-              eventId: command.eventId,
-              userId: speaker.userId,
-              sourcePersonId: speaker.sourcePersonId,
-              name: speaker.name,
-              email: speaker.email,
-              bio: "",
-              pronouns: "",
-              organization: "",
-            },
-          };
-        }),
-      );
-      const speakers = resolved.map(({ profile }) => profile);
+      const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
+      // The conversion port owns the profile row, so the onboarding checklist is keyed off the
+      // work already assigned to this person rather than off "did I just insert the profile".
+      const before = await this.dependencies.repository.workspace(command.eventId);
+      const isNew = !before.tasks.some(({ speakerProfileId }) => speakerProfileId === speaker.id);
       const session: ContentSession = {
         id: this.dependencies.newId(),
         eventId: command.eventId,
         proposalId: command.proposalId,
-        title: command.title,
-        abstract: command.abstract,
-        format: command.format,
-        speakerProfileIds: speakers.map(({ id }) => id),
-        tags: command.tags,
-        tracks: command.tracks,
+        title: accepted.title,
+        abstract: accepted.abstract,
+        format: accepted.format,
+        speakerProfileIds: [speaker.id],
+        tags: [],
+        tracks: [],
         publicationState: "draft",
       };
-      const tasks = resolved
-        .filter(({ isNew }) => isNew)
-        .flatMap<SpeakerTask>(({ profile: speaker }) => [
-          {
+      const tasks: SpeakerTask[] = isNew
+        ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
             id: this.dependencies.newId(),
             eventId: command.eventId,
             speakerProfileId: speaker.id,
-            title: "Complete your speaker profile",
+            title,
             dueAt: this.dependencies.now().toISOString(),
             status: "open",
-          },
-          {
-            id: this.dependencies.newId(),
-            eventId: command.eventId,
-            speakerProfileId: speaker.id,
-            title: "Upload a headshot",
-            dueAt: this.dependencies.now().toISOString(),
-            status: "open",
-          },
-        ]);
+          }))
+        : [];
       try {
         await this.dependencies.repository.accept({
           session,
-          speakers: resolved.filter(({ isNew }) => isNew).map(({ profile }) => profile),
+          // The speaker profile is already durable: `SpeakerConversionPort` provisions the user
+          // and the profile together, which is what keeps a client-named `userId` — and the
+          // foreign-key failure it used to cause — out of this path entirely.
+          speakers: [],
           tasks,
           messages: [],
         });
       } catch (error) {
         if (error instanceof ContentConflictError && conflictRetries > 0)
-          return this.accept(actor, command, conflictRetries - 1);
+          return this.accept(actor, command, correlationId, conflictRetries - 1);
         throw error;
       }
     }
     return this.dependencies.repository.workspace(command.eventId);
+  }
+
+  private async resolveSpeaker(
+    accepted: { eventId: string; proposalId: string; submitter: { name: string; email: string } },
+    actorId: string,
+    correlationId: string,
+  ): Promise<SpeakerProfile> {
+    let speakerId: string;
+    try {
+      ({ speakerId } = await this.dependencies.speakerConversion.createOrLink({
+        eventId: accepted.eventId,
+        source: { kind: "cfp-proposal", id: accepted.proposalId },
+        name: accepted.submitter.name,
+        email: accepted.submitter.email,
+        actorId,
+        occurredAt: this.dependencies.now().toISOString(),
+        correlationId,
+        idempotencyKey: `content-accept:${accepted.eventId}:${accepted.proposalId}`,
+      }));
+    } catch (error) {
+      // A referential failure here means the submitted identity cannot be provisioned. That is
+      // an input problem the organizer can act on, not the opaque 500 it used to produce.
+      if (error instanceof Error && /FOREIGN KEY constraint failed/i.test(error.message))
+        throw new SpeakerIdentityUnavailableError({
+          "submitter.email": ["This submitter cannot be linked to a speaker identity."],
+        });
+      throw error;
+    }
+    const profile = await this.dependencies.repository.findProfile(speakerId);
+    if (!profile || profile.eventId !== accepted.eventId)
+      throw new SpeakerIdentityUnavailableError({
+        "submitter.email": ["This submitter cannot be linked to a speaker identity."],
+      });
+    return profile;
   }
 
   async workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspace> {
@@ -414,8 +451,15 @@ export class ContentService {
    *
    * DTSTAMP comes from the injected clock, never the wall clock, so the same workspace and the
    * same clock always produce byte-identical bytes.
+   *
+   * Returns `null` when no session yields a VEVENT. RFC 5545 section 3.4 defines
+   * `icalbody = calprops component` with `component = 1*(...)`: at least one component is
+   * REQUIRED, so a calprops-only VCALENDAR is not an iCalendar object at all and Apple Calendar
+   * and Google Calendar both reject the file. The route turns that `null` into a 404 rather than
+   * serving a download that fails on import, and rather than inventing a placeholder VEVENT that
+   * would put fiction in the speaker's calendar.
    */
-  async calendar(actor: Actor | null, eventId: string): Promise<string> {
+  async calendar(actor: Actor | null, eventId: string): Promise<string | null> {
     const workspace = await this.workspace(actor, eventId);
     const stamp = utcCalendarStamp(this.dependencies.now());
     const events = workspace.sessions
@@ -445,6 +489,7 @@ export class ContentService {
           "END:VEVENT",
         ];
       });
+    if (!events.length) return null;
     return [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",

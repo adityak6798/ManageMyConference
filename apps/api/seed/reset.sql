@@ -17,6 +17,7 @@ DELETE FROM speaker_tasks;
 DELETE FROM content_sessions;
 DELETE FROM speaker_profiles;
 DELETE FROM review_events;
+DELETE FROM review_decisions;
 DELETE FROM review_outcomes;
 DELETE FROM review_evaluations;
 DELETE FROM review_conflicts;
@@ -104,25 +105,41 @@ INSERT INTO agenda_publications (event_id, version, published_at, published_by, 
 INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id) VALUES
 ('10000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','seed-speaker','proposal-person-sam','Sam Speaker','sam@example.test','Builds humane conference tools.','they/them','Greenroom Labs',NULL);
 INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,speaker_profile_ids,tags,tracks,publication_state,schedule_starts_at,schedule_ends_at,schedule_location) VALUES
-('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','accepted-proposal-001','Designing the calm conference','A practical guide to reducing operational noise.','45-minute talk','["10000000-0000-4000-8000-000000000001"]','["operations"]','["Product"]','published','2026-09-15T17:00:00.000Z','2026-09-15T17:45:00.000Z','Main Stage');
+('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000010','Designing the calm conference','A practical guide to reducing operational noise.','45-minute talk','["10000000-0000-4000-8000-000000000001"]','["operations"]','["Product"]','published','2026-09-15T17:00:00.000Z','2026-09-15T17:45:00.000Z','Main Stage');
 INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES
 ('30000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Confirm profile details','2026-08-20T23:59:00.000Z','open',NULL),
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
 INSERT INTO speaker_messages (id,event_id,speaker_profile_id,subject,sent_at) VALUES
 ('40000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Welcome to Greenroom Demo Summit','2026-08-10T16:00:00.000Z');
-INSERT INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, submitted_at, status) VALUES
-  ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 1, 'seed-hallway', '{"title":"Designing for the hallway track","abstract":"A practical guide to making conference spaces encourage useful, inclusive conversations.","name":"Alex Morgan"}', '2026-08-09T12:01:00.000Z', 'under_review'),
-  ('10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 1, 'seed-boundaries', '{"title":"Typed boundaries at scale","abstract":"How small explicit contracts keep large TypeScript systems understandable.","name":"Jordan Lee"}', '2026-08-09T12:02:00.000Z', 'submitted'),
-  ('10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000002', 1, 'seed-workshop', '{"title":"Workshop proposal","abstract":"A proposal for the secondary event without a configured review plan.","name":"Taylor Kim"}', '2026-08-09T12:03:00.000Z', 'submitted'),
-  ('10000000-0000-4000-8000-000000000099', '00000000-0000-4000-8000-000000000099', 1, 'seed-private', '{"title":"Private outside proposal","abstract":"This proposal must never cross event boundaries.","name":"Outside Author"}', '2026-08-09T12:04:00.000Z', 'submitted');
+-- Every submission stores the snapshot of the form it was filled in against, so the organizer
+-- projection derives the submitter from real field types rather than a heuristic, and every one
+-- answers the required contact-email field the published form asks for.
+INSERT INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, submitted_at, status) VALUES
+  ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 1, 'seed-hallway', '{"title":"Designing for the hallway track","abstract":"A practical guide to making conference spaces encourage useful, inclusive conversations.","name":"Alex Morgan","email":"alex.morgan@example.test"}', '[{"id":"title","type":"short_text","label":"Proposal title"},{"id":"abstract","type":"long_text","label":"Abstract"},{"id":"name","type":"short_text","label":"Your name"},{"id":"email","type":"email","label":"Contact email"}]', '2026-08-09T12:01:00.000Z', 'under_review'),
+  ('10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 1, 'seed-boundaries', '{"title":"Typed boundaries at scale","abstract":"How small explicit contracts keep large TypeScript systems understandable.","name":"Jordan Lee","email":"jordan.lee@example.test"}', '[{"id":"title","type":"short_text","label":"Proposal title"},{"id":"abstract","type":"long_text","label":"Abstract"},{"id":"name","type":"short_text","label":"Your name"},{"id":"email","type":"email","label":"Contact email"}]', '2026-08-09T12:02:00.000Z', 'submitted'),
+  ('10000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 1, 'seed-calm-conference', '{"title":"Designing the calm conference","abstract":"A practical guide to reducing operational noise.","name":"Sam Speaker","email":"sam@example.test"}', '[{"id":"title","type":"short_text","label":"Proposal title"},{"id":"abstract","type":"long_text","label":"Abstract"},{"id":"name","type":"short_text","label":"Your name"},{"id":"email","type":"email","label":"Contact email"}]', '2026-08-09T12:05:00.000Z', 'accepted'),
+  ('10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000002', 1, 'seed-workshop', '{"title":"Workshop proposal","abstract":"A proposal for the secondary event without a configured review plan.","name":"Taylor Kim","email":"taylor.kim@example.test"}', '[{"id":"title","type":"short_text","label":"Proposal title"},{"id":"abstract","type":"long_text","label":"Abstract"},{"id":"name","type":"short_text","label":"Your name"},{"id":"email","type":"email","label":"Contact email"}]', '2026-08-09T12:03:00.000Z', 'submitted'),
+  ('10000000-0000-4000-8000-000000000099', '00000000-0000-4000-8000-000000000099', 1, 'seed-private', '{"title":"Private outside proposal","abstract":"This proposal must never cross event boundaries.","name":"Outside Author","email":"outside.author@example.test"}', '[{"id":"title","type":"short_text","label":"Proposal title"},{"id":"abstract","type":"long_text","label":"Abstract"},{"id":"name","type":"short_text","label":"Your name"},{"id":"email","type":"email","label":"Contact email"}]', '2026-08-09T12:04:00.000Z', 'submitted');
 
+-- `accepted` and `declined` are the review domain's reserved decision statuses (migration 0021).
 INSERT OR REPLACE INTO cfp_statuses (event_id, key, label, sort_order) VALUES
   ('00000000-0000-4000-8000-000000000001', 'submitted', 'Submitted', 0),
   ('00000000-0000-4000-8000-000000000001', 'under_review', 'Under review', 1),
   ('00000000-0000-4000-8000-000000000001', 'reviewed', 'Reviewed', 2),
   ('00000000-0000-4000-8000-000000000001', 'withdrawn', 'Withdrawn', 3),
+  ('00000000-0000-4000-8000-000000000001', 'accepted', 'Accepted', 90),
+  ('00000000-0000-4000-8000-000000000001', 'declined', 'Declined', 91),
   ('00000000-0000-4000-8000-000000000002', 'submitted', 'Submitted', 0),
-  ('00000000-0000-4000-8000-000000000099', 'submitted', 'Submitted', 0);
+  ('00000000-0000-4000-8000-000000000002', 'accepted', 'Accepted', 90),
+  ('00000000-0000-4000-8000-000000000002', 'declined', 'Declined', 91),
+  ('00000000-0000-4000-8000-000000000099', 'submitted', 'Submitted', 0),
+  ('00000000-0000-4000-8000-000000000099', 'accepted', 'Accepted', 90),
+  ('00000000-0000-4000-8000-000000000099', 'declined', 'Declined', 91);
+
+-- The seeded content session is program content because this decision exists, not because a
+-- literal proposal id was typed into `content_sessions`.
+INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decided_at, note) VALUES
+  ('00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000010', 'accepted', 'seed-organizer', '2026-08-09T15:00:00.000Z', 'Strong fit for the operations track.');
 
 INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
   ('00000000-0000-4000-8000-000000000001', '[{"id":"relevance","name":"Relevance","description":"Fit for this audience","minScore":1,"maxScore":5},{"id":"clarity","name":"Clarity","description":"Strength and clarity of the proposal","minScore":1,"maxScore":5}]', '2026-08-09T12:00:00.000Z');
@@ -134,11 +151,11 @@ VALUES (
   '00000000-0000-4000-8000-000000000001',
   'Share your conference story',
   'Submit a practical session for Greenroom Demo Summit.',
-  '[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}]',
+  '[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"name","type":"short_text","label":"Your name","guidance":"How organizers should address you","required":false,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}]',
   'open',
   1,
   '2026-08-09T12:00:00.000Z',
-  '{"eventId":"00000000-0000-4000-8000-000000000001","title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"status":"open","version":1,"publishedAt":"2026-08-09T12:00:00.000Z","publishedStatus":"open"}'
+  '{"eventId":"00000000-0000-4000-8000-000000000001","title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"name","type":"short_text","label":"Your name","guidance":"How organizers should address you","required":false,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"status":"open","version":1,"publishedAt":"2026-08-09T12:00:00.000Z","publishedStatus":"open"}'
 );
 
 INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES

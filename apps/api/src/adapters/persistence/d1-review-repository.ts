@@ -3,8 +3,10 @@ import {
   ReviewStateConflictError,
 } from "../../application/review/review-repository";
 import type {
+  DecisionOutcome,
   Evaluation,
   EvaluationPlan,
+  ProposalDecision,
   ReviewAssignment,
   ReviewCompletedEvent,
   ReviewConflict,
@@ -54,6 +56,24 @@ type OutcomeRow = {
   average_score: number;
   updated_at: string;
 };
+
+type DecisionRow = {
+  event_id: string;
+  proposal_id: string;
+  outcome: DecisionOutcome;
+  decided_by: string;
+  decided_at: string;
+  note: string;
+};
+
+const decision = (row: DecisionRow): ProposalDecision => ({
+  eventId: row.event_id,
+  proposalId: row.proposal_id,
+  outcome: row.outcome,
+  decidedBy: row.decided_by,
+  decidedAt: row.decided_at,
+  note: row.note,
+});
 
 const assignment = (row: AssignmentRow): ReviewAssignment => ({
   id: row.id,
@@ -277,6 +297,35 @@ export class D1ReviewRepository implements ReviewRepository {
       .all<EvaluationRow>();
     this.ensure(result, "list completed evaluations");
     return (result.results ?? []).map(evaluation);
+  }
+  async saveDecision(item: ProposalDecision) {
+    const result = await this.database
+      .prepare(
+        "INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decided_at, note) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id, proposal_id) DO UPDATE SET outcome = excluded.outcome, decided_by = excluded.decided_by, decided_at = excluded.decided_at, note = excluded.note",
+      )
+      .bind(item.eventId, item.proposalId, item.outcome, item.decidedBy, item.decidedAt, item.note)
+      .run();
+    this.ensure(result, "save review decision");
+  }
+  async findDecision(eventId: string, proposalId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note FROM review_decisions WHERE event_id = ? AND proposal_id = ? LIMIT 1",
+      )
+      .bind(eventId, proposalId)
+      .all<DecisionRow>();
+    this.ensure(result, "find review decision");
+    return result.results?.[0] ? decision(result.results[0]) : null;
+  }
+  async listDecisions(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note FROM review_decisions WHERE event_id = ? ORDER BY proposal_id",
+      )
+      .bind(eventId)
+      .all<DecisionRow>();
+    this.ensure(result, "list review decisions");
+    return (result.results ?? []).map(decision);
   }
   async listOutcomes(eventId: string) {
     const result = await this.database

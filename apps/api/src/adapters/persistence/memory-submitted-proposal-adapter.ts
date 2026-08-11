@@ -37,6 +37,11 @@ export class MemorySubmittedProposalAdapter implements SubmittedProposalInterfac
         { key: "under_review", label: "Under review", sortOrder: 1 },
         { key: "reviewed", label: "Reviewed", sortOrder: 2 },
         { key: "withdrawn", label: "Withdrawn", sortOrder: 3 },
+        // Migration 0021 seeds the review domain's reserved decision statuses for every event
+        // that has a status set. Mirrored literally here rather than imported, because the CFP
+        // domain must not reach into the review domain's modules.
+        { key: "accepted", label: "Accepted", sortOrder: 90 },
+        { key: "declined", label: "Declined", sortOrder: 91 },
       ]
     );
   }

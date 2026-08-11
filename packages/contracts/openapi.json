@@ -2599,6 +2599,23 @@
                           "submitterName": {
                             "type": "string"
                           },
+                          "submitter": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string",
+                                "format": "email"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "email"
+                            ]
+                          },
                           "answers": {
                             "type": "array",
                             "items": {
@@ -2643,6 +2660,7 @@
                           "title",
                           "abstract",
                           "submitterName",
+                          "submitter",
                           "answers",
                           "status"
                         ]
@@ -2866,6 +2884,47 @@
                         "required": [
                           "id",
                           "name"
+                        ]
+                      }
+                    },
+                    "decisions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "declined"
+                            ]
+                          },
+                          "decidedBy": {
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "eventId",
+                          "proposalId",
+                          "outcome",
+                          "decidedBy",
+                          "decidedAt",
+                          "note"
                         ]
                       }
                     }
@@ -4213,6 +4272,23 @@
                               "submitterName": {
                                 "type": "string"
                               },
+                              "submitter": {
+                                "type": "object",
+                                "nullable": true,
+                                "properties": {
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "email": {
+                                    "type": "string",
+                                    "format": "email"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "email"
+                                ]
+                              },
                               "answers": {
                                 "type": "array",
                                 "items": {
@@ -4257,6 +4333,7 @@
                               "title",
                               "abstract",
                               "submitterName",
+                              "submitter",
                               "answers",
                               "status"
                             ]
@@ -4712,6 +4789,23 @@
                           "submitterName": {
                             "type": "string"
                           },
+                          "submitter": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string",
+                                "format": "email"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "email"
+                            ]
+                          },
                           "answers": {
                             "type": "array",
                             "items": {
@@ -4756,6 +4850,7 @@
                           "title",
                           "abstract",
                           "submitterName",
+                          "submitter",
                           "answers",
                           "status"
                         ]
@@ -4771,6 +4866,472 @@
                   "required": [
                     "proposals",
                     "mode"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/review/decisions": {
+      "post": {
+        "description": "Records an accept/decline decision and moves the proposal to the matching reserved status. Only an accepted decision authorizes content acceptance.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "proposalIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "declined"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "default": ""
+                  }
+                },
+                "required": [
+                  "proposalIds",
+                  "outcome"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Recorded acceptance decisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "proposals": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "abstract": {
+                            "type": "string"
+                          },
+                          "submitterName": {
+                            "type": "string"
+                          },
+                          "submitter": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string",
+                                "format": "email"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "email"
+                            ]
+                          },
+                          "answers": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "fieldId": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "short_text",
+                                    "long_text",
+                                    "select"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "fieldId",
+                                "label",
+                                "type",
+                                "value"
+                              ]
+                            }
+                          },
+                          "status": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "pattern": "^[a-z0-9_-]+$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "title",
+                          "abstract",
+                          "submitterName",
+                          "submitter",
+                          "answers",
+                          "status"
+                        ]
+                      }
+                    },
+                    "decisions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "declined"
+                            ]
+                          },
+                          "decidedBy": {
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "eventId",
+                          "proposalId",
+                          "outcome",
+                          "decidedBy",
+                          "decidedAt",
+                          "note"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "proposals",
+                    "decisions"
                   ]
                 }
               }
@@ -8214,6 +8775,7 @@
     },
     "/api/events/{eventId}/content/accept": {
       "post": {
+        "description": "Turns a proposal that carries an accepted review decision into a session. Title, abstract, format and speaker identity are resolved server-side; unknown proposals answer 404 and undecided ones 409.",
         "security": [
           {
             "sessionCookie": []
@@ -8239,75 +8801,11 @@
                 "properties": {
                   "proposalId": {
                     "type": "string",
-                    "minLength": 1
-                  },
-                  "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 160
-                  },
-                  "abstract": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "format": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "tags": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "tracks": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "speakers": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "userId": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "sourcePersonId": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "name": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "email": {
-                          "type": "string",
-                          "format": "email"
-                        }
-                      },
-                      "required": [
-                        "userId",
-                        "sourcePersonId",
-                        "name",
-                        "email"
-                      ]
-                    },
-                    "minItems": 1
+                    "format": "uuid"
                   }
                 },
                 "required": [
-                  "proposalId",
-                  "title",
-                  "abstract",
-                  "format",
-                  "tags",
-                  "tracks",
-                  "speakers"
+                  "proposalId"
                 ]
               }
             }
@@ -8709,6 +9207,110 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {
@@ -11465,6 +12067,7 @@
     },
     "/api/events/{eventId}/speaker-calendar.ics": {
       "get": {
+        "description": "RFC 5545 stream of the speaker's scheduled sessions. Answers 404 when none is scheduled, because section 3.4 requires a VCALENDAR to carry at least one component.",
         "security": [
           {
             "sessionCookie": []
@@ -11597,6 +12200,58 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {

@@ -10,6 +10,7 @@
 
 import type { OrganizerReviewWorkspaceDto, ReviewerQueueDto } from "@greenroom/contracts";
 import { type FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { acceptContent, ContentApiError, contentFieldErrors } from "./api/content";
 import {
   assignReviewer,
   configureProposalStatuses,
@@ -17,6 +18,7 @@ import {
   declareReviewConflict,
   getOrganizerReview,
   getReviewerQueue,
+  recordProposalDecision,
   ReviewApiError,
   saveReviewEvaluation,
   transitionProposals,
@@ -29,12 +31,26 @@ type Proposal = OrganizerReviewWorkspaceDto["proposals"][number];
 type Answer = Proposal["answers"][number];
 type StatusDefinition = OrganizerReviewWorkspaceDto["statuses"][number];
 type Reviewer = OrganizerReviewWorkspaceDto["reviewers"][number];
+type Decision = NonNullable<OrganizerReviewWorkspaceDto["decisions"]>[number];
+type DecisionOutcome = Decision["outcome"];
 type PillTone = "neutral" | "ok" | "warn" | "danger" | "info" | "strong";
 
-const message = (error: unknown) =>
-  error instanceof ReviewApiError
+/** Acceptance crosses two domains, so both clients' handled failures read the same way here. */
+const message = (error: unknown, fallback = "Review work could not be loaded. Please retry.") =>
+  error instanceof ReviewApiError || error instanceof ContentApiError
     ? `${error.message} Reference: ${error.envelope.error.correlationId}`
-    : "Review work could not be loaded. Please retry.";
+    : fallback;
+
+/** Field-level detail the server attached to a handled failure, from either client. */
+const fieldErrorsOf = (error: unknown): Record<string, string[]> =>
+  error instanceof ReviewApiError
+    ? (error.envelope.error.fieldErrors ?? {})
+    : contentFieldErrors(error);
+
+const OUTCOME_LABEL: Record<DecisionOutcome, string> = {
+  accepted: "Accepted",
+  declined: "Declined",
+};
 
 /** Status keys are configurable, so tone falls back to neutral for anything bespoke. */
 function statusTone(key: string): PillTone {
@@ -153,6 +169,116 @@ function ProposalActions({
   );
 }
 
+/**
+ * The confirmation an accept or decline opens on its own row.
+ *
+ * It names the proposal being decided and, for an acceptance, the person who will become the
+ * session's speaker — the organizer is authorizing content, not flipping a status, so the
+ * resolved title and submitter have to be on screen before they confirm. Field-level failures
+ * from either domain render against the control that produced them rather than at the top of
+ * the page, and the panel stays mounted afterwards so its live region survives the outcome.
+ */
+function DecisionForm({
+  proposal,
+  outcome,
+  decided,
+  busy,
+  errors,
+  feedback,
+  onConfirm,
+  onClose,
+}: {
+  proposal: Proposal;
+  outcome: DecisionOutcome;
+  decided: Decision | undefined;
+  busy: boolean;
+  errors: Record<string, string[]>;
+  feedback: ReturnType<typeof useActionFeedback>;
+  onConfirm: (note: string) => void;
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState(decided?.note ?? "");
+  const panel = useRef<HTMLDivElement>(null);
+  const noteId = `decision-note-${proposal.id}`;
+  // Same rule as the detail panel: the surface the action opened takes focus, so the
+  // keyboard lands on what it just summoned instead of staying behind in the table.
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
+  const listed = Object.entries(errors).flatMap(([field, messages]) =>
+    messages.map((text) => ({ key: `${field}:${text}`, text })),
+  );
+
+  return (
+    <div className="decision-confirm" ref={panel} tabIndex={-1}>
+      <p className="decision-question">
+        {outcome === "accepted" ? "Accept" : "Decline"} <strong>{proposal.title}</strong>?
+      </p>
+      <p className="hint">
+        {outcome === "accepted"
+          ? proposal.submitter
+            ? `Creates a session from this abstract and links ${proposal.submitter.name} (${proposal.submitter.email}) as its speaker.`
+            : "This submission carries no contact address, so no speaker can be created from it."
+          : `Records the outcome against ${proposal.submitterName} and moves the abstract to Declined. Nothing is sent to the submitter.`}
+      </p>
+      <div className="field">
+        <label htmlFor={noteId}>Decision note (optional)</label>
+        <input
+          id={noteId}
+          value={note}
+          maxLength={1000}
+          onChange={(event) => setNote(event.target.value)}
+          aria-describedby={`${noteId}-hint`}
+        />
+        <p className="hint" id={`${noteId}-hint`}>
+          Stored with who decided and when. Organizers only.
+        </p>
+      </div>
+      {listed.length ? (
+        <ul className="decision-errors">
+          {listed.map((entry) => (
+            <li className="error-text" key={entry.key}>
+              {entry.text}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {feedback.node}
+      <div className="toolbar decision-actions">
+        <button
+          type="button"
+          aria-disabled={busy}
+          onClick={() => {
+            if (busy) return;
+            onConfirm(note);
+          }}
+        >
+          {outcome === "accepted" ? "Confirm acceptance" : "Confirm decline"}
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          aria-disabled={busy}
+          onClick={() => {
+            // Honour the same in-flight rule as Confirm: closing here would unmount this
+            // panel's live region and the decision's outcome would be announced to nobody.
+            if (busy) return;
+            onClose();
+          }}
+        >
+          Close
+        </button>
+        {decided ? (
+          <span className="hint">
+            Already recorded as {OUTCOME_LABEL[decided.outcome].toLowerCase()} by{" "}
+            {decided.decidedBy}.
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** The audit grows without bound; triage only needs the tail of it on screen. */
 const RECENT_CHANGES = 12;
 
@@ -165,7 +291,13 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Which row has its accept/decline confirmation open, and what it would record.
+  const [pending, setPending] = useState<{ proposalId: string; outcome: DecisionOutcome } | null>(
+    null,
+  );
+  const [decisionErrors, setDecisionErrors] = useState<Record<string, string[]>>({});
   const feedback = useActionFeedback();
+  const decisionFeedback = useActionFeedback();
   const detailRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -178,6 +310,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     setData(null);
     setSelected([]);
     setOpenId(null);
+    setPending(null);
     setError(null);
     // ERROR-INTENT: React effects cannot await; the rejection renders in this workspace.
     void load().catch((reason: unknown) => setError(message(reason)));
@@ -189,7 +322,12 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     return data.proposals.filter((proposal) => {
       if (tab !== "all" && proposal.status !== tab) return false;
       if (!needle) return true;
-      return [proposal.title, proposal.submitterName, proposal.abstract]
+      return [
+        proposal.title,
+        proposal.submitterName,
+        proposal.submitter?.email ?? "",
+        proposal.abstract,
+      ]
         .concat(proposal.answers.map(({ value }) => value))
         .join(" ")
         .toLowerCase()
@@ -219,6 +357,44 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
       feedback.announce("success", success);
     } catch (reason) {
       feedback.announce("error", message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Record the decision, then — for an acceptance — turn the proposal into program content.
+   *
+   * Two calls, in this order, because the decision is what authorizes the second: content
+   * acceptance reads the recorded outcome and refuses a proposal that has none. The board is
+   * reloaded between them, so a decision that was recorded before session creation failed is
+   * still visible on the row; acceptance changes nothing else this workspace displays. Both
+   * steps are idempotent server-side, so Confirm doubles as Retry.
+   */
+  async function decide(proposal: Proposal, outcome: DecisionOutcome, note: string) {
+    setBusy(true);
+    setDecisionErrors({});
+    let recorded = false;
+    try {
+      await recordProposalDecision(eventId, { proposalIds: [proposal.id], outcome, note });
+      recorded = true;
+      await load();
+      if (outcome === "accepted") await acceptContent(eventId, { proposalId: proposal.id });
+      decisionFeedback.announce(
+        "success",
+        outcome === "accepted"
+          ? `“${proposal.title}” is accepted. It is now a session in Sessions & speakers with ${proposal.submitter?.name ?? proposal.submitterName} linked as its speaker.`
+          : `“${proposal.title}” is declined. The outcome is recorded against this abstract.`,
+      );
+    } catch (reason) {
+      setDecisionErrors(fieldErrorsOf(reason));
+      // ERROR-INTENT: the confirmation panel reports the handled failure in its own live region.
+      decisionFeedback.announce(
+        "error",
+        recorded
+          ? `The acceptance decision was recorded, but the session was not created. ${message(reason, "Confirm again to finish acceptance.")}`
+          : message(reason, `“${proposal.title}” could not be decided. Please retry.`),
+      );
     } finally {
       setBusy(false);
     }
@@ -256,6 +432,15 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   ];
   const activeTab = tabs.some(({ id }) => id === tab) ? tab : "all";
   const open = data.proposals.find(({ id }) => id === openId) ?? null;
+  const decisions = data.decisions ?? [];
+  const decisionFor = (proposalId: string) =>
+    decisions.find((decision) => decision.proposalId === proposalId);
+  const openDecision = open ? decisionFor(open.id) : undefined;
+  // Resolved from the whole set, not from the visible rows: accepting moves an abstract out of
+  // the tab it was decided from, and the confirmation — with its live region — must survive that.
+  const pendingProposal = pending
+    ? (data.proposals.find(({ id }) => id === pending.proposalId) ?? null)
+    : null;
   // History can name a status the organizer has since renamed or removed.
   const labelFor = (key: string) =>
     data.statuses.find((status) => status.key === key)?.label ?? key.replaceAll("_", " ");
@@ -379,6 +564,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                     <th scope="col" className="num">
                       Score
                     </th>
+                    <th scope="col">Decision</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -387,6 +573,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                       ({ proposalId }) => proposalId === proposal.id,
                     );
                     const assigned = reviewersFor(proposal.id);
+                    const decided = decisionFor(proposal.id);
                     return (
                       <tr key={proposal.id} className={proposal.id === openId ? "is-open" : ""}>
                         <td className="select-cell">
@@ -415,7 +602,10 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                           >
                             {proposal.title}
                           </button>
-                          <span className="sub">{proposal.submitterName}</span>
+                          <span className="sub">
+                            {proposal.submitterName}
+                            {proposal.submitter ? ` · ${proposal.submitter.email}` : ""}
+                          </span>
                         </td>
                         <td>
                           <Pill tone={statusTone(proposal.status)}>
@@ -441,6 +631,35 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             <span className="empty-text">Not scored</span>
                           )}
                         </td>
+                        <td className="decision-cell">
+                          {decided ? (
+                            <Pill tone={decided.outcome === "accepted" ? "ok" : "danger"}>
+                              {OUTCOME_LABEL[decided.outcome]}
+                            </Pill>
+                          ) : null}
+                          <span className="decision-buttons">
+                            {(["accepted", "declined"] as const).map((choice) => (
+                              <button
+                                key={choice}
+                                type="button"
+                                className={choice === "accepted" ? "small" : "secondary small"}
+                                aria-expanded={
+                                  pending?.proposalId === proposal.id && pending.outcome === choice
+                                }
+                                aria-controls="proposal-decision"
+                                disabled={busy}
+                                onClick={() => {
+                                  setDecisionErrors({});
+                                  decisionFeedback.clear();
+                                  setPending({ proposalId: proposal.id, outcome: choice });
+                                }}
+                              >
+                                {choice === "accepted" ? "Accept" : "Decline"}
+                                <span className="visually-hidden"> {proposal.title}</span>
+                              </button>
+                            ))}
+                          </span>
+                        </td>
                       </tr>
                     );
                   })}
@@ -450,6 +669,35 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
           )}
         </Card>
       </div>
+
+      {pending && pendingProposal ? (
+        <div className="review-block" id="proposal-decision">
+          <Card
+            labelledBy="proposal-decision-title"
+            title={
+              pending.outcome === "accepted" ? "Accept this abstract" : "Decline this abstract"
+            }
+            hint="The decision is recorded in review; acceptance is what creates the session."
+          >
+            <DecisionForm
+              // Remount per row and per outcome so the note never carries over from the
+              // abstract or the outcome the organizer was looking at a moment ago.
+              key={`${pending.proposalId}:${pending.outcome}`}
+              proposal={pendingProposal}
+              outcome={pending.outcome}
+              decided={decisionFor(pending.proposalId)}
+              busy={busy}
+              errors={decisionErrors}
+              feedback={decisionFeedback}
+              onConfirm={(note) => {
+                // ERROR-INTENT: React event handlers cannot await; decide announces every outcome.
+                void decide(pendingProposal, pending.outcome, note);
+              }}
+              onClose={() => setPending(null)}
+            />
+          </Card>
+        </div>
+      ) : null}
 
       {open ? (
         // The wrapper is only a focus target; the card inside carries the accessible name.
@@ -468,6 +716,26 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
             }
           >
             <ProposalAnswers answers={open.answers} />
+            {/* Organizers see the contact address; the reviewer queue never receives it. */}
+            <p className="detail-reviewers">
+              <span className="detail-term">Submitter</span>
+              {open.submitterName}
+              {open.submitter ? (
+                <>
+                  {" · "}
+                  <a href={`mailto:${open.submitter.email}`}>{open.submitter.email}</a>
+                </>
+              ) : (
+                <span className="empty-text"> · no contact address on this submission</span>
+              )}
+            </p>
+            {openDecision ? (
+              <p className="detail-reviewers">
+                <span className="detail-term">Decision</span>
+                {OUTCOME_LABEL[openDecision.outcome]}
+                {openDecision.note ? ` — ${openDecision.note}` : ""}
+              </p>
+            ) : null}
             <p className="detail-reviewers">
               <span className="detail-term">Assigned reviewers</span>
               {reviewersFor(open.id).length ? (
@@ -968,7 +1236,13 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
         <Card
           labelledBy="review-proposal-title"
           title={active.proposal.title}
-          hint={`Submitted by ${active.proposal.submitterName}`}
+          // The server masks the submitter out of the reviewer projection, so this surface
+          // names the policy rather than printing the mask as if it were a person.
+          hint={
+            active.proposal.submitter
+              ? `Submitted by ${active.proposal.submitterName}`
+              : "Blind review — the submitter's name and contact details are hidden from reviewers."
+          }
           actions={<Pill tone={queueState(active).tone}>{queueState(active).label}</Pill>}
         >
           <p className="review-abstract">{active.proposal.abstract}</p>

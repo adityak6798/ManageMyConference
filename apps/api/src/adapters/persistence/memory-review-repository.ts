@@ -5,6 +5,7 @@ import {
 import type {
   Evaluation,
   EvaluationPlan,
+  ProposalDecision,
   ReviewAssignment,
   ReviewCompletedEvent,
   ReviewConflict,
@@ -17,6 +18,7 @@ export class MemoryReviewRepository implements ReviewRepository {
   private conflicts = new Map<string, ReviewConflict>();
   private evaluations = new Map<string, Evaluation>();
   private outcomes = new Map<string, ReviewOutcome>();
+  private decisions = new Map<string, ProposalDecision>();
   readonly events: ReviewCompletedEvent[] = [];
 
   async getPlan(eventId: string) {
@@ -97,5 +99,14 @@ export class MemoryReviewRepository implements ReviewRepository {
   }
   async listOutcomes(eventId: string) {
     return [...this.outcomes.values()].filter((outcome) => outcome.eventId === eventId);
+  }
+  async saveDecision(decision: ProposalDecision) {
+    this.decisions.set(`${decision.eventId}:${decision.proposalId}`, decision);
+  }
+  async findDecision(eventId: string, proposalId: string) {
+    return this.decisions.get(`${eventId}:${proposalId}`) ?? null;
+  }
+  async listDecisions(eventId: string) {
+    return [...this.decisions.values()].filter((decision) => decision.eventId === eventId);
   }
 }

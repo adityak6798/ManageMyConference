@@ -16,6 +16,11 @@
  * session belongs to its local day even when that instant is already tomorrow in UTC.
  * That makes the day buckets — not only the labels — a function of the event zone, so
  * the formatters are per-render values derived from the event rather than constants.
+ *
+ * Timeslots are also *written* on that clock. The organizer types a start and an end,
+ * this file converts them to instants in the event's zone, and nothing anywhere invents
+ * a date: an event with no slots yet defaults to the next whole hour on its own clock,
+ * which is a suggestion the operator can overwrite before anything is sent.
  */
 
 import type { AgendaDraftDto, EventDto } from "@greenroom/contracts";
@@ -47,6 +52,18 @@ type Carry = {
 };
 
 type Cell = { key: string; roomId: string; slotId: string };
+
+/** A start/end pair exactly as the two `datetime-local` inputs of one row hold it. */
+type SlotForm = { start: string; end: string };
+
+/** The length a new timeslot is offered at, and the grid its default start snaps to. */
+const HOUR_MS = 3_600_000;
+/** `datetime-local` yields `YYYY-MM-DDTHH:mm`, plus seconds this board does not use. */
+const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+/** The key the not-yet-created timeslot row uses in the form and error maps. */
+const NEW_SLOT = "new";
+/** The colour a track is born with; the organizer can recolour it afterwards. */
+const DEFAULT_TRACK_COLOR = "#6257d9";
 
 const VIEWS = ["list", "day", "week", "room", "track", "conflicts"] as const;
 type ViewId = (typeof VIEWS)[number];
@@ -88,6 +105,12 @@ type Clock = {
   dayLabel: (iso: string) => string;
   /** The zone's abbreviation at a given instant (`PDT`), which DST makes date-dependent. */
   abbreviation: (iso: string) => string;
+  /** An instant as a `datetime-local` value on the event's clock. */
+  toInput: (iso: string) => string;
+  /** The instant an operator meant by a `datetime-local` value, or null if unreadable. */
+  toInstant: (input: string) => string | null;
+  /** The first whole hour on the event's clock at or after `from`, as an instant. */
+  nextRoundHour: (from: number) => string;
 };
 
 /**
@@ -133,15 +156,47 @@ function clockFor(timezone: string): Clock {
     iso: string,
     type: Intl.DateTimeFormatPartTypes,
   ) => formatter.formatToParts(new Date(iso)).find((part) => part.type === type)?.value ?? "";
+  const hhmm = (iso: string) => time.format(new Date(iso));
+  // Assembled from parts rather than from a locale that happens to print ISO order,
+  // because this key is sorted and compared, not shown.
+  const dayKey = (iso: string) =>
+    `${partOf(calendar, iso, "year")}-${partOf(calendar, iso, "month")}-${partOf(calendar, iso, "day")}`;
+  // A `datetime-local` value *is* an event-local calendar day and clock time, so the
+  // two readings the board already trusts compose into one without new machinery.
+  const toInput = (iso: string) => `${dayKey(iso)}T${hhmm(iso)}`;
+  /** The event's wall clock at an instant, as an epoch whose *UTC* fields are that clock. */
+  const wallAt = (instant: number) => Date.parse(`${toInput(new Date(instant).toISOString())}:00Z`);
+  const offsetAt = (instant: number) => wallAt(instant) - instant;
+  /**
+   * The inverse of `wallAt`: which instant an operator meant by a wall-clock reading.
+   * A zone's offset is itself a function of the instant, so this converts twice — once
+   * with the offset at the naive guess, then with the offset that actually applies
+   * there. The second pass is what makes the hours either side of a DST changeover
+   * land on the instant the organizer meant rather than one an hour away.
+   */
+  const instantAt = (wall: number) => wall - offsetAt(wall - offsetAt(wall));
   return {
     zone,
-    hhmm: (iso) => time.format(new Date(iso)),
+    hhmm,
     dayLabel: (iso) => day.format(new Date(iso)),
-    // Assembled from parts rather than from a locale that happens to print ISO order,
-    // because this key is sorted and compared, not shown.
-    dayKey: (iso) =>
-      `${partOf(calendar, iso, "year")}-${partOf(calendar, iso, "month")}-${partOf(calendar, iso, "day")}`,
+    dayKey,
     abbreviation: (iso) => partOf(zoneName, iso, "timeZoneName"),
+    toInput,
+    toInstant: (input) => {
+      const parts = LOCAL_INPUT.exec(input);
+      if (!parts) return null;
+      const [, year, month, dayOfMonth, hour, minute] = parts;
+      const wall = Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(dayOfMonth),
+        Number(hour),
+        Number(minute),
+      );
+      return Number.isNaN(wall) ? null : new Date(instantAt(wall)).toISOString();
+    },
+    nextRoundHour: (from) =>
+      new Date(instantAt(Math.ceil(wallAt(from) / HOUR_MS) * HOUR_MS)).toISOString(),
   };
 }
 
@@ -155,6 +210,25 @@ const cellKey = (roomId: string, slotId: string) => `${roomId}~${slotId}`;
 
 function isViewId(value: string | null): value is ViewId {
   return VIEWS.some((view) => view === value);
+}
+
+/**
+ * The API names an invalid field by its position in the payload it received
+ * (`slots.2.endsAt`), which is a fact about the request rather than about the board.
+ * `keys[index]` translates that back into the row whose inputs produced it, so the
+ * message lands under those inputs instead of in the workspace-wide alert.
+ */
+function rowErrors(fieldErrors: Record<string, string[]>, keys: string[]) {
+  const rows: Record<string, string> = {};
+  for (const [path, messages] of Object.entries(fieldErrors)) {
+    const [group, index] = path.split(".");
+    if (group !== "slots" || index === undefined || !messages.length) continue;
+    const key = keys[Number(index)];
+    if (!key) continue;
+    const existing = rows[key];
+    rows[key] = existing ? `${existing} ${messages.join(" ")}` : messages.join(" ");
+  }
+  return rows;
 }
 
 /**
@@ -187,6 +261,13 @@ export function AgendaWorkspace({
   const [carry, setCarryState] = useState<Carry | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null);
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  // Typed-but-unsaved timeslot rows, keyed by slot id (and `NEW_SLOT` for the one that
+  // has no id yet). A row with no entry here simply shows what the server holds.
+  const [slotForms, setSlotForms] = useState<Record<string, SlotForm>>({});
+  const [slotErrors, setSlotErrors] = useState<Record<string, string>>({});
+  // "Now" is read once per mount so the suggested start cannot slide out from under an
+  // operator who is mid-edit; it is only ever a default, and it is theirs to overwrite.
+  const [openedAt] = useState(() => Date.now());
   const feedback = useActionFeedback();
   const mounted = useRef(true);
   // Native drag events fire faster than React can re-render, so the drop handlers read
@@ -201,6 +282,9 @@ export function AgendaWorkspace({
     mounted.current = true;
     let active = true;
     setAgenda(null);
+    // Half-typed times belong to the event they were typed for, never to the next one.
+    setSlotForms({});
+    setSlotErrors({});
     // ERROR-INTENT: React effects cannot await; failures are rendered by the parent boundary.
     void getAgenda(eventId)
       .then((loaded) => {
@@ -212,7 +296,7 @@ export function AgendaWorkspace({
           // ERROR-INTENT: The initialization promise updates this workspace or its visible error.
           void saveAgendaResources(eventId, {
             rooms: [{ id: crypto.randomUUID(), name: "Main room" }],
-            tracks: [{ id: crypto.randomUUID(), name: "General", color: "#6257d9" }],
+            tracks: [{ id: crypto.randomUUID(), name: "General", color: DEFAULT_TRACK_COLOR }],
             slots: [],
           })
             .then((loaded) => {
@@ -390,6 +474,98 @@ export function AgendaWorkspace({
       () => saveAgendaResources(eventId, resources),
       () => done,
     );
+
+  /**
+   * Timeslots take their own save path rather than `saveResources` because they are the
+   * only resource an operator can get *wrong*: the API answers a bad start/end pair with
+   * per-field errors, and those have to land on the row that caused them instead of in
+   * the workspace-wide alert. `keys` names the row that owns each entry of `slots`, so a
+   * `slots.2.endsAt` from the API can be traced back to the inputs the operator sees.
+   */
+  async function saveSlots(
+    slots: Slot[],
+    done: string,
+    keys: string[] = slots.map(({ id }) => id),
+  ) {
+    setBusy(true);
+    try {
+      const updated = await saveAgendaResources(eventId, {
+        rooms: draft.rooms,
+        tracks: draft.tracks,
+        slots,
+      });
+      if (!mounted.current) return;
+      setAgenda(updated);
+      // The server's draft is now the truth for every row, including the ones the
+      // operator was part-way through; leaving stale edits on screen would lie.
+      setSlotForms({});
+      setSlotErrors({});
+      feedback.announce("success", done);
+    } catch (error) {
+      if (!mounted.current) return;
+      const fields = error instanceof AgendaApiError ? error.envelope.error.fieldErrors : undefined;
+      const rows = fields ? rowErrors(fields, keys) : {};
+      const rejected = Object.values(rows);
+      if (rejected.length) {
+        setSlotErrors(rows);
+        feedback.announce("error", `Timeslot not saved. ${rejected.join(" ")}`);
+        return;
+      }
+      // ERROR-INTENT: anything the API did not attach to a row is a workspace-level
+      // failure, and the parent alert is where this workspace reports those.
+      onError(error instanceof Error ? error.message : "Timeslot update failed.");
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+
+  /** Refuses a row before anything is sent, and says why where the operator is looking. */
+  function refuseSlot(key: string, message: string): null {
+    setSlotErrors((current) => ({ ...current, [key]: message }));
+    feedback.announce("error", message);
+    return null;
+  }
+
+  /** The instants a row means, or null once the reason it means none has been shown. */
+  function readSlotForm(key: string, form: SlotForm) {
+    const startsAt = clock.toInstant(form.start);
+    const endsAt = clock.toInstant(form.end);
+    if (!startsAt || !endsAt) return refuseSlot(key, "Enter both a start time and an end time.");
+    if (Date.parse(endsAt) <= Date.parse(startsAt))
+      return refuseSlot(key, "End must be after start.");
+    return { startsAt, endsAt };
+  }
+
+  const slotInputs = (slot: Pick<Slot, "startsAt" | "endsAt">): SlotForm => ({
+    start: clock.toInput(slot.startsAt),
+    end: clock.toInput(slot.endsAt),
+  });
+
+  const editSlotForm = (key: string, saved: SlotForm, patch: Partial<SlotForm>) => {
+    // Retyping a row answers the refusal it is carrying, so the message and the
+    // `aria-invalid` that goes with it are dropped rather than left contradicting the
+    // values now on screen; the next submit decides again.
+    setSlotErrors((current) =>
+      current[key] === undefined
+        ? current
+        : Object.fromEntries(Object.entries(current).filter(([id]) => id !== key)),
+    );
+    setSlotForms((current) => ({ ...current, [key]: { ...saved, ...current[key], ...patch } }));
+  };
+
+  // The suggested first slot is a real choice for *this* event: the end of its own last
+  // slot, or the next whole hour on its own clock. No instant is ever carried over from
+  // another event, and nothing is sent until the operator submits the form.
+  const lastSlotEnd = [...draft.slots]
+    .sort((left, right) => byInstant(left.endsAt, right.endsAt))
+    .at(-1)?.endsAt;
+  const suggestedStart = lastSlotEnd ?? clock.nextRoundHour(openedAt);
+  const newSlotForm =
+    slotForms[NEW_SLOT] ??
+    slotInputs({
+      startsAt: suggestedStart,
+      endsAt: new Date(Date.parse(suggestedStart) + HOUR_MS).toISOString(),
+    });
 
   function pickUp(source: Carry, from?: Placement) {
     setCarry(source);
@@ -1405,7 +1581,7 @@ export function AgendaWorkspace({
                   {
                     id: crypto.randomUUID(),
                     name: `Track ${draft.tracks.length + 1}`,
-                    color: "#6257d9",
+                    color: DEFAULT_TRACK_COLOR,
                   },
                 ],
                 slots: draft.slots,
@@ -1418,57 +1594,141 @@ export function AgendaWorkspace({
           Add track
         </button>
         <h3>Timeslots</h3>
-        {draft.slots.map((slot) => (
-          <div className="resource-row" key={slot.id}>
-            <span className="name">
-              {clock.dayLabel(slot.startsAt)} · {slotRange(slot)}
-            </span>
-            <span />
-            <button
-              type="button"
-              className="secondary small"
-              onClick={() =>
-                // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
-                void saveResources(
-                  {
-                    rooms: draft.rooms,
-                    tracks: draft.tracks,
-                    slots: draft.slots.filter(({ id }) => id !== slot.id),
-                  },
-                  "Timeslot removed.",
-                )
-              }
+        <p className="hint">Start and end are entered on the event's clock: {zoneLabel}.</p>
+        {allSlots.map((slot) => {
+          const saved = slotInputs(slot);
+          const form = slotForms[slot.id] ?? saved;
+          const error = slotErrors[slot.id];
+          const changed = form.start !== saved.start || form.end !== saved.end;
+          // The row is named by what it currently *holds*, so every control inside it
+          // says which timeslot it belongs to without repeating a visible label.
+          const belongsTo = `${clock.dayLabel(slot.startsAt)} ${slotRange(slot)}`;
+          return (
+            <form
+              className="resource-row slot-row"
+              key={slot.id}
+              aria-label={`Timeslot ${belongsTo}`}
+              onSubmit={(submitted) => {
+                submitted.preventDefault();
+                const times = readSlotForm(slot.id, form);
+                if (!times) return;
+                // ERROR-INTENT: React event handlers cannot await; saveSlots renders both outcomes.
+                void saveSlots(
+                  draft.slots.map((item) => (item.id === slot.id ? { ...item, ...times } : item)),
+                  "Timeslot updated.",
+                );
+              }}
             >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="secondary small"
-          onClick={() => {
-            const start = new Date(draft.slots.at(-1)?.endsAt ?? "2026-09-01T16:00:00.000Z");
-            // ERROR-INTENT: React event handlers cannot await; saveResources renders failures.
-            void saveResources(
-              {
-                rooms: draft.rooms,
-                tracks: draft.tracks,
-                slots: [
-                  ...draft.slots,
-                  {
-                    id: crypto.randomUUID(),
-                    startsAt: start.toISOString(),
-                    endsAt: new Date(start.getTime() + 3_600_000).toISOString(),
-                  },
-                ],
-              },
-              "Timeslot added.",
-            );
+              <div className="field">
+                <label htmlFor={`agenda-slot-start-${slot.id}`}>
+                  Start<span className="visually-hidden"> of {belongsTo}</span>
+                </label>
+                <input
+                  id={`agenda-slot-start-${slot.id}`}
+                  type="datetime-local"
+                  value={form.start}
+                  disabled={busy}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? `agenda-slot-error-${slot.id}` : undefined}
+                  onChange={(changedInput) =>
+                    editSlotForm(slot.id, saved, { start: changedInput.target.value })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label htmlFor={`agenda-slot-end-${slot.id}`}>
+                  End<span className="visually-hidden"> of {belongsTo}</span>
+                </label>
+                <input
+                  id={`agenda-slot-end-${slot.id}`}
+                  type="datetime-local"
+                  value={form.end}
+                  disabled={busy}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? `agenda-slot-error-${slot.id}` : undefined}
+                  onChange={(changedInput) =>
+                    editSlotForm(slot.id, saved, { end: changedInput.target.value })
+                  }
+                />
+              </div>
+              <button type="submit" className="secondary small" disabled={busy || !changed}>
+                Save<span className="visually-hidden"> {belongsTo}</span>
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                disabled={busy}
+                onClick={() =>
+                  // ERROR-INTENT: React event handlers cannot await; saveSlots renders both outcomes.
+                  void saveSlots(
+                    draft.slots.filter(({ id }) => id !== slot.id),
+                    "Timeslot removed.",
+                  )
+                }
+              >
+                Remove<span className="visually-hidden"> {belongsTo}</span>
+              </button>
+              {error ? (
+                <p className="error-text" id={`agenda-slot-error-${slot.id}`}>
+                  {error}
+                </p>
+              ) : null}
+            </form>
+          );
+        })}
+        <form
+          className="resource-row slot-row slot-new"
+          aria-label="Add a timeslot"
+          onSubmit={(submitted) => {
+            submitted.preventDefault();
+            const times = readSlotForm(NEW_SLOT, newSlotForm);
+            if (!times) return;
+            const created = { id: crypto.randomUUID(), ...times };
+            // ERROR-INTENT: React event handlers cannot await; saveSlots renders both outcomes.
+            void saveSlots([...draft.slots, created], "Timeslot added.", [
+              ...draft.slots.map(({ id }) => id),
+              NEW_SLOT,
+            ]);
           }}
         >
-          <IconPlus size={13} />
-          Add next timeslot
-        </button>
+          <div className="field">
+            <label htmlFor="agenda-new-slot-start">New timeslot start</label>
+            <input
+              id="agenda-new-slot-start"
+              type="datetime-local"
+              value={newSlotForm.start}
+              disabled={busy}
+              aria-invalid={slotErrors[NEW_SLOT] ? true : undefined}
+              aria-describedby={slotErrors[NEW_SLOT] ? "agenda-new-slot-error" : undefined}
+              onChange={(changedInput) =>
+                editSlotForm(NEW_SLOT, newSlotForm, { start: changedInput.target.value })
+              }
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="agenda-new-slot-end">New timeslot end</label>
+            <input
+              id="agenda-new-slot-end"
+              type="datetime-local"
+              value={newSlotForm.end}
+              disabled={busy}
+              aria-invalid={slotErrors[NEW_SLOT] ? true : undefined}
+              aria-describedby={slotErrors[NEW_SLOT] ? "agenda-new-slot-error" : undefined}
+              onChange={(changedInput) =>
+                editSlotForm(NEW_SLOT, newSlotForm, { end: changedInput.target.value })
+              }
+            />
+          </div>
+          <button type="submit" className="secondary small" disabled={busy}>
+            <IconPlus size={13} />
+            Add timeslot
+          </button>
+          {slotErrors[NEW_SLOT] ? (
+            <p className="error-text" id="agenda-new-slot-error">
+              {slotErrors[NEW_SLOT]}
+            </p>
+          ) : null}
+        </form>
       </details>
     </div>
   );

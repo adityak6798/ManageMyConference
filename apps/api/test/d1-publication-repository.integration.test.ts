@@ -65,6 +65,7 @@ describe("D1PublicationRepository", () => {
       "0018_agenda_draft_revision.sql",
       "0019_communications_outbox.sql",
       "0020_public_event_projections.sql",
+      "0021_review_decisions.sql",
     ]) {
       const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
       if (/^(000[789]|001[0-3])_/.test(name)) {

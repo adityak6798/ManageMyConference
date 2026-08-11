@@ -1,5 +1,6 @@
 import {
   type AcceptContentInput,
+  acceptContentInputSchema,
   apiErrorEnvelopeSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
@@ -33,6 +34,12 @@ export async function getContent(
   return decode(await fetcher(`/api/events/${eventId}/content`), contentWorkspaceSchema);
 }
 
+/**
+ * Turn a proposal the review domain already accepted into program content.
+ *
+ * The proposal id is the whole request: title, abstract, format, and the speaker's identity are
+ * resolved server-side from the submission, so nothing here can invent a session or a speaker.
+ */
 export async function acceptContent(
   eventId: string,
   input: AcceptContentInput,
@@ -42,10 +49,15 @@ export async function acceptContent(
     await fetcher(`/api/events/${eventId}/content/accept`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(acceptContentInputSchema.parse(input)),
     }),
     contentWorkspaceSchema,
   );
+}
+
+/** Field-level detail from a handled API failure, keyed by the input path the server named. */
+export function contentFieldErrors(error: unknown): Record<string, string[]> {
+  return error instanceof ContentApiError ? (error.envelope.error.fieldErrors ?? {}) : {};
 }
 
 export async function updateSpeakerProfile(

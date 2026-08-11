@@ -47,6 +47,38 @@ export type ReviewOutcome = {
   readonly updatedAt: string;
 };
 
+/**
+ * The two proposal statuses the review domain reserves.
+ *
+ * Organizers configure their own status set (`PRD-ABS-001`), but acceptance is not a free-form
+ * label: it is the transition the content domain acts on, so these two keys always exist and can
+ * never be removed while a proposal sits in them.
+ */
+export const ACCEPTED_PROPOSAL_STATUS = "accepted";
+export const DECLINED_PROPOSAL_STATUS = "declined";
+export const RESERVED_PROPOSAL_STATUSES = [
+  { key: ACCEPTED_PROPOSAL_STATUS, label: "Accepted", sortOrder: 90 },
+  { key: DECLINED_PROPOSAL_STATUS, label: "Declined", sortOrder: 91 },
+] as const;
+
+export type DecisionOutcome = typeof ACCEPTED_PROPOSAL_STATUS | typeof DECLINED_PROPOSAL_STATUS;
+
+/**
+ * A recorded acceptance decision.
+ *
+ * The proposal status is the board column an organizer can rename or reorder; this record is the
+ * decision itself — who made it, when, and why — and it is the only thing that authorizes a
+ * proposal to become program content.
+ */
+export type ProposalDecision = {
+  readonly eventId: string;
+  readonly proposalId: string;
+  readonly outcome: DecisionOutcome;
+  readonly decidedBy: string;
+  readonly decidedAt: string;
+  readonly note: string;
+};
+
 export type ReviewCompletedEvent = {
   readonly type: "EVT-REVIEW-COMPLETED";
   readonly version: 1;

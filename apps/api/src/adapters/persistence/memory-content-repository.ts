@@ -1,7 +1,12 @@
-import type {
-  ContentRepository,
-  AcceptedContent,
+import {
+  type ContentRepository,
+  type AcceptedContent,
+  ContentConflictError,
 } from "../../application/content/content-repository";
+import type {
+  SpeakerConversionCommand,
+  SpeakerConversionPort,
+} from "../../application/content/speaker-conversion";
 import type {
   ContentWorkspace,
   SpeakerAsset,
@@ -33,10 +38,18 @@ export class MemoryContentRepository implements ContentRepository {
     );
   }
   async accept(content: AcceptedContent) {
+    // Mirrors `UNIQUE(event_id, proposal_id)` in D1 so acceptance idempotency is exercised here
+    // and not only against a real database.
+    if (await this.findSessionByProposal(content.session.eventId, content.session.proposalId))
+      throw new ContentConflictError("UNIQUE constraint failed: content_sessions.proposal_id");
     this.sessions = [...this.sessions, content.session];
     this.speakers = [...this.speakers, ...content.speakers];
     this.tasks = [...this.tasks, ...content.tasks];
     this.messages = [...this.messages, ...content.messages];
+  }
+  /** Out-of-band profile creation, the way `SpeakerConversionPort` writes one in D1. */
+  async addProfile(profile: SpeakerProfile) {
+    this.speakers = [...this.speakers, profile];
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
     const speakers = this.speakers.filter(
@@ -92,5 +105,37 @@ export class MemoryContentRepository implements ContentRepository {
         (profile) => profile.eventId === eventId && profile.sourcePersonId === sourcePersonId,
       ) ?? null
     );
+  }
+}
+
+/**
+ * In-memory `SpeakerConversionPort` with the same contract as `D1SpeakerConversion`: one profile
+ * per event per email address, whichever door — CRM conversion or CFP acceptance — arrives first.
+ */
+export class MemorySpeakerConversion implements SpeakerConversionPort {
+  constructor(
+    private readonly repository: MemoryContentRepository,
+    private readonly newId: () => string,
+  ) {}
+  async createOrLink(command: SpeakerConversionCommand) {
+    const normalizedEmail = command.email.trim().toLowerCase();
+    const workspace = await this.repository.workspace(command.eventId);
+    const existing = workspace.speakers.find(
+      (profile) => profile.email.toLowerCase() === normalizedEmail,
+    );
+    if (existing) return { speakerId: existing.id };
+    const speakerId = this.newId();
+    await this.repository.addProfile({
+      id: speakerId,
+      eventId: command.eventId,
+      userId: this.newId(),
+      sourcePersonId: `crm-email:${normalizedEmail}`,
+      name: command.name,
+      email: normalizedEmail,
+      bio: "",
+      pronouns: "",
+      organization: "",
+    });
+    return { speakerId };
   }
 }

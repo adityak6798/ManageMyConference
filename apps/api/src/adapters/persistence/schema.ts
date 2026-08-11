@@ -362,6 +362,31 @@ export const reviewOutcomes = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.eventId, table.proposalId] })],
 );
+// The organizer's acceptance decision. `cfp_submissions.status` carries the workflow state the
+// triage board filters on and organizers may rename; this row is the durable record of who
+// decided what and when, and it is what content acceptance is gated on (`ARC-FLOW-001`).
+export const reviewDecisions = sqliteTable(
+  "review_decisions",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => cfpSubmissions.id),
+    outcome: text("outcome").notNull(),
+    decidedBy: text("decided_by")
+      .notNull()
+      .references(() => users.id),
+    decidedAt: text("decided_at").notNull(),
+    note: text("note").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.eventId, table.proposalId] }),
+    check("review_decisions_outcome", sql`${table.outcome} IN ('accepted', 'declined')`),
+    index("review_decisions_event_outcome_idx").on(table.eventId, table.outcome),
+  ],
+);
 export const reviewEvents = sqliteTable(
   "review_events",
   {

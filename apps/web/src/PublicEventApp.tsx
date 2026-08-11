@@ -26,6 +26,19 @@ type Route = { embedded: boolean; slug: string; section: View; detail: string | 
 
 const SECTIONS: View[] = ["schedule", "sessions", "speakers", "cfp"];
 
+/*
+ * One itinerary, four ways of reading it. Every grouping is derived from the
+ * projection already in memory, so switching never refetches and never reorders the
+ * underlying data — only how it is bucketed.
+ */
+type ScheduleView = "list" | "day" | "track" | "room";
+const SCHEDULE_VIEWS: { id: ScheduleView; label: string }[] = [
+  { id: "list", label: "List" },
+  { id: "day", label: "Day" },
+  { id: "track", label: "Track" },
+  { id: "room", label: "Room" },
+];
+
 function parseRoute(pathname: string): Route {
   const parts = pathname.split("/").filter(Boolean);
   const embedded = parts[0] === "embed";
@@ -196,18 +209,79 @@ function initials(name: string) {
 }
 
 /*
- * `GET /api/speaker-assets/:assetId` now serves an uploaded asset, but the public
- * projection still carries no `photoUrl`, so this page has no id to ask for. The gallery
- * draws a deterministic initials tile rather than leaving a hole, and honours `photoUrl`
- * the moment the projection starts populating it (#55).
+ * A headshot when the projection has one, a monogram tile when it does not — and a
+ * monogram again when the photo fails to load. The URL is composed server-side and the
+ * gallery cannot know whether it resolves, so a 404 must degrade to the tile rather
+ * than leave a browser's broken-image glyph in a row of faces.
+ *
+ * The image is decorative (`alt=""`): every avatar sits next to the speaker's name, so
+ * a description would only make screen readers say the name twice.
  */
 function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const className = large ? "pub-avatar is-large" : "pub-avatar";
-  if (speaker.photoUrl)
-    return <img className={className} src={speaker.photoUrl} alt="" loading="lazy" />;
+  const photoUrl =
+    speaker.photoUrl && speaker.photoUrl !== failedUrl ? speaker.photoUrl : undefined;
+  if (photoUrl)
+    return (
+      <img
+        className={className}
+        src={photoUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailedUrl(photoUrl)}
+      />
+    );
   return (
     <span className={`${className} tone-${toneIndex(speaker.slug)}`} aria-hidden="true">
       {initials(speaker.name)}
+    </span>
+  );
+}
+
+/*
+ * `headline` is composed from the speaker's *organization* today, so this line may hold
+ * an employer ("Greenroom Labs") or a role, depending on how the projection was built.
+ * It is therefore labelled as an affiliation rather than announced as a job title;
+ * repointing the composer at a real title field is publishing-side work and lands with
+ * the projection change, not here.
+ */
+function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
+  if (!speaker.headline.trim()) return null;
+  return (
+    <p className="pub-speaker-headline">
+      <span className="pub-sr">Affiliation: </span>
+      {speaker.headline}
+    </p>
+  );
+}
+
+/** Start–end in the event's zone; the zone itself is stated once per page, not per row. */
+function TimeRange({
+  startsAt,
+  endsAt,
+  timezone,
+  withDay,
+}: {
+  startsAt: string;
+  endsAt: string | undefined;
+  timezone: string;
+  withDay?: boolean;
+}) {
+  return (
+    <span className="pub-when">
+      <time dateTime={startsAt}>
+        {withDay ? dayAndTime(startsAt, timezone) : clockTime(startsAt, timezone)}
+      </time>
+      {endsAt && (
+        <>
+          {/* The dash is punctuation for the eye; the screen reader gets a word. */}
+          <span aria-hidden="true">–</span>
+          <span className="pub-sr"> to </span>
+          <time dateTime={endsAt}>{clockTime(endsAt, timezone)}</time>
+        </>
+      )}
     </span>
   );
 }
@@ -229,16 +303,25 @@ function SessionCard({
   // Every meta entry is its own element so the CSS separator lands between all of
   // them; a bare text node would silently skip the first dot.
   const showClock = Boolean(showTime && session.startsAt);
+  // Outside the day-grouped view an unplaced session would otherwise look identical to
+  // a placed one whose time simply was not rendered.
+  const showPending = Boolean(showTime && !session.startsAt);
   return (
     <article className="pub-session">
       <h3>
         <a {...linkProps(`${base}/sessions/${session.slug}`)}>{session.title}</a>
       </h3>
-      {(showClock || length || session.room) && (
+      {(showClock || showPending || length || session.room) && (
         <p className="pub-session-meta">
           {showClock && (
-            <time dateTime={session.startsAt}>{dayAndTime(session.startsAt ?? "", timezone)}</time>
+            <TimeRange
+              startsAt={session.startsAt ?? ""}
+              endsAt={session.endsAt}
+              timezone={timezone}
+              withDay
+            />
           )}
+          {showPending && <span>Time to be announced</span>}
           {length && <span>{length}</span>}
           {session.room && <span>{session.room}</span>}
         </p>
@@ -277,7 +360,7 @@ function SpeakerCard({
       <h3>
         <a {...linkProps(`${base}/speakers/${speaker.slug}`)}>{speaker.name}</a>
       </h3>
-      <p className="pub-speaker-role">{speaker.headline}</p>
+      <SpeakerHeadline speaker={speaker} />
       {sessions.length > 0 ? (
         <ul className="pub-speaker-sessions">
           {sessions.map((session) => (
@@ -293,7 +376,21 @@ function SpeakerCard({
   );
 }
 
-function Empty({ title, children }: { title: string; children?: ReactNode }) {
+/*
+ * The empty state carries a heading, so it has to slot into the outline of whatever
+ * placed it: level 2 when it stands directly under the page's h1, level 3 inside a
+ * section that already has an h2. A fixed h3 skipped a level on the section pages.
+ */
+function Empty({
+  title,
+  level = 3,
+  children,
+}: {
+  title: string;
+  level?: 2 | 3;
+  children?: ReactNode;
+}) {
+  const Heading = level === 2 ? "h2" : "h3";
   return (
     <div className="pub-empty">
       <span className="glyph" aria-hidden="true">
@@ -312,9 +409,49 @@ function Empty({ title, children }: { title: string; children?: ReactNode }) {
           <path d="M3 13.5h5l1.2 2.3h5.6L16 13.5h5" />
         </svg>
       </span>
-      <h3>{title}</h3>
+      <Heading>{title}</Heading>
       {children ? <p>{children}</p> : null}
     </div>
+  );
+}
+
+/*
+ * Track and room buckets for the schedule switcher. The input is already sorted by
+ * start time, so each bucket keeps that order. A session with no track or no room is
+ * not dropped: it lands in a named "to be announced" bucket that sorts last.
+ */
+function groupByField(sessions: PublicSession[], field: "track" | "room") {
+  const fallback = field === "track" ? "Track to be announced" : "Room to be announced";
+  const buckets = new Map<string, PublicSession[]>();
+  for (const item of sessions) {
+    const value = (field === "track" ? item.track : item.room)?.trim();
+    const label = value || fallback;
+    buckets.set(label, [...(buckets.get(label) ?? []), item]);
+  }
+  return [...buckets.entries()]
+    .sort(([left], [right]) => {
+      if (left === fallback) return 1;
+      if (right === fallback) return -1;
+      return left.localeCompare(right);
+    })
+    .map(([label, items], index) => ({ key: `${field}-${index}`, label, items }));
+}
+
+/** One group of the schedule: a sticky heading plus whatever the view puts under it. */
+function ScheduleGroup({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="pub-day" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      {children}
+    </section>
   );
 }
 
@@ -339,6 +476,9 @@ export function PublicEventApp() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState("all");
   const [speakerQuery, setSpeakerQuery] = useState("");
+  // A grouping is a reading preference, not a filter: it survives a trip to a session
+  // and back, and it never triggers a fetch.
+  const [scheduleView, setScheduleView] = useState<ScheduleView>("day");
   const mainRef = useRef<HTMLElement>(null);
   const viewKey = `${section}/${detail ?? ""}`;
   const landedOn = useRef(viewKey);
@@ -440,7 +580,7 @@ export function PublicEventApp() {
     const days: {
       key: string;
       label: string;
-      slots: { time: string; items: PublicSession[] }[];
+      slots: { time: string; endsAt: string | undefined; items: PublicSession[] }[];
     }[] = [];
     for (const item of timed) {
       const startsAt = item.startsAt ?? "";
@@ -452,8 +592,15 @@ export function PublicEventApp() {
       }
       let slot = day.slots.find((entry) => entry.time === startsAt);
       if (!slot) {
-        slot = { time: startsAt, items: [] };
+        slot = { time: startsAt, endsAt: item.endsAt, items: [] };
         day.slots.push(slot);
+      } else if (!item.endsAt) {
+        // One open-ended session in the block means the block has no honest end time.
+        slot.endsAt = undefined;
+      } else if (slot.endsAt && Date.parse(item.endsAt) > Date.parse(slot.endsAt)) {
+        // Concurrent sessions can run different lengths; the rail describes the block,
+        // so it spans to the last one to finish. Each card still carries its own length.
+        slot.endsAt = item.endsAt;
       }
       slot.items.push(item);
     }
@@ -557,6 +704,22 @@ export function PublicEventApp() {
       : true,
   );
   const zoneLine = `All times in ${model.timezone}${model.zone ? ` (${model.zone})` : ""}.`;
+  // Regrouping changes the page under a screen-reader user without moving focus, so the
+  // new shape is announced. Visually hidden: the buttons already show it. The day view
+  // buckets only *placed* sessions into days, so it counts what those days hold and
+  // reports the unplaced ones separately — the same split the visible header states.
+  const scheduleLabel = SCHEDULE_VIEWS.find((view) => view.id === scheduleView)?.label ?? "Day";
+  const scheduleSummary =
+    scheduleView === "day"
+      ? `${scheduleLabel} view. ${countLabel(model.timed.length, "session")} across ${countLabel(
+          model.days.length,
+          "day",
+        )}${
+          model.untimed.length > 0
+            ? `, and ${countLabel(model.untimed.length, "session")} still awaiting a time`
+            : ""
+        }.`
+      : `${scheduleLabel} view. ${countLabel(projection.sessions.length, "session")}.`;
 
   const navItems = [
     { href: `${base}/schedule`, label: "Schedule", view: "schedule" as View },
@@ -728,57 +891,132 @@ export function PublicEventApp() {
             <div className="pub-head">
               <p className="kicker">Published schedule</p>
               <h1>Plan your time</h1>
+              {/* The zone belongs to the whole itinerary, so it is stated here and
+                  nowhere else — the cards below carry bare clock times. */}
               <p className="pub-tz">
                 {zoneLine} {countLabel(model.timed.length, "session")} across{" "}
                 {countLabel(model.days.length, "day")}.
+                {model.untimed.length > 0
+                  ? ` ${countLabel(model.untimed.length, "session")} still awaiting a time.`
+                  : ""}
               </p>
             </div>
-            {model.days.length === 0 && (
-              <Empty title="No timed sessions yet">
-                The published schedule does not have timed sessions yet. Check back once the
-                organizers place the agenda.
+            {projection.sessions.length === 0 ? (
+              <Empty level={2} title="No sessions published yet">
+                The published schedule does not have sessions yet. Check back once the organizers
+                place the agenda.
               </Empty>
-            )}
-            {model.days.map((day) => (
-              <section className="pub-day" key={day.key} aria-labelledby={`day-${day.key}`}>
-                <h2 id={`day-${day.key}`}>{day.label}</h2>
-                <ol className="pub-slots">
-                  {day.slots.map((slot) => (
-                    <li className="pub-slot" key={slot.time}>
-                      <p className="pub-slot-time">
-                        <time dateTime={slot.time}>{clockTime(slot.time, model.timezone)}</time>
-                      </p>
-                      <div className="pub-slot-items">
-                        {slot.items.map((item) => (
+            ) : (
+              <>
+                {/*
+                 * A native fieldset for the group and plain buttons inside it: they are
+                 * in the tab order, fire on Enter and Space for free, and carry their
+                 * own pressed state. The legend names the group for a screen reader;
+                 * sighted users read the pressed button. Every grouping is computed from
+                 * the projection already in state — no refetch.
+                 */}
+                <fieldset className="pub-viewswitch">
+                  <legend className="pub-sr">Group the schedule by</legend>
+                  {SCHEDULE_VIEWS.map((view) => (
+                    <button
+                      key={view.id}
+                      type="button"
+                      aria-pressed={scheduleView === view.id}
+                      onClick={() => setScheduleView(view.id)}
+                    >
+                      {view.label}
+                    </button>
+                  ))}
+                </fieldset>
+                <p className="pub-sr" role="status">
+                  {scheduleSummary}
+                </p>
+
+                {scheduleView === "day" && (
+                  <>
+                    {model.days.map((day) => (
+                      <ScheduleGroup key={day.key} id={`day-${day.key}`} title={day.label}>
+                        <ol className="pub-slots">
+                          {day.slots.map((slot) => (
+                            <li className="pub-slot" key={slot.time}>
+                              <p className="pub-slot-time">
+                                <TimeRange
+                                  startsAt={slot.time}
+                                  endsAt={slot.endsAt}
+                                  timezone={model.timezone}
+                                />
+                              </p>
+                              <div className="pub-slot-items">
+                                {slot.items.map((item) => (
+                                  <SessionCard
+                                    key={item.slug}
+                                    session={item}
+                                    base={base}
+                                    timezone={model.timezone}
+                                    speakers={model.speakersOf(item)}
+                                  />
+                                ))}
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      </ScheduleGroup>
+                    ))}
+                    {model.untimed.length > 0 && (
+                      <ScheduleGroup id="day-unscheduled" title="Time to be announced">
+                        <div className="pub-grid">
+                          {model.untimed.map((item) => (
+                            <SessionCard
+                              key={item.slug}
+                              session={item}
+                              base={base}
+                              timezone={model.timezone}
+                              speakers={model.speakersOf(item)}
+                            />
+                          ))}
+                        </div>
+                      </ScheduleGroup>
+                    )}
+                  </>
+                )}
+
+                {/* The flat view keeps the same order the day view walks, so an
+                    unplaced session sits at the end rather than vanishing. */}
+                {scheduleView === "list" && (
+                  <ScheduleGroup id="schedule-list" title="Every session in start order">
+                    <div className="pub-grid">
+                      {model.ordered.map((item) => (
+                        <SessionCard
+                          key={item.slug}
+                          session={item}
+                          base={base}
+                          timezone={model.timezone}
+                          speakers={model.speakersOf(item)}
+                          showTime
+                        />
+                      ))}
+                    </div>
+                  </ScheduleGroup>
+                )}
+
+                {(scheduleView === "track" || scheduleView === "room") &&
+                  groupByField(model.ordered, scheduleView).map((group) => (
+                    <ScheduleGroup key={group.key} id={`schedule-${group.key}`} title={group.label}>
+                      <div className="pub-grid">
+                        {group.items.map((item) => (
                           <SessionCard
                             key={item.slug}
                             session={item}
                             base={base}
                             timezone={model.timezone}
                             speakers={model.speakersOf(item)}
+                            showTime
                           />
                         ))}
                       </div>
-                    </li>
+                    </ScheduleGroup>
                   ))}
-                </ol>
-              </section>
-            ))}
-            {model.untimed.length > 0 && (
-              <section className="pub-day" aria-labelledby="day-unscheduled">
-                <h2 id="day-unscheduled">Time to be announced</h2>
-                <div className="pub-grid">
-                  {model.untimed.map((item) => (
-                    <SessionCard
-                      key={item.slug}
-                      session={item}
-                      base={base}
-                      timezone={model.timezone}
-                      speakers={model.speakersOf(item)}
-                    />
-                  ))}
-                </div>
-              </section>
+              </>
             )}
           </>
         )}
@@ -791,7 +1029,7 @@ export function PublicEventApp() {
               <p className="pub-tz">{zoneLine}</p>
             </div>
             {projection.sessions.length === 0 ? (
-              <Empty title="No sessions published yet">
+              <Empty level={2} title="No sessions published yet">
                 Accepted sessions appear here once the organizers publish the program.
               </Empty>
             ) : (
@@ -828,22 +1066,30 @@ export function PublicEventApp() {
                   </p>
                 </div>
                 {visibleSessions.length === 0 ? (
-                  <Empty title="No sessions match that filter">
+                  <Empty level={2} title="No sessions match that filter">
                     Try a different search term or choose “All tracks”.
                   </Empty>
                 ) : (
-                  <div className="pub-grid">
-                    {visibleSessions.map((item) => (
-                      <SessionCard
-                        key={item.slug}
-                        session={item}
-                        base={base}
-                        timezone={model.timezone}
-                        speakers={model.speakersOf(item)}
-                        showTime
-                      />
-                    ))}
-                  </div>
+                  // The card titles are h3s, so the flat grid needs an h2 above them or
+                  // the page outline jumps a level. It says nothing the toolbar has not
+                  // already shown, so it is for screen readers only.
+                  <section aria-labelledby="pub-session-list">
+                    <h2 className="pub-sr" id="pub-session-list">
+                      Session list
+                    </h2>
+                    <div className="pub-grid">
+                      {visibleSessions.map((item) => (
+                        <SessionCard
+                          key={item.slug}
+                          session={item}
+                          base={base}
+                          timezone={model.timezone}
+                          speakers={model.speakersOf(item)}
+                          showTime
+                        />
+                      ))}
+                    </div>
+                  </section>
                 )}
               </>
             )}
@@ -904,7 +1150,7 @@ export function PublicEventApp() {
               </p>
             </div>
             {projection.speakers.length === 0 ? (
-              <Empty title="No speakers published yet">
+              <Empty level={2} title="No speakers published yet">
                 Speaker profiles appear here once the organizers publish the program.
               </Empty>
             ) : (
@@ -926,20 +1172,27 @@ export function PublicEventApp() {
                   </p>
                 </div>
                 {visibleSpeakers.length === 0 ? (
-                  <Empty title="No speakers match that search">
+                  <Empty level={2} title="No speakers match that search">
                     Clear the search box to see the whole gallery.
                   </Empty>
                 ) : (
-                  <div className="pub-gallery">
-                    {visibleSpeakers.map((item) => (
-                      <SpeakerCard
-                        key={item.slug}
-                        speaker={item}
-                        base={base}
-                        sessions={model.sessionsBySpeaker.get(item.slug) ?? []}
-                      />
-                    ))}
-                  </div>
+                  // Same reason as the session grid: an h2 keeps the outline unbroken
+                  // above the h3 on every speaker card.
+                  <section aria-labelledby="pub-speaker-list">
+                    <h2 className="pub-sr" id="pub-speaker-list">
+                      Speaker list
+                    </h2>
+                    <div className="pub-gallery">
+                      {visibleSpeakers.map((item) => (
+                        <SpeakerCard
+                          key={item.slug}
+                          speaker={item}
+                          base={base}
+                          sessions={model.sessionsBySpeaker.get(item.slug) ?? []}
+                        />
+                      ))}
+                    </div>
+                  </section>
                 )}
               </>
             )}
@@ -956,7 +1209,7 @@ export function PublicEventApp() {
               <div className="pub-head">
                 <p className="kicker">Speaker</p>
                 <h1>{speaker.name}</h1>
-                <p className="pub-speaker-role">{speaker.headline}</p>
+                <SpeakerHeadline speaker={speaker} />
               </div>
             </div>
             <p className="lede">{speaker.bio}</p>

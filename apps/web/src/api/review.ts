@@ -8,8 +8,10 @@ import {
   evaluationResponseSchema,
   type OrganizerReviewWorkspaceDto,
   organizerReviewWorkspaceSchema,
+  proposalDecisionResponseSchema,
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
+  recordProposalDecisionInputSchema,
   type ReviewerQueueDto,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
@@ -92,6 +94,24 @@ export async function transitionProposals(
       json(bulkProposalTransitionInputSchema.parse(input)),
     ),
     proposalTransitionResponseSchema,
+  );
+}
+/**
+ * Record an accept/decline decision.
+ *
+ * The decision is what authorizes content: `POST /content/accept` consults the recorded
+ * outcome, never the status label, so acceptance always runs this first.
+ */
+export async function recordProposalDecision(
+  eventId: string,
+  input: z.input<typeof recordProposalDecisionInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/decisions`,
+      json(recordProposalDecisionInputSchema.parse(input)),
+    ),
+    proposalDecisionResponseSchema,
   );
 }
 export async function getReviewerQueue(eventId: string): Promise<ReviewerQueueDto> {

@@ -23,6 +23,7 @@ import {
   prospectListQuerySchema,
   prospectPathSchema,
   proposalStatusSchema,
+  recordProposalDecisionInputSchema,
   reviewAssignmentParamsSchema,
   reviewEventParamsSchema,
   recordSpeakerMessageInputSchema,
@@ -50,7 +51,15 @@ import {
   CommunicationsNotFoundError,
   type CommunicationsService,
 } from "../../application/communications/communications-service";
-import type { ContentService } from "../../application/content/content-service";
+import {
+  type ContentService,
+  SpeakerIdentityUnavailableError,
+} from "../../application/content/content-service";
+import {
+  ProposalNotAcceptedError,
+  ProposalNotFoundError,
+  ProposalSubmitterUnavailableError,
+} from "../../application/review/public";
 import {
   type CrmService,
   ProspectAlreadyConvertedError,
@@ -468,7 +477,11 @@ export function createHttpApp(
       );
     if (!content) throw new Error("Content service is unavailable");
     return context.json(
-      await content.accept(context.get("actor"), { eventId: params.data.eventId, ...parsed.data }),
+      await content.accept(
+        context.get("actor"),
+        { eventId: params.data.eventId, proposalId: parsed.data.proposalId },
+        context.get("correlationId"),
+      ),
       201,
     );
   });
@@ -656,7 +669,19 @@ export function createHttpApp(
         400,
       );
     if (!content) throw new Error("Content service is unavailable");
-    return context.body(await content.calendar(context.get("actor"), parsed.data.eventId), 200, {
+    const document = await content.calendar(context.get("actor"), parsed.data.eventId);
+    // RFC 5545 section 3.4 requires at least one component, so a speaker with nothing scheduled
+    // has no calendar to download rather than a VCALENDAR every calendar client refuses.
+    if (!document)
+      return context.json(
+        envelope(
+          "NOT_FOUND",
+          "You have no scheduled sessions to export yet.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    return context.body(document, 200, {
       "content-type": "text/calendar; charset=utf-8",
       "content-disposition": 'attachment; filename="greenroom-sessions.ics"',
     });
@@ -805,6 +830,37 @@ export function createHttpApp(
       ),
       mode: "atomic" as const,
     });
+  });
+  app.post("/api/events/:eventId/review/decisions", async (context) => {
+    const params = reviewEventParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+    const parsed = recordProposalDecisionInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The decision request is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!reviewService) throw new Error("Review service is not configured");
+    return context.json(
+      await reviewService.decide(
+        context.get("actor"),
+        params.data.eventId,
+        parsed.data.proposalIds,
+        parsed.data.outcome,
+        parsed.data.note,
+      ),
+      201,
+    );
   });
   app.get("/api/events/:eventId/review/assignments", async (context) => {
     const params = reviewEventParamsSchema.safeParse(context.req.param());
@@ -1263,6 +1319,44 @@ export function createHttpApp(
       return context.json(
         envelope("NOT_FOUND", "The requested resource was not found.", correlationId),
         404,
+      );
+    // Acceptance failures are the caller's, never the server's. An unknown id and one belonging
+    // to another event collapse to the same 404 so acceptance cannot enumerate foreign proposals.
+    if (error instanceof ProposalNotFoundError)
+      return context.json(
+        envelope("NOT_FOUND", "The requested resource was not found.", correlationId),
+        404,
+      );
+    if (error instanceof ProposalNotAcceptedError)
+      return context.json(
+        envelope(
+          "CONFLICT",
+          "Accept this proposal in review before scheduling it.",
+          correlationId,
+          {
+            proposalId: ["This proposal has no recorded acceptance decision."],
+          },
+        ),
+        409,
+      );
+    if (error instanceof ProposalSubmitterUnavailableError)
+      return context.json(
+        envelope("VALIDATION_FAILED", "This proposal has no contact address.", correlationId, {
+          "submitter.email": [
+            "The published form collected no email address, so no speaker can be created.",
+          ],
+        }),
+        400,
+      );
+    if (error instanceof SpeakerIdentityUnavailableError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The speaker identity could not be created.",
+          correlationId,
+          error.fields,
+        ),
+        400,
       );
     if (error instanceof CfpValidationError)
       return context.json(

@@ -106,6 +106,9 @@ export class D1SpeakerConversion implements SpeakerConversionPort {
     if (!aligned.success) throw new Error("D1 failed to align conversion claims");
     await this.identities.provisionSpeaker(canonicalClaim.user_id, command.name, command.eventId);
     // ERROR-INTENT: the canonical ID/source conflict means a concurrent caller already created this profile.
+    // `crm-email:` is the historical spelling of the canonical per-event email key, not a marker
+    // that the speaker came from CRM: CFP acceptance and CRM conversion deliberately land on the
+    // same `(event_id, source_person_id)` row so one address is one speaker (`PRD-SPK-001`).
     const profile = await this.database
       .prepare(
         "INSERT OR IGNORE INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id) VALUES (?,?,?,?,?,?,?,?,?,NULL)",

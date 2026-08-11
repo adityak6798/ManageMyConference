@@ -34,8 +34,10 @@ import {
   prospectPathSchema,
   prospectResponseSchema,
   organizerReviewWorkspaceSchema,
+  proposalDecisionResponseSchema,
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
+  recordProposalDecisionInputSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewerQueueSchema,
@@ -228,6 +230,28 @@ registry.registerPath({
   },
 });
 registry.registerPath({
+  method: "post",
+  path: "/api/events/{eventId}/review/decisions",
+  description:
+    "Records an accept/decline decision and moves the proposal to the matching reserved status. Only an accepted decision authorizes content acceptance.",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: reviewEventParamsSchema,
+    body: { required: true, content: json(recordProposalDecisionInputSchema) },
+  },
+  responses: {
+    201: {
+      description: "Recorded acceptance decisions",
+      content: json(proposalDecisionResponseSchema),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
   method: "get",
   path: "/api/events/{eventId}/review/assignments",
   description: "Reviewer-owned assignment queue; aggregate outcomes are intentionally absent.",
@@ -384,6 +408,8 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/events/{eventId}/content/accept",
+  description:
+    "Turns a proposal that carries an accepted review decision into a session. Title, abstract, format and speaker identity are resolved server-side; unknown proposals answer 404 and undecided ones 409.",
   security: [{ sessionCookie: [] }],
   request: {
     params: eventContentParamsSchema,
@@ -394,6 +420,8 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    404: errorResponse,
+    409: errorResponse,
     500: errorResponse,
   },
 });
@@ -533,6 +561,8 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/api/events/{eventId}/speaker-calendar.ics",
+  description:
+    "RFC 5545 stream of the speaker's scheduled sessions. Answers 404 when none is scheduled, because section 3.4 requires a VCALENDAR to carry at least one component.",
   security: [{ sessionCookie: [] }],
   request: { params: eventContentParamsSchema },
   responses: {
@@ -543,6 +573,7 @@ registry.registerPath({
     400: errorResponse,
     401: errorResponse,
     403: errorResponse,
+    404: errorResponse,
     500: errorResponse,
   },
 });

@@ -46,16 +46,17 @@ describe("content speaker conversion", () => {
         .filter(Boolean))
         await database.prepare(statement).run();
     }
-    const communicationsMigration = (
+    const trailingMigrations = (
       await Promise.all([
         readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
         readFile(
           new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
           "utf8",
         ),
+        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
       ])
     ).join("\n");
-    for (const statement of communicationsMigration
+    for (const statement of trailingMigrations
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))

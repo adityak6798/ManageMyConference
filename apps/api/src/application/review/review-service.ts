@@ -1,17 +1,30 @@
 import {
+  MASKED_SUBMITTER_NAME,
   ProposalStatusConfigurationError,
+  type SubmittedProposal,
   type SubmittedProposalInterface,
 } from "../cfp/submitted-proposal-interface";
-import type { ProposalStatus } from "../cfp/submitted-proposal-interface";
+import type { ProposalStatus, ProposalStatusDefinition } from "../cfp/submitted-proposal-interface";
 import { type Actor, CapabilityDeniedError, requireEventCapability } from "../identity/actor";
-import type {
-  Evaluation,
-  EvaluationPlan,
-  EvaluationScore,
-  ReviewAssignment,
-  ReviewCompletedEvent,
+import {
+  ACCEPTED_PROPOSAL_STATUS,
+  type DecisionOutcome,
+  type Evaluation,
+  type EvaluationPlan,
+  type EvaluationScore,
+  type ProposalDecision,
+  RESERVED_PROPOSAL_STATUSES,
+  type ReviewAssignment,
+  type ReviewCompletedEvent,
 } from "../../domain/review/review";
 import { type ReviewRepository, ReviewStateConflictError } from "./review-repository";
+import {
+  type AcceptedProposal,
+  type AcceptedProposalQuery,
+  ProposalNotAcceptedError,
+  ProposalNotFoundError,
+  ProposalSubmitterUnavailableError,
+} from "./public";
 import type { IdentityDirectory } from "../identity/identity-directory";
 import type { EventService } from "../events/event-service";
 
@@ -33,8 +46,46 @@ export interface ReviewServiceDependencies {
   now: () => Date;
 }
 
+/**
+ * Field ids and labels that name the session format. Formats are organizer vocabulary rather than
+ * a CFP field type, so an unmatched proposal accepts the neutral default and the organizer edits
+ * the session afterwards.
+ */
+const FORMAT_FIELD_IDS = ["format", "session_format", "session_type", "type"];
+const FORMAT_LABEL = /\b(format|session type)\b/i;
+const DEFAULT_SESSION_FORMAT = "Session";
+const formatOf = (proposal: SubmittedProposal) =>
+  proposal.answers.find(
+    ({ fieldId, label }) =>
+      FORMAT_FIELD_IDS.includes(fieldId.toLowerCase()) || FORMAT_LABEL.test(label),
+  )?.value || DEFAULT_SESSION_FORMAT;
+
+/**
+ * Blind review is a projection concern, not a storage one: the same stored proposal is shown with
+ * its submitter to organizers and without to reviewers. This is the mask.
+ */
+const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
+  ...proposal,
+  submitterName: MASKED_SUBMITTER_NAME,
+  submitter: null,
+});
+
+/**
+ * The configured statuses plus any reserved decision status missing from them.
+ *
+ * Migration 0021 backfilled every event that existed then, but the CFP's own insert trigger
+ * only seeds `submitted` for an event created afterwards. Without this an organizer's first
+ * acceptance on a new event would hit "choose a configured proposal status".
+ */
+const withReservedStatuses = (
+  statuses: readonly ProposalStatusDefinition[],
+): readonly ProposalStatusDefinition[] => {
+  const keys = new Set(statuses.map(({ key }) => key));
+  return [...statuses, ...RESERVED_PROPOSAL_STATUSES.filter(({ key }) => !keys.has(key))];
+};
+
 // @spec PRD-ABS-001 PRD-REV-001
-export class ReviewService {
+export class ReviewService implements AcceptedProposalQuery {
   constructor(private readonly dependencies: ReviewServiceDependencies) {}
 
   private organizer(actor: Actor | null, eventId: string): Actor {
@@ -47,16 +98,27 @@ export class ReviewService {
 
   async organizerWorkspace(actor: Actor | null, eventId: string, status?: ProposalStatus) {
     this.organizer(actor, eventId);
-    const [proposals, plan, assignments, outcomes, audit, statuses, reviewers] = await Promise.all([
-      this.dependencies.proposals.list(eventId, status),
-      this.dependencies.repository.getPlan(eventId),
-      this.dependencies.repository.listAssignments(eventId),
-      this.dependencies.repository.listOutcomes(eventId),
-      this.dependencies.proposals.listAudit(eventId),
-      this.dependencies.proposals.listStatuses(eventId),
-      this.dependencies.identities.listReviewersForEvent(eventId),
-    ]);
-    return { proposals, plan, assignments, outcomes, audit, statuses, reviewers };
+    const [proposals, plan, assignments, outcomes, audit, statuses, reviewers, decisions] =
+      await Promise.all([
+        this.dependencies.proposals.list(eventId, status),
+        this.dependencies.repository.getPlan(eventId),
+        this.dependencies.repository.listAssignments(eventId),
+        this.dependencies.repository.listOutcomes(eventId),
+        this.dependencies.proposals.listAudit(eventId),
+        this.dependencies.proposals.listStatuses(eventId),
+        this.dependencies.identities.listReviewersForEvent(eventId),
+        this.dependencies.repository.listDecisions(eventId),
+      ]);
+    return {
+      proposals,
+      plan,
+      assignments,
+      outcomes,
+      audit,
+      statuses: withReservedStatuses(statuses),
+      reviewers,
+      decisions,
+    };
   }
 
   async configureStatuses(
@@ -68,6 +130,14 @@ export class ReviewService {
     const keys = new Set(statuses.map(({ key }) => key));
     if (keys.size !== statuses.length)
       throw new ReviewValidationError({ statuses: ["Status keys must be unique"] });
+    const missingReserved = RESERVED_PROPOSAL_STATUSES.filter(({ key }) => !keys.has(key));
+    // Acceptance is not a label an organizer can delete out from under the content domain.
+    if (missingReserved.length)
+      throw new ReviewValidationError({
+        statuses: [
+          `Keep the reserved decision statuses: ${missingReserved.map(({ key }) => key).join(", ")}`,
+        ],
+      });
     const proposals = await this.dependencies.proposals.list(eventId);
     if (proposals.some(({ status }) => !keys.has(status)))
       throw new ReviewValidationError({
@@ -179,6 +249,83 @@ export class ReviewService {
     }
   }
 
+  /**
+   * Record an accept/decline decision on proposals.
+   *
+   * The status transition runs first through the CFP interface, which audits it atomically and
+   * refuses an unconfigured status; the decision record is written second. Ordered that way a
+   * partial failure leaves a proposal that looks accepted on the board but carries no decision,
+   * so `acceptedProposal` — and therefore content acceptance — still refuses it. The reverse
+   * order would authorize content off a half-written decision. Re-deciding overwrites, so a
+   * retry heals the gap.
+   */
+  async decide(
+    actor: Actor | null,
+    eventId: string,
+    proposalIds: readonly string[],
+    outcome: DecisionOutcome,
+    note = "",
+  ): Promise<{ proposals: readonly SubmittedProposal[]; decisions: readonly ProposalDecision[] }> {
+    const authorized = this.organizer(actor, eventId);
+    const uniqueProposalIds = [...new Set(proposalIds)];
+    const found = await this.dependencies.proposals.findMany(eventId, uniqueProposalIds);
+    if (found.length !== uniqueProposalIds.length)
+      throw new ReviewNotFoundError("Proposal not found");
+    const configured = await this.dependencies.proposals.listStatuses(eventId);
+    // Self-healing: an event whose status set predates or postdates the reserved keys gets them
+    // before the transition rather than a "choose a configured proposal status" failure.
+    if (!configured.some(({ key }) => key === outcome))
+      await this.dependencies.proposals.saveStatuses(eventId, withReservedStatuses(configured));
+    const decidedAt = this.dependencies.now().toISOString();
+    const proposals = await this.dependencies.proposals.transitionAtomically({
+      eventId,
+      proposalIds: uniqueProposalIds,
+      toStatus: outcome,
+      actorId: authorized.id,
+      occurredAt: decidedAt,
+      auditIds: uniqueProposalIds.map(() => this.dependencies.newId()),
+    });
+    const decisions = uniqueProposalIds.map((proposalId) => ({
+      eventId,
+      proposalId,
+      outcome,
+      decidedBy: authorized.id,
+      decidedAt,
+      note,
+    }));
+    for (const decision of decisions) await this.dependencies.repository.saveDecision(decision);
+    return { proposals, decisions };
+  }
+
+  /**
+   * The review domain's answer to "may this proposal become program content?".
+   *
+   * `AcceptedProposalQuery`; the content domain calls exactly this and never touches
+   * `cfp_submissions`.
+   */
+  async acceptedProposal(eventId: string, proposalId: string): Promise<AcceptedProposal> {
+    const proposal = await this.dependencies.proposals.find(eventId, proposalId);
+    // A proposal belonging to another event is indistinguishable from one that does not exist,
+    // so acceptance cannot be used to probe another event's ids (`ARC-AUTH-001`).
+    if (!proposal) throw new ProposalNotFoundError("Proposal not found for this event");
+    const decision = await this.dependencies.repository.findDecision(eventId, proposalId);
+    if (decision?.outcome !== ACCEPTED_PROPOSAL_STATUS)
+      throw new ProposalNotAcceptedError("Proposal has no recorded acceptance decision");
+    if (!proposal.submitter)
+      throw new ProposalSubmitterUnavailableError(
+        "The published form collected no contact address for this proposal",
+      );
+    return {
+      eventId,
+      proposalId,
+      title: proposal.title,
+      abstract: proposal.abstract,
+      format: formatOf(proposal),
+      submitter: proposal.submitter,
+      decidedAt: decision.decidedAt,
+    };
+  }
+
   async reviewerQueue(actor: Actor | null, eventId: string) {
     const authorized = this.reviewer(actor, eventId);
     const [assignments, plan] = await Promise.all([
@@ -193,7 +340,9 @@ export class ReviewService {
           this.dependencies.repository.getEvaluation(assignment.id, authorized.id),
         ]);
         if (!proposal) throw new ReviewNotFoundError("Assigned proposal not found");
-        return { assignment, proposal, plan, conflict, evaluation };
+        // Reviewers evaluate the proposal, never the person: the submitter is masked here rather
+        // than left as a constant the storage layer happens to produce.
+        return { assignment, proposal: withoutSubmitter(proposal), plan, conflict, evaluation };
       }),
     );
   }

@@ -29,7 +29,8 @@ const build = () => {
         eventId,
         title: "Proposal",
         abstract: "Abstract",
-        submitterName: "Applicant",
+        submitterName: "Robin Submitter",
+        submitter: { name: "Robin Submitter", email: "robin@example.test" },
         answers: [],
         status: "submitted",
       },
@@ -126,6 +127,48 @@ describe("review HTTP API", () => {
       mode: "atomic",
       proposals: [{ status: "under_review" }],
     });
+  });
+
+  it("records a decision, exposes it to organizers, and keeps it organizer-only", async () => {
+    const app = build();
+    const headers = await cookie("organizer");
+    const decided = await app.request(`/api/events/${eventId}/review/decisions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        proposalIds: [proposalId],
+        outcome: "accepted",
+        note: "Clear yes",
+      }),
+    });
+    expect(decided.status).toBe(201);
+    await expect(decided.json()).resolves.toMatchObject({
+      proposals: [{ id: proposalId, status: "accepted" }],
+      decisions: [{ proposalId, outcome: "accepted", decidedBy: "seed-organizer" }],
+    });
+    const workspace = await app.request(`/api/events/${eventId}/review/organizer`, { headers });
+    await expect(workspace.json()).resolves.toMatchObject({
+      decisions: [{ proposalId, outcome: "accepted", note: "Clear yes" }],
+      proposals: [{ status: "accepted", submitter: { email: "robin@example.test" } }],
+    });
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/review/decisions`, {
+          method: "POST",
+          headers: await cookie("reviewer"),
+          body: JSON.stringify({ proposalIds: [proposalId], outcome: "declined" }),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/review/decisions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ proposalIds: [proposalId], outcome: "maybe" }),
+        })
+      ).status,
+    ).toBe(400);
   });
 
   it("returns validation feedback for an unconfigured transition status", async () => {

@@ -417,37 +417,16 @@ export const contentWorkspaceSchema = z.object({
   messages: z.array(speakerMessageSchema),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
-export const acceptContentInputSchema = z
-  .object({
-    proposalId: z.string().trim().min(1),
-    title: z.string().trim().min(1).max(160),
-    abstract: z.string().trim().min(1),
-    format: z.string().trim().min(1),
-    tags: z.array(z.string().trim().min(1)),
-    tracks: z.array(z.string().trim().min(1)),
-    speakers: z
-      .array(
-        z.object({
-          userId: z.string().min(1),
-          sourcePersonId: z.string().min(1),
-          name: z.string().trim().min(1),
-          email: z.string().email(),
-        }),
-      )
-      .min(1),
-  })
-  .superRefine((input, context) => {
-    const seen = new Set<string>();
-    input.speakers.forEach((speaker, index) => {
-      if (seen.has(speaker.sourcePersonId))
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["speakers", index, "sourcePersonId"],
-          message: "Each person may appear only once",
-        });
-      seen.add(speaker.sourcePersonId);
-    });
-  });
+/**
+ * Acceptance names a proposal and nothing else.
+ *
+ * Title, abstract, format and speaker identity are resolved server-side through the review
+ * domain's public application interface (`ARC-FLOW-001`); a client that could supply them could
+ * also invent them, which is how a fabricated proposal id used to create a session with a speaker
+ * who had never applied. Organizers refine the session afterwards with
+ * `PATCH /api/content-sessions/{sessionId}`.
+ */
+export const acceptContentInputSchema = z.object({ proposalId: z.string().uuid() });
 export type AcceptContentInput = z.infer<typeof acceptContentInputSchema>;
 export const updateSpeakerProfileInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -515,12 +494,23 @@ export const reviewAssignmentParamsSchema = z.object({
   eventId: z.string().uuid(),
   assignmentId: z.string().uuid(),
 });
+export const proposalSubmitterSchema = z.object({
+  name: z.string(),
+  email: z.string().email(),
+});
 export const proposalSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
   title: z.string(),
   abstract: z.string(),
+  /** The submitter's display name, or the mask the reviewer projection substitutes for it. */
   submitterName: z.string(),
+  /**
+   * Organizer-only contact details, derived from the answers using the published form's field
+   * types. `null` in the reviewer queue (blind review) and for a form that collected no email.
+   */
+  submitter: proposalSubmitterSchema.nullable(),
+  /** Never carries an `email`-typed answer; contact details live only in `submitter`. */
   answers: z.array(
     z.object({
       fieldId: z.string(),
@@ -531,6 +521,22 @@ export const proposalSchema = z.object({
   ),
   status: proposalStatusSchema,
 });
+// @spec PRD-REV-001 PRD-CNT-001
+export const proposalDecisionOutcomeSchema = z.enum(["accepted", "declined"]);
+export const proposalDecisionSchema = z.object({
+  eventId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  outcome: proposalDecisionOutcomeSchema,
+  decidedBy: z.string(),
+  decidedAt: z.string().datetime(),
+  note: z.string(),
+});
+export const recordProposalDecisionInputSchema = z.object({
+  proposalIds: z.array(z.string().uuid()).min(1).max(100),
+  outcome: proposalDecisionOutcomeSchema,
+  note: z.string().trim().max(1000).default(""),
+});
+export type RecordProposalDecisionInput = z.infer<typeof recordProposalDecisionInputSchema>;
 export const reviewCriterionSchema = z
   .object({
     id: z
@@ -596,6 +602,9 @@ export const organizerReviewWorkspaceSchema = z.object({
   audit: z.array(proposalAuditSchema),
   statuses: z.array(proposalStatusDefinitionSchema),
   reviewers: z.array(reviewerOptionSchema),
+  // Optional so a client written against the pre-decision shape still parses this response;
+  // the server always sends it.
+  decisions: z.array(proposalDecisionSchema).optional(),
 });
 export const reviewConflictSchema = z.object({
   assignmentId: z.string().uuid(),
@@ -637,6 +646,10 @@ export const proposalTransitionResponseSchema = z.object({
 });
 export const proposalStatusesResponseSchema = z.object({
   statuses: z.array(proposalStatusDefinitionSchema),
+});
+export const proposalDecisionResponseSchema = z.object({
+  proposals: z.array(proposalSchema),
+  decisions: z.array(proposalDecisionSchema),
 });
 export const reviewConflictResponseSchema = z.object({ conflict: reviewConflictSchema });
 export const evaluationResponseSchema = z.object({ evaluation: evaluationSchema });

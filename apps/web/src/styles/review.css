@@ -125,6 +125,67 @@
   background: var(--green-50);
 }
 
+/* The decision column carries a recorded outcome above its two controls, so the
+   pair reads as one cell rather than as three loose items on a dense row. */
+.triage-table td.decision-cell {
+  white-space: nowrap;
+}
+.triage-table .decision-buttons {
+  display: inline-flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.triage-table td.decision-cell .pill + .decision-buttons {
+  margin-top: var(--s-2);
+}
+
+/* ---------------------- decision panel ------------------------ */
+
+/* Same treatment as the detail panel: a focus target with no outline of its own,
+   because the card inside is what the organizer is reading. */
+.decision-confirm:focus {
+  outline: none;
+}
+.decision-confirm {
+  display: grid;
+  gap: var(--s-3);
+}
+.decision-question {
+  font-size: var(--text-md);
+}
+.decision-question strong {
+  font-weight: 650;
+}
+.decision-confirm > .hint {
+  max-width: var(--measure);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.decision-errors {
+  list-style: none;
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--danger-fg);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.decision-errors .error-text {
+  color: var(--danger-fg);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+/* Kept clickable-looking but inert in flight: disabling the control mid-request
+   moves focus to the document body and the outcome is announced to nobody. */
+.decision-actions button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: progress;
+}
+.decision-actions {
+  align-items: center;
+}
+
 /* ------------------------ detail panel ------------------------ */
 
 .proposal-detail:focus {

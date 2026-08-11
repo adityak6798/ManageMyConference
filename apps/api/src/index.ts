@@ -75,12 +75,11 @@ export default {
       grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
     const contentRepository = new D1ContentRepository(environment.DB);
-    const content = new ContentService({
-      repository: contentRepository,
-      assetStorage: new R2AssetStorage(environment.ASSETS),
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
-    });
+    const speakerConversion = new D1SpeakerConversion(
+      environment.DB,
+      () => crypto.randomUUID(),
+      identityDirectory,
+    );
     const cfpService = new CfpService(
       new D1CfpRepository(environment.DB),
       () => crypto.randomUUID(),
@@ -88,11 +87,7 @@ export default {
     );
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
-      speakerConversion: new D1SpeakerConversion(
-        environment.DB,
-        () => crypto.randomUUID(),
-        identityDirectory,
-      ),
+      speakerConversion,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -125,6 +120,16 @@ export default {
       proposals: new D1SubmittedProposalAdapter(environment.DB),
       identities: identityDirectory,
       events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    // Content resolves accepted proposals through the review domain's public application
+    // interface, never by reading `cfp_submissions` (`ARC-FLOW-001`).
+    const content = new ContentService({
+      repository: contentRepository,
+      assetStorage: new R2AssetStorage(environment.ASSETS),
+      proposals: reviewService,
+      speakerConversion,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });

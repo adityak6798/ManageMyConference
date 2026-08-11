@@ -52,16 +52,17 @@ describe("review D1 persistence", () => {
         .filter(Boolean))
         expect((await database.prepare(statement).run()).success).toBe(true);
     }
-    const communicationsMigration = (
+    const trailingMigrations = (
       await Promise.all([
         readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
         readFile(
           new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
           "utf8",
         ),
+        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
       ])
     ).join("\n");
-    for (const statement of communicationsMigration
+    for (const statement of trailingMigrations
       .split(";")
       .map((value) => value.trim())
       .filter(Boolean))
@@ -105,6 +106,35 @@ describe("review D1 persistence", () => {
         { key: "reviewed", label: "Reviewed", sortOrder: 1 },
       ]),
     ).rejects.toThrow("currently in use");
+    // The seed's accepted proposal carries a real decision record, which is what content
+    // acceptance is gated on — `reset.sql` no longer names a proposal id that exists nowhere.
+    await expect(
+      reviews.findDecision(eventId, "10000000-0000-4000-8000-000000000010"),
+    ).resolves.toMatchObject({ outcome: "accepted", decidedBy: "seed-organizer" });
+    await expect(reviews.listDecisions(eventId)).resolves.toHaveLength(1);
+    // Deciding again overwrites rather than duplicating, so a retry after a partial failure heals.
+    await reviews.saveDecision({
+      eventId,
+      proposalId: "10000000-0000-4000-8000-000000000010",
+      outcome: "declined",
+      decidedBy: "seed-organizer",
+      decidedAt: "2026-08-10T13:00:00.000Z",
+      note: "Reversed",
+    });
+    await expect(reviews.listDecisions(eventId)).resolves.toMatchObject([
+      { outcome: "declined", note: "Reversed" },
+    ]);
+    // A decision must reference a real submission of that event.
+    await expect(
+      reviews.saveDecision({
+        eventId,
+        proposalId: "no-such-proposal",
+        outcome: "accepted",
+        decidedBy: "seed-organizer",
+        decidedAt: "2026-08-10T13:00:00.000Z",
+        note: "",
+      }),
+    ).rejects.toThrow();
     await expect(reviews.getPlan(eventId)).resolves.toMatchObject({
       criteria: expect.arrayContaining([expect.objectContaining({ id: "relevance" })]),
     });

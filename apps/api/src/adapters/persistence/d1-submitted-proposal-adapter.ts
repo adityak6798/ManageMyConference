@@ -1,7 +1,9 @@
 import {
+  MASKED_SUBMITTER_NAME,
   ProposalStatusConfigurationError,
   type ProposalStatus,
   type ProposalStatusAudit,
+  type ProposalSubmitter,
   type SubmittedProposal,
   type SubmittedProposalInterface,
 } from "../../application/cfp/submitted-proposal-interface";
@@ -42,6 +44,46 @@ type AuditRow = {
   occurred_at: string;
 };
 type StatusRow = { key: string; label: string; sort_order: number };
+/**
+ * Field ids and labels that name a person rather than the proposal. The submitter's name is not
+ * a field *type* the CFP builder offers, so it is recognised by identity — an explicit id first,
+ * then a labelled text field — and never guessed from arbitrary prose.
+ */
+const NAME_FIELD_IDS = ["name", "full_name", "fullname", "speaker_name", "submitter_name"];
+/**
+ * Deliberately anchored. A loose `/name/i` would also claim "Session name" or "Track name" and
+ * hide the proposal's own title from the review queue.
+ */
+const PERSON_NAME_LABEL = /^(?:your |speaker |submitter |presenter |contact |full )?name$/i;
+const isNameField = (field: SnapshotField) =>
+  NAME_FIELD_IDS.includes(field.id.toLowerCase()) ||
+  (field.type === "short_text" && PERSON_NAME_LABEL.test(field.label.trim()));
+
+/**
+ * The submitter, read out of the stored answers using the published form's own field types.
+ *
+ * The email comes from the first `email`-typed field that carries a value, which is what makes
+ * the contact address available to organizers without ever putting it in `answers`. Without one
+ * there is no submitter at all: a name with no address cannot identify a speaker.
+ */
+const submitterOf = (
+  fields: readonly SnapshotField[],
+  answers: Record<string, string>,
+): ProposalSubmitter | null => {
+  const email = fields
+    .filter((field) => field.type === "email")
+    .map((field) => answers[field.id]?.trim())
+    .find((value): value is string => Boolean(value));
+  if (!email) return null;
+  const name = fields
+    .filter(isNameField)
+    .map((field) => answers[field.id]?.trim())
+    .find((value): value is string => Boolean(value));
+  // A form that never asked for a name still identifies its submitter by address, which is
+  // more honest than inventing one out of the local part.
+  return { name: name ?? email, email };
+};
+
 const proposal = (row: ProposalRow): SubmittedProposal => {
   const answers = JSON.parse(row.answers_json) as Record<string, string>;
   const snapshot = JSON.parse(row.form_fields_json) as SnapshotField[];
@@ -50,14 +92,15 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
     : Object.keys(answers).map((id) => ({
         id,
         label: id.replaceAll("_", " "),
-        type: (id.includes("email") ? "email" : id === "title" ? "short_text" : "long_text") as
-          | "email"
-          | "short_text"
-          | "long_text",
+        type: (id.includes("email")
+          ? "email"
+          : id === "title" || NAME_FIELD_IDS.includes(id.toLowerCase())
+            ? "short_text"
+            : "long_text") as "email" | "short_text" | "long_text",
       }));
   const visibleAnswers = fields.flatMap((field) => {
     const value = answers[field.id]?.trim();
-    return value && field.type !== "email"
+    return value && field.type !== "email" && !isNameField(field)
       ? [{ fieldId: field.id, label: field.label, type: field.type, value }]
       : [];
   });
@@ -67,12 +110,14 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
   const abstract =
     visibleAnswers.find(({ fieldId }) => fieldId === "abstract") ??
     visibleAnswers.find(({ type, fieldId }) => type === "long_text" && fieldId !== title?.fieldId);
+  const submitter = submitterOf(fields, answers);
   return {
     id: row.id,
     eventId: row.event_id,
     title: title?.value || `Proposal ${row.id}`,
     abstract: abstract?.value || "See submitted answers.",
-    submitterName: "Applicant",
+    submitterName: submitter?.name ?? MASKED_SUBMITTER_NAME,
+    submitter,
     answers: visibleAnswers,
     status: row.status,
   };

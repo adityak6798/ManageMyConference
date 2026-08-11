@@ -1,6 +1,7 @@
 import type {
   Evaluation,
   EvaluationPlan,
+  ProposalDecision,
   ReviewAssignment,
   ReviewCompletedEvent,
   ReviewConflict,
@@ -22,4 +23,7 @@ export interface ReviewRepository {
   completeEvaluation(evaluation: Evaluation, event: ReviewCompletedEvent): Promise<void>;
   listCompletedEvaluations(eventId: string, proposalId: string): Promise<readonly Evaluation[]>;
   listOutcomes(eventId: string): Promise<readonly ReviewOutcome[]>;
+  saveDecision(decision: ProposalDecision): Promise<void>;
+  findDecision(eventId: string, proposalId: string): Promise<ProposalDecision | null>;
+  listDecisions(eventId: string): Promise<readonly ProposalDecision[]>;
 }

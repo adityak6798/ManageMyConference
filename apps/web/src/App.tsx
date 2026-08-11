@@ -17,6 +17,7 @@ import { CommunicationsWorkspace } from "./CommunicationsWorkspace";
 import { ContentWorkspace } from "./ContentWorkspace";
 import { CrmWorkspace } from "./CrmWorkspace";
 import { OverviewPage } from "./OverviewPage";
+import { PublishingWorkspace } from "./PublishingWorkspace";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
 import { getPublicationSummary } from "./api/publication";
 import { navigate, useLocation } from "./router";
@@ -29,6 +30,7 @@ import {
   IconReview,
   IconSend,
   IconSessions,
+  IconSettings,
   IconSpeakers,
   IconTask,
 } from "./ui/icons";
@@ -57,6 +59,7 @@ function routesFor(role: Persona, capabilities: string[]): { href: string; label
       { href: "/cfp", label: "Call for proposals" },
       { href: "/speakers", label: "Speaker CRM" },
       { href: "/communications", label: "Communications" },
+      { href: "/publishing", label: "Publishing" },
       { href: "/settings", label: "Event settings" },
     ];
   if (role === "reviewer") return [{ href: "/reviews", label: "Review assignments" }];
@@ -281,7 +284,8 @@ export function App() {
     "/cfp": <IconForm size={16} />,
     "/speakers": <IconSpeakers size={16} />,
     "/communications": <IconSend size={16} />,
-    "/settings": <IconGlobe size={16} />,
+    "/publishing": <IconGlobe size={16} />,
+    "/settings": <IconSettings size={16} />,
     "/reviews": <IconReview size={16} />,
     "/portal": <IconTask size={16} />,
   };
@@ -475,6 +479,25 @@ export function App() {
               subtitle="Outbound delivery history with queued, retrying, sent, and failed states."
             />
             <CommunicationsWorkspace event={selectedEvent} onError={reportError} />
+          </>
+        ) : (
+          noAccess
+        );
+      case "/publishing":
+        return activeEventCapabilities.includes("events:settings:read") ? (
+          <>
+            <PageHeader
+              eyebrow="Audience"
+              title="Publishing"
+              subtitle="Compose the public projection, publish it as an immutable snapshot, and embed it."
+            />
+            <PublishingWorkspace
+              key={`${selectedEvent.id}:${session?.actor.id}`}
+              eventId={selectedEvent.id}
+              eventName={selectedEvent.name}
+              canPublish={activeEventCapabilities.includes("events:settings:update")}
+              onPublicationChange={setPublication}
+            />
           </>
         ) : (
           noAccess

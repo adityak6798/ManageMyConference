@@ -1,0 +1,234 @@
+/*
+ * Publishing surface.
+ *
+ * Two hazards drive most of the rules here. Absolute URLs and iframe snippets are
+ * long unbreakable strings, and a live embed frame is a page inside a page — both
+ * push a console layout sideways on a phone if left alone. Everything that can
+ * carry a URL wraps or scrolls inside its own box, so the page body never does.
+ */
+
+.publishing-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+}
+.publishing-status:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.publishing-state {
+  display: grid;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.publishing-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.publishing-meta {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.publishing-meta code {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.publishing-actions {
+  justify-content: flex-end;
+}
+
+.publishing-foot {
+  display: grid;
+  gap: var(--s-2);
+  padding: 0 var(--s-5) var(--s-4);
+}
+
+/* URLs are the point of this panel, so they must be readable and selectable at any
+   width rather than clipped or pushed off screen. */
+.publishing-url {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.publishing-url code,
+.publishing-url a {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.publishing-sub {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.publishing-loading {
+  display: grid;
+  gap: var(--s-3);
+}
+
+/* ---------------------------- preview ---------------------------- */
+
+.publishing-tabs {
+  padding: var(--s-3) var(--s-5) 0;
+}
+.publishing-panel {
+  padding: var(--s-4) var(--s-5) var(--s-5);
+}
+.publishing-panel:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.publishing-projection {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.publishing-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+}
+.publishing-facts dt {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.publishing-facts dd {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.publishing-facts code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.publishing-projection-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.publishing-projection-line svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.publishing-projection-line code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.publishing-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-4);
+}
+.publishing-lists h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  font-size: var(--text-sm);
+}
+.publishing-lists h3 .publishing-sub {
+  font-weight: 500;
+}
+
+.publishing-plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.publishing-plain > li {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.publishing-plain .publishing-sub {
+  display: block;
+  margin-top: 2px;
+}
+
+/* ---------------------------- embeds ----------------------------- */
+
+.publishing-embeds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-5);
+}
+
+.publishing-embed {
+  display: grid;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.publishing-embed-head h3 {
+  font-size: var(--text-md);
+}
+
+/* The snippet is read-only evidence, not an editor: monospace, wrapped, and
+   selectable in one keystroke via the focus handler on the control. */
+.publishing-snippet {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  min-height: 0;
+  resize: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface);
+}
+
+/* A real page inside the page. The wrapper owns the size so the frame cannot
+   negotiate its own width and drag the console sideways. */
+.publishing-frame {
+  overflow: hidden;
+  height: 320px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.publishing-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+@media (max-width: 640px) {
+  .publishing-actions {
+    justify-content: flex-start;
+  }
+  .publishing-embeds {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .publishing-frame {
+    height: 260px;
+  }
+}

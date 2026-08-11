@@ -68,19 +68,22 @@ describe("D1CfpRepository", () => {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       for (const statement of statements(sql)) await database.prepare(statement).run();
     }
-    const communicationsMigration = (
+    const trailingMigrations = (
       await Promise.all([
         readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
         readFile(
           new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
           "utf8",
         ),
+        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
       ])
     ).join("\n");
-    for (const statement of statements(communicationsMigration))
-      await database.prepare(statement).run();
+    for (const statement of statements(trailingMigrations)) await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    for (const statement of statements(reset)) await database.prepare(statement).run();
+    // Asserted, like the DDL above: an unasserted seed loop would let this whole suite run
+    // green against an empty database the moment the seed stopped applying.
+    for (const statement of statements(reset))
+      expect((await database.prepare(statement).run()).success, statement).toBe(true);
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);
     const proposals = new D1SubmittedProposalAdapter(database as D1ProposalDatabasePort);
     const form = {
@@ -160,15 +163,41 @@ describe("D1CfpRepository", () => {
       ],
     });
     expect(custom).not.toBeNull();
-    await expect(proposals.find(form.eventId, custom?.id as string)).resolves.toMatchObject({
+    // The email-typed answer never appears in `answers`, and the organizer projection carries
+    // it as the submitter instead. A form with no name field identifies its submitter by
+    // address rather than inventing one.
+    await expect(proposals.find(form.eventId, custom?.id as string)).resolves.toEqual({
+      id: custom?.id,
+      eventId: form.eventId,
       title: "Advanced",
       abstract: "Custom session content",
-      submitterName: "Applicant",
+      submitterName: "private@example.com",
+      submitter: { name: "private@example.com", email: "private@example.com" },
+      status: "submitted",
       answers: [
-        { fieldId: "level", label: "Experience level", value: "Advanced" },
-        { fieldId: "session", label: "Session details", value: "Custom session content" },
+        { fieldId: "level", label: "Experience level", type: "select", value: "Advanced" },
+        {
+          fieldId: "session",
+          label: "Session details",
+          type: "long_text",
+          value: "Custom session content",
+        },
       ],
     });
+    // The seeded submissions carry both a name and an email field, so the organizer sees the
+    // real person — the `submitterName: "Applicant"` constant is gone.
+    await expect(
+      proposals.find(form.eventId, "10000000-0000-4000-8000-000000000001"),
+    ).resolves.toMatchObject({
+      submitterName: "Alex Morgan",
+      submitter: { name: "Alex Morgan", email: "alex.morgan@example.test" },
+    });
+    // And the contact address is never smuggled through the answer list.
+    expect(
+      JSON.stringify(
+        (await proposals.find(form.eventId, "10000000-0000-4000-8000-000000000001"))?.answers,
+      ),
+    ).not.toContain("alex.morgan@example.test");
     await repository.savePublished({ ...form, status: "closed", publishedStatus: "closed" }, true);
     await expect(
       repository.createSubmission({
@@ -204,7 +233,10 @@ describe("the DDL rendered from schema.ts", () => {
     for (const statement of statements(declaredDdl))
       expect((await database.prepare(statement).run()).success).toBe(true);
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    for (const statement of statements(reset)) await database.prepare(statement).run();
+    // The seed is the fixture every assertion below leans on, so a statement that stops
+    // applying has to fail here rather than silently leave an empty database.
+    for (const statement of statements(reset))
+      expect((await database.prepare(statement).run()).success, statement).toBe(true);
 
     const eventId = "00000000-0000-4000-8000-000000000001";
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);
