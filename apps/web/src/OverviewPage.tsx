@@ -32,12 +32,34 @@ type Overview = {
 
 const DECIDED = new Set(["accepted", "declined", "withdrawn"]);
 
-function dayDelta(iso: string, now: number) {
-  return Math.round((new Date(iso).getTime() - now) / 86_400_000);
+/** How often the dashboard re-reads its data without a manual reload. */
+const REFRESH_MS = 15_000;
+
+/**
+ * Calendar days between now and a deadline, counted in the event's timezone.
+ *
+ * Rounding the raw elapsed duration was wrong at the boundary: a task eleven hours past
+ * its deadline rounded to zero and read as "Due today" rather than overdue. Overdue is
+ * therefore decided from the instant, and only the *label* is expressed in whole days.
+ */
+function calendarDaysUntil(iso: string, now: number, timeZone: string) {
+  const dayIn = (value: number) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(value));
+  const due = Date.parse(iso);
+  const diff = Date.parse(`${dayIn(due)}T00:00:00Z`) - Date.parse(`${dayIn(now)}T00:00:00Z`);
+  return { overdue: due < now, days: Math.round(diff / 86_400_000) };
 }
 
-function dueLabel(days: number) {
-  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`;
+function dueLabel({ overdue, days }: { overdue: boolean; days: number }) {
+  if (overdue) {
+    const late = Math.abs(days);
+    return late === 0 ? "Overdue today" : `${late} day${late === 1 ? "" : "s"} overdue`;
+  }
   if (days === 0) return "Due today";
   return `Due in ${days} day${days === 1 ? "" : "s"}`;
 }
@@ -45,6 +67,7 @@ function dueLabel(days: number) {
 export function OverviewPage({ event, query }: { event: EventDto; query: string }) {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
   const linkProps = useLinkProps();
 
   const load = useCallback(async () => {
@@ -62,20 +85,34 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
     let active = true;
     setData(null);
     setError(null);
-    // ERROR-INTENT: effects cannot await; both outcomes are rendered below.
-    void load()
-      .then((next) => {
-        if (active) setData(next);
-      })
-      .catch(() => {
-        if (active) setError("The overview could not be loaded. Reload to try again.");
-      });
+    setRefreshedAt(null);
+
+    const read = () => {
+      // ERROR-INTENT: effects cannot await; both outcomes are rendered below.
+      void load()
+        .then((next) => {
+          if (!active) return;
+          setData(next);
+          setRefreshedAt(Date.now());
+          setError(null);
+        })
+        .catch(() => {
+          if (active) setError("The overview could not be loaded. Reload to try again.");
+        });
+    };
+
+    read();
+    // Speakers complete tasks and other organizers make decisions while this is open, so
+    // the dashboard re-reads on a timer rather than waiting for a manual reload.
+    const timer = setInterval(read, REFRESH_MS);
     return () => {
       active = false;
+      clearInterval(timer);
     };
   }, [load]);
 
-  const now = Date.now();
+  // Recomputed on every refresh so "overdue" does not go stale while the page is open.
+  const now = refreshedAt ?? Date.now();
 
   const model = useMemo(() => {
     if (!data) return null;
@@ -85,9 +122,9 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       .map((task) => ({
         ...task,
         speaker: speakerById.get(task.speakerProfileId),
-        days: dayDelta(task.dueAt, now),
+        due: calendarDaysUntil(task.dueAt, now, event.timezone),
       }))
-      .sort((left, right) => left.days - right.days);
+      .sort((left, right) => left.due.days - right.due.days);
 
     const placedSessionIds = new Set(
       data.agenda.placements.map((placement) => placement.sessionId),
@@ -108,7 +145,7 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       sessions: data.content.sessions,
       speakers: data.content.speakers,
     };
-  }, [data, now]);
+  }, [data, now, event.timezone]);
 
   if (error)
     return (
@@ -136,7 +173,7 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       </>
     );
 
-  const overdue = model.openTasks.filter((task) => task.days < 0).length;
+  const overdue = model.openTasks.filter((task) => task.due.overdue).length;
 
   return (
     <>
@@ -144,6 +181,19 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
         eyebrow="Organizer"
         title="Overview"
         subtitle={`${event.name} · ${event.timezone}`}
+        actions={
+          // The dashboard refreshes itself, so it has to say when it last did — otherwise
+          // a stale number is indistinguishable from a current one.
+          <p className="refreshed-at" role="status">
+            {refreshedAt
+              ? `Updated ${new Date(refreshedAt).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}`
+              : "Updating…"}
+          </p>
+        }
       />
 
       <dl className="grid-auto">
@@ -236,12 +286,12 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
                         day: "numeric",
                         timeZone: event.timezone,
                       })}
-                      <span className="sub">{dueLabel(task.days)}</span>
+                      <span className="sub">{dueLabel(task.due)}</span>
                     </td>
                     <td>
-                      {task.days < 0 ? (
+                      {task.due.overdue ? (
                         <Pill tone="danger">Overdue</Pill>
-                      ) : task.days <= 3 ? (
+                      ) : task.due.days <= 3 ? (
                         <Pill tone="warn">
                           <IconClock size={12} />
                           Due soon

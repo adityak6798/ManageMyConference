@@ -9,6 +9,7 @@ Use Node from `.nvmrc`, npm 11.12.1, and a local Python supported by `uv`.
 ```bash
 npm ci
 uv sync --locked
+npx playwright install chromium   # only needed to run the browser suite
 npm run setup:local
 npm run reset
 npm run dev
@@ -69,7 +70,7 @@ authorization. The API refuses demo mode outside the exact development environme
 ```bash
 npm run check          # format, context integrity, lint, typecheck, OpenAPI drift, unit tests, build
 npm run test:d1        # D1 integration suite, including the deterministic seed-state regression
-npm run test:e2e       # full browser acceptance suite
+npm run test:e2e       # full browser acceptance suite (needs `npx playwright install chromium`)
 npm run test:quality   # the fast evaluator gate
 ```
 

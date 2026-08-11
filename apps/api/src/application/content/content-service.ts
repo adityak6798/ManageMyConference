@@ -256,7 +256,11 @@ export class ContentService {
         return null;
       }
       const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
-      const ownsProfile = profile?.userId === authorized.id;
+      // Ownership is event-scoped: `content:read` is the union across every event the
+      // actor can touch, so matching the stored user id alone would keep serving this
+      // asset after the speaker's access to its event was removed.
+      const ownsProfile =
+        profile?.userId === authorized.id && hasEventRole(authorized, asset.eventId, "speaker");
       if (!hasEventRole(authorized, asset.eventId, "organizer") && !ownsProfile) return null;
     }
 

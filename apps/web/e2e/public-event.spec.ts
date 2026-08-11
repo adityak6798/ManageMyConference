@@ -93,15 +93,12 @@ test("browses the same accessible published projection directly and embedded", a
   await expect(page.getByRole("navigation", { name: "Event navigation" })).toHaveCount(0);
   await expect(page.locator("footer")).toBeHidden();
   await expect(page.locator("main")).toHaveCount(1);
-  // The only way out of the frame opens the real site in a new tab.
-  await expect(page.getByRole("link", { name: /Greenroom Demo Summit/ })).toHaveAttribute(
-    "target",
-    "_blank",
-  );
-  await expect(page.getByRole("link", { name: /Open the full event site/ })).toHaveAttribute(
-    "href",
-    "/events/greenroom-demo-summit/schedule",
-  );
+  // No brand link: an embed carries the content, not Greenroom's marketing chrome.
+  await expect(page.getByRole("link", { name: /Greenroom Demo Summit/ })).toHaveCount(0);
+  // The single way out of the frame opens the real site in a new tab.
+  const exitLink = page.getByRole("link", { name: /Open the full event site/ });
+  await expect(exitLink).toHaveAttribute("href", "/events/greenroom-demo-summit/schedule");
+  await expect(exitLink).toHaveAttribute("target", "_blank");
 
   await page.goto("/embed/events/greenroom-demo-summit/speakers");
   await expect(page.locator(".pub-speaker")).toHaveCount(2);

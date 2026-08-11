@@ -187,6 +187,14 @@ export function App() {
     try {
       await startDemoSession(persona);
       await loadShell();
+      // Disabling the select while the switch is in flight drops focus to <body>, and the
+      // whole workspace changes underneath. Move focus to the destination so keyboard and
+      // screen-reader users land on the new surface instead of at the top of the document.
+      requestAnimationFrame(() => {
+        const main = document.getElementById("main");
+        main?.setAttribute("tabindex", "-1");
+        main?.focus({ preventScroll: true });
+      });
     } catch (reason: unknown) {
       setError(readableError(reason));
     } finally {

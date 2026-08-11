@@ -78,3 +78,20 @@ test("announcing an error handles a catch, announcing anything else does not", (
     [],
   );
 });
+
+test("a bare announce only counts when it is destructured from useActionFeedback", () => {
+  const hook = "const { announce } = useActionFeedback();\n";
+  assert.deepEqual(
+    inspectText(`${hook}try { work(); } catch (error) { announce("error", "Failed."); }`),
+    [],
+  );
+  // An unrelated local helper that happens to be called announce must not satisfy the gate.
+  assert.notEqual(
+    inspectText('try { work(); } catch (error) { announce("error", "Failed."); }'),
+    [],
+  );
+  assert.notEqual(
+    inspectText(`${hook}try { work(); } catch (error) { announce("success", "Saved."); }`),
+    [],
+  );
+});

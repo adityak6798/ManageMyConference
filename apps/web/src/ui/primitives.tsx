@@ -203,14 +203,21 @@ export function useActionFeedback() {
     if (tone === "success") timer.current = setTimeout(() => setMessage(null), 6000);
   }
 
-  const node = message ? (
-    <Notice tone={message.tone} role={message.tone === "error" ? "alert" : "status"}>
-      {message.text}
-    </Notice>
-  ) : (
-    // A permanently mounted live region announces later messages reliably; a region
-    // that appears at the same time as its text is often missed by screen readers.
-    <span className="visually-hidden" role="status" aria-live="polite" />
+  // One element, always mounted, whose text changes. Swapping the element in when the
+  // first message arrives is the conditional-live-region pattern that assistive
+  // technology commonly misses, so the region exists from first render and only its
+  // content and styling change.
+  const node = (
+    <p
+      className={
+        message ? (message.tone === "error" ? "notice error" : "notice success") : "visually-hidden"
+      }
+      // The element is never remounted; only its role, class, and text change. Failures
+      // take role="alert" so they interrupt, successes stay polite.
+      role={message?.tone === "error" ? "alert" : "status"}
+    >
+      {message?.text ?? ""}
+    </p>
   );
 
   return { announce, node, clear: () => setMessage(null) };

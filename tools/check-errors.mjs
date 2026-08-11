@@ -36,7 +36,16 @@ function hasIntent(source, node) {
   return /ERROR-INTENT:\s*\S.+/.test(leading);
 }
 
-function handledCatch(block) {
+/**
+ * A bare `announce(...)` only counts when the file actually destructures it from
+ * `useActionFeedback`. Without that, any unrelated local helper named `announce` would
+ * satisfy the gate and a catch could silently discard an error.
+ */
+function bindsFeedbackAnnounce(text) {
+  return /\{[^}]*\bannounce\b[^}]*\}\s*=\s*useActionFeedback\s*\(/.test(text ?? "");
+}
+
+function handledCatch(block, text) {
   let handled = false;
   function visit(node) {
     if (
@@ -56,7 +65,9 @@ function handledCatch(block) {
       // The first argument must be the literal "error": announcing a success in a catch
       // block is exactly the silent discard this gate exists to catch.
       // See docs/architecture/error-observability.md.
-      if (/^(?:\w*[Ff]eedback\.)?announce$/.test(called)) {
+      const viaHandle = /^\w*[Ff]eedback\.announce$/.test(called);
+      const viaBinding = called === "announce" && bindsFeedbackAnnounce(text);
+      if (viaHandle || viaBinding) {
         const [tone] = node.arguments;
         if (tone && ts.isStringLiteralLike(tone) && tone.text === "error") handled = true;
       }
@@ -67,10 +78,10 @@ function handledCatch(block) {
   return handled;
 }
 
-function handledRejectionCallback(callback) {
+function handledRejectionCallback(callback, text) {
   if (ts.isIdentifier(callback)) return /^(?:setError|reportError)$/.test(callback.text);
   if (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) return false;
-  return handledCatch(callback.body);
+  return handledCatch(callback.body, text);
 }
 
 export function inspectText(text, path = "fixture.ts") {
@@ -89,7 +100,7 @@ export function inspectText(text, path = "fixture.ts") {
     if (ts.isCatchClause(node)) {
       if (node.block.statements.length === 0) fail(node, "empty catch is forbidden");
       else if (
-        !handledCatch(node.block) &&
+        !handledCatch(node.block, text) &&
         !/ERROR-INTENT:\s*\S.+/.test(node.block.getText(source))
       ) {
         fail(node, "suppressed catch requires handling or an ERROR-INTENT reason");
@@ -104,7 +115,7 @@ export function inspectText(text, path = "fixture.ts") {
       node.expression.name.text === "catch"
     ) {
       const callback = node.arguments[0];
-      if (callback && !handledRejectionCallback(callback) && !hasIntent(source, node)) {
+      if (callback && !handledRejectionCallback(callback, text) && !hasIntent(source, node)) {
         fail(
           node,
           "rejection callback must throw, log/report, or have an adjacent ERROR-INTENT reason",
