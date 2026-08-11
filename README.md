@@ -6,7 +6,7 @@ The repository is deliberately organized as an agent-readable context graph. Sta
 
 ## Reference slice
 
-The executable harness currently proves the first vertical slice: an authenticated organizer creates an event through React and Hono, Zod validates the contract, D1 persists it, and authorization failures use the standard correlation-aware error envelope.
+The executable product exposes proposal-to-publication journey surfaces across organizer, reviewer, speaker, and public roles. Follow the [competition demo runbook](docs/demo-runbook.md) for the deterministic evaluator path and its documented acceptance boundary.
 
 ```bash
 npm ci
