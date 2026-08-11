@@ -147,12 +147,39 @@ describe("content HTTP transport", () => {
         })
       ).status,
     ).toBe(403);
+    // A private asset must be indistinguishable from one that does not exist, so an
+    // unauthorized reader cannot enumerate asset ids (ARC-AUTH-001).
+    for (const headers of [{}, await cookie("reviewer")])
+      expect(
+        (await api.request(`/api/speaker-assets/${uploadedAsset.id}`, { headers })).status,
+      ).toBe(404);
+    expect(
+      (
+        await api.request(`/api/speaker-assets/${uploadedAsset.id}`, {
+          headers: await cookie("speaker"),
+        })
+      ).status,
+    ).toBe(200);
+
     const published = await api.request(`/api/speaker-assets/${uploadedAsset.id}/publish`, {
       method: "POST",
       headers: await cookie("organizer"),
     });
     expect(published.status).toBe(200);
     expect((await published.json()).asset.visibility).toBe("publishable");
+
+    // Publishing is what makes the bytes anonymously readable, and uploaded bytes are
+    // never served in a way a browser will sniff or execute.
+    const anonymous = await api.request(`/api/speaker-assets/${uploadedAsset.id}`);
+    expect(anonymous.status).toBe(200);
+    // The exact bytes that were uploaded ("AQI=" decodes to 0x01 0x02); a route that
+    // served an empty or re-encoded body would fail here.
+    expect([...new Uint8Array(await anonymous.arrayBuffer())]).toEqual([1, 2]);
+    expect(anonymous.headers.get("content-type")).toBe("image/png");
+    expect(anonymous.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(anonymous.headers.get("content-security-policy")).toContain("sandbox");
+    expect(anonymous.headers.get("cache-control")).toBe("public, max-age=3600");
+    expect((await api.request("/api/speaker-assets/not-a-uuid")).status).toBe(400);
     const sessionId = portalBody.sessions[0]?.id;
     const sessionInput = {
       title: "Managed session",

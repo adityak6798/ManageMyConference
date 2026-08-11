@@ -69,7 +69,12 @@ npm run test:quality   # the fast evaluator gate
 servers already occupy the default ports, pass `GREENROOM_WEB_PORT` / `GREENROOM_API_PORT` — the
 suite reuses an existing server on those ports and will otherwise test the wrong process.
 
-The browser suite is re-runnable: it passes twice in a row against the fixture it just mutated.
+`npm run test:e2e` is repeatable because its own `webServer` step resets the database before each
+invocation. The specs are **not** idempotent against an already-mutated fixture: several assert
+seeded counts, and review completion is terminal by design. If you point the suite at servers that
+are already running — which skips that reset — expect failures. Run `npm run reset` first in that
+case.
+
 `test:quality` checks role-aware journey discovery, that every navigation destination renders,
 public semantics and labels, heading structure, mobile layout with no horizontal overflow, and
 conservative loading/resource budgets.

@@ -243,11 +243,20 @@ export class ContentService {
     if (!asset) return null;
 
     if (asset.visibility !== "publishable") {
-      const authorized = requireCapability(actor, "content:read");
+      // Missing and inaccessible collapse to the same null so the route cannot be used to
+      // discover which asset ids exist — `ARC-AUTH-001` in docs/architecture/authorization.md
+      // requires that errors not reveal whether an inaccessible record exists. Every sibling
+      // method in this service behaves the same way.
+      let authorized: Actor;
+      try {
+        authorized = requireCapability(actor, "content:read");
+      } catch {
+        // ERROR-INTENT: an unauthenticated or uncapable caller must not learn the asset exists.
+        return null;
+      }
       const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
       const ownsProfile = profile?.userId === authorized.id;
-      if (!hasEventRole(authorized, asset.eventId, "organizer") && !ownsProfile)
-        throw new CapabilityDeniedError("Speaker asset access denied");
+      if (!hasEventRole(authorized, asset.eventId, "organizer") && !ownsProfile) return null;
     }
 
     const stored = await this.dependencies.assetStorage.get(asset.storageKey);

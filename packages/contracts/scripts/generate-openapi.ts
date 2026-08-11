@@ -446,6 +446,24 @@ registry.registerPath({
   },
 });
 registry.registerPath({
+  method: "get",
+  path: "/api/speaker-assets/{assetId}",
+  // Deliberately unauthenticated: an asset an organizer marked publishable is public.
+  // A private asset is indistinguishable from a missing one, so this returns 404 rather
+  // than 403 for a caller who may not read it.
+  request: { params: speakerAssetParamsSchema },
+  responses: {
+    200: {
+      description:
+        "Raw asset bytes. Publishable assets are readable by anyone; private assets only by the owning speaker or an event organizer.",
+      content: { "*/*": { schema: { type: "string", format: "binary" } } },
+    },
+    400: errorResponse,
+    404: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
   method: "post",
   path: "/api/speaker-assets/{assetId}/publish",
   security: [{ sessionCookie: [] }],

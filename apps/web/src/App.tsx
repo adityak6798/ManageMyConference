@@ -18,6 +18,7 @@ import { ContentWorkspace } from "./ContentWorkspace";
 import { CrmWorkspace } from "./CrmWorkspace";
 import { OverviewPage } from "./OverviewPage";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
+import { getPublicationSummary } from "./api/publication";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
 import {
@@ -72,6 +73,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [publication, setPublication] = useState<{ slug: string; state: string } | null>(null);
   const location = useLocation();
   const path = location.split("?")[0] ?? "/";
 
@@ -129,6 +131,23 @@ export function App() {
     [session, selectedEventId],
   );
 
+  /**
+   * Route-level gates. The allowlist redirect below is an effect, so it runs only after
+   * children have mounted and fired their requests — each surface has to refuse on its
+   * own rather than rely on being navigated away from.
+   */
+  const isEventOrganizer = Boolean(
+    session?.eventAccess.some(
+      ({ eventId, role }) => eventId === selectedEventId && role === "organizer",
+    ),
+  );
+  const canReadContent =
+    (activeRole === "organizer" || activeRole === "speaker") &&
+    Boolean(
+      session?.capabilities.includes("content:read") ||
+        activeEventCapabilities.includes("content:read"),
+    );
+
   const allowed = useMemo(
     () => routesFor(activeRole, activeEventCapabilities),
     [activeRole, activeEventCapabilities],
@@ -141,6 +160,27 @@ export function App() {
     if (allowed.some((route) => route.href === path)) return;
     navigate(`${allowed[0]?.href ?? "/"}${query}`, { replace: true });
   }, [allowed, loading, path, query, session]);
+
+  // A failure from the previous surface must not follow the user to the next one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clearing is keyed on the route.
+  useEffect(() => setError(null), [path]);
+
+  // The public slug is server-assigned, so it has to be read rather than guessed.
+  useEffect(() => {
+    if (!selectedEventId || !isEventOrganizer) {
+      setPublication(null);
+      return;
+    }
+    let active = true;
+    // ERROR-INTENT: the outbound link is convenience; getPublicationSummary already
+    // resolves to null for any failure, and the link is simply not offered.
+    void getPublicationSummary(selectedEventId).then((summary) => {
+      if (active) setPublication(summary);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedEventId, isEventOrganizer]);
 
   async function switchPersona(persona: Persona) {
     setBusy(true);
@@ -270,7 +310,8 @@ export function App() {
           },
         ];
 
-  const publicHref = selectedEvent ? "/events/greenroom-demo-summit" : null;
+  // Only offer the link once the event is actually published under a known slug.
+  const publicHref = publication?.state === "published" ? `/events/${publication.slug}` : null;
 
   function renderPage() {
     if (!selectedEvent)
@@ -292,9 +333,15 @@ export function App() {
           <>
             <PageHeader title={selectedEvent.name} subtitle="Published event" />
             <Card>
-              <EmptyState title="Browse the published event">
-                <a href="/events/greenroom-demo-summit">Open the public event page</a>
-              </EmptyState>
+              {publicHref ? (
+                <EmptyState title="Browse the published event">
+                  <a href={publicHref}>Open the public event page</a>
+                </EmptyState>
+              ) : (
+                <EmptyState title="This event is not published yet">
+                  Its public page appears here once an organizer publishes it.
+                </EmptyState>
+              )}
             </Card>
           </>
         );
@@ -343,7 +390,9 @@ export function App() {
         ) : null;
       case "/sessions":
       case "/portal":
-        return (
+        // The route allowlist redirect is an effect, so it runs *after* children mount and
+        // fire their requests. Every workspace must therefore gate on capability itself.
+        return canReadContent ? (
           <>
             <PageHeader
               eyebrow={activeRole === "speaker" ? "Speaker" : "Program"}
@@ -355,12 +404,13 @@ export function App() {
               }
             />
             <ContentWorkspace
+              key={`${selectedEventId}:${session?.actor.id}:${activeRole}`}
               eventId={selectedEventId}
               role={activeRole === "speaker" ? "speaker" : "organizer"}
               onError={reportError}
             />
           </>
-        );
+        ) : null;
       case "/agenda":
         return activeEventCapabilities.includes("agenda:manage") ? (
           <>
@@ -384,7 +434,7 @@ export function App() {
           </>
         ) : null;
       case "/communications":
-        return session?.capabilities.includes("communications:manage") ? (
+        return session?.capabilities.includes("communications:manage") && isEventOrganizer ? (
           <>
             <PageHeader
               eyebrow="Audience"

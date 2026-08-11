@@ -101,10 +101,12 @@ describe("ContentService", () => {
       contentType: "image/png",
     });
 
-    // Nobody else can, including anonymous traffic and other roles on the event.
-    await expect(service.readAsset(null, asset.id)).rejects.toThrow();
+    // Nobody else can. Inaccessible and nonexistent are indistinguishable, so the route
+    // cannot be used to enumerate which asset ids exist (ARC-AUTH-001).
+    expect(await service.readAsset(null, asset.id)).toBeNull();
     const reviewer = await resolveSeededDemoActor("reviewer");
-    await expect(service.readAsset(reviewer, asset.id)).rejects.toThrow();
+    expect(await service.readAsset(reviewer, asset.id)).toBeNull();
+    expect(await service.readAsset(reviewer, "00000000-0000-4000-8000-0000000000fe")).toBeNull();
 
     // Publishing is what makes it public — nothing else.
     await service.publishAsset(organizer, asset.id);

@@ -23,6 +23,7 @@
     "reset": "npm run reset --workspace @greenroom/api --if-present",
     "setup:local": "node tools/setup-local.mjs",
     "test": "node --test tools/tests/check-errors.test.mjs && npm test --workspaces --if-present",
+    "test:d1": "npm run test:d1 --workspace @greenroom/api",
     "test:e2e": "npm run test:e2e --workspace @greenroom/web",
     "test:quality": "npm run test:quality --workspace @greenroom/web",
     "typecheck": "npm run typecheck --workspaces --if-present"

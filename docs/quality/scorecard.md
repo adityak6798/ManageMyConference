@@ -4,8 +4,12 @@ Status: canonical | Owner: quality | Last verified: 2026-08-11
 
 Evidence below was produced on 2026-08-11 by `npm run check` (83 API tests, 12 web tests, lint,
 typecheck, OpenAPI drift, context integrity, build), `npm run test:d1` (15 tests across 11 files),
-`npm run test:e2e` (19 tests, run twice consecutively against the fixture the first run mutated),
-and `npm run test:quality` (3 tests).
+`npm run test:e2e` (19 tests), and `npm run test:quality` (3 tests).
+
+Note on repeatability: `npm run test:e2e` passes on repeated invocations because its `webServer`
+step resets the database each time. The specs are not idempotent against an already-mutated
+fixture — pointed at servers that are already running, so the reset is skipped, 6 of 19 fail.
+Closing that gap is tracked by issue #72.
 
 | Acceptance ID | Journey | Required evidence | State |
 |---|---|---|---|
@@ -18,7 +22,7 @@ and `npm run test:quality` (3 tests).
 | `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | passed locally 2026-08-11: resource/placement management, conflict boundaries, authorization, immutable publication, typed API/D1 storage, deterministic reset, drag-and-drop plus keyboard placement, List/Day/Week/Room/Track/Conflicts views, public projection isolation, Playwright, full check, and production builds. Slot times render in UTC rather than the event timezone (issue #85); durable schedule-event outbox delivery remains follow-up |
 | `ACC-PUBLIC` | `JNY-007` | public/embed projection E2E + a11y | passed locally 2026-08-11: immutable allowlisted snapshots, API/auth negatives, D1 persistence, responsive public UI with no horizontal overflow at 390px, Playwright, and accessibility evidence complete. **Caveat:** the seeded published projection is hand-written fixture data rather than a composition of the seeded workspace, so publishing replaces it with different content (issues #36, #63) |
 | `ACC-INTEGRATION` | `JNY-009` (`communications-integrations`) | communication outbox + adapter contracts + retry/terminal E2E | passed locally 2026-08-11: deterministic provider, durable outbox, retry/terminal recovery, authorization negatives, D1 persistence, and Playwright evidence complete. **Caveat:** no lifecycle event enqueues a communication and the only provider is a fake, so the seeded history is placeholder data (issues #52, #66) |
-| `ACC-DEMO-SMOKE` | evaluator orientation across `JNY-001`–`JNY-009` | clean reset + role-aware discovery + accessibility/performance smoke | passed locally 2026-08-11: deterministic runbook/reset, every navigation destination asserted to render rather than merely exist, cross-role boundaries, mobile no-overflow smoke, 19-test Playwright suite proven re-runnable, 15-test D1 integration suite, build, and full check complete. Single-artifact lifecycle acceptance and hosted CI remain pending under issue #10 |
+| `ACC-DEMO-SMOKE` | evaluator orientation across `JNY-001`–`JNY-009` | clean reset + role-aware discovery + accessibility/performance smoke | passed locally 2026-08-11: deterministic runbook/reset, every navigation destination asserted to render rather than merely exist, cross-role boundaries, mobile no-overflow smoke, 19-test Playwright suite, 15-test D1 integration suite, build, and full check complete. The browser suite depends on its own reset; it is not idempotent against a mutated fixture (#72). Single-artifact lifecycle acceptance and hosted CI remain pending under issue #10 |
 
 "Done" requires behavior, negative authorization, visible error state, observability, automated
 acceptance, documentation linkage, and clean CI. A screen or mocked happy path is insufficient.
