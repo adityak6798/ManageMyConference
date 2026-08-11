@@ -34,13 +34,24 @@ place a check is named. Everything else derives from it:
 `npm run gates:check` (`tools/check-gate-drift.mjs`, run first inside `gate:integrity`, so it
 fires in CI and locally) fails the build when the two disagree: a job with no gate script, a
 gate script with no job, a raw command smuggled into a CI step, a gate quietly dropped from
-`check`, an undocumented divergence, or a CI npm pin that no longer matches `packageManager`.
-It self-tests against those eight mutations before reporting success. Add a check by editing
-a gate script; never by adding a step to the workflow.
+`check`, an undocumented divergence, or an npm pin — in the workflow *or in the shared setup
+action* — that no longer matches `packageManager`. It self-tests against those nine mutations
+before reporting success. Add a check by editing a gate script; never by adding a step to the
+workflow.
 
 ## Implemented pull request and main-branch gates
 
-The checked-in `CI` workflow pins npm `11.12.1` in every job and runs five jobs:
+Every job bootstraps through one repository-owned composite action,
+[`.github/actions/setup`](../../.github/actions/setup/action.yml) — Node from `.nvmrc`, the npm
+version `packageManager` pins, `npm ci`, and, behind a `python: "true"` input, the uv-managed
+Python toolchain that only `gate:integrity` needs. The bootstrap therefore has one definition
+instead of five copies. The **jobs** stay separate on purpose: each gate's failure remains
+independently visible, each runs with least-required permissions, and none inherits another's
+build output or database state. Because the action is a `uses:` step, the gate-drift checker
+still sees exactly one `run:` per job — its own gate — and it reads the action directly for the
+npm pin, so moving the bootstrap did not take that check out of service.
+
+The workflow runs five jobs:
 
 1. `integrity` (`gate:integrity`): gate-drift check; Biome/Ruff; context routing/integrity; Python CLI tests; AST error policy; TypeScript; generated OpenAPI drift; declared-schema/migration drift.
 2. `test-build` (`gate:test-build`): unit, API, and component tests with V8 coverage printed for both workspaces, plus production builds.
@@ -49,6 +60,32 @@ The checked-in `CI` workflow pins npm `11.12.1` in every job and runs five jobs:
 5. `security`: `gate:security` is `npm audit --audit-level=high`; the job additionally runs configured full-history gitleaks scanning as a marketplace action, which is therefore not reachable from `npm run check` or from any gate script.
 
 All five jobs are *intended* required branch-protection checks and none of them is one yet: see the status section above. Protection must also require independent approval, resolved review conversations, and disallow force pushes and deletion. The reference slice includes automated unauthenticated and forbidden coverage. Provider adapter contracts and deployment smoke tests remain future product/release work, and cannot exist before a deployment target does (`GAP-008`).
+
+### What sharing the bootstrap did and did not buy
+
+Measured on run `31531729275` (head `5f1a90a`, warm caches), the last full green run before the
+setup action existed. Per job, summing `setup-node`, `setup-uv`, the npm pin, `uv sync` and
+`npm ci`:
+
+| Job | Setup | Job total |
+|---|---|---|
+| `integrity` | 12s | 44s |
+| `test-build` | 17s | 51s |
+| `d1` | 14s | 42s |
+| `browser` | 14s | 142s |
+| `security` | 13s | 24s |
+
+**Setup was not the bottleneck, and sharing it is not a speed-up.** `actions/setup-node`'s npm
+cache was already effective — a warm `npm ci` finishes in 5–7s — so the composite action runs the
+same steps in the same order and warm-run wall time is expected to be unchanged within noise. The
+duplication removed was in *definition*: five copies of the same four steps, which is where a
+version pin or a cache key silently drifts, not where the minutes are. Further optimisation is
+recorded here as **not worthwhile**: the remaining setup cost is dominated by action start-up and
+tarball extraction, and the largest job's time is Playwright, not bootstrap.
+
+What the action does add is diagnosability, which the duplicated steps never had: it prints the
+resolved Node, npm, uv and Python versions and the cache-hit outcome for both caches, so a cache
+that quietly stopped working no longer looks identical to one that is working.
 
 Not every existing tool emits a governing-document link on failure. Improving remediation output is planned, and documentation must not claim it is already universal.
 

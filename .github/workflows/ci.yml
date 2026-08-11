@@ -5,7 +5,9 @@
 # workflow cannot describe two different meanings of "green". `npm run gates:check`
 # (inside gate:integrity) fails the build if they drift.
 #
-# To add a check, edit its gate script — never add a step here.
+# To add a check, edit its gate script — never add a step here. Environment setup lives in
+# ./.github/actions/setup and is shared; the jobs stay separate so each failure is
+# independently visible and no job inherits another's build or database state.
 name: CI
 
 on:
@@ -21,50 +23,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global npm@11.12.1
-      - run: uv sync --locked
-      - run: npm ci
+          python: "true"
       - run: npm run gate:integrity
 
   test-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global npm@11.12.1
-      - run: npm ci
+      - uses: ./.github/actions/setup
       - run: npm run gate:test-build
 
   d1:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global npm@11.12.1
-      - run: npm ci
+      - uses: ./.github/actions/setup
       - run: npm run gate:d1
 
   browser:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global npm@11.12.1
-      - run: npm ci
+      - uses: ./.github/actions/setup
       - run: npx playwright install --with-deps chromium
       - run: npm run gate:browser
       - if: failure()
@@ -82,14 +64,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # gitleaks scans history, which a shallow clone does not have.
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global npm@11.12.1
-      - run: npm ci
+      - uses: ./.github/actions/setup
       - run: npm run gate:security
