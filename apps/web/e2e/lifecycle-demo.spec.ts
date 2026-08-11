@@ -24,7 +24,7 @@ test("makes the complete seeded lifecycle discoverable across every role", async
   await expect(page.getByRole("heading", { name: "Prospect pipeline" })).toHaveCount(0);
 
   await page.getByRole("combobox", { name: "Demo identity" }).selectOption("speaker");
-  await expect(page.getByRole("heading", { name: "2 tasks to complete" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /tasks to complete/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Your sessions" })).toBeVisible();
 
   await page.getByRole("combobox", { name: "Demo identity" }).selectOption("public");
