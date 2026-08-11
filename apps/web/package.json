@@ -7,6 +7,7 @@
     "dev": "vite --port ${GREENROOM_WEB_PORT:-5173}",
     "build": "vite build",
     "test:e2e": "playwright test",
+    "test:quality": "playwright test e2e/lifecycle-demo.spec.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

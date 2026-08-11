@@ -4,9 +4,9 @@ Status: canonical | Owner: delivery | Last verified: 2026-08-09
 
 ## `PLAN-002` Product lifecycle
 
-Status: ready
+Status: active; lifecycle acceptance integrated locally 2026-08-10
 
-Build domain foundations, then bounded vertical slices for `JNY-001` through `JNY-009`. `PLAN-001` has passed its harness gate, so bounded domain work may begin using declared manifests, contracts, and ownership. Integration occurs through the lifecycle acceptance suite.
+The bounded vertical slices for `JNY-001` through `JNY-009` are integrated through public application entrypoints. `ACC-LIFECYCLE` now provides the deterministic reset/runbook, role-aware evaluator path, aggregate browser evidence, accessibility/performance smoke, and scheduled quality gate. Hosted CI and the explicitly owned follow-ups in the issue remain before final closure.
 
 ## `PLAN-003` Evaluation artifact
 

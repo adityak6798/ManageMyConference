@@ -25,3 +25,25 @@ jobs:
       - run: uv run python -m unittest discover -s tools/tests
       - run: npm run openapi:check
       - run: npm audit --audit-level=high
+
+  evaluator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:quality
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-evaluator-failure-artifacts
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/api/.wrangler/wrangler.log
+          if-no-files-found: ignore

@@ -15,3 +15,5 @@ This interpretation maps evaluation areas to coherent product capability. It doe
 | CRM | `PRD-CRM-001` | `JNY-008` | `ACC-CRM` |
 
 The lifecycle chain is the integration acceptance target. No area is considered complete solely because its screen exists.
+
+`ACC-LIFECYCLE` composes all nine journeys without taking ownership away from their domain suites. The reproducible evaluator order and clean-reset commands are maintained in the [competition demo runbook](../demo-runbook.md).

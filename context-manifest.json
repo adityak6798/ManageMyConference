@@ -61,8 +61,8 @@
       "id": "platform",
       "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001"],
       "journeys": [],
-      "acceptance": ["ACC-HARNESS"],
-      "plans": ["PLAN-001"],
+      "acceptance": ["ACC-HARNESS", "ACC-LIFECYCLE"],
+      "plans": ["PLAN-001", "PLAN-002"],
       "index": "docs/architecture/README.md",
       "paths": [
         ".agents/extra-skills/bootstrap-harness",
@@ -80,7 +80,9 @@
         "apps/api/vitest.config.ts",
         "apps/api/vitest.integration.config.ts",
         "apps/web/vite.config.ts",
-        "apps/web/playwright.config.ts"
+        "apps/web/playwright.config.ts",
+        "apps/web/e2e/lifecycle-demo.spec.ts",
+        "docs/demo-runbook.md"
       ]
     },
     {
