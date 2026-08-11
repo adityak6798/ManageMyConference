@@ -1,8 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
+import { Miniflare } from "miniflare";
 
 interface RunnableDatabase {
   prepare(query: string): { run(): Promise<unknown> };
 }
+
+type D1Database = Awaited<ReturnType<Miniflare["getD1Database"]>>;
 
 /**
  * Split SQL on statement boundaries. A plain `split(";")` corrupts the trigger migrations,
@@ -76,23 +79,124 @@ export function statements(sql: string): string[] {
   return found;
 }
 
+const MIGRATIONS_DIRECTORY = new URL("../../migrations/", import.meta.url);
+const SEED_FILE = new URL("../../seed/reset.sql", import.meta.url);
+
 /**
- * Apply every migration in order and then `seed/reset.sql`, exactly as `npm run reset` does.
- * The migration list is read from the directory rather than hard-coded so a new migration is
- * covered the moment it lands.
+ * Every migration filename in the order Wrangler applies them.
+ *
+ * Read from the directory rather than listed, so a new migration is covered by every test the
+ * moment it lands. Hand-maintained subsets are what this replaces: each D1 test carried its
+ * own list, adding a migration meant editing tests in domains that had nothing to do with it,
+ * and the lists drifted until the shared reset referenced tables several fixtures did not have.
  */
-export async function applySeed(database: RunnableDatabase): Promise<void> {
-  const migrationsDirectory = new URL("../../migrations/", import.meta.url);
-  const migrations = (await readdir(migrationsDirectory))
+export async function migrationFilenames(): Promise<string[]> {
+  const names = (await readdir(MIGRATIONS_DIRECTORY))
     .filter((name) => name.endsWith(".sql"))
     .sort();
-  if (migrations.length === 0) throw new Error("no migrations found to apply");
-  for (const migration of migrations) {
-    const sql = await readFile(new URL(migration, migrationsDirectory), "utf8");
-    for (const statement of statements(sql)) await database.prepare(statement).run();
+  if (names.length === 0) throw new Error("no migrations found to apply");
+  return names;
+}
+
+/** Run one file's statements, naming the file and the statement if any of them fails. */
+async function runFile(database: RunnableDatabase, label: string, sql: string): Promise<void> {
+  for (const [index, statement] of statements(sql).entries()) {
+    try {
+      await database.prepare(statement).run();
+    } catch (cause) {
+      // ERROR-INTENT: rethrown with the file and statement named. The bare driver error says
+      // only "no such table", which in a 22-migration replay is the one thing you already knew.
+      throw new Error(
+        `${label}: statement ${index + 1} failed\n${statement}\n${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+        { cause },
+      );
+    }
   }
-  const reset = await readFile(new URL("../../seed/reset.sql", import.meta.url), "utf8");
-  for (const statement of statements(reset)) await database.prepare(statement).run();
+}
+
+/**
+ * Apply every migration in canonical order.
+ *
+ * `through` stops after the named migration. It exists only for a test that has to prove
+ * behaviour against an older schema — a migration-compatibility case — and every other test
+ * takes the whole set.
+ */
+export async function applyMigrations(
+  database: RunnableDatabase,
+  options: { through?: string; from?: string } = {},
+): Promise<string[]> {
+  const names = await migrationFilenames();
+  for (const [option, value] of Object.entries(options))
+    if (value && !names.includes(value))
+      throw new Error(
+        `applyMigrations({ ${option}: "${value}" }) names a migration that does not exist`,
+      );
+  const applied: string[] = [];
+  let started = options.from === undefined;
+  for (const name of names) {
+    if (name === options.from) started = true;
+    if (started) {
+      await runFile(database, name, await readFile(new URL(name, MIGRATIONS_DIRECTORY), "utf8"));
+      applied.push(name);
+    }
+    if (options.through === name) break;
+  }
+  return applied;
+}
+
+/** Apply `seed/reset.sql`, the same deterministic fixture `npm run reset` writes. */
+export async function applySeedData(database: RunnableDatabase): Promise<void> {
+  await runFile(database, "seed/reset.sql", await readFile(SEED_FILE, "utf8"));
+}
+
+/**
+ * Apply every migration in order and then `seed/reset.sql`, exactly as `npm run reset` does.
+ */
+export async function applySeed(database: RunnableDatabase): Promise<void> {
+  await applyMigrations(database);
+  await applySeedData(database);
+}
+
+let created = 0;
+
+export interface MigratedDatabase {
+  runtime: Miniflare;
+  database: D1Database;
+  /** The migrations this database was built from, in the order they were applied. */
+  applied: string[];
+  dispose(): Promise<void>;
+}
+
+/**
+ * An isolated, fully migrated D1 database.
+ *
+ * Each call gets its own Miniflare instance and its own database name, so two tests — or two
+ * cases in one test — cannot see each other's rows. Dispose it in `afterEach`.
+ */
+export async function createMigratedDatabase(
+  options: { seed?: boolean; through?: string; label?: string } = {},
+): Promise<MigratedDatabase> {
+  created += 1;
+  const runtime = new Miniflare({
+    modules: true,
+    script: "export default { fetch() {} }",
+    d1Databases: { DB: `${options.label ?? "greenroom"}-${created}-${crypto.randomUUID()}` },
+  });
+  try {
+    const database = await runtime.getD1Database("DB");
+    const applied = await applyMigrations(database as RunnableDatabase, {
+      ...(options.through ? { through: options.through } : {}),
+    });
+    if (options.seed) await applySeedData(database as RunnableDatabase);
+    return { runtime, database, applied, dispose: () => runtime.dispose() };
+  } catch (error) {
+    // ERROR-INTENT: a runtime that failed to migrate still holds a socket and a temp
+    // directory, so it is disposed before the failure is rethrown unchanged.
+    await runtime.dispose();
+    throw error;
+  }
 }
 
 /** The bytes `npm run reset` writes into the local R2 bucket for the seeded headshot. */

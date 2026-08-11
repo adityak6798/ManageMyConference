@@ -11,7 +11,9 @@
       "!**/playwright-report",
       "!**/test-results",
       "!**/openapi.json",
-      "!prototype.html"
+      "!context-manifest.json",
+      "!prototype.html",
+      "!.claude/worktrees"
     ]
   },
   "formatter": {

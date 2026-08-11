@@ -1,0 +1,38 @@
+{
+  "id": "review",
+  "order": 50,
+  "index": "docs/product/specifications.md",
+  "specs": ["PRD-REV-001"],
+  "journeys": ["JNY-003"],
+  "acceptance": ["ACC-REVIEW"],
+  "plans": ["PLAN-002"],
+  "paths": [
+    "apps/api/src/domain/review",
+    "apps/api/src/application/review",
+    "apps/api/src/adapters/persistence/d1-review-repository.ts",
+    "apps/api/src/adapters/persistence/memory-review-repository.ts",
+    "apps/api/migrations/0006_review_workflow.sql",
+    "apps/api/migrations/0007_review_completion_conflict_guard.sql",
+    "apps/api/migrations/0008_review_conflict_completion_guard.sql",
+    "apps/api/migrations/0009_review_assignment_requires_plan.sql",
+    "apps/api/migrations/0010_review_plan_lock.sql",
+    "apps/api/migrations/0011_cfp_transition_status_guard.sql",
+    "apps/api/migrations/0012_cfp_status_in_use_guard.sql",
+    "apps/api/migrations/0013_cfp_submission_default_status.sql",
+    "apps/api/migrations/0021_review_decisions.sql",
+    "apps/api/test/review-service.test.ts",
+    "apps/api/test/review-http.test.ts",
+    "apps/api/test/d1-review-repository.integration.test.ts",
+    "apps/web/src/ReviewWorkspace.tsx",
+    "apps/web/src/api/review.ts",
+    "apps/web/e2e/review-workflow.spec.ts",
+    "apps/web/test/proposal-acceptance.test.tsx",
+    "apps/web/test/review-decisions.test.tsx",
+    "apps/api/src/transport/http/routes/review.ts",
+    "apps/web/src/workspaces/review.tsx"
+  ],
+  "symbols": {
+    "ReviewService": "apps/api/src/application/review/review-service.ts",
+    "ReviewRepository": "apps/api/src/application/review/review-repository.ts"
+  }
+}

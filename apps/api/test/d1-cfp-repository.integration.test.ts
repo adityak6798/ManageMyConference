@@ -1,9 +1,9 @@
 // @acceptance ACC-CFP
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import { applySeedData, createMigratedDatabase, statements } from "./support/seeded-d1";
 import {
   D1CfpRepository,
   type D1CfpDatabasePort,
@@ -17,73 +17,13 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { ContentConflictError } from "../src/application/content/content-repository";
-const statements = (sql: string) =>
-  sql
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean);
 describe("D1CfpRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
   it("persists published snapshots and returns one durable submission for concurrent retries", async () => {
-    runtime = new Miniflare({
-      modules: true,
-      script: "export default { fetch() {} }",
-      d1Databases: { DB: "cfp-test" },
-    });
-    const database = await runtime.getD1Database("DB");
-    for (const migration of [
-      "0001_create_events.sql",
-      "0002_identity_event_foundation.sql",
-      "0003_cfp.sql",
-      "0004_cfp_published_snapshot.sql",
-      "0005_cfp_snapshot_status.sql",
-      "0006_review_workflow.sql",
-    ]) {
-      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
-      for (const statement of statements(sql)) await database.prepare(statement).run();
-    }
-    for (const migration of [
-      "0007_review_completion_conflict_guard.sql",
-      "0008_review_conflict_completion_guard.sql",
-      "0009_review_assignment_requires_plan.sql",
-      "0010_review_plan_lock.sql",
-      "0011_cfp_transition_status_guard.sql",
-      "0012_cfp_status_in_use_guard.sql",
-      "0013_cfp_submission_default_status.sql",
-    ]) {
-      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
-      expect((await database.prepare(sql).run()).success).toBe(true);
-    }
-    const contentSql = await readFile(
-      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of statements(contentSql)) await database.prepare(statement).run();
-    for (const migration of ["0015_crm_conversion.sql", "0016_crm_speaker_conversion.sql"]) {
-      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
-      for (const statement of statements(sql)) await database.prepare(statement).run();
-    }
-    for (const migration of ["0017_agenda.sql", "0018_agenda_draft_revision.sql"]) {
-      const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
-      for (const statement of statements(sql)) await database.prepare(statement).run();
-    }
-    const trailingMigrations = (
-      await Promise.all([
-        readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
-        readFile(
-          new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
-          "utf8",
-        ),
-        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
-      ])
-    ).join("\n");
-    for (const statement of statements(trailingMigrations)) await database.prepare(statement).run();
-    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    // Asserted, like the DDL above: an unasserted seed loop would let this whole suite run
-    // green against an empty database the moment the seed stopped applying.
-    for (const statement of statements(reset))
-      expect((await database.prepare(statement).run()).success, statement).toBe(true);
+    const migrated = await createMigratedDatabase({ label: "cfp-published", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);
     const proposals = new D1SubmittedProposalAdapter(database as D1ProposalDatabasePort);
     const form = {
@@ -224,19 +164,20 @@ describe("the DDL rendered from schema.ts", () => {
       ],
       { encoding: "utf8" },
     );
+    // Built from the *declared* DDL, deliberately not from the migrations. This case exists to
+    // prove schema.ts carries the constraints the repositories depend on; running it against a
+    // migrated database would let a default or a uniqueness constraint disappear from schema.ts
+    // while these assertions stayed green — which is precisely what it is here to catch. It is
+    // the one fixture in the suite that does not use the shared migration harness, and the
+    // reason is this comment.
     runtime = new Miniflare({
       modules: true,
       script: "export default { fetch() {} }",
-      d1Databases: { DB: "declared-schema-test" },
+      d1Databases: { DB: `cfp-declared-ddl-${crypto.randomUUID()}` },
     });
     const database = await runtime.getD1Database("DB");
-    for (const statement of statements(declaredDdl))
-      expect((await database.prepare(statement).run()).success).toBe(true);
-    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    // The seed is the fixture every assertion below leans on, so a statement that stops
-    // applying has to fail here rather than silently leave an empty database.
-    for (const statement of statements(reset))
-      expect((await database.prepare(statement).run()).success, statement).toBe(true);
+    for (const statement of statements(declaredDdl)) await database.prepare(statement).run();
+    await applySeedData(database);
 
     const eventId = "00000000-0000-4000-8000-000000000001";
     const repository = new D1CfpRepository(database as D1CfpDatabasePort);

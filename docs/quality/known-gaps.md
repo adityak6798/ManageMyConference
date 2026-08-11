@@ -26,22 +26,32 @@ feature-by-feature verdict.
   `10eab436`. Impact: a red gate cannot block a merge. Owner: platform. Governing ID: `ENG-CI-001`.
   Closure: enable protection on `main` requiring `integrity`, `test-build`, `d1`, `browser` and
   `security`, then record the settings and one passing required-check run here.
-- `GAP-004` API/web ports are environment-overridable but not automatically allocated per worktree,
-  and `npm run test:e2e` reuses any server already answering on the port it wants, which silently
-  tests another checkout. R2 bootstrap and an expanded readiness report are not implemented. Impact:
-  concurrent worktrees interfere and the interference is invisible. Owner: developer experience.
-  Governing ID: `ENG-DEV-001`. Closure: concurrent worktrees start without manual port assignment,
-  and readiness reports resource/provider state without secrets. Tracked by issue #28.
+- `GAP-004` **Largely closed by issue #28; one part remains.** Ports are now derived from the
+  checkout path rather than defaulted, so concurrent worktrees no longer need manual port
+  assignment, and local D1/R2 state is keyed on the API port under
+  `apps/api/.wrangler/instances/<api-port>/`, so two instances of one worktree no longer share a
+  database. `npm run worktree:status` reports the resolved ports and paths without printing
+  secrets, and a database whose migrations no longer match the repository is refused with a named
+  diagnostic and a `--rebuild` recovery. See [local development](../engineering/local-development.md#ports-and-local-state-are-per-instance).
 
-  **Free ports are not sufficient.** Measured 2026-08-11: two `wrangler dev` instances of *this*
-  worktree on different ports (8887 for a hand-driven demo, 9087 for the suite) share one
-  `apps/api/.wrangler/state/v3/d1` SQLite file, and the browser suite then fails intermittently —
+  What remains: R2 bootstrap is still the seed upload performed by `npm run reset` rather than a
+  first-class provisioning step, and the readiness report covers ports, paths and migration
+  identity but not provider state. Owner: developer experience. Governing ID: `ENG-DEV-001`.
+  Closure: readiness reports resource/provider state as well.
+
+  The measurement this entry was written from, kept because it is the reason the state directory is
+  per instance rather than per worktree: on 2026-08-11 two `wrangler dev` instances of *this*
+  worktree on different ports (8887 for a hand-driven demo, 9087 for the suite) shared one
+  `apps/api/.wrangler/state/v3/d1` SQLite file, and the browser suite then failed intermittently —
   2 failures across 5 consecutive runs, a different single spec each time
   (`speaker-portal`, `public-event`), none reproducible on its own. With the second instance
-  stopped and nothing else changed, 6 consecutive runs passed. The failures look like ordinary
-  assertion failures, so the cost is a developer debugging their own test rather than their
-  environment. Port isolation alone will not fix this; the local D1 (and R2) state directory has to
-  be per-instance, not only per-worktree.
+  stopped and nothing else changed, 6 consecutive runs passed. The failures looked like ordinary
+  assertion failures, so the cost was a developer debugging their own test rather than their
+  environment.
+
+  Silently testing *another checkout's* server is a distinct defect with a distinct fix; it is
+  tracked by issue #90, because a free port stops a collision but not an override that names a port
+  a stranger already holds.
 - `GAP-005` Two browser specs are inherently non-idempotent and assert the complement rather than
   the state. Completion of an evaluation and declaration of a conflict are terminal by design, so
   `review-workflow.spec.ts` files its own abstracts each run; no product affordance returns a

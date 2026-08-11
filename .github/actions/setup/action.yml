@@ -1,0 +1,58 @@
+# The one definition of "build the environment a gate runs in".
+#
+# Every job in ci.yml bootstraps through this action and then runs exactly one
+# `npm run gate:<job name>`. Setup is shared; the gate is not. Keeping the five jobs
+# separate is deliberate — each failure stays independently visible, and no job inherits
+# another's mutable build or database state.
+#
+# The npm version below is checked against package.json's `packageManager` field by
+# `npm run gates:check`, so this file cannot drift from the version the repository pins.
+name: Set up the repository toolchain
+description: Node from .nvmrc, the pinned npm, cached dependencies, and optionally uv-managed Python.
+
+inputs:
+  python:
+    description: Also install the uv-managed Python toolchain. Only gate:integrity needs it.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - id: node
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        # Keys on package-lock.json, which is committed, so a lockfile change is the only
+        # thing that invalidates the cache.
+        cache: npm
+
+    - run: npm install --global npm@11.12.1
+      shell: bash
+
+    - if: inputs.python == 'true'
+      id: uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+
+    - if: inputs.python == 'true'
+      run: uv sync --locked
+      shell: bash
+
+    - run: npm ci
+      shell: bash
+
+    # Without this, a cache that silently stopped working looks exactly like one that is
+    # working — the job is simply slower, and nobody reads a green log to find out why.
+    - name: Report toolchain and cache outcome
+      shell: bash
+      run: |
+        echo "node    $(node --version)"
+        echo "npm     $(npm --version)"
+        echo "npm cache hit: ${{ steps.node.outputs.cache-hit || 'false' }}"
+        if [ "${{ inputs.python }}" = "true" ]; then
+          echo "uv      $(uv --version)"
+          echo "python  $(uv run python --version)"
+          echo "uv cache hit: ${{ steps.uv.outputs.cache-hit || 'false' }}"
+        fi

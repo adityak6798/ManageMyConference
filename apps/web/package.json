@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port ${GREENROOM_WEB_PORT:-5173}",
+    "dev": "vite",
     "build": "vite build",
     "test:e2e": "playwright test",
     "test:quality": "playwright test e2e/lifecycle-demo.spec.ts",

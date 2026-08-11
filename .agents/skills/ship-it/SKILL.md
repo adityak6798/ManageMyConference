@@ -32,14 +32,36 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
 - Reject claims that exceed executed evidence. Distinguish local proof, configured CI, and externally verified state.
 - Run the documentation/context drift gates. Use [doc-sync.md](references/doc-sync.md).
 
-### 3. Run the skeptical Ralph loop
+### 3. Run the risk-scoped skeptical Ralph loop
 
-- Give an independent skeptical reviewer the actual diff, governing documents, test evidence, and review opinions.
-- Ask for severity-ranked blocker, major, minor, and note findings. Require concrete file/behavior evidence.
-- Fix all blockers and majors that are in scope. Triage minors; fix high-value ones and record justified deferrals.
-- Re-run relevant tests and doc sync after repairs, then ask the reviewer to inspect the new state.
-- Repeat until the reviewer reports zero blockers and zero majors. Never substitute self-attestation for the independent pass.
-- Maintain a findings ledger for the PR comment using the schema in [review-loop.md](references/review-loop.md).
+- Derive the risk map first: `node tools/review-risk.mjs <base>`. It reports the dimensions this
+  change touches, the files that raised each one, and the owning domains and governing specs.
+  Give the reviewer **that**, plus the diff, the governing documents, the test evidence, and any
+  invocation-specific review opinions. "Review this diff" is not a review input.
+- These dimensions always get a deep pass when touched, and the tool marks them `DEEP`:
+  authorization, persistence and migrations, concurrency and idempotency, provider effects,
+  public contracts, cross-domain composition, and the harness and gates themselves. Each carries
+  the reason it is on the list, because a dimension nobody can justify is the first one dropped
+  when a review is rushed.
+- A change in which **every** file is a generated artifact may take the abbreviated path: prove
+  equivalence by re-running the generator and showing an empty diff. A change touching a
+  generator *and* its output is not generated-only — the generator is source, and it gets the
+  full pass.
+- Ask for severity-ranked blocker, major, minor, and note findings with concrete file/behaviour
+  evidence. The risk map says where to look hardest; it never says what the reviewer will find,
+  and "nothing in this dimension" is a valid result worth recording.
+- Fix all blockers and majors that are in scope. Triage minors; fix high-value ones and record
+  justified deferrals.
+- Re-run relevant tests and doc sync after repairs, then ask the reviewer to inspect the new
+  state. Repeat until the reviewer reports zero blockers and zero majors. Never substitute
+  self-attestation for the independent pass — `publicationProblems` in
+  `tools/review-ledger.mjs` refuses a resolution with no evidence naming the test, commit, or
+  pass that closed it.
+- Carry the ledger across passes with `mergePass`; do not re-derive the table each round. A
+  finding the reviewer does not raise again is **not** thereby fixed, so it stays open until a
+  disposition closes it, and a finding first raised in a late pass still reaches the comment.
+- Record each pass's duration and finding count. `passStatistics` reports them, and tuning the
+  policy is supposed to rest on that rather than on taste.
 
 ### 4. Publish a draft PR
 
@@ -65,6 +87,10 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
 
 ### 7. Post transparent PR comments
 
+- Render the findings comment from the ledger rather than writing it by hand, so the two cannot
+  drift. Before publishing, run `publicationProblems(ledger, head)`: it refuses a ledger whose
+  last pass ran against a commit that is no longer the head. A repair after the review moves the
+  head, and a comment naming the old one describes a review of code that is no longer there.
 - Add or update one PR comment containing the triaged findings table. Include Ralph and automated-review findings, their disposition, and evidence.
 - Before calling the PR review-ready, give every actionable item that will survive merge a durable issue tracker. Link an appropriate open issue and update its scope when needed; create a new issue only when no existing issue cleanly owns the work. Avoid duplicates. Record the owner, deferral rationale or current state, and a concrete closure condition in the issue.
 - Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, ownership, and the linked issue for every actionable follow-on. If nothing remains, say so explicitly.

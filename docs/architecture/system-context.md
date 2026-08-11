@@ -1,8 +1,8 @@
 # System context and flow
 
-Status: canonical | Owner: architecture | IDs: `ARC-001`–`ARC-004` | Last verified: 2026-08-09
+Status: canonical | Owner: architecture | IDs: `ARC-001`–`ARC-004` | Last verified: 2026-08-11
 
-`ARC-001` The browser is React/Vite and uses the REST API only. `ARC-002` Hono runs the API on Cloudflare Workers. `ARC-003` D1 stores canonical relational data; R2 is planned for assets and is not configured yet. `ARC-004` Future provider adapters are reached only through application ports; none are implemented yet.
+`ARC-001` The browser is React/Vite and uses the REST API only. `ARC-002` Hono runs the API on Cloudflare Workers. `ARC-003` D1 stores canonical relational data, and R2 stores assets: the bucket is bound as `ASSETS` in `apps/api/wrangler.toml`, `R2AssetStorage` is wired in `apps/api/src/index.ts`, and speaker uploads and the seeded headshot go through it. `ARC-004` Provider adapters are reached only through application ports. The only one implemented is `DeterministicProvider`, a fake that always succeeds and is what the Worker wires for email, Airtable and Accelevents alike; no adapter sends or writes anything outside this machine (`GAP-010`, `GAP-012`, issue #23).
 
 ```text
 organizer/reviewer/speaker/public browser

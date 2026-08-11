@@ -1,0 +1,66 @@
+/**
+ * The extension point a domain implements to put a workspace in the console.
+ *
+ * A domain adds a surface by writing one module in this directory and adding one line to
+ * `registry.tsx`. Before this, a new workspace meant editing three separate places in
+ * `App.tsx` — the per-persona route table, the icon map, and the `renderPage` switch — all of
+ * which every other domain was editing too.
+ *
+ * @spec ARC-001 ARC-DOM-001 PRD-IAM-002
+ */
+import type { EventDto, SessionDto } from "@greenroom/contracts";
+import type { ReactNode } from "react";
+import type { Persona } from "../AppShell";
+
+/** Sidebar grouping. `home` is the ungrouped first item. */
+export type NavGroupName = "home" | "Program" | "Audience";
+
+/** What a workspace may consult to decide whether this identity can open it. */
+export interface WorkspaceAccess {
+  session: SessionDto | null;
+  activeRole: Persona;
+  /**
+   * Capabilities scoped to the selected event, never the actor-level union. The union is
+   * every event the actor can touch, so testing it would let an organizer of event A mount
+   * event B's workspace and fire its requests.
+   */
+  capabilities: readonly string[];
+  isEventOrganizer: boolean;
+}
+
+/** Everything a workspace needs to render itself. */
+export interface WorkspaceContext extends WorkspaceAccess {
+  event: EventDto;
+  query: string;
+  agendaLoadFailure: string | null;
+  reportAgendaLoadFailure: (message: string) => void;
+  onPublicationChange: (publication: { state: string; slug: string } | null) => void;
+}
+
+export interface WorkspaceHeader {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+}
+
+export interface WorkspaceModule {
+  /** The `context-manifest.json` domain that owns this workspace. */
+  readonly domain: string;
+  /** Its route, which is also its identity in the sidebar. */
+  readonly path: string;
+  readonly label: string;
+  readonly group: NavGroupName;
+  /** Sidebar position within the persona's list. */
+  readonly order: number;
+  readonly icon: ReactNode;
+  /**
+   * Personas that see this in the sidebar. Deliberately separate from `canAccess`: an
+   * organizer sees every organizer surface listed even where a capability is missing, and
+   * opening one then explains the refusal rather than hiding that it exists.
+   */
+  readonly personas: readonly Persona[];
+  /** Absent means the persona check is the whole gate. */
+  canAccess?(access: WorkspaceAccess): boolean;
+  header(context: WorkspaceContext): WorkspaceHeader;
+  render(context: WorkspaceContext): ReactNode;
+}

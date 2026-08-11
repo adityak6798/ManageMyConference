@@ -8,70 +8,273 @@
   },
   "architecture": {
     "publicApplicationEntryPoints": [
-      "apps/api/src/application/events/event-service.ts",
-      "apps/api/src/application/events/public.ts",
-      "apps/api/src/application/cfp/public.ts",
-      "apps/api/src/application/identity/actor.ts",
-      "apps/api/src/application/identity/demo-session.ts",
-      "apps/api/src/application/identity/identity-directory.ts",
-      "apps/api/src/application/communications/communications-service.ts",
-      "apps/web/src/api/communications.ts",
-      "apps/api/src/application/content/content-service.ts",
-      "apps/api/src/application/content/public.ts",
-      "apps/api/src/application/cfp/submitted-proposal-interface.ts",
-      "apps/api/src/application/review/review-service.ts",
-      "apps/api/src/application/review/review-repository.ts",
-      "apps/api/src/application/review/public.ts",
-      "apps/api/src/application/crm/public.ts",
-      "apps/api/src/application/content/speaker-conversion.ts",
-      "apps/web/src/CrmWorkspace.tsx",
-      "apps/api/src/application/agenda/public.ts",
-      "apps/web/src/AgendaWorkspace.tsx",
-      "apps/api/src/application/publishing/publication-service.ts",
-      "apps/api/src/application/publishing/public.ts",
-      "apps/web/src/PublicEventApp.tsx",
-      "apps/web/src/api/cfp.ts",
-      "apps/web/src/ui/primitives.tsx",
-      "apps/web/src/ui/icons.tsx"
+      {
+        "path": "apps/api/src/application/events/event-service.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "Every domain that must know an event exists, or who organizes it, asks this service: review resolves event membership through it and the transport composes it."
+      },
+      {
+        "path": "apps/api/src/application/events/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The events domain's declared export surface. No cross-domain import reaches it today \u2014 consumers still use event-service.ts \u2014 and it stays declared so a new consumer has a surface to target instead of deep-importing the service."
+      },
+      {
+        "path": "apps/api/src/application/cfp/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "CFP's declared export surface: the service type and the three errors the transport translates into 400 and 404 responses."
+      },
+      {
+        "path": "apps/api/src/application/identity/actor.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The capability model and the two authorization errors. Every domain's route module and four application services enforce authorization through it, which makes it the one identity surface the whole repository depends on."
+      },
+      {
+        "path": "apps/api/src/application/identity/demo-session.ts",
+        "governing": "PRD-IAM-001",
+        "reason": "Harness-only session issue and resolution. The transport middleware resolves the session cookie through it and the identity routes issue one."
+      },
+      {
+        "path": "apps/api/src/application/identity/identity-directory.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
+      },
+      {
+        "path": "apps/api/src/application/communications/communications-service.ts",
+        "governing": "PRD-COM-001",
+        "reason": "Communications' command surface and its three typed errors, composed by the transport."
+      },
+      {
+        "path": "apps/api/src/application/content/content-service.ts",
+        "governing": "PRD-SPK-001",
+        "reason": "Content's command surface, plus the speaker-identity and photo errors that review's route module translates when acceptance provisions a speaker."
+      },
+      {
+        "path": "apps/api/src/application/content/public.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "Content's declared read interface. Agenda and publishing compose session content through it rather than reading content's tables."
+      },
+      {
+        "path": "apps/api/src/application/cfp/submitted-proposal-interface.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "The reference review uses to reach a submitted proposal without reading cfp_submissions."
+      },
+      {
+        "path": "apps/api/src/application/review/review-service.ts",
+        "governing": "PRD-REV-001",
+        "reason": "Review's command surface and its three typed errors, composed by the transport."
+      },
+      {
+        "path": "apps/api/src/application/review/public.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "Review's declared outcome interface: content asks it whether a proposal was accepted before provisioning a speaker."
+      },
+      {
+        "path": "apps/api/src/application/crm/public.ts",
+        "governing": "PRD-CRM-001",
+        "reason": "CRM's declared surface and its four typed errors, composed by the transport."
+      },
+      {
+        "path": "apps/api/src/application/content/speaker-conversion.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "The command CRM issues to turn a prospect into a speaker, so conversion crosses the boundary as a call rather than a write into content's tables."
+      },
+      {
+        "path": "apps/api/src/application/agenda/public.ts",
+        "governing": "PRD-AGD-001",
+        "reason": "Agenda's declared schedule interface. Content reads session times through it and publishing composes the public schedule from it."
+      },
+      {
+        "path": "apps/api/src/application/publishing/public.ts",
+        "governing": "PRD-PUB-001",
+        "reason": "Publishing's declared surface: the service type and composePublicSchedule, which the transport uses to build the public schedule response."
+      },
+      {
+        "path": "apps/web/src/PublicEventApp.tsx",
+        "governing": "PRD-PUB-001",
+        "reason": "The public site's root component. main.tsx mounts it for /events/*, which is the only cross-domain reach into publishing's UI."
+      },
+      {
+        "path": "apps/web/src/api/cfp.ts",
+        "governing": "PRD-CFP-002",
+        "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
+      },
+      {
+        "path": "apps/web/src/ui/primitives.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system. Eight domains' workspaces render through the same Card, Notice, EmptyState and PageHeader, which is what makes the console read as one product."
+      },
+      {
+        "path": "apps/web/src/ui/icons.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's icon set, imported by every workspace module and by the shell's navigation."
+      },
+      {
+        "path": "apps/api/src/transport/http/runtime.ts",
+        "governing": "ARC-001",
+        "reason": "The transport's shared vocabulary: the request context type, the error envelope, the validation-field helper and the JSON reader. Every domain route module imports it and it holds no domain logic."
+      },
+      {
+        "path": "apps/api/src/transport/http/routes/contract.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The route-module interface and the named dependency set every domain route module implements."
+      },
+      {
+        "path": "apps/api/src/transport/http/throttle.ts",
+        "governing": "PRD-CFP-002",
+        "reason": "Address-derived submission throttling. CFP's public submission route is its only consumer, but the throttle is transport infrastructure rather than CFP's rule, so it stays platform-owned."
+      },
+      {
+        "path": "apps/web/src/workspaces/contract.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The workspace-module interface every domain's console surface implements."
+      }
     ],
     "compositionRoots": [
-      "apps/api/src/index.ts",
-      "apps/web/src/App.tsx",
-      "apps/web/src/OverviewPage.tsx"
+      {
+        "path": "apps/api/src/index.ts",
+        "governing": "ARC-001",
+        "reason": "The Worker entry point. It constructs every domain's service and hands them to the transport, and it is the only production file under apps/api/src that belongs to no architecture layer."
+      },
+      {
+        "path": "apps/web/src/App.tsx",
+        "governing": "ARC-001",
+        "reason": "The console shell. It composes the session, the event switcher and the workspace registry, reading events and publication state through their public clients."
+      },
+      {
+        "path": "apps/web/src/OverviewPage.tsx",
+        "governing": "ARC-001",
+        "reason": "The organizer dashboard. It reads agenda, content and review through their public clients to assemble one cross-domain view, exactly as App.tsx does."
+      },
+      {
+        "path": "apps/api/src/transport/http/routes/registry.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The HTTP route registry. Listing every domain's route module is the whole of what it does."
+      },
+      {
+        "path": "apps/web/src/workspaces/registry.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The console workspace registry. Listing every domain's workspace module is the whole of what it does."
+      }
     ],
     "layerPaths": {
-      "domain": ["apps/api/src/domain"],
-      "application": ["apps/api/src/application"],
-      "adapters": ["apps/api/src/adapters"],
-      "transport": ["apps/api/src/transport"],
-      "ui": ["apps/web/src"],
-      "contracts": ["packages/contracts/src"]
+      "domain": [
+        "apps/api/src/domain"
+      ],
+      "application": [
+        "apps/api/src/application"
+      ],
+      "adapters": [
+        "apps/api/src/adapters"
+      ],
+      "transport": [
+        "apps/api/src/transport"
+      ],
+      "ui": [
+        "apps/web/src"
+      ],
+      "contracts": [
+        "packages/contracts/src"
+      ]
     },
     "allowedImportLayers": {
-      "domain": ["domain"],
-      "application": ["domain", "application"],
-      "adapters": ["domain", "application", "adapters"],
-      "transport": ["domain", "application", "transport"],
-      "ui": ["ui", "contracts"],
-      "contracts": ["contracts"]
+      "domain": [
+        "domain"
+      ],
+      "application": [
+        "domain",
+        "application"
+      ],
+      "adapters": [
+        "domain",
+        "application",
+        "adapters"
+      ],
+      "transport": [
+        "domain",
+        "application",
+        "transport"
+      ],
+      "ui": [
+        "ui",
+        "contracts"
+      ],
+      "contracts": [
+        "contracts"
+      ]
     },
     "externalPackagesByLayer": {
       "domain": [],
       "application": [],
-      "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core"],
-      "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
-      "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
-      "contracts": ["zod"]
-    }
+      "adapters": [
+        "drizzle-orm",
+        "drizzle-orm/sqlite-core"
+      ],
+      "transport": [
+        "@greenroom/contracts",
+        "hono",
+        "hono/cookie",
+        "hono/cors",
+        "hono/etag"
+      ],
+      "ui": [
+        "@greenroom/contracts",
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "zod"
+      ],
+      "contracts": [
+        "zod"
+      ]
+    },
+    "resources": [
+      {
+        "id": "d1",
+        "names": [
+          "D1"
+        ],
+        "state": "configured",
+        "evidence": "apps/api/wrangler.toml",
+        "note": "Bound as DB; 22 migrations apply against it locally and in the D1 suite."
+      },
+      {
+        "id": "r2",
+        "names": [
+          "R2"
+        ],
+        "state": "configured",
+        "evidence": "apps/api/src/adapters/storage/r2-asset-storage.ts",
+        "note": "Bound as ASSETS in wrangler.toml and wired as R2AssetStorage in apps/api/src/index.ts."
+      },
+      {
+        "id": "production-providers",
+        "names": [
+          "Accelevents"
+        ],
+        "state": "absent",
+        "evidence": "apps/api/src/adapters/providers/deterministic-provider.ts",
+        "note": "Only DeterministicProvider exists, a fake that always succeeds. Issue #23 tracks real adapters."
+      }
+    ]
   },
   "domains": [
     {
       "id": "platform",
-      "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001"],
-      "journeys": [],
-      "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE"],
-      "plans": ["PLAN-001", "PLAN-002"],
       "index": "docs/architecture/README.md",
+      "specs": [
+        "ARC-001",
+        "ARC-DOM-001",
+        "ENG-CI-001"
+      ],
+      "journeys": [],
+      "acceptance": [
+        "ACC-HARNESS",
+        "ACC-DEMO-SMOKE"
+      ],
+      "plans": [
+        "PLAN-001",
+        "PLAN-002"
+      ],
       "paths": [
         ".agents/extra-skills/bootstrap-harness",
         ".agents/skills/ship-it",
@@ -79,7 +282,11 @@
         ".github",
         "packages/contracts",
         "apps/api/src/index.ts",
-        "apps/api/src/transport/http",
+        "apps/api/src/transport/http/app.ts",
+        "apps/api/src/transport/http/runtime.ts",
+        "apps/api/src/transport/http/throttle.ts",
+        "apps/api/src/transport/http/routes/contract.ts",
+        "apps/api/src/transport/http/routes/registry.ts",
         "apps/api/src/adapters/persistence/schema.ts",
         "apps/web/src/App.tsx",
         "apps/web/src/main.tsx",
@@ -92,6 +299,7 @@
         "apps/web/e2e/lifecycle-demo.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts",
         "apps/web/e2e/00-seed-state.spec.ts",
+        "apps/web/e2e/global-setup.ts",
         "docs/demo-runbook.md",
         "apps/web/src/AppShell.tsx",
         "apps/web/src/OverviewPage.tsx",
@@ -101,18 +309,28 @@
         "apps/web/test/router.test.tsx",
         "apps/web/src/ui/primitives.tsx",
         "apps/web/src/ui/icons.tsx",
-        "apps/api/test/seed-state.integration.test.ts"
+        "apps/api/test/seed-state.integration.test.ts",
+        "apps/web/src/workspaces/contract.ts",
+        "apps/web/src/workspaces/registry.tsx",
+        "apps/api/test/d1-harness.integration.test.ts",
+        "apps/api/test/support/seeded-d1.ts"
       ]
     },
     {
       "id": "identity-access",
-      "specs": ["PRD-IAM-001", "PRD-IAM-002"],
+      "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-IAM-001",
+        "PRD-IAM-002"
+      ],
       "journeys": [],
       "acceptance": [],
-      "plans": ["PLAN-002"],
-      "index": "docs/product/specifications.md",
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/application/identity",
+        "apps/api/src/transport/http/routes/identity.ts",
         "apps/api/src/adapters/persistence/d1-identity-directory.ts",
         "apps/api/test/d1-identity-directory.integration.test.ts",
         "apps/api/test/demo-session.test.ts"
@@ -120,11 +338,17 @@
     },
     {
       "id": "events",
-      "specs": ["PRD-EVT-001"],
-      "journeys": [],
-      "acceptance": ["ACC-IDENTITY-EVENTS"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-EVT-001"
+      ],
+      "journeys": [],
+      "acceptance": [
+        "ACC-IDENTITY-EVENTS"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/domain/events",
         "apps/api/src/application/events",
@@ -138,16 +362,29 @@
         "apps/web/test/App.test.tsx",
         "apps/web/test/error-fallback.test.tsx",
         "apps/web/test/setup.ts",
-        "apps/web/e2e/reference-slice.spec.ts"
+        "apps/web/e2e/reference-slice.spec.ts",
+        "apps/api/src/transport/http/routes/events.ts",
+        "apps/api/src/transport/http/event-mappers.ts"
       ]
     },
     {
       "id": "cfp",
-      "specs": ["PRD-CFP-001", "PRD-CFP-002", "PRD-ABS-001"],
-      "journeys": ["JNY-001", "JNY-002"],
-      "acceptance": ["ACC-CFP"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-CFP-001",
+        "PRD-CFP-002",
+        "PRD-ABS-001"
+      ],
+      "journeys": [
+        "JNY-001",
+        "JNY-002"
+      ],
+      "acceptance": [
+        "ACC-CFP"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/application/cfp",
         "apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts",
@@ -165,16 +402,26 @@
         "apps/web/src/CfpWorkspace.tsx",
         "apps/web/test/cfp-composer.test.tsx",
         "apps/web/test/cfp-republish-closed.test.tsx",
-        "apps/web/e2e/cfp.spec.ts"
+        "apps/web/e2e/cfp.spec.ts",
+        "apps/api/src/transport/http/routes/cfp.ts",
+        "apps/web/src/workspaces/cfp.tsx"
       ]
     },
     {
       "id": "review",
-      "specs": ["PRD-REV-001"],
-      "journeys": ["JNY-003"],
-      "acceptance": ["ACC-REVIEW"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-REV-001"
+      ],
+      "journeys": [
+        "JNY-003"
+      ],
+      "acceptance": [
+        "ACC-REVIEW"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/domain/review",
         "apps/api/src/application/review",
@@ -196,16 +443,29 @@
         "apps/web/src/api/review.ts",
         "apps/web/e2e/review-workflow.spec.ts",
         "apps/web/test/proposal-acceptance.test.tsx",
-        "apps/web/test/review-decisions.test.tsx"
+        "apps/web/test/review-decisions.test.tsx",
+        "apps/api/src/transport/http/routes/review.ts",
+        "apps/web/src/workspaces/review.tsx"
       ]
     },
     {
       "id": "content",
-      "specs": ["PRD-SPK-001", "PRD-SPK-002", "PRD-CNT-001"],
-      "journeys": ["JNY-004", "JNY-005"],
-      "acceptance": ["ACC-SPEAKER"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-SPK-001",
+        "PRD-SPK-002",
+        "PRD-CNT-001"
+      ],
+      "journeys": [
+        "JNY-004",
+        "JNY-005"
+      ],
+      "acceptance": [
+        "ACC-SPEAKER"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/domain/content",
         "apps/api/src/application/content",
@@ -225,16 +485,26 @@
         "apps/web/src/api/content.ts",
         "apps/web/test/speaker-photo.test.tsx",
         "apps/web/test/session-withdrawal.test.tsx",
-        "apps/web/e2e/speaker-portal.spec.ts"
+        "apps/web/e2e/speaker-portal.spec.ts",
+        "apps/api/src/transport/http/routes/content.ts",
+        "apps/web/src/workspaces/content.tsx"
       ]
     },
     {
       "id": "crm",
-      "specs": ["PRD-CRM-001"],
-      "journeys": ["JNY-008"],
-      "acceptance": ["ACC-CRM"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-CRM-001"
+      ],
+      "journeys": [
+        "JNY-008"
+      ],
+      "acceptance": [
+        "ACC-CRM"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/domain/crm",
         "apps/api/src/application/crm",
@@ -247,16 +517,26 @@
         "apps/web/src/CrmWorkspace.tsx",
         "apps/web/src/api/crm.ts",
         "apps/web/test/crm-owner-assignment.test.tsx",
-        "apps/web/e2e/crm.spec.ts"
+        "apps/web/e2e/crm.spec.ts",
+        "apps/api/src/transport/http/routes/crm.ts",
+        "apps/web/src/workspaces/crm.tsx"
       ]
     },
     {
       "id": "agenda",
-      "specs": ["PRD-AGD-001"],
-      "journeys": ["JNY-006"],
-      "acceptance": ["ACC-AGENDA"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-AGD-001"
+      ],
+      "journeys": [
+        "JNY-006"
+      ],
+      "acceptance": [
+        "ACC-AGENDA"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/domain/agenda",
         "apps/api/src/application/agenda",
@@ -271,16 +551,27 @@
         "apps/web/test/agenda-timezone.test.tsx",
         "apps/web/test/agenda-timeslots.test.tsx",
         "apps/web/test/agenda-failure-feedback.test.tsx",
-        "apps/web/e2e/agenda.spec.ts"
+        "apps/web/e2e/agenda.spec.ts",
+        "apps/api/src/transport/http/routes/agenda.ts",
+        "apps/web/src/workspaces/agenda.tsx"
       ]
     },
     {
       "id": "communications-integrations",
-      "specs": ["PRD-COM-001", "PRD-INT-001"],
-      "journeys": ["JNY-009"],
-      "acceptance": ["ACC-INTEGRATION"],
-      "plans": ["PLAN-002"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-COM-001",
+        "PRD-INT-001"
+      ],
+      "journeys": [
+        "JNY-009"
+      ],
+      "acceptance": [
+        "ACC-INTEGRATION"
+      ],
+      "plans": [
+        "PLAN-002"
+      ],
       "paths": [
         "apps/api/src/domain/communications",
         "apps/api/src/application/communications",
@@ -294,16 +585,27 @@
         "apps/web/src/api/communications.ts",
         "apps/web/src/CommunicationsWorkspace.tsx",
         "apps/web/test/communications.test.tsx",
-        "apps/web/e2e/communications.spec.ts"
+        "apps/web/e2e/communications.spec.ts",
+        "apps/api/src/transport/http/routes/communications.ts",
+        "apps/web/src/workspaces/communications.tsx"
       ]
     },
     {
       "id": "publishing",
-      "specs": ["PRD-PUB-001"],
-      "journeys": ["JNY-007"],
-      "acceptance": ["ACC-PUBLIC"],
-      "plans": ["PLAN-002", "PLAN-003"],
       "index": "docs/product/specifications.md",
+      "specs": [
+        "PRD-PUB-001"
+      ],
+      "journeys": [
+        "JNY-007"
+      ],
+      "acceptance": [
+        "ACC-PUBLIC"
+      ],
+      "plans": [
+        "PLAN-002",
+        "PLAN-003"
+      ],
       "paths": [
         "apps/api/src/domain/publishing",
         "apps/api/src/application/publishing",
@@ -311,7 +613,6 @@
         "apps/api/migrations/0020_public_event_projections.sql",
         "apps/api/test/publication.test.ts",
         "apps/api/test/d1-publication-repository.integration.test.ts",
-        "apps/api/test/support/seeded-d1.ts",
         "apps/web/src/PublicEventApp.tsx",
         "apps/web/src/PublishingWorkspace.tsx",
         "apps/web/src/styles/publishing.css",
@@ -320,28 +621,30 @@
         "apps/web/test/publishing.test.tsx",
         "apps/web/test/public-event-pages.test.tsx",
         "apps/web/e2e/public-event.spec.ts",
-        "apps/web/e2e/publishing.spec.ts"
+        "apps/web/e2e/publishing.spec.ts",
+        "apps/api/src/transport/http/routes/publishing.ts",
+        "apps/web/src/workspaces/publishing.tsx"
       ]
     }
   ],
   "symbols": {
-    "EventService": "apps/api/src/application/events/event-service.ts",
-    "EventRepository": "apps/api/src/application/events/event-repository.ts",
-    "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
-    "createHttpApp": "apps/api/src/transport/http/app.ts",
-    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
-    "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
-    "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts",
-    "App": "apps/web/src/App.tsx",
-    "ContentService": "apps/api/src/application/content/content-service.ts",
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
-    "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts",
-    "PublishingContentQuery": "apps/api/src/application/content/public.ts",
-    "CrmContentQuery": "apps/api/src/application/content/public.ts",
+    "App": "apps/web/src/App.tsx",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
-    "ReviewService": "apps/api/src/application/review/review-service.ts",
-    "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
+    "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
+    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
+    "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts",
+    "ContentService": "apps/api/src/application/content/content-service.ts",
+    "CrmContentQuery": "apps/api/src/application/content/public.ts",
+    "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
+    "EventRepository": "apps/api/src/application/events/event-repository.ts",
+    "EventService": "apps/api/src/application/events/event-service.ts",
+    "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts",
     "PublicationService": "apps/api/src/application/publishing/publication-service.ts",
-    "composePublicSchedule": "apps/api/src/application/publishing/public.ts"
+    "PublishingContentQuery": "apps/api/src/application/content/public.ts",
+    "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
+    "ReviewService": "apps/api/src/application/review/review-service.ts",
+    "composePublicSchedule": "apps/api/src/application/publishing/public.ts",
+    "createHttpApp": "apps/api/src/transport/http/app.ts"
   }
 }

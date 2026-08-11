@@ -1,6 +1,11 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `3630977`)
+Status: canonical | Owner: quality | Last verified: 2026-08-11
+
+The commit each verdict was measured against is **not written here**. It lives in the run records
+under `.evidence/`, which is where `gate:evidence` reads it, and duplicating it in this header is
+how it went stale before: a hand-copied SHA has no gate behind it and drifts on the next commit.
+Run `npm run gate:evidence` to see the head every row is currently bound to.
 
 ## How to read this
 
@@ -34,20 +39,30 @@ Three terms are used precisely:
 
 ## What was measured
 
-Everything below was run on 2026-08-11, in this order, against the working tree this document
-describes. The browser commands name ports `4373`/`9087` because another checkout on this machine was
-holding the defaults, and Playwright silently tests whatever already answers on the port it wants
-(`GAP-004`).
+Everything below was run on 2026-08-11, in this order, against the commit this document names.
+Each run wrote a record under `.evidence/`, and `gate:evidence` refuses these rows if a record is
+missing, failed, or was produced against a different commit — so the numbers here are checkable
+rather than asserted.
+
+The browser commands used to name ports `4373`/`9087` because another checkout on this machine
+was holding the defaults. They no longer need to: ports are derived per checkout, and a server
+belonging to a different one aborts the run instead of being silently tested (`GAP-004`,
+issues #28 and #90).
 
 | Command | Result |
 |---|---|
-| `npm run check` | exit 0 — `gate:integrity` (gate drift over 5 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (38 `node --test` tool tests; 147 tests in 18 files in `@greenroom/api`; 145 tests in 18 files in `@greenroom/web`; both production builds), then `gate:d1` (20 tests in 11 files) |
-| `npm run reset`, then `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` | 30 passed. This is the clean-reset run |
-| the same `npm run test:e2e` five more times, no reset, against the same still-running servers | 30 passed each time — six consecutive green runs on one fixture |
-| the same six runs, but with a second `wrangler dev` of this worktree also up on another port | **2 of 5 runs failed**, a different single spec each time. Not a suite defect: both instances open one D1 file (`GAP-004`) |
-| `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:quality` | 3 passed (2.2s) |
-| `npm run gate:security` | **not run in this measurement.** `npm audit` last succeeded on hosted CI at head `10eab436` |
+| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (376 tests across the `node --test` tool suite, `@greenroom/api` and `@greenroom/web`, plus both production builds), then `gate:d1` (28 tests in 12 files), then `gate:evidence` |
+| `npm run gate:browser` (`setup:local`, `reset`, then the suite) | 30 passed, on derived ports with no manual port assignment. This is the clean-reset run |
+| `npm run test:e2e` again against the same still-running servers | 30 passed — re-runnable on one fixture without a reset |
+| `npm run test:quality` | 3 passed |
+| `npm run gate:security` | exit 0 — `npm audit --audit-level=high` found 0 vulnerabilities |
 | gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
+
+The earlier measurement of two `wrangler dev` instances of one worktree corrupting each other —
+2 failures across 5 runs, a different spec each time — is **no longer reproducible and is not
+re-stated as current**: local D1 and R2 state is now keyed per instance, so the two processes no
+longer share a database (issue #28). The record of why that changed is in
+[known gaps](known-gaps.md) under `GAP-004`.
 
 **No row below has its own command, because no such command exists.** An earlier version of this
 table gave each row an `npm run test:e2e … -- e2e/<one>.spec.ts` line and called it that row's
@@ -69,6 +84,28 @@ from a reset, in the order above.
 The **Automated evidence** column therefore names the test files that carry each row's `@acceptance`
 marker. Each of them is run by `npm run check` (tool, API, and component suites), by `npm run test:d1`
 (`*.integration.test.ts`), or by the full `npm run test:e2e` (`e2e/*.spec.ts`).
+
+## What makes a row here checkable
+
+Every verdict below is bound to a run, not asserted in prose.
+[`acceptance-evidence.json`](acceptance-evidence.json) states, per row, which suites it rests on
+and which spec files carry its marker; each suite writes a record under `.evidence/` naming its
+exit status, counts, and the commit it ran against; and `npm run gate:evidence` — the fourth gate
+in `npm run check` — fails a row whose suite has no record, has a record from a different commit,
+has a record of a failing run, or names a spec file that no longer exists.
+
+That last rule exists because of a specific failure. `ACC-AGENDA` claimed complete Playwright
+evidence for the agenda resource editor in the same change that deleted its only browser
+coverage (#87), and nothing connected the two. It is now a build failure. So is the older and
+more expensive case: the `ACC-CFP` row read "passed locally 2026-08-10 … complete" while every
+public proposal submission returned 500 from a clean reset, and the row is *why* the defect
+survived — the documentation said the journey worked.
+
+The freshness rule is deliberate and narrow: a record counts only for the commit it names.
+A suite that passed on other code is not evidence about this one. It does **not** detect
+uncommitted working-tree changes — the binding is to `HEAD`, not to a tree hash — so a record
+made before an edit still satisfies the gate until the next commit. Producing evidence is
+therefore the last step before publishing, not the first.
 
 ## Acceptance rows
 

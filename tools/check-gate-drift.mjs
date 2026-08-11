@@ -38,6 +38,7 @@ import { pathToFileURL } from "node:url";
 const root = new URL("../", import.meta.url);
 
 export const WORKFLOW_PATH = ".github/workflows/ci.yml";
+export const SETUP_ACTION_PATH = ".github/actions/setup/action.yml";
 export const DOC_PATH = "docs/engineering/ci-and-release.md";
 export const EXCLUSION_HEADING = "## Gates the local check deliberately skips";
 
@@ -53,6 +54,17 @@ const SETUP_STEPS = new Set([
 
 /** `npm install --global npm@X` — X must be the version `packageManager` pins. */
 const PINNED_NPM = /^npm install --global npm@(\S+)$/;
+
+/**
+ * The same pin, wherever it sits inside the shared setup action. That file is an action's
+ * own configuration rather than workflow YAML, so it is matched rather than parsed — but it
+ * is matched, because moving the bootstrap into a composite action must not quietly take the
+ * npm-version check out of service along with it.
+ */
+// Anchored to an actual `- run:` step. Unanchored, a comment — or `echo npm install --global
+// npm@…` — would satisfy the check, and the gate would report a pinned npm the action never
+// installs.
+const PINNED_NPM_IN_ACTION = /^\s*-?\s*run:\s*npm install --global npm@(\S+)\s*$/m;
 
 const GATE_INVOCATION = /^npm run (gate:[A-Za-z0-9:_-]+)$/;
 
@@ -153,11 +165,22 @@ export function documentedExclusions(doc) {
 }
 
 /** Everything wrong with the relationship between the two gates. Empty means they agree. */
-export function analyse({ workflow, packageJson, doc }) {
+export function analyse({ workflow, packageJson, doc, setupAction }) {
   const problems = [];
   const jobs = parseWorkflowJobs(workflow);
   const gates = gateScripts(packageJson);
   const pinnedNpm = String(packageJson.packageManager ?? "").replace(/^npm@/, "");
+
+  const actionNpm = PINNED_NPM_IN_ACTION.exec(setupAction ?? "");
+  if (!actionNpm)
+    problems.push(
+      `${SETUP_ACTION_PATH} does not install a pinned npm. Every job bootstraps through it, ` +
+        "so that is where the version package.json pins has to be installed.",
+    );
+  else if (actionNpm[1] !== pinnedNpm)
+    problems.push(
+      `${SETUP_ACTION_PATH} installs npm@${actionNpm[1]} but package.json pins npm@${pinnedNpm}.`,
+    );
 
   for (const [name, job] of jobs) {
     const gate = `gate:${name}`;
@@ -235,6 +258,7 @@ export function analyse({ workflow, packageJson, doc }) {
 export function readInputs() {
   return {
     workflow: readFileSync(new URL(WORKFLOW_PATH, root), "utf8"),
+    setupAction: readFileSync(new URL(SETUP_ACTION_PATH, root), "utf8"),
     packageJson: JSON.parse(readFileSync(new URL("package.json", root), "utf8")),
     doc: readFileSync(new URL(DOC_PATH, root), "utf8"),
   };
@@ -310,6 +334,13 @@ export const MUTATIONS = [
       mutated.packageJson.packageManager = "npm@0.0.1";
       return mutated;
     },
+  ],
+  [
+    "a shared setup action that installs no pinned npm",
+    (inputs) => ({
+      ...inputs,
+      setupAction: inputs.setupAction.replace(/npm install --global npm@\S+/, "npm --version"),
+    }),
   ],
 ];
 

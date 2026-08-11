@@ -1,0 +1,25 @@
+{
+  "id": "crm",
+  "order": 70,
+  "index": "docs/product/specifications.md",
+  "specs": ["PRD-CRM-001"],
+  "journeys": ["JNY-008"],
+  "acceptance": ["ACC-CRM"],
+  "plans": ["PLAN-002"],
+  "paths": [
+    "apps/api/src/domain/crm",
+    "apps/api/src/application/crm",
+    "apps/api/src/adapters/persistence/d1-crm-repository.ts",
+    "apps/api/src/adapters/persistence/memory-crm-repository.ts",
+    "apps/api/migrations/0015_crm_conversion.sql",
+    "apps/api/test/crm-service.test.ts",
+    "apps/api/test/crm-http.test.ts",
+    "apps/api/test/d1-crm-repository.integration.test.ts",
+    "apps/web/src/CrmWorkspace.tsx",
+    "apps/web/src/api/crm.ts",
+    "apps/web/test/crm-owner-assignment.test.tsx",
+    "apps/web/e2e/crm.spec.ts",
+    "apps/api/src/transport/http/routes/crm.ts",
+    "apps/web/src/workspaces/crm.tsx"
+  ]
+}

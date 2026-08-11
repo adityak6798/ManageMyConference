@@ -63,7 +63,25 @@ const packageJson = {
 
 const doc = `# CI\n\n${EXCLUSION_HEADING}\n\n- \`gate:browser\` — needs a downloaded browser.\n\n## Next\n`;
 
-const inputs = () => ({ workflow, packageJson: structuredClone(packageJson), doc });
+// The shared bootstrap. It is where the pinned npm lives once jobs stop installing it
+// themselves, so the drift check has to follow it there.
+const setupAction = `name: Set up
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+    - run: npm install --global npm@9.9.9
+      shell: bash
+    - run: npm ci
+      shell: bash
+`;
+
+const inputs = () => ({
+  workflow,
+  setupAction,
+  packageJson: structuredClone(packageJson),
+  doc,
+});
 
 test("a workflow whose jobs each run their own gate agrees with check", () => {
   assert.deepEqual(analyse(inputs()), []);
@@ -220,6 +238,16 @@ for (const [label, mutate, expected] of [
       return given;
     },
     /installs npm@9\.9\.9 but package\.json pins npm@11\.12\.1/,
+  ],
+  [
+    "a shared setup action whose npm pin drifted from packageManager",
+    (given) => ({ ...given, setupAction: given.setupAction.replace("9.9.9", "8.8.8") }),
+    /actions\/setup\/action\.yml installs npm@8\.8\.8 but package\.json pins npm@9\.9\.9/,
+  ],
+  [
+    "a shared setup action that stopped pinning npm at all",
+    (given) => ({ ...given, setupAction: "name: Set up\nruns:\n  using: composite\n" }),
+    /does not install a pinned npm/,
   ],
 ]) {
   test(`the analysis reports ${label}`, () => {

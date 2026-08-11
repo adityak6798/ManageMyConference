@@ -2,6 +2,9 @@
 import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
+import { resolveWorktreeEnvironment } from "../../tools/worktree-env.mjs";
+
+const { apiPort, webPort } = resolveWorktreeEnvironment();
 
 /**
  * The framing policy for `/embed/*`, in one place.
@@ -49,7 +52,12 @@ export default defineConfig({
     // http://127.0.0.1:5173 start URL connection-refused; browsers fall back to IPv4 for
     // "localhost", so this address works for both spellings.
     host: "127.0.0.1",
-    proxy: { "/api": `http://127.0.0.1:${process.env.GREENROOM_API_PORT ?? "8787"}` },
+    // Resolved, never guessed. `strictPort` matters as much as the number: without it Vite
+    // silently takes the next free port when the derived one is busy, and Playwright then
+    // waits on a URL nothing is serving until it times out with no hint why.
+    port: webPort,
+    strictPort: true,
+    proxy: { "/api": `http://127.0.0.1:${apiPort}` },
   },
   test: {
     environment: "jsdom",

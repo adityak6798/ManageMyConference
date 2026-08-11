@@ -1,30 +1,26 @@
 // @acceptance ACC-HARNESS
 import { readFile } from "node:fs/promises";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import { applyMigrations, applySeedData, createMigratedDatabase } from "./support/seeded-d1";
 import {
   type D1DatabasePort,
   D1EventRepository,
 } from "../src/adapters/persistence/d1-event-repository";
-import { statements } from "./support/seeded-d1";
 
 describe("D1EventRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
 
   it("round-trips an event against a real local D1 binding", async () => {
-    runtime = new Miniflare({
-      modules: true,
-      script: "export default { fetch() {} }",
-      d1Databases: { DB: "greenroom-test" },
+    // A deliberate old-schema fixture: this case exists to prove that 0002 preserves rows
+    // written under 0001, so it is the one test that must not take the whole migration set.
+    const migrated = await createMigratedDatabase({
+      label: "greenroom-migration-compatibility",
+      through: "0001_create_events.sql",
     });
-    const database = await runtime.getD1Database("DB");
-    const migration = await readFile(
-      new URL("../migrations/0001_create_events.sql", import.meta.url),
-      "utf8",
-    );
-    const migrated = await database.prepare(migration).run();
-    expect(migrated.success).toBe(true);
+    runtime = migrated.runtime;
+    const database = migrated.database;
     await database
       .prepare("INSERT INTO events (id, name, timezone, created_at) VALUES (?, ?, ?, ?)")
       .bind(
@@ -34,15 +30,7 @@ describe("D1EventRepository", () => {
         "2026-08-08T12:00:00.000Z",
       )
       .run();
-    const foundation = await readFile(
-      new URL("../migrations/0002_identity_event_foundation.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of foundation
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
+    await applyMigrations(database, { from: "0002_identity_event_foundation.sql" });
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
       repository.list({
@@ -85,96 +73,12 @@ describe("D1EventRepository", () => {
   });
 
   it("restores the exact deterministic seed when reset is applied twice", async () => {
-    runtime = new Miniflare({
-      modules: true,
-      script: "export default { fetch() {} }",
-      d1Databases: { DB: "greenroom-reset-test" },
-    });
-    const database = await runtime.getD1Database("DB");
-    const migration = await readFile(
-      new URL("../migrations/0001_create_events.sql", import.meta.url),
-      "utf8",
-    );
-    await database.prepare(migration).run();
-    const foundation = await readFile(
-      new URL("../migrations/0002_identity_event_foundation.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of foundation
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
-    const contentMigration = await readFile(
-      new URL("../migrations/0014_content_speaker_portal.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of contentMigration
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
-    for (const file of [
-      "0003_cfp.sql",
-      "0004_cfp_published_snapshot.sql",
-      "0005_cfp_snapshot_status.sql",
-      "0006_review_workflow.sql",
-      "0015_crm_conversion.sql",
-      "0016_crm_speaker_conversion.sql",
-    ]) {
-      const migrationSql = await readFile(
-        new URL(`../migrations/${file}`, import.meta.url),
-        "utf8",
-      );
-      for (const statement of migrationSql
-        .split(";")
-        .map((value) => value.trim())
-        .filter(Boolean))
-        await database.prepare(statement).run();
-    }
-    for (const file of [
-      "0007_review_completion_conflict_guard.sql",
-      "0008_review_conflict_completion_guard.sql",
-      "0009_review_assignment_requires_plan.sql",
-      "0010_review_plan_lock.sql",
-      "0011_cfp_transition_status_guard.sql",
-      "0012_cfp_status_in_use_guard.sql",
-      "0013_cfp_submission_default_status.sql",
-    ]) {
-      const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
-      expect((await database.prepare(trigger).run()).success).toBe(true);
-    }
-    const agendaMigration = await readFile(
-      new URL("../migrations/0017_agenda.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of agendaMigration
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
-    const trailingMigrations = (
-      await Promise.all([
-        readFile(new URL("../migrations/0019_communications_outbox.sql", import.meta.url), "utf8"),
-        readFile(
-          new URL("../migrations/0020_public_event_projections.sql", import.meta.url),
-          "utf8",
-        ),
-        readFile(new URL("../migrations/0021_review_decisions.sql", import.meta.url), "utf8"),
-      ])
-    ).join("\n");
-    for (const statement of trailingMigrations
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
-    const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    // The shared splitter, not `split(";")`: the seed carries prose comments, and a
-    // semicolon or an apostrophe inside one is not a statement boundary.
-    const seedStatements = statements(reset);
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      for (const statement of seedStatements) await database.prepare(statement).run();
-    }
+    const migrated = await createMigratedDatabase({ label: "greenroom-reset" });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    // Twice on purpose: the reset has to be idempotent, so the second application must
+    // land on the state the first one produced and leave it identical.
+    for (let attempt = 0; attempt < 2; attempt += 1) await applySeedData(database);
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
       repository.list({ organizationIds: ["00000000-0000-4000-8000-000000000010"], eventIds: [] }),

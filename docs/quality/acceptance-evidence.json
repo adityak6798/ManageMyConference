@@ -1,0 +1,131 @@
+{
+  "$comment": [
+    "What each scorecard row rests on, in a form a check can read.",
+    "`suites` names the run records under .evidence/ that must exist, must record exit 0, and",
+    "must have been produced against the current commit. `specs` names the test files that",
+    "carry the row's @acceptance marker; deleting one is then a failure rather than a row that",
+    "quietly stays true. Prose belongs in scorecard.md; this file is the part a gate enforces.",
+    "Governing: ENG-CI-001, ACC-DEMO-SMOKE. Owner: quality."
+  ],
+  "freshness": {
+    "rule": "commit",
+    "note": "A record counts only for the commit it names. Anything else — a record from an earlier commit, or none at all — fails the gate, because a suite that passed on other code is not evidence about this one. Uncommitted working-tree changes are not detected; the rule binds a record to HEAD, not to a tree hash."
+  },
+  "rows": {
+    "ACC-HARNESS": {
+      "suites": ["test-build", "d1"],
+      "specs": [
+        "tools/tests/check-errors.test.mjs",
+        "tools/tests/check-gate-drift.test.mjs",
+        "tools/tests/check-schema-drift.test.mjs",
+        "tools/tests/worktree-env.test.mjs",
+        "tools/tests/test_context.py",
+        "apps/api/test/http.test.ts",
+        "apps/api/test/demo-session.test.ts",
+        "apps/api/test/runtime-auth.test.ts",
+        "apps/api/test/event-service.test.ts",
+        "apps/api/test/event-mappers.test.ts",
+        "apps/web/test/router.test.tsx",
+        "apps/web/test/error-fallback.test.tsx",
+        "apps/api/test/d1-event-repository.integration.test.ts",
+        "apps/api/test/d1-harness.integration.test.ts"
+      ]
+    },
+    "ACC-IDENTITY-EVENTS": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/web/e2e/reference-slice.spec.ts",
+        "apps/web/test/App.test.tsx",
+        "apps/api/test/d1-identity-directory.integration.test.ts"
+      ]
+    },
+    "ACC-REVIEW": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/review-service.test.ts",
+        "apps/api/test/review-http.test.ts",
+        "apps/api/test/content-http.test.ts",
+        "apps/api/test/d1-review-repository.integration.test.ts",
+        "apps/web/test/proposal-acceptance.test.tsx",
+        "apps/web/e2e/review-workflow.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts"
+      ]
+    },
+    "ACC-CFP": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/cfp-service.test.ts",
+        "apps/api/test/cfp-http.test.ts",
+        "apps/api/test/d1-cfp-repository.integration.test.ts",
+        "apps/api/test/seed-state.integration.test.ts",
+        "apps/web/test/cfp-composer.test.tsx",
+        "apps/web/e2e/00-seed-state.spec.ts",
+        "apps/web/e2e/cfp.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts"
+      ]
+    },
+    "ACC-SPEAKER": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/content-service.test.ts",
+        "apps/api/test/content-http.test.ts",
+        "apps/api/test/d1-content-repository.integration.test.ts",
+        "apps/web/test/speaker-photo.test.tsx",
+        "apps/web/test/proposal-acceptance.test.tsx",
+        "apps/web/e2e/speaker-portal.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts"
+      ]
+    },
+    "ACC-CRM": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/crm-service.test.ts",
+        "apps/api/test/crm-http.test.ts",
+        "apps/api/test/d1-crm-repository.integration.test.ts",
+        "apps/api/test/d1-speaker-conversion.integration.test.ts",
+        "apps/web/test/crm-owner-assignment.test.tsx",
+        "apps/web/e2e/crm.spec.ts"
+      ]
+    },
+    "ACC-AGENDA": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/agenda-service.test.ts",
+        "apps/api/test/d1-agenda-repository.integration.test.ts",
+        "apps/web/test/agenda-timeslots.test.tsx",
+        "apps/web/test/agenda-timezone.test.tsx",
+        "apps/web/e2e/agenda.spec.ts",
+        "apps/web/e2e/reference-slice.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts"
+      ]
+    },
+    "ACC-PUBLIC": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/publication.test.ts",
+        "apps/api/test/d1-publication-repository.integration.test.ts",
+        "apps/api/test/seed-state.integration.test.ts",
+        "apps/web/test/publishing.test.tsx",
+        "apps/web/test/public-event-pages.test.tsx",
+        "apps/web/e2e/public-event.spec.ts",
+        "apps/web/e2e/publishing.spec.ts",
+        "apps/web/e2e/00-seed-state.spec.ts",
+        "apps/web/e2e/lifecycle.spec.ts"
+      ]
+    },
+    "ACC-INTEGRATION": {
+      "suites": ["test-build", "d1", "e2e"],
+      "specs": [
+        "apps/api/test/communications-service.test.ts",
+        "apps/api/test/communications-http.test.ts",
+        "apps/api/test/d1-communications-repository.integration.test.ts",
+        "apps/web/test/communications.test.tsx",
+        "apps/web/e2e/communications.spec.ts"
+      ]
+    },
+    "ACC-DEMO-SMOKE": {
+      "suites": ["e2e", "quality"],
+      "specs": ["apps/web/e2e/lifecycle-demo.spec.ts", "apps/web/e2e/00-seed-state.spec.ts"]
+    }
+  }
+}
