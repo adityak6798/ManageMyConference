@@ -1,7 +1,7 @@
 import { conflictsFor, type AgendaDraft, type Placement } from "../../domain/agenda/agenda";
 import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
 import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
-import type { SchedulableContentQuery } from "../content/public";
+import type { AgendaContentQuery } from "../content/public";
 
 export class AgendaConflictError extends Error {
   constructor(readonly conflicts: ReturnType<typeof conflictsFor>) {
@@ -16,7 +16,7 @@ export class AgendaService {
   constructor(
     private readonly repository: AgendaRepository,
     private readonly now: () => Date,
-    private readonly content: SchedulableContentQuery,
+    private readonly content: AgendaContentQuery,
     private readonly canManageEvent: (
       actor: Actor,
       eventId: string,
@@ -38,7 +38,12 @@ export class AgendaService {
     await this.organizer(actor, eventId);
     const draft = await this.repository.getDraft(eventId);
     if (!draft) throw new AgendaNotFoundError("Agenda not found");
-    const composed = { ...draft, sessions: await this.content.forEvent(eventId) };
+    const sessions = (await this.content.listSchedulableSessions(eventId)).map((session) => ({
+      id: session.id,
+      title: session.title,
+      speakerIds: session.speakerProfileIds,
+    }));
+    const composed = { ...draft, sessions };
     return { ...composed, conflicts: conflictsFor(composed) };
   }
 

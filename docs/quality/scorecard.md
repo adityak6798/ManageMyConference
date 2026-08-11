@@ -1,6 +1,6 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-09
+Status: canonical | Owner: quality | Last verified: 2026-08-10
 
 | Acceptance ID | Journey | Required evidence | State |
 |---|---|---|---|
@@ -11,6 +11,11 @@ Status: canonical | Owner: quality | Last verified: 2026-08-09
 | `ACC-SPEAKER` | `JNY-004`, `JNY-005` | portal/task/asset/calendar E2E | planned |
 | `ACC-CRM` | `JNY-008` | prospect-to-speaker E2E | planned |
 | `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | passed locally 2026-08-10 for resource/placement management, conflict boundaries, authorization, immutable publication, typed API/D1 storage, deterministic reset, organizer UI, public projection isolation, Playwright, full check, and production builds; durable schedule-event outbox delivery remains follow-up |
+| `ACC-REVIEW` | `JNY-003` | reviewer/organizer E2E + auth negatives | **passed locally 2026-08-10**: domain, API, D1 persistence, role-negative, aggregate-bias, Playwright, build, and context evidence complete |
+| `ACC-CFP` | `JNY-001`, `JNY-002` | Playwright + API validation | passed locally 2026-08-10: organizer/applicant Playwright journey, API validation and authorization negatives, real-D1 snapshot/idempotency integration, migration/reset, build, and context evidence complete |
+| `ACC-SPEAKER` | `JNY-004`, `JNY-005` | portal/task/asset/calendar E2E | passed locally 2026-08-10: unit, API, D1 persistence, role-negative, deterministic upload-port/calendar, and Playwright journey evidence complete |
+| `ACC-CRM` | `JNY-008` | prospect-to-speaker E2E | passed locally 2026-08-10: domain/API authorization negatives, D1 migration/reset persistence, idempotent conversion, private-note isolation, Playwright, build, and context evidence complete |
+| `ACC-AGENDA` | `JNY-006` | conflict and publish E2E | planned |
 | `ACC-PUBLIC` | `JNY-007` | public/embed projection E2E + a11y | planned |
 | `ACC-INTEGRATION` | `JNY-009` (`communications-integrations`) | communication outbox + adapter contracts + retry/terminal E2E | planned |
 

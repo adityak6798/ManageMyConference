@@ -17,6 +17,7 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Schedule sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Build the proposal form" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);
   await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");
@@ -36,7 +37,20 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
 
   await page.getByRole("button", { name: "Publish schedule" }).click();
   await expect(page.getByRole("status")).toContainText("Published version 2");
-  await page.getByRole("button", { name: "Place in first slot" }).click();
+  const conflictResponse = await page.request.put(
+    "/api/events/00000000-0000-4000-8000-000000000001/agenda/placements/placement-conflict",
+    {
+      data: {
+        id: "placement-conflict",
+        sessionId: "20000000-0000-4000-8000-000000000001",
+        roomId: "room-main",
+        trackId: "track-platform",
+        slotId: "slot-0900",
+      },
+    },
+  );
+  expect(conflictResponse.ok()).toBeTruthy();
+  await page.reload();
   await expect(page.getByRole("alert")).toContainText("room overlap");
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeDisabled();
   await page.getByText("Manage rooms, tracks, and times").click();
@@ -50,5 +64,5 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   expect(publicResponse.ok()).toBeTruthy();
   const body = await publicResponse.json();
   expect(body.schedule.version).toBe(2);
-  expect(body.schedule.agenda.placements).toHaveLength(2);
+  expect(body.schedule.agenda.placements).toHaveLength(1);
 });

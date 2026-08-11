@@ -1,0 +1,54 @@
+export type ProposalStatus = string;
+export class ProposalStatusConfigurationError extends Error {}
+export interface ProposalStatusDefinition {
+  readonly key: string;
+  readonly label: string;
+  readonly sortOrder: number;
+}
+
+export interface SubmittedProposal {
+  readonly id: string;
+  readonly eventId: string;
+  readonly title: string;
+  readonly abstract: string;
+  readonly submitterName: string;
+  readonly answers: readonly {
+    readonly fieldId: string;
+    readonly label: string;
+    readonly type: "short_text" | "long_text" | "select";
+    readonly value: string;
+  }[];
+  readonly status: ProposalStatus;
+}
+
+export interface ProposalStatusAudit {
+  readonly id: string;
+  readonly eventId: string;
+  readonly proposalId: string;
+  readonly fromStatus: ProposalStatus;
+  readonly toStatus: ProposalStatus;
+  readonly actorId: string;
+  readonly occurredAt: string;
+}
+
+export interface SubmittedProposalQuery {
+  list(eventId: string, status?: ProposalStatus): Promise<readonly SubmittedProposal[]>;
+  find(eventId: string, proposalId: string): Promise<SubmittedProposal | null>;
+  findMany(eventId: string, proposalIds: readonly string[]): Promise<readonly SubmittedProposal[]>;
+  listStatuses(eventId: string): Promise<readonly ProposalStatusDefinition[]>;
+}
+
+export interface SubmittedProposalCommands {
+  transitionAtomically(input: {
+    eventId: string;
+    proposalIds: readonly string[];
+    toStatus: ProposalStatus;
+    actorId: string;
+    occurredAt: string;
+    auditIds: readonly string[];
+  }): Promise<readonly SubmittedProposal[]>;
+  listAudit(eventId: string): Promise<readonly ProposalStatusAudit[]>;
+  saveStatuses(eventId: string, statuses: readonly ProposalStatusDefinition[]): Promise<void>;
+}
+
+export type SubmittedProposalInterface = SubmittedProposalQuery & SubmittedProposalCommands;

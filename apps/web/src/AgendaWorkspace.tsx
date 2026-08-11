@@ -6,8 +6,8 @@ import {
   removePlacement,
   saveAgendaResources,
   savePlacement,
-  ApiError,
-} from "./api/events";
+  AgendaApiError,
+} from "./api/agenda";
 
 // @spec PRD-AGD-001
 export function AgendaWorkspace({
@@ -32,7 +32,7 @@ export function AgendaWorkspace({
       })
       .catch((error: unknown) => {
         if (!active) return;
-        if (error instanceof ApiError && error.envelope.error.code === "NOT_FOUND") {
+        if (error instanceof AgendaApiError && error.envelope.error.code === "NOT_FOUND") {
           // ERROR-INTENT: The initialization promise updates this workspace or its visible error.
           void saveAgendaResources(eventId, {
             rooms: [{ id: crypto.randomUUID(), name: "Main room" }],
@@ -339,6 +339,7 @@ export function AgendaWorkspace({
             <label>
               Room
               <select
+                aria-label={`Room assignment ${placement.id}`}
                 value={placement.roomId}
                 disabled={busy}
                 onChange={(event) => {
@@ -358,6 +359,7 @@ export function AgendaWorkspace({
             <label>
               Time
               <select
+                aria-label={`Time assignment ${placement.id}`}
                 value={placement.slotId}
                 disabled={busy}
                 onChange={(event) => {
@@ -377,6 +379,7 @@ export function AgendaWorkspace({
             <label>
               Track
               <select
+                aria-label={`Track assignment ${placement.id}`}
                 value={placement.trackId}
                 disabled={busy}
                 onChange={(event) => {

@@ -2,12 +2,23 @@ import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { AgendaService } from "./application/agenda/agenda-service";
-import { FixtureSchedulableContentQuery } from "./application/content/public";
+import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
+import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
+import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
+import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
+import { ContentService } from "./application/content/content-service";
+import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
+import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
+import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
+import { CfpService } from "./application/cfp/cfp-service";
+import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
+import { ReviewService } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
 
 interface Environment {
   DB: D1DatabasePort;
+  ASSETS: R2BucketPort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
   ENVIRONMENT?: string;
@@ -33,32 +44,40 @@ export function runtimeAuth(
 export default {
   fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
+    const identityDirectory = new D1IdentityDirectory(environment.DB);
     const service = new EventService({
       repository: new D1EventRepository(environment.DB),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
+      grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
+    });
+    const contentRepository = new D1ContentRepository(environment.DB);
+    const content = new ContentService({
+      repository: contentRepository,
+      assetStorage: new R2AssetStorage(environment.ASSETS),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const cfpService = new CfpService(
+      new D1CfpRepository(environment.DB),
+      () => crypto.randomUUID(),
+      () => new Date(),
+    );
+    const crm = new CrmService({
+      repository: new D1CrmRepository(environment.DB),
+      speakerConversion: new D1SpeakerConversion(
+        environment.DB,
+        () => crypto.randomUUID(),
+        identityDirectory,
+      ),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
     });
     const now = () => new Date();
-    const content = new FixtureSchedulableContentQuery(
-      new Map([
-        [
-          "00000000-0000-4000-8000-000000000001",
-          [
-            { id: "session-opening", title: "Opening the greenroom", speakerIds: ["speaker-alex"] },
-            { id: "session-systems", title: "Systems that scale", speakerIds: ["speaker-blair"] },
-            {
-              id: "session-workshop",
-              title: "Hands-on production clinic",
-              speakerIds: ["speaker-blair"],
-            },
-          ],
-        ],
-      ]),
-    );
     const agenda = new AgendaService(
       new D1AgendaRepository(environment.DB, now),
       now,
-      content,
+      contentRepository,
       async (actor, eventId) => {
         const event = await service.get(actor, eventId);
         return Boolean(event && actor.organizations.some(({ id }) => id === event.organizationId));
@@ -78,13 +97,24 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
-    const identityDirectory = new D1IdentityDirectory(environment.DB);
+    const reviewService = new ReviewService({
+      repository: new D1ReviewRepository(environment.DB),
+      proposals: new D1SubmittedProposalAdapter(environment.DB),
+      identities: identityDirectory,
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const app = createHttpApp(
       service,
       logger,
       auth.demoMode
         ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
         : auth,
+      reviewService,
+      cfpService,
+      content,
+      crm,
       agenda,
     );
     return Promise.resolve(app.fetch(request));
