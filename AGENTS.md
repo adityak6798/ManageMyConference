@@ -15,8 +15,14 @@ To reuse this repository's harness approach in another codebase, start with the 
 
 ## The handoff gate is not the whole merge gate
 
-`npm run check` runs three of CI's five gates — `gate:integrity`, `gate:test-build`, `gate:d1` — and
-deliberately leaves two out:
+`npm run check` runs four of CI's six gates — `gate:integrity`, `gate:test-build`, `gate:d1`,
+`gate:evidence` — and deliberately leaves two out:
+
+`gate:evidence` is the one that will surprise you. It refuses a quality-scorecard row whose
+suites have no run record at this commit, so `npm run check` now depends on the browser suite
+having been run: produce the records with `npm run gate:browser`, and re-produce them after
+committing, because a record names the commit it ran against. That is the point — a row saying a
+journey passes should not outlive the run it describes.
 
 - `gate:browser` (Playwright) needs a downloaded Chromium and drives the one shared local D1 fixture, so it cannot run concurrently with another agent or checkout on this machine, and it is the slowest job to repeat after a small edit.
 - `gate:security` (`npm audit`) needs the network and changes its answer when nothing in the repository changed, so a red result is a repository-wide event rather than a signal about the change in hand.

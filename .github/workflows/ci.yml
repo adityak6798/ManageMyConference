@@ -34,6 +34,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: npm run gate:test-build
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-record-test-build
+          path: .evidence
+          if-no-files-found: ignore
 
   d1:
     runs-on: ubuntu-latest
@@ -41,6 +47,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: npm run gate:d1
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-record-d1
+          path: .evidence
+          if-no-files-found: ignore
 
   browser:
     runs-on: ubuntu-latest
@@ -49,6 +61,12 @@ jobs:
       - uses: ./.github/actions/setup
       - run: npx playwright install --with-deps chromium
       - run: npm run gate:browser
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-record-browser
+          path: .evidence
+          if-no-files-found: ignore
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -58,6 +76,23 @@ jobs:
             apps/web/test-results
             apps/api/.wrangler/instances/*/wrangler.log
           if-no-files-found: ignore
+
+  # The one job that consumes another's output, and it consumes only run records: read-only
+  # JSON stating what each suite did, at which commit. No build output and no database crosses
+  # between jobs. It runs last because it can only judge runs that have happened.
+  evidence:
+    runs-on: ubuntu-latest
+    needs: [test-build, d1, browser]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: run-record-*
+          path: .evidence
+          merge-multiple: true
+      - run: npm run gate:evidence
 
   security:
     runs-on: ubuntu-latest

@@ -11,3 +11,4 @@ coverage/
 .dev.vars
 playwright-report/
 test-results/
+.evidence/

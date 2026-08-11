@@ -70,7 +70,8 @@ The workflow runs five jobs:
 2. `test-build` (`gate:test-build`): unit, API, and component tests with V8 coverage printed for both workspaces, plus production builds.
 3. `d1` (`gate:d1`): Miniflare D1 persistence, migration, and deterministic-seed tests. These build their own Miniflare instance, so the job no longer runs `npm run reset` first; the `browser` gate still proves `reset` applies through real Wrangler, and dropping it here keeps `npm run check` from mutating the shared local D1 fixture a concurrent Playwright run depends on.
 4. `browser` (`gate:browser`): random ignored local demo-secret setup and `npm run reset`, followed by the whole Playwright acceptance suite — every spec in `apps/web/e2e`, 30 tests across 12 files, not just the reference slice; failed runs upload Playwright traces/screenshots/reports and the Wrangler log as artifacts. Because `CI` is set there, the job starts its own servers rather than reusing anything, so the CI run is always a clean-reset run.
-5. `security`: `gate:security` is `npm audit --audit-level=high`; the job additionally runs configured full-history gitleaks scanning as a marketplace action, which is therefore not reachable from `npm run check` or from any gate script.
+5. `evidence` (`gate:evidence`): refuses a quality-scorecard row whose stated verdict no run supports. Each suite writes a record under `.evidence/` — suite, command, exit status, counts, commit, timestamp — and this gate fails a row citing a suite with no record, a record from another commit, a record of a failing run, or a spec file that no longer exists. It is the one job that consumes another job's output, and what it consumes is read-only JSON: `test-build`, `d1` and `browser` upload their records with `if: always()`, and this job downloads and merges them. No build output and no database crosses between jobs. It runs `if: always()` after those three so a red suite produces a red evidence gate rather than a skipped one.
+6. `security`: `gate:security` is `npm audit --audit-level=high`; the job additionally runs configured full-history gitleaks scanning as a marketplace action, which is therefore not reachable from `npm run check` or from any gate script.
 
 All five jobs are *intended* required branch-protection checks and none of them is one yet: see the status section above. Protection must also require independent approval, resolved review conversations, and disallow force pushes and deletion. The reference slice includes automated unauthenticated and forbidden coverage. Provider adapter contracts and deployment smoke tests remain future product/release work, and cannot exist before a deployment target does (`GAP-008`).
 
@@ -104,7 +105,7 @@ Not every existing tool emits a governing-document link on failure. Improving re
 
 ## Gates the local check deliberately skips
 
-`npm run check` runs `gate:integrity`, `gate:test-build`, and `gate:d1`. The remaining gates
+`npm run check` runs `gate:integrity`, `gate:test-build`, `gate:d1`, and `gate:evidence`. The remaining gates
 are listed here because the gate-drift check refuses a divergence that is not written down;
 run them by hand (`npm run gate:browser`, `npm run gate:security`) before relying on them.
 
