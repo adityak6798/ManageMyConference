@@ -161,6 +161,54 @@ def path_owns(declared: str, query: str) -> bool:
     return query == declared or query.startswith(f"{declared}/")
 
 
+def allowlist(manifest: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
+    """
+    An architecture allowlist, keyed by path.
+
+    Entries are objects carrying a `reason` and the `governing` spec or ADR that authorises
+    them. They used to be bare strings, which made the cheapest way to silence a genuine
+    violation — appending one path — indistinguishable in the diff from declaring a legitimate
+    shared interface. Both happened one line apart in the same change (`#88`).
+    """
+    return {entry["path"]: entry for entry in manifest["architecture"][name] if "path" in entry}
+
+
+def allowlist_problems(manifest: dict[str, Any]) -> list[str]:
+    """Every allowlist entry has to say what it is for, and under whose authority."""
+    problems: list[str] = []
+    for name in ("publicApplicationEntryPoints", "compositionRoots"):
+        seen: set[str] = set()
+        for index, entry in enumerate(manifest["architecture"][name]):
+            where = f"architecture.{name}[{index}]"
+            if not isinstance(entry, dict) or "path" not in entry:
+                problems.append(
+                    f"{where} is not an entry object. Each one is "
+                    '{"path": …, "reason": …, "governing": …}; a bare path records no decision.'
+                )
+                continue
+            path = entry["path"]
+            if path in seen:
+                problems.append(f"{where} repeats '{path}'")
+            seen.add(path)
+            if not (ROOT / path).exists():
+                problems.append(f"{where} names a path that does not exist: {path}")
+            reason = str(entry.get("reason", "")).strip()
+            if len(reason) < 20:
+                problems.append(
+                    f"{where} ('{path}') needs a `reason` saying what the exemption is for. "
+                    "A placeholder such as 'shared' or 'legacy' is not one."
+                )
+            governing = str(entry.get("governing", "")).strip()
+            if not SPEC_PATTERN.fullmatch(governing):
+                problems.append(
+                    f"{where} ('{path}') needs a `governing` spec or ADR id, such as "
+                    "'ARC-DOM-001'; received {governing!r}".replace(
+                        "{governing!r}", repr(governing)
+                    )
+                )
+    return problems
+
+
 def cross_domain_import_permitted(
     source_path: str, target_path: str, manifest: dict[str, Any]
 ) -> bool:
@@ -168,10 +216,9 @@ def cross_domain_import_permitted(
     target_domain = domain_for(target_path, manifest)
     if source_domain is None or target_domain is None or source_domain["id"] == target_domain["id"]:
         return True
-    return (
-        target_path in manifest["architecture"]["publicApplicationEntryPoints"]
-        or source_path in manifest["architecture"]["compositionRoots"]
-    )
+    return target_path in allowlist(
+        manifest, "publicApplicationEntryPoints"
+    ) or source_path in allowlist(manifest, "compositionRoots")
 
 
 def domain_for(query: str, manifest: dict[str, Any]) -> dict[str, Any] | None:
@@ -202,7 +249,9 @@ def layer_for(query: str, manifest: dict[str, Any]) -> str | None:
 def production_layer_problems(relative_path: str, manifest: dict[str, Any]) -> list[str]:
     if not (relative_path.startswith(("apps/", "packages/")) and "/src/" in f"/{relative_path}"):
         return []
-    if relative_path in manifest["architecture"]["compositionRoots"]:
+    # The third reader of this allowlist. A composition root belongs to no single layer by
+    # design, so it is exempt from the one-layer rule as well as from the import rule.
+    if relative_path in allowlist(manifest, "compositionRoots"):
         return []
     matches = [
         layer
@@ -268,7 +317,13 @@ def architecture_import_problems(
         ):
             problems.append(
                 f"Cross-domain deep import from '{owning_domain['id']}' to "
-                f"'{target_domain['id']}': {relative_path} -> {target_relative}"
+                f"'{target_domain['id']}': {relative_path} -> {target_relative}\n"
+                f"    Either reach {target_domain['id']} through its public application "
+                "interface, or — if this genuinely is a shared interface — add it to "
+                "architecture.publicApplicationEntryPoints in context/architecture.json with a "
+                'specific `reason` and a `governing` id: {"path": …, "governing": "ARC-DOM-001", '
+                '"reason": "why this is a shared interface rather than a silenced violation"}. '
+                "See docs/architecture/domain-boundaries.md."
             )
     return problems
 
@@ -411,6 +466,7 @@ def check_repository() -> list[str]:
             "context-manifest.json does not match the fragments in context/; "
             "run `npm run context -- generate`"
         )
+    problems.extend(allowlist_problems(manifest))
     problems.extend(duplicate_registration_problems())
     locations = context_locations()
     unique_owners: dict[str, str] = {}

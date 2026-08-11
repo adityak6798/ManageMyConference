@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 
 from greenroom_tools.context import (
     ROOT,
+    allowlist_problems,
     architecture_import_problems,
     check_repository,
     compose_manifest,
@@ -130,6 +131,111 @@ class ContextRoutingTest(unittest.TestCase):
 
     def test_repository_integrity_is_clean(self) -> None:
         self.assertEqual(check_repository(), [])
+
+
+class ArchitectureAllowlistTest(unittest.TestCase):
+    """
+    Widening a boundary has to look different from silencing a violation. Both happened one
+    line apart in the same change once, and nothing in the tooling could tell them apart.
+    """
+
+    def manifest_with(self, name: str, entries: list[object]) -> dict:
+        manifest = load_manifest()
+        manifest["architecture"][name] = entries
+        return manifest
+
+    def test_an_entry_without_a_reason_fails_the_gate(self) -> None:
+        for name in ("publicApplicationEntryPoints", "compositionRoots"):
+            manifest = self.manifest_with(
+                name, [{"path": "apps/api/src/index.ts", "governing": "ARC-001"}]
+            )
+            problems = allowlist_problems(manifest)
+            self.assertTrue(any("needs a `reason`" in problem for problem in problems), problems)
+
+    def test_a_placeholder_reason_is_not_a_reason(self) -> None:
+        for placeholder in ("shared", "legacy", "needed", ""):
+            manifest = self.manifest_with(
+                "publicApplicationEntryPoints",
+                [
+                    {
+                        "path": "apps/api/src/index.ts",
+                        "governing": "ARC-001",
+                        "reason": placeholder,
+                    }
+                ],
+            )
+            self.assertTrue(
+                any("needs a `reason`" in problem for problem in allowlist_problems(manifest)),
+                placeholder,
+            )
+
+    def test_a_bare_string_entry_fails_the_gate(self) -> None:
+        manifest = self.manifest_with("compositionRoots", ["apps/api/src/index.ts"])
+        problems = allowlist_problems(manifest)
+        self.assertTrue(any("is not an entry object" in problem for problem in problems), problems)
+
+    def test_an_entry_needs_a_governing_id(self) -> None:
+        manifest = self.manifest_with(
+            "publicApplicationEntryPoints",
+            [
+                {
+                    "path": "apps/api/src/index.ts",
+                    "reason": "A reason long enough to be a real one, describing the interface.",
+                    "governing": "not-an-id",
+                }
+            ],
+        )
+        problems = allowlist_problems(manifest)
+        self.assertTrue(any("`governing` spec or ADR id" in problem for problem in problems))
+
+    def test_an_entry_naming_a_missing_path_fails_the_gate(self) -> None:
+        manifest = self.manifest_with(
+            "publicApplicationEntryPoints",
+            [
+                {
+                    "path": "apps/api/src/application/ghost/public.ts",
+                    "governing": "ARC-DOM-001",
+                    "reason": "A reason long enough to be a real one, describing the interface.",
+                }
+            ],
+        )
+        problems = allowlist_problems(manifest)
+        self.assertTrue(any("does not exist" in problem for problem in problems), problems)
+
+    def test_every_shipped_entry_carries_a_specific_reason(self) -> None:
+        self.assertEqual(allowlist_problems(load_manifest()), [])
+
+    def test_a_blocked_import_is_told_what_the_allowlist_is_for(self) -> None:
+        manifest = load_manifest()
+        problems = architecture_import_problems(
+            "apps/api/src/application/agenda/agenda-service.ts",
+            'import { CrmService } from "../crm/crm-service";',
+            manifest,
+        )
+        self.assertTrue(problems)
+        message = "\n".join(problems)
+        self.assertIn("publicApplicationEntryPoints", message)
+        self.assertIn("reason", message)
+        self.assertIn("governing", message)
+        self.assertIn("docs/architecture/domain-boundaries.md", message)
+
+    def test_all_three_readers_use_the_object_form(self) -> None:
+        manifest = load_manifest()
+        # Import direction, cross-domain reach, and the one-layer rule all read these lists;
+        # a fourth reader added against bare strings is the failure this asserts against.
+        self.assertTrue(
+            cross_domain_import_permitted(
+                "apps/api/src/transport/http/app.ts",
+                "apps/api/src/application/events/event-service.ts",
+                manifest,
+            )
+        )
+        self.assertTrue(
+            cross_domain_import_permitted(
+                "apps/web/src/OverviewPage.tsx", "apps/web/src/api/review.ts", manifest
+            )
+        )
+        self.assertEqual(production_layer_problems("apps/api/src/index.ts", manifest), [])
 
 
 class DomainRegistrationTest(unittest.TestCase):

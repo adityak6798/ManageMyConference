@@ -8,42 +8,153 @@
   },
   "architecture": {
     "publicApplicationEntryPoints": [
-      "apps/api/src/application/events/event-service.ts",
-      "apps/api/src/application/events/public.ts",
-      "apps/api/src/application/cfp/public.ts",
-      "apps/api/src/application/identity/actor.ts",
-      "apps/api/src/application/identity/demo-session.ts",
-      "apps/api/src/application/identity/identity-directory.ts",
-      "apps/api/src/application/communications/communications-service.ts",
-      "apps/web/src/api/communications.ts",
-      "apps/api/src/application/content/content-service.ts",
-      "apps/api/src/application/content/public.ts",
-      "apps/api/src/application/cfp/submitted-proposal-interface.ts",
-      "apps/api/src/application/review/review-service.ts",
-      "apps/api/src/application/review/review-repository.ts",
-      "apps/api/src/application/review/public.ts",
-      "apps/api/src/application/crm/public.ts",
-      "apps/api/src/application/content/speaker-conversion.ts",
-      "apps/web/src/CrmWorkspace.tsx",
-      "apps/api/src/application/agenda/public.ts",
-      "apps/web/src/AgendaWorkspace.tsx",
-      "apps/api/src/application/publishing/publication-service.ts",
-      "apps/api/src/application/publishing/public.ts",
-      "apps/web/src/PublicEventApp.tsx",
-      "apps/web/src/api/cfp.ts",
-      "apps/web/src/ui/primitives.tsx",
-      "apps/web/src/ui/icons.tsx",
-      "apps/api/src/transport/http/runtime.ts",
-      "apps/api/src/transport/http/routes/contract.ts",
-      "apps/api/src/transport/http/throttle.ts",
-      "apps/web/src/workspaces/contract.ts"
+      {
+        "path": "apps/api/src/application/events/event-service.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "Every domain that must know an event exists, or who organizes it, asks this service: review resolves event membership through it and the transport composes it."
+      },
+      {
+        "path": "apps/api/src/application/events/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The events domain's declared export surface. No cross-domain import reaches it today — consumers still use event-service.ts — and it stays declared so a new consumer has a surface to target instead of deep-importing the service."
+      },
+      {
+        "path": "apps/api/src/application/cfp/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "CFP's declared export surface: the service type and the three errors the transport translates into 400 and 404 responses."
+      },
+      {
+        "path": "apps/api/src/application/identity/actor.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The capability model and the two authorization errors. Every domain's route module and four application services enforce authorization through it, which makes it the one identity surface the whole repository depends on."
+      },
+      {
+        "path": "apps/api/src/application/identity/demo-session.ts",
+        "governing": "PRD-IAM-001",
+        "reason": "Harness-only session issue and resolution. The transport middleware resolves the session cookie through it and the identity routes issue one."
+      },
+      {
+        "path": "apps/api/src/application/identity/identity-directory.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
+      },
+      {
+        "path": "apps/api/src/application/communications/communications-service.ts",
+        "governing": "PRD-COM-001",
+        "reason": "Communications' command surface and its three typed errors, composed by the transport."
+      },
+      {
+        "path": "apps/api/src/application/content/content-service.ts",
+        "governing": "PRD-SPK-001",
+        "reason": "Content's command surface, plus the speaker-identity and photo errors that review's route module translates when acceptance provisions a speaker."
+      },
+      {
+        "path": "apps/api/src/application/content/public.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "Content's declared read interface. Agenda and publishing compose session content through it rather than reading content's tables."
+      },
+      {
+        "path": "apps/api/src/application/cfp/submitted-proposal-interface.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "The reference review uses to reach a submitted proposal without reading cfp_submissions."
+      },
+      {
+        "path": "apps/api/src/application/review/review-service.ts",
+        "governing": "PRD-REV-001",
+        "reason": "Review's command surface and its three typed errors, composed by the transport."
+      },
+      {
+        "path": "apps/api/src/application/review/public.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "Review's declared outcome interface: content asks it whether a proposal was accepted before provisioning a speaker."
+      },
+      {
+        "path": "apps/api/src/application/crm/public.ts",
+        "governing": "PRD-CRM-001",
+        "reason": "CRM's declared surface and its four typed errors, composed by the transport."
+      },
+      {
+        "path": "apps/api/src/application/content/speaker-conversion.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "The command CRM issues to turn a prospect into a speaker, so conversion crosses the boundary as a call rather than a write into content's tables."
+      },
+      {
+        "path": "apps/api/src/application/agenda/public.ts",
+        "governing": "PRD-AGD-001",
+        "reason": "Agenda's declared schedule interface. Content reads session times through it and publishing composes the public schedule from it."
+      },
+      {
+        "path": "apps/api/src/application/publishing/public.ts",
+        "governing": "PRD-PUB-001",
+        "reason": "Publishing's declared surface: the service type and composePublicSchedule, which the transport uses to build the public schedule response."
+      },
+      {
+        "path": "apps/web/src/PublicEventApp.tsx",
+        "governing": "PRD-PUB-001",
+        "reason": "The public site's root component. main.tsx mounts it for /events/*, which is the only cross-domain reach into publishing's UI."
+      },
+      {
+        "path": "apps/web/src/api/cfp.ts",
+        "governing": "PRD-CFP-002",
+        "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
+      },
+      {
+        "path": "apps/web/src/ui/primitives.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system. Eight domains' workspaces render through the same Card, Notice, EmptyState and PageHeader, which is what makes the console read as one product."
+      },
+      {
+        "path": "apps/web/src/ui/icons.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's icon set, imported by every workspace module and by the shell's navigation."
+      },
+      {
+        "path": "apps/api/src/transport/http/runtime.ts",
+        "governing": "ARC-001",
+        "reason": "The transport's shared vocabulary: the request context type, the error envelope, the validation-field helper and the JSON reader. Every domain route module imports it and it holds no domain logic."
+      },
+      {
+        "path": "apps/api/src/transport/http/routes/contract.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The route-module interface and the named dependency set every domain route module implements."
+      },
+      {
+        "path": "apps/api/src/transport/http/throttle.ts",
+        "governing": "PRD-CFP-002",
+        "reason": "Address-derived submission throttling. CFP's public submission route is its only consumer, but the throttle is transport infrastructure rather than CFP's rule, so it stays platform-owned."
+      },
+      {
+        "path": "apps/web/src/workspaces/contract.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The workspace-module interface every domain's console surface implements."
+      }
     ],
     "compositionRoots": [
-      "apps/api/src/index.ts",
-      "apps/web/src/App.tsx",
-      "apps/web/src/OverviewPage.tsx",
-      "apps/api/src/transport/http/routes/registry.ts",
-      "apps/web/src/workspaces/registry.tsx"
+      {
+        "path": "apps/api/src/index.ts",
+        "governing": "ARC-001",
+        "reason": "The Worker entry point. It constructs every domain's service and hands them to the transport, and it is the only production file under apps/api/src that belongs to no architecture layer."
+      },
+      {
+        "path": "apps/web/src/App.tsx",
+        "governing": "ARC-001",
+        "reason": "The console shell. It composes the session, the event switcher and the workspace registry, reading events and publication state through their public clients."
+      },
+      {
+        "path": "apps/web/src/OverviewPage.tsx",
+        "governing": "ARC-001",
+        "reason": "The organizer dashboard. It reads agenda, content and review through their public clients to assemble one cross-domain view, exactly as App.tsx does."
+      },
+      {
+        "path": "apps/api/src/transport/http/routes/registry.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The HTTP route registry. Listing every domain's route module is the whole of what it does."
+      },
+      {
+        "path": "apps/web/src/workspaces/registry.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The console workspace registry. Listing every domain's workspace module is the whole of what it does."
+      }
     ],
     "layerPaths": {
       "domain": ["apps/api/src/domain"],
