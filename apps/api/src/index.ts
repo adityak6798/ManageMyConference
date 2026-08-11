@@ -1,5 +1,7 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
+import { DeterministicProvider } from "./adapters/providers/deterministic-provider";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { AgendaService } from "./application/agenda/agenda-service";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
@@ -14,14 +16,33 @@ import { CfpService } from "./application/cfp/cfp-service";
 import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
+import { CommunicationsService } from "./application/communications/communications-service";
+import { OutboxWorker } from "./application/communications/outbox-worker";
 import { createHttpApp } from "./transport/http/app";
 
-interface Environment {
+export interface Environment {
   DB: D1DatabasePort;
   ASSETS: R2BucketPort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
   ENVIRONMENT?: string;
+}
+
+const communicationsRepository = (environment: Environment) =>
+  new D1CommunicationsRepository(
+    environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
+  );
+
+export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
+  const provider = new DeterministicProvider();
+  const worker = new OutboxWorker(
+    communicationsRepository(environment),
+    { email: provider, airtable: provider, accelevents: provider },
+    { newId: () => crypto.randomUUID(), now: () => new Date() },
+  );
+  let processed = 0;
+  while (processed < limit && (await worker.runOne())) processed += 1;
+  return processed;
 }
 
 export function runtimeAuth(
@@ -105,6 +126,12 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const communications = new CommunicationsService({
+      repository: communicationsRepository(environment),
+      eventDirectory: service,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const app = createHttpApp(
       service,
       logger,
@@ -116,7 +143,11 @@ export default {
       content,
       crm,
       agenda,
+      communications,
     );
     return Promise.resolve(app.fetch(request));
+  },
+  scheduled(_controller: unknown, environment: Environment): Promise<void> {
+    return drainOutbox(environment).then(() => undefined);
   },
 };

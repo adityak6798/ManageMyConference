@@ -152,6 +152,15 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
+    const communicationsMigration = await readFile(
+      new URL("../migrations/0019_communications_outbox.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of communicationsMigration
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     const statements = reset
       .split(";")

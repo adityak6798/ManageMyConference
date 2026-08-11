@@ -3,6 +3,7 @@ export type Capability =
   | "events:create"
   | "events:settings:read"
   | "events:settings:update"
+  | "communications:manage"
   | "agenda:manage"
   | "crm:manage"
   | "content:read"

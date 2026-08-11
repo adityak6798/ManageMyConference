@@ -68,6 +68,12 @@ describe("D1IdentityDirectory", () => {
       const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       expect((await database.prepare(trigger).run()).success).toBe(true);
     }
+    const communicationsMigration = await readFile(
+      new URL("../migrations/0019_communications_outbox.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of statements(communicationsMigration))
+      await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of statements(reset)) await database.prepare(statement).run();
 
@@ -84,6 +90,7 @@ describe("D1IdentityDirectory", () => {
       capabilities: new Set([
         "events:read",
         "events:create",
+        "communications:manage",
         "events:settings:read",
         "events:settings:update",
         "agenda:manage",

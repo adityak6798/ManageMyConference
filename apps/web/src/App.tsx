@@ -1,7 +1,9 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ContentWorkspace } from "./ContentWorkspace";
+import { CommunicationsWorkspace } from "./CommunicationsWorkspace";
 import { ContentApiError } from "./api/content";
+import { CommunicationsApiError } from "./api/communications";
 import {
   ApiError,
   createEvent,
@@ -19,14 +21,18 @@ import { CrmWorkspace } from "./CrmWorkspace";
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 const navByRole: Record<Persona, string[]> = {
-  organizer: ["Overview", "Agenda", "Event settings", "People", "Publishing"],
+  organizer: ["Overview", "Agenda", "Event settings", "People", "Communications", "Publishing"],
   reviewer: ["Review assignments"],
   speaker: ["Speaker tasks", "My sessions"],
   public: ["Published event"],
 };
 
 function readableError(error: unknown): string {
-  if (error instanceof ApiError || error instanceof ContentApiError)
+  if (
+    error instanceof ApiError ||
+    error instanceof ContentApiError ||
+    error instanceof CommunicationsApiError
+  )
     return `${error.message} Reference: ${error.envelope.error.correlationId}`;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
@@ -102,7 +108,9 @@ export function App() {
     setError(null);
     try {
       const event = await createEvent({ organizationId, name, timezone: "America/Los_Angeles" });
-      setEvents(await listEvents());
+      const [refreshedSession, refreshedEvents] = await Promise.all([getSession(), listEvents()]);
+      setSession(refreshedSession);
+      setEvents(refreshedEvents);
       setSelectedEventId(event.id);
       setName("");
     } catch (reason: unknown) {
@@ -251,18 +259,17 @@ export function App() {
                 </p>
               </section>
             )}
-            {selectedEvent &&
-            (session.eventAccess
-              .find(({ eventId }) => eventId === selectedEvent.id)
-              ?.capabilities.includes("agenda:manage") ||
-              session.organizations.some(({ id }) => id === selectedEvent.organizationId)) ? (
+            {selectedEvent && activeEventCapabilities.includes("agenda:manage") ? (
               <AgendaWorkspace
                 key={selectedEvent.id}
                 eventId={selectedEvent.id}
                 onError={setError}
               />
             ) : null}
-            {selectedEventId && (activeRole === "organizer" || activeRole === "speaker") ? (
+            {selectedEventId &&
+            (activeRole === "organizer" || activeRole === "speaker") &&
+            (session.capabilities.includes("content:read") ||
+              activeEventCapabilities.includes("content:read")) ? (
               <ContentWorkspace eventId={selectedEventId} role={activeRole} onError={reportError} />
             ) : null}
             {selectedEventId && activeEventCapabilities.includes("review:manage") ? (
@@ -281,6 +288,13 @@ export function App() {
             session.capabilities.includes("crm:manage") &&
             activeEventCapabilities.includes("crm:manage") ? (
               <CrmWorkspace eventId={selectedEvent.id} ownerId={session.actor.id} />
+            ) : null}
+            {selectedEvent &&
+            session.capabilities.includes("communications:manage") &&
+            session.eventAccess.some(
+              ({ eventId, role }) => eventId === selectedEvent.id && role === "organizer",
+            ) ? (
+              <CommunicationsWorkspace event={selectedEvent} onError={reportError} />
             ) : null}
             {error ? (
               <p role="alert" className="error">

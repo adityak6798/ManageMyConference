@@ -364,6 +364,58 @@ button:disabled {
 .denied {
   border-left: 5px solid #d39a25;
 }
+.section-heading,
+.delivery-history li,
+.delivery-history li > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.section-heading,
+.delivery-history li {
+  justify-content: space-between;
+}
+.delivery-history > li {
+  flex-wrap: wrap;
+}
+.attempt-history {
+  flex-basis: 100%;
+  margin: 0 0 0 20px;
+  color: #48584c;
+}
+.attempt-history li {
+  display: list-item;
+  border: 0;
+  padding: 3px 0;
+}
+.delivery-history {
+  list-style: none;
+  padding: 0;
+  margin: 20px 0 0;
+}
+.delivery-history li {
+  border-top: 1px solid #e2e8e2;
+  padding: 14px 0;
+}
+.delivery-state {
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+.state-queued {
+  background: #e8eef8;
+}
+.state-retrying {
+  background: #fff0c7;
+}
+.state-succeeded {
+  background: #d9f3e4;
+}
+.state-terminal {
+  background: #f8dadd;
+}
 @media (max-width: 700px) {
   .masthead {
     align-items: stretch;

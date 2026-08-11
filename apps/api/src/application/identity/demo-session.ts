@@ -27,6 +27,7 @@ const personas = {
     capabilities: [
       "events:read",
       "events:create",
+      "communications:manage",
       "agenda:manage",
       "crm:manage",
       "content:read",

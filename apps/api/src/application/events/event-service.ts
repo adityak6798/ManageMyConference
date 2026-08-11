@@ -66,4 +66,13 @@ export class EventService {
     const authorized = requireCapability(actor, "events:read");
     return this.dependencies.repository.findById(eventId, this.scope(authorized));
   }
+
+  async belongsToOrganization(eventId: string, organizationId: string): Promise<boolean> {
+    return (
+      (await this.dependencies.repository.findById(eventId, {
+        organizationIds: [organizationId],
+        eventIds: [],
+      })) !== null
+    );
+  }
 }

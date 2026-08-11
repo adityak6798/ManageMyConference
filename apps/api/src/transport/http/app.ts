@@ -5,6 +5,8 @@ import {
   agendaPlacementSchema,
   agendaResourcesSchema,
   cfpStateInputSchema,
+  communicationsHistoryParamsSchema,
+  createTemplateInputSchema,
   createEventInputSchema,
   createProspectInputSchema,
   contentSessionParamsSchema,
@@ -16,6 +18,7 @@ import {
   demoSessionInputSchema,
   eventContentParamsSchema,
   eventIdParamsSchema,
+  deliveryIdParamsSchema,
   profileParamsSchema,
   prospectListQuerySchema,
   prospectPathSchema,
@@ -33,10 +36,18 @@ import {
   updateProspectInputSchema,
   saveCfpInputSchema,
   submitProposalInputSchema,
+  retryDeliveryInputSchema,
+  triggerDeliveryInputSchema,
 } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { EventService } from "../../application/events/event-service";
+import {
+  CommunicationsConflictError,
+  CommunicationsInputError,
+  CommunicationsNotFoundError,
+  type CommunicationsService,
+} from "../../application/communications/communications-service";
 import type { ContentService } from "../../application/content/content-service";
 import {
   type CrmService,
@@ -116,11 +127,12 @@ export function createHttpApp(
   service: EventService,
   logger: StructuredLogger,
   auth: RuntimeAuthConfig,
-  reviewOrCfpService?: ReviewService | CfpService | CrmService,
+  reviewOrCfpService?: ReviewService | CfpService | CrmService | CommunicationsService,
   cfpServiceArgument?: CfpService,
   content?: ContentService,
   crmArgument?: CrmService,
   agenda?: AgendaService,
+  communicationsArgument?: CommunicationsService,
 ) {
   const reviewService =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -134,6 +146,9 @@ export function createHttpApp(
   const crm =
     crmArgument ??
     (reviewOrCfpService && "convert" in reviewOrCfpService ? reviewOrCfpService : undefined);
+  const communications =
+    communicationsArgument ??
+    (reviewOrCfpService && "createTemplate" in reviewOrCfpService ? reviewOrCfpService : undefined);
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
     const supplied = context.req.header("x-correlation-id");
@@ -267,6 +282,89 @@ export function createHttpApp(
         404,
       );
     return context.json({ event: eventToDto(event) });
+  });
+  app.post("/api/communications/templates", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const parsed = createTemplateInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The template is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json(
+      { template: await communications.createTemplate(context.get("actor"), parsed.data) },
+      201,
+    );
+  });
+  app.post("/api/communications/deliveries", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const parsed = triggerDeliveryInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The delivery trigger is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json(
+      { delivery: await communications.trigger(context.get("actor"), parsed.data) },
+      202,
+    );
+  });
+  app.get("/api/communications/history", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const parsed = communicationsHistoryParamsSchema.safeParse(context.req.query());
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Organization and event IDs are required.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    return context.json(
+      await communications.history(
+        context.get("actor"),
+        parsed.data.organizationId,
+        parsed.data.eventId,
+        { limit: parsed.data.limit, cursor: parsed.data.cursor },
+      ),
+    );
+  });
+  app.post("/api/communications/deliveries/:deliveryId/retry", async (context) => {
+    requireCapability(context.get("actor"), "communications:manage");
+    if (!communications) throw new Error("Communications service is not configured");
+    const params = deliveryIdParamsSchema.safeParse(context.req.param());
+    const query = retryDeliveryInputSchema.safeParse(context.req.query());
+    if (!params.success || !query.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "The recovery request is invalid.",
+          context.get("correlationId"),
+        ),
+        400,
+      );
+    return context.json({
+      delivery: await communications.retry(
+        context.get("actor"),
+        query.data.organizationId,
+        params.data.deliveryId,
+      ),
+    });
   });
   app.get("/api/events/:eventId/content", async (context) => {
     requireCapability(context.get("actor"), "content:read");
@@ -1081,6 +1179,12 @@ export function createHttpApp(
       return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 400);
     if (error instanceof CfpUnavailableError)
       return context.json(envelope("NOT_FOUND", error.message, correlationId), 404);
+    if (error instanceof CommunicationsInputError)
+      return context.json(envelope("VALIDATION_FAILED", error.message, correlationId), 400);
+    if (error instanceof CommunicationsNotFoundError)
+      return context.json(envelope("NOT_FOUND", error.message, correlationId), 404);
+    if (error instanceof CommunicationsConflictError)
+      return context.json(envelope("CONFLICT", error.message, correlationId), 409);
     logger.error(
       {
         correlationId,

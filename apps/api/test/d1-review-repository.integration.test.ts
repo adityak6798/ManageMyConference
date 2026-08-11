@@ -52,6 +52,15 @@ describe("review D1 persistence", () => {
         .filter(Boolean))
         expect((await database.prepare(statement).run()).success).toBe(true);
     }
+    const communicationsMigration = await readFile(
+      new URL("../migrations/0019_communications_outbox.sql", import.meta.url),
+      "utf8",
+    );
+    for (const statement of communicationsMigration
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
     for (const statement of reset
       .split(";")
