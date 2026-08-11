@@ -8,11 +8,16 @@ export interface ProposalStatusDefinition {
 
 export interface SubmittedProposal {
   readonly id: string;
-  readonly organizationId: string;
   readonly eventId: string;
   readonly title: string;
   readonly abstract: string;
   readonly submitterName: string;
+  readonly answers: readonly {
+    readonly fieldId: string;
+    readonly label: string;
+    readonly type: "short_text" | "long_text" | "select";
+    readonly value: string;
+  }[];
   readonly status: ProposalStatus;
 }
 

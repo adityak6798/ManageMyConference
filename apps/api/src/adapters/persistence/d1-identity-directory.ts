@@ -10,6 +10,7 @@ interface D1Result<T> {
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   all<T>(): Promise<D1Result<T>>;
+  run<T = unknown>(): Promise<D1Result<T>>;
 }
 export interface IdentityDatabasePort {
   prepare(query: string): D1Statement;
@@ -118,5 +119,16 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (!result.success)
       throw new Error(`D1 failed to list event reviewers: ${result.error ?? "unknown error"}`);
     return result.results ?? [];
+  }
+
+  async grantOrganizer(eventId: string, userId: string): Promise<void> {
+    const result = await this.database
+      .prepare(
+        "INSERT OR IGNORE INTO event_roles (event_id, user_id, role) VALUES (?, ?, 'organizer')",
+      )
+      .bind(eventId, userId)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to grant event organizer: ${result.error ?? "unknown error"}`);
   }
 }

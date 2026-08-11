@@ -97,11 +97,18 @@ export const reviewAssignmentParamsSchema = z.object({
 });
 export const proposalSchema = z.object({
   id: z.string().uuid(),
-  organizationId: z.string().uuid(),
   eventId: z.string().uuid(),
   title: z.string(),
   abstract: z.string(),
   submitterName: z.string(),
+  answers: z.array(
+    z.object({
+      fieldId: z.string(),
+      label: z.string(),
+      type: z.enum(["short_text", "long_text", "select"]),
+      value: z.string(),
+    }),
+  ),
   status: proposalStatusSchema,
 });
 export const reviewCriterionSchema = z
@@ -217,3 +224,65 @@ export const evaluationResponseSchema = z.object({ evaluation: evaluationSchema 
 export type OrganizerReviewWorkspaceDto = z.infer<typeof organizerReviewWorkspaceSchema>;
 export type ReviewerQueueDto = z.infer<typeof reviewerQueueSchema>;
 export type SaveEvaluationInput = z.infer<typeof saveEvaluationInputSchema>;
+// @spec PRD-CFP-001 PRD-CFP-002
+export const cfpFieldTypeSchema = z.enum(["short_text", "long_text", "email", "select"]);
+export const cfpFieldSchema = z.object({
+  id: z.string().min(1).max(80),
+  type: cfpFieldTypeSchema,
+  label: z.string().trim().min(1).max(120),
+  guidance: z.string().trim().max(500).default(""),
+  required: z.boolean().default(false),
+  options: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+});
+export const cfpStatusSchema = z.enum(["draft", "open", "closed"]);
+const cfpFieldsSchema = z
+  .array(cfpFieldSchema)
+  .min(1)
+  .max(40)
+  .superRefine((fields, context) => {
+    const seen = new Set<string>();
+    fields.forEach((field, index) => {
+      if (seen.has(field.id))
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Field IDs must be unique",
+        });
+      seen.add(field.id);
+      if (field.type === "select" && field.options.length === 0)
+        context.addIssue({
+          code: "custom",
+          path: [index, "options"],
+          message: "Select fields need at least one option",
+        });
+    });
+  });
+export const saveCfpInputSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).default(""),
+  fields: cfpFieldsSchema,
+});
+export const cfpFormSchema = saveCfpInputSchema.extend({
+  eventId: z.string().uuid(),
+  status: cfpStatusSchema,
+  version: z.number().int().positive(),
+  publishedAt: z.string().datetime().nullable(),
+  publishedStatus: z.enum(["open", "closed"]).nullable(),
+});
+export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
+export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close", "reopen"]) });
+export const submitProposalInputSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(120),
+  answers: z.record(z.string()),
+});
+export const proposalConfirmationSchema = z.object({
+  confirmationId: z.string().uuid(),
+  submittedAt: z.string().datetime(),
+});
+export const proposalConfirmationResponseSchema = z.object({
+  submission: proposalConfirmationSchema,
+});
+export type CfpField = z.infer<typeof cfpFieldSchema>;
+export type CfpFormDto = z.infer<typeof cfpFormSchema>;
+export type SaveCfpInput = z.infer<typeof saveCfpInputSchema>;
+export type SubmitProposalInput = z.infer<typeof submitProposalInputSchema>;

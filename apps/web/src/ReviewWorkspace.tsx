@@ -143,6 +143,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
               <strong>{proposal.title}</strong>
             </label>
             <p>{proposal.abstract}</p>
+            <ProposalAnswers answers={proposal.answers} />
             <span className="status-pill">{proposal.status.replaceAll("_", " ")}</span>
             {data.outcomes.find((outcome) => outcome.proposalId === proposal.id) ? (
               <span className="outcome">
@@ -386,6 +387,7 @@ function EvaluationCard({
     <article className="evaluation-card">
       <h3>{item.proposal.title}</h3>
       <p>{item.proposal.abstract}</p>
+      <ProposalAnswers answers={item.proposal.answers} />
       {item.evaluation?.state === "completed" ? (
         <p>Evaluation submitted. Scores and conflicts are now locked.</p>
       ) : item.conflict ? (
@@ -461,5 +463,23 @@ function EvaluationCard({
       )}
       {item.evaluation ? <p className="status-pill">{item.evaluation.state}</p> : null}
     </article>
+  );
+}
+
+function ProposalAnswers({
+  answers,
+}: {
+  answers: OrganizerReviewWorkspaceDto["proposals"][number]["answers"];
+}) {
+  if (!answers.length) return null;
+  return (
+    <dl className="proposal-answers">
+      {answers.map((answer) => (
+        <div key={answer.fieldId}>
+          <dt>{answer.label}</dt>
+          <dd>{answer.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

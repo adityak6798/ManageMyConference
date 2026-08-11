@@ -13,6 +13,7 @@ import type {
 } from "../../domain/review/review";
 import { type ReviewRepository, ReviewStateConflictError } from "./review-repository";
 import type { IdentityDirectory } from "../identity/identity-directory";
+import type { EventService } from "../events/event-service";
 
 export class ReviewValidationError extends Error {
   constructor(readonly fields: Record<string, string[]>) {
@@ -27,6 +28,7 @@ export interface ReviewServiceDependencies {
   repository: ReviewRepository;
   proposals: SubmittedProposalInterface;
   identities: Pick<IdentityDirectory, "isReviewerForEvent" | "listReviewersForEvent">;
+  events: Pick<EventService, "get">;
   newId: () => string;
   now: () => Date;
 }
@@ -284,11 +286,13 @@ export class ReviewService {
     if (input.complete) {
       const proposal = await this.dependencies.proposals.find(eventId, assignment.proposalId);
       if (!proposal) throw new ReviewNotFoundError("Proposal not found");
+      const scopedEvent = await this.dependencies.events.get(authorized, eventId);
+      if (!scopedEvent) throw new ReviewNotFoundError("Event not found");
       const event: ReviewCompletedEvent = {
         type: "EVT-REVIEW-COMPLETED",
         version: 1,
         id: this.dependencies.newId(),
-        organizationId: proposal.organizationId,
+        organizationId: scopedEvent.organizationId,
         eventId,
         proposalId: proposal.id,
         assignmentId,

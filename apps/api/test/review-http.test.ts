@@ -26,11 +26,11 @@ const build = () => {
     proposals: new MemorySubmittedProposalAdapter([
       {
         id: proposalId,
-        organizationId: "00000000-0000-4000-8000-000000000010",
         eventId,
         title: "Proposal",
         abstract: "Abstract",
         submitterName: "Applicant",
+        answers: [],
         status: "submitted",
       },
     ]),
@@ -39,6 +39,15 @@ const build = () => {
         userId === "seed-reviewer" && scopedEventId === eventId,
       listReviewersForEvent: async (scopedEventId) =>
         scopedEventId === eventId ? [{ id: "seed-reviewer", name: "Ravi Reviewer" }] : [],
+    },
+    events: {
+      get: async () => ({
+        id: eventId,
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        name: "Event",
+        timezone: "UTC",
+        createdAt: "2026-08-09T12:00:00.000Z",
+      }),
     },
     newId: ids,
     now: () => new Date("2026-08-10T12:00:00.000Z"),

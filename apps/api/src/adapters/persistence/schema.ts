@@ -87,20 +87,45 @@ export const eventRoles = sqliteTable(
   ],
 );
 
-// @spec PRD-ABS-001 PRD-REV-001
+// @spec PRD-CFP-001
+export const cfpForms = sqliteTable("cfp_forms", {
+  eventId: text("event_id")
+    .primaryKey()
+    .notNull()
+    .references(() => events.id),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  fieldsJson: text("fields_json").notNull(),
+  status: text("status").notNull(),
+  version: integer("version").notNull(),
+  publishedAt: text("published_at"),
+  publishedJson: text("published_json"),
+});
+// @spec PRD-CFP-002
 export const cfpSubmissions = sqliteTable(
   "cfp_submissions",
   {
     id: text("id").primaryKey().notNull(),
-    organizationId: text("organization_id").notNull(),
-    eventId: text("event_id").notNull(),
-    title: text("title").notNull(),
-    abstract: text("abstract").notNull(),
-    submitterName: text("submitter_name").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    cfpVersion: integer("cfp_version").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    answersJson: text("answers_json").notNull(),
+    formFieldsJson: text("form_fields_json").notNull(),
+    submittedAt: text("submitted_at").notNull(),
     status: text("status").notNull(),
   },
-  (table) => [index("cfp_submissions_event_status_idx").on(table.eventId, table.status)],
+  (table) => [
+    unique("cfp_submissions_event_id_idempotency_key_unique").on(
+      table.eventId,
+      table.idempotencyKey,
+    ),
+    index("cfp_submissions_event_id_idx").on(table.eventId),
+    index("cfp_submissions_event_status_idx").on(table.eventId, table.status),
+  ],
 );
+// @spec PRD-ABS-001 PRD-REV-001
 export const cfpStatusAudit = sqliteTable(
   "cfp_status_audit",
   {

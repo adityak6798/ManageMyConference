@@ -1,8 +1,16 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, createEvent, getSession, listEvents, startDemoSession } from "./api/events";
+import {
+  ApiError,
+  createEvent,
+  getSession,
+  listEvents,
+  listPublicEvents,
+  startDemoSession,
+} from "./api/events";
 import "./styles.css";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "./ReviewWorkspace";
+import { CfpWorkspace } from "./CfpWorkspace";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
@@ -33,10 +41,14 @@ export function App() {
     const currentSession = await getSession();
     const loadedEvents = currentSession.capabilities.includes("events:read")
       ? await listEvents()
-      : [];
+      : currentSession.actor.persona === "public"
+        ? await listPublicEvents()
+        : [];
     setSession(currentSession);
     setEvents(loadedEvents);
-    setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
+    setSelectedEventId((current) =>
+      loadedEvents.some(({ id }) => id === current) ? current : loadedEvents[0]?.id || "",
+    );
   }, []);
 
   useEffect(() => {
@@ -67,7 +79,6 @@ export function App() {
     setError(null);
     try {
       await startDemoSession(persona);
-      setSelectedEventId("");
       await loadShell();
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -197,6 +208,13 @@ export function App() {
                 <p className="empty">This identity has no event workspace assigned.</p>
               )}
             </section>
+            {selectedEvent ? (
+              <CfpWorkspace
+                key={`${selectedEvent.id}:${session.actor.id}:${activeRole}`}
+                eventId={selectedEvent.id}
+                organizer={activeRole === "organizer"}
+              />
+            ) : null}
             {session.capabilities.includes("events:create") ? (
               <section aria-labelledby="create-title">
                 <h2 id="create-title">Create an event</h2>
@@ -227,10 +245,16 @@ export function App() {
               </section>
             )}
             {selectedEventId && activeEventCapabilities.includes("review:manage") ? (
-              <OrganizerReviewWorkspace eventId={selectedEventId} />
+              <OrganizerReviewWorkspace
+                key={`${selectedEventId}:${session.actor.id}:organizer-review`}
+                eventId={selectedEventId}
+              />
             ) : null}
             {selectedEventId && activeEventCapabilities.includes("review:evaluate") ? (
-              <ReviewerWorkspace eventId={selectedEventId} />
+              <ReviewerWorkspace
+                key={`${selectedEventId}:${session.actor.id}:reviewer-review`}
+                eventId={selectedEventId}
+              />
             ) : null}
             {error ? (
               <p role="alert" className="error">

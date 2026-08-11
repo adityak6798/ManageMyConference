@@ -16,6 +16,7 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await page.getByLabel("Event name").fill(eventName);
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Build the proposal form" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);
   await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");

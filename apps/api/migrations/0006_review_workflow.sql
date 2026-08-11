@@ -1,12 +1,5 @@
-CREATE TABLE cfp_submissions (
-  id TEXT PRIMARY KEY NOT NULL,
-  organization_id TEXT NOT NULL REFERENCES organizations(id),
-  event_id TEXT NOT NULL REFERENCES events(id),
-  title TEXT NOT NULL,
-  abstract TEXT NOT NULL,
-  submitter_name TEXT NOT NULL,
-  status TEXT NOT NULL
-);
+ALTER TABLE cfp_submissions ADD COLUMN status TEXT NOT NULL DEFAULT 'submitted';
+ALTER TABLE cfp_submissions ADD COLUMN form_fields_json TEXT NOT NULL DEFAULT '[]';
 CREATE INDEX cfp_submissions_event_status_idx ON cfp_submissions(event_id, status);
 
 CREATE TABLE cfp_statuses (

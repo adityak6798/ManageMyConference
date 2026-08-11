@@ -7,7 +7,11 @@ test("organizer triages and reviewer completes an unbiased evaluation", async ({
   await expect(page.getByRole("heading", { name: "Abstract triage" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review assignments" })).toBeVisible();
   await page.getByLabel("Filter status").selectOption("submitted");
-  await expect(page.getByText("Typed boundaries at scale", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Abstract triage" }).locator("strong", {
+      hasText: "Typed boundaries at scale",
+    }),
+  ).toBeVisible();
   await expect(page.getByText("Designing for the hallway track", { exact: true })).toHaveCount(0);
   await page.getByLabel("Filter status").selectOption("");
   await page
@@ -23,7 +27,12 @@ test("organizer triages and reviewer completes an unbiased evaluation", async ({
     page.getByText(/Typed boundaries at scale: submitted → under_review by seed-organizer/),
   ).toBeVisible();
   await page.getByLabel("Reviewer").selectOption("seed-reviewer");
+  const assignmentSaved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/review/assignments") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Assign selected reviewer" }).click();
+  await expect((await assignmentSaved).ok()).toBe(true);
   await page.getByRole("combobox", { name: "Demo identity" }).selectOption("reviewer");
   await expect(page.getByRole("heading", { name: "Review assignments" })).toBeVisible();
   await expect(page.getByText("Average", { exact: false })).toHaveCount(0);

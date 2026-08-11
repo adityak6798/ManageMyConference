@@ -104,22 +104,30 @@ describe("D1EventRepository", () => {
       .map((value) => value.trim())
       .filter(Boolean))
       await database.prepare(statement).run();
-    const reviewMigration = await readFile(
-      new URL("../migrations/0003_review_workflow.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of reviewMigration
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run();
     for (const file of [
-      "0004_review_completion_conflict_guard.sql",
-      "0005_review_conflict_completion_guard.sql",
-      "0006_review_assignment_requires_plan.sql",
-      "0007_review_plan_lock.sql",
-      "0008_cfp_transition_status_guard.sql",
-      "0009_cfp_status_in_use_guard.sql",
+      "0003_cfp.sql",
+      "0004_cfp_published_snapshot.sql",
+      "0005_cfp_snapshot_status.sql",
+      "0006_review_workflow.sql",
+    ]) {
+      const migrationSql = await readFile(
+        new URL(`../migrations/${file}`, import.meta.url),
+        "utf8",
+      );
+      for (const statement of migrationSql
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean))
+        await database.prepare(statement).run();
+    }
+    for (const file of [
+      "0007_review_completion_conflict_guard.sql",
+      "0008_review_conflict_completion_guard.sql",
+      "0009_review_assignment_requires_plan.sql",
+      "0010_review_plan_lock.sql",
+      "0011_cfp_transition_status_guard.sql",
+      "0012_cfp_status_in_use_guard.sql",
+      "0013_cfp_submission_default_status.sql",
     ]) {
       const trigger = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       expect((await database.prepare(trigger).run()).success).toBe(true);

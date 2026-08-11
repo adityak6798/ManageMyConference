@@ -22,12 +22,15 @@ export interface D1ProposalDatabasePort {
 
 type ProposalRow = {
   id: string;
-  organization_id: string;
   event_id: string;
-  title: string;
-  abstract: string;
-  submitter_name: string;
+  answers_json: string;
+  form_fields_json: string;
   status: ProposalStatus;
+};
+type SnapshotField = {
+  id: string;
+  type: "short_text" | "long_text" | "email" | "select";
+  label: string;
 };
 type AuditRow = {
   id: string;
@@ -39,15 +42,41 @@ type AuditRow = {
   occurred_at: string;
 };
 type StatusRow = { key: string; label: string; sort_order: number };
-const proposal = (row: ProposalRow): SubmittedProposal => ({
-  id: row.id,
-  organizationId: row.organization_id,
-  eventId: row.event_id,
-  title: row.title,
-  abstract: row.abstract,
-  submitterName: row.submitter_name,
-  status: row.status,
-});
+const proposal = (row: ProposalRow): SubmittedProposal => {
+  const answers = JSON.parse(row.answers_json) as Record<string, string>;
+  const snapshot = JSON.parse(row.form_fields_json) as SnapshotField[];
+  const fields = snapshot.length
+    ? snapshot
+    : Object.keys(answers).map((id) => ({
+        id,
+        label: id.replaceAll("_", " "),
+        type: (id.includes("email") ? "email" : id === "title" ? "short_text" : "long_text") as
+          | "email"
+          | "short_text"
+          | "long_text",
+      }));
+  const visibleAnswers = fields.flatMap((field) => {
+    const value = answers[field.id]?.trim();
+    return value && field.type !== "email"
+      ? [{ fieldId: field.id, label: field.label, type: field.type, value }]
+      : [];
+  });
+  const title =
+    visibleAnswers.find(({ fieldId }) => fieldId === "title") ??
+    visibleAnswers.find(({ type }) => type === "short_text" || type === "select");
+  const abstract =
+    visibleAnswers.find(({ fieldId }) => fieldId === "abstract") ??
+    visibleAnswers.find(({ type, fieldId }) => type === "long_text" && fieldId !== title?.fieldId);
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    title: title?.value || `Proposal ${row.id}`,
+    abstract: abstract?.value || "See submitted answers.",
+    submitterName: "Applicant",
+    answers: visibleAnswers,
+    status: row.status,
+  };
+};
 const audit = (row: AuditRow): ProposalStatusAudit => ({
   id: row.id,
   eventId: row.event_id,
@@ -64,7 +93,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async list(eventId: string, status?: ProposalStatus) {
     const result = await this.database
       .prepare(
-        `SELECT id, organization_id, event_id, title, abstract, submitter_name, status FROM cfp_submissions WHERE event_id = ?${status ? " AND status = ?" : ""} ORDER BY title`,
+        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ?${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...(status ? [status] : []))
       .all<ProposalRow>();
@@ -75,7 +104,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async find(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        "SELECT id, organization_id, event_id, title, abstract, submitter_name, status FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1",
+        "SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1",
       )
       .bind(eventId, proposalId)
       .all<ProposalRow>();
