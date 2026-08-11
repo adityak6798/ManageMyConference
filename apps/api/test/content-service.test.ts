@@ -9,6 +9,7 @@ import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
 import {
   ContentService,
   SpeakerIdentityUnavailableError,
+  SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
 import {
@@ -373,6 +374,120 @@ describe("ContentService", () => {
     expect(await service.readAsset(organizer, asset.id)).toBeNull();
     // Deleting again is refused exactly like deleting something that never existed.
     await expect(service.deleteAsset(organizer, asset.id)).rejects.toThrow();
+  });
+
+  it("lets the speaker and an organizer choose a headshot, and nobody else", async () => {
+    const { service, repository } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const speaker = await resolveSeededDemoActor("speaker");
+    await service.accept(organizer, command, correlationId);
+    const profileId = (await service.workspace(speaker, eventId)).speakers[0]?.id as string;
+    const upload = (name: string, contentType: string) =>
+      service.upload(speaker, {
+        profileId,
+        name,
+        contentType,
+        bytes: new Uint8Array([9]),
+      });
+    const headshot = await upload("headshot.png", "image/png");
+    const slides = await upload("slides.pdf", "application/pdf");
+
+    // The speaker's own portal action: this is the write that did not exist.
+    await expect(service.setProfilePhoto(speaker, profileId, headshot.id)).resolves.toMatchObject({
+      id: profileId,
+      photoAssetId: headshot.id,
+    });
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBe(headshot.id);
+
+    // Choosing a face is not publishing it. The asset keeps the visibility it had, so the
+    // public door stays shut and the gallery keeps drawing initials.
+    expect((await repository.findAsset(headshot.id))?.visibility).toBe("private");
+    expect(await service.readAsset(null, headshot.id)).toBeNull();
+
+    // An organizer of the event may set it too — they own the programme it appears on.
+    await service.clearProfilePhoto(organizer, profileId);
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
+    await expect(service.setProfilePhoto(organizer, profileId, headshot.id)).resolves.toMatchObject(
+      { photoAssetId: headshot.id },
+    );
+
+    // Nobody else: a reviewer on the event, a speaker who is not this speaker, and an
+    // anonymous caller are all refused, and refused the same way as an unknown profile.
+    const strangerSpeaker = { ...speaker, id: "another-speaker" };
+    for (const actor of [null, await resolveSeededDemoActor("reviewer"), strangerSpeaker]) {
+      await expect(service.setProfilePhoto(actor, profileId, headshot.id)).rejects.toThrow();
+      await expect(service.clearProfilePhoto(actor, profileId)).rejects.toThrow();
+    }
+    await expect(
+      service.setProfilePhoto(organizer, "00000000-0000-4000-8000-0000000000ff", headshot.id),
+    ).rejects.toThrow();
+    // The refusals changed nothing.
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBe(headshot.id);
+
+    // A slide deck is not a face. Reported against the field that named it, so the portal
+    // can render the reason next to the control the speaker used.
+    // ERROR-INTENT: the rejection is the assertion subject; it is inspected on the next lines.
+    const refusedPdf = await service
+      .setProfilePhoto(speaker, profileId, slides.id)
+      .catch((error) => error);
+    expect(refusedPdf).toBeInstanceOf(SpeakerPhotoInvalidError);
+    expect((refusedPdf as SpeakerPhotoInvalidError).fields.assetId?.[0]).toMatch(/not an image/);
+
+    // Somebody else's upload, and an id that does not exist, are refused identically.
+    const otherProfile = "10000000-0000-4000-8000-00000000000b";
+    await repository.addProfile({
+      id: otherProfile,
+      eventId,
+      userId: "other-user",
+      sourcePersonId: "crm-email:other@example.test",
+      name: "Other Speaker",
+      email: "other@example.test",
+      bio: "",
+      pronouns: "",
+      organization: "",
+    });
+    for (const assetId of [headshot.id, "00000000-0000-4000-8000-0000000000fe"]) {
+      // ERROR-INTENT: the rejection is the assertion subject; it is inspected below.
+      const refused = await service
+        .setProfilePhoto(organizer, otherProfile, assetId)
+        .catch((error) => error);
+      expect(refused).toBeInstanceOf(SpeakerPhotoInvalidError);
+      expect((refused as SpeakerPhotoInvalidError).fields.assetId?.[0]).toMatch(/uploaded/);
+    }
+    expect((await repository.findProfile(otherProfile))?.photoAssetId).toBeUndefined();
+
+    // Removing the choice keeps the file: this is "not this picture", not "delete it".
+    await expect(service.clearProfilePhoto(speaker, profileId)).resolves.not.toHaveProperty(
+      "photoAssetId",
+    );
+    expect(await repository.findAsset(headshot.id)).not.toBeNull();
+  });
+
+  it("clears a headshot chosen through the portal when its file is deleted", async () => {
+    const { service, repository, publishedEvents } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const speaker = await resolveSeededDemoActor("speaker");
+    await service.accept(organizer, command, correlationId);
+    const profileId = (await service.workspace(speaker, eventId)).speakers[0]?.id as string;
+    const headshot = await service.upload(speaker, {
+      profileId,
+      name: "headshot.png",
+      contentType: "image/png",
+      bytes: new Uint8Array([4]),
+    });
+    await service.setProfilePhoto(speaker, profileId, headshot.id);
+    await service.publishAsset(organizer, headshot.id);
+    expect(publishedEvents.has(eventId)).toBe(true);
+    await expect(service.readAsset(null, headshot.id)).resolves.toMatchObject({
+      publiclyReadable: true,
+    });
+
+    // Deleting the file must take the profile's pointer with it, or the next publish would
+    // advertise a `photoUrl` that 404s. This is the same clearing the delete path always did,
+    // now reached from a photo a speaker actually chose rather than one the seed wrote.
+    await service.deleteAsset(speaker, headshot.id);
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
+    expect(await service.readAsset(organizer, headshot.id)).toBeNull();
   });
 
   it("persists canonical bytes through the production R2 port", async () => {

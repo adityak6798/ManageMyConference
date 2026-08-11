@@ -13,12 +13,15 @@
 import type { ContentWorkspaceDto, UpdateContentSessionInput } from "@greenroom/contracts";
 import { type FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
+  clearSpeakerProfilePhoto,
   completeSpeakerTask,
   contentFieldErrors,
   getContent,
   publishSpeakerAsset,
   recordSpeakerMessage,
   requestSpeakerTask,
+  setSpeakerProfilePhoto,
+  unpublishSpeakerAsset,
   updateContentSession,
   updateSpeakerProfile,
   uploadSpeakerAsset,
@@ -47,7 +50,31 @@ interface Props {
 type Workspace = ContentWorkspaceDto;
 type ContentSession = Workspace["sessions"][number];
 type SpeakerProfile = Workspace["speakers"][number];
+type SpeakerAsset = Workspace["assets"][number];
 type PublicationState = ContentSession["publicationState"];
+
+/**
+ * Only an image can be a headshot, which is the same rule the server enforces. Checking it
+ * here decides whether the control is offered at all, so a speaker is not invited to nominate
+ * their slide deck and then told off for it.
+ */
+function isImageAsset(asset: SpeakerAsset) {
+  return asset.contentType.startsWith("image/");
+}
+
+/**
+ * The one sentence that says what the public will and will not see.
+ *
+ * Choosing a headshot and publishing it are two decisions held by two people: the speaker
+ * picks the picture, an organizer decides whether the file may leave the workspace. A photo
+ * that is still private is shown here as chosen but withheld, so nobody believes a face is on
+ * the programme when the programme is drawing their initials.
+ */
+function photoVisibility(asset: SpeakerAsset) {
+  return asset.visibility === "publishable"
+    ? "It is visible on the published programme."
+    : "It is not public yet: the published programme shows initials until an organizer marks this file publishable.";
+}
 
 /**
  * The outcome of a mutation. The failure carries the rejection itself so a form can render the
@@ -461,13 +488,50 @@ function OrganizerView({
     );
   }
 
-  function publishAsset(assetId: string, name: string) {
+  /**
+   * Publication is reversible, so this control is a toggle rather than a one-way switch.
+   * Returning a file to private closes the public door on the very next read, and a headshot
+   * withdrawn this way leaves the public gallery at the next publish.
+   */
+  function setAssetVisibility(asset: SpeakerAsset) {
     if (busy) return;
+    const publishing = asset.visibility !== "publishable";
     // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
-    void run(() => publishSpeakerAsset(assetId)).then(({ ok }) =>
+    void run(() =>
+      publishing ? publishSpeakerAsset(asset.id) : unpublishSpeakerAsset(asset.id),
+    ).then(({ ok }) =>
       assetFeedback.announce(
         ok ? "success" : "error",
-        ok ? `“${name}” is now publishable.` : "That asset could not be published.",
+        ok
+          ? publishing
+            ? `“${asset.name}” is now publishable.`
+            : `“${asset.name}” is private again and has left the public page.`
+          : publishing
+            ? "That asset could not be published."
+            : "That asset could not be made private.",
+      ),
+    );
+  }
+
+  /**
+   * An organizer may set or remove a speaker's headshot too — they own the programme it
+   * appears on, and a speaker who has gone quiet still needs a face on the gallery. It marks
+   * a choice only: the file's visibility is untouched by this control.
+   */
+  function setProfilePhoto(speaker: SpeakerProfile, asset: SpeakerAsset | null) {
+    if (busy) return;
+    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
+    void run(() =>
+      asset ? setSpeakerProfilePhoto(speaker.id, asset.id) : clearSpeakerProfilePhoto(speaker.id),
+    ).then((result) =>
+      assetFeedback.announce(
+        result.ok ? "success" : "error",
+        result.ok
+          ? asset
+            ? `“${asset.name}” is now ${speaker.name}’s profile photo. ${photoVisibility(asset)}`
+            : `${speaker.name} has no profile photo now.`
+          : (contentFieldErrors(result.error).assetId?.[0] ??
+              "That profile photo could not be changed."),
       ),
     );
   }
@@ -655,7 +719,7 @@ function OrganizerView({
           <Card
             labelledBy="speaker-assets"
             title="Speaker assets"
-            hint="Uploads stay private until you mark them publishable."
+            hint="Uploads stay private until you mark them publishable, and marking one as a headshot does not publish it."
             tight
           >
             <div className="content-feedback">{assetFeedback.node}</div>
@@ -674,41 +738,68 @@ function OrganizerView({
                     </tr>
                   </thead>
                   <tbody>
-                    {workspace.assets.map((asset) => (
-                      <tr key={asset.id}>
-                        <td className="primary-cell">
-                          {asset.name}
-                          <span className="sub">{asset.contentType}</span>
-                        </td>
-                        <td>
-                          {speakerById.get(asset.speakerProfileId)?.name ?? "Unknown speaker"}
-                        </td>
-                        <td>{shortDate(asset.uploadedAt)}</td>
-                        <td>
-                          <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
-                            {asset.visibility === "publishable" ? "Publishable" : "Private"}
-                          </Pill>
-                        </td>
-                        <td>
-                          {/* The control stays mounted once it is spent so the keyboard
-                              focus that triggered it is not thrown back to the body. */}
-                          <button
-                            type="button"
-                            className="secondary small"
-                            aria-disabled={busy || asset.visibility === "publishable"}
-                            onClick={() => {
-                              if (asset.visibility === "publishable") return;
-                              publishAsset(asset.id, asset.name);
-                            }}
-                          >
-                            {asset.visibility === "publishable"
-                              ? "Publishable"
-                              : "Mark publishable"}
-                            <span className="visually-hidden"> — {asset.name}</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {workspace.assets.map((asset) => {
+                      const owner = speakerById.get(asset.speakerProfileId);
+                      const isPhoto = Boolean(owner && owner.photoAssetId === asset.id);
+                      return (
+                        <tr key={asset.id}>
+                          <td className="primary-cell">
+                            {asset.name}
+                            <span className="sub">
+                              {asset.contentType}
+                              {isPhoto ? " · Profile photo" : ""}
+                            </span>
+                          </td>
+                          <td>{owner?.name ?? "Unknown speaker"}</td>
+                          <td>{shortDate(asset.uploadedAt)}</td>
+                          <td>
+                            <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
+                              {asset.visibility === "publishable" ? "Publishable" : "Private"}
+                            </Pill>
+                          </td>
+                          <td>
+                            {/* Both controls stay mounted through the round trip, so the
+                                keyboard focus that triggered one is not thrown back to the
+                                body; each is a toggle, because both decisions are reversible. */}
+                            <div className="row-actions">
+                              {/* An organizer has to be able to open what a speaker sent them —
+                                  a slide deck the workspace only lists is not delivered.
+                                  `GET /api/speaker-assets/:id` already authorizes this. */}
+                              <a
+                                className="download"
+                                href={`/api/speaker-assets/${asset.id}`}
+                                download={asset.name}
+                              >
+                                Download
+                                <span className="visually-hidden"> — {asset.name}</span>
+                              </a>
+                              <button
+                                type="button"
+                                className="secondary small"
+                                aria-disabled={busy}
+                                onClick={() => setAssetVisibility(asset)}
+                              >
+                                {asset.visibility === "publishable"
+                                  ? "Make private"
+                                  : "Mark publishable"}
+                                <span className="visually-hidden"> — {asset.name}</span>
+                              </button>
+                              {owner && isImageAsset(asset) ? (
+                                <button
+                                  type="button"
+                                  className="ghost small"
+                                  aria-disabled={busy}
+                                  onClick={() => setProfilePhoto(owner, isPhoto ? null : asset)}
+                                >
+                                  {isPhoto ? "Remove profile photo" : "Use as profile photo"}
+                                  <span className="visually-hidden"> — {asset.name}</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -967,6 +1058,12 @@ function SpeakerView({
   const openTasks = tasks.filter(({ status }) => status === "open");
   const overdue = openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length;
   const scheduled = workspace.sessions.filter((session) => session.schedule);
+  // A deleted asset clears the column it was chosen through, so this only ever misses while a
+  // refetch is in flight; the card then reads as "no photo yet" rather than breaking.
+  const photoAsset = workspace.assets.find(({ id }) => id === profile.photoAssetId);
+  const publishableAssets = workspace.assets.filter(
+    ({ visibility }) => visibility === "publishable",
+  ).length;
 
   function completeTask(taskId: string, title: string) {
     if (busy) return;
@@ -987,6 +1084,31 @@ function SpeakerView({
       profileFeedback.announce(
         ok ? "success" : "error",
         ok ? "Profile saved. Organizers see this version." : "Your profile could not be saved.",
+      ),
+    );
+  }
+
+  /**
+   * Choose, or unchoose, the picture that represents this speaker.
+   *
+   * The announcement says what happens next as well as what happened, because the answer
+   * depends on a decision this speaker does not hold: the photo appears on the programme only
+   * once an organizer has marked that same file publishable.
+   */
+  function chooseProfilePhoto(asset: SpeakerAsset | null) {
+    if (busy) return;
+    // ERROR-INTENT: handlers cannot await; run reports the failure through onError.
+    void run(() =>
+      asset ? setSpeakerProfilePhoto(profile.id, asset.id) : clearSpeakerProfilePhoto(profile.id),
+    ).then((result) =>
+      uploadFeedback.announce(
+        result.ok ? "success" : "error",
+        result.ok
+          ? asset
+            ? `“${asset.name}” is now your profile photo. ${photoVisibility(asset)}`
+            : "Your profile photo has been removed. The programme shows your initials."
+          : (contentFieldErrors(result.error).assetId?.[0] ??
+              "That file could not be used as your profile photo."),
       ),
     );
   }
@@ -1037,7 +1159,11 @@ function SpeakerView({
         <Stat
           label="Files uploaded"
           value={workspace.assets.length}
-          hint="Private to you and the organizers"
+          hint={
+            publishableAssets
+              ? `${publishableAssets} cleared for the public page`
+              : "Private to you and the organizers"
+          }
           icon={<IconInbox size={15} />}
         />
       </dl>
@@ -1216,19 +1342,61 @@ function SpeakerView({
             </button>
           </form>
           {uploadFeedback.node}
+          {/* The headshot, and one plain sentence about who can see it. The photo used to be
+              unreachable from here entirely: the column existed, the public projection read
+              it, and nothing in the product could ever write it. */}
+          <div className="photo-status">
+            {photoAsset ? (
+              <>
+                <img
+                  className="photo-preview"
+                  src={`/api/speaker-assets/${photoAsset.id}`}
+                  alt={`Your profile photo, ${photoAsset.name}`}
+                />
+                <p>
+                  <strong>{photoAsset.name}</strong> is your profile photo.{" "}
+                  {photoVisibility(photoAsset)}
+                </p>
+              </>
+            ) : (
+              <p className="hint">
+                You have no profile photo. Upload a PNG or JPEG and choose “Use as profile photo”;
+                the published programme shows your initials until you do.
+              </p>
+            )}
+          </div>
           {workspace.assets.length ? (
             <ul className="upload-list">
-              {workspace.assets.map((asset) => (
-                <li key={asset.id}>
-                  <span className="upload-name">
-                    {asset.name}
-                    <span className="sub">Uploaded {shortDate(asset.uploadedAt)}</span>
-                  </span>
-                  <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
-                    {asset.visibility === "publishable" ? "Publishable" : "Private"}
-                  </Pill>
-                </li>
-              ))}
+              {workspace.assets.map((asset) => {
+                const isPhoto = asset.id === profile.photoAssetId;
+                return (
+                  <li key={asset.id}>
+                    <span className="upload-name">
+                      {asset.name}
+                      <span className="sub">Uploaded {shortDate(asset.uploadedAt)}</span>
+                    </span>
+                    <span className="upload-actions">
+                      {isPhoto ? <Pill tone="strong">Profile photo</Pill> : null}
+                      <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
+                        {asset.visibility === "publishable" ? "Publishable" : "Private"}
+                      </Pill>
+                      {/* Offered only for images, which is the rule the server enforces:
+                          nominating a slide deck is refused, so it is never invited. */}
+                      {isImageAsset(asset) ? (
+                        <button
+                          type="button"
+                          className="ghost small"
+                          aria-disabled={busy}
+                          onClick={() => chooseProfilePhoto(isPhoto ? null : asset)}
+                        >
+                          {isPhoto ? "Remove profile photo" : "Use as profile photo"}
+                          <span className="visually-hidden"> — {asset.name}</span>
+                        </button>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="hint upload-empty">No files stored yet.</p>

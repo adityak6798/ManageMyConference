@@ -4,6 +4,7 @@ import {
   apiErrorEnvelopeSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
+  setSpeakerPhotoInputSchema,
   type UpdateContentSessionInput,
   type UpdateSpeakerProfileInput,
   updateContentSessionInputSchema,
@@ -71,6 +72,35 @@ export async function updateSpeakerProfile(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(validated),
   });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+/**
+ * Record which upload is this speaker's headshot.
+ *
+ * The owning speaker does this from their portal; an organizer may do it from the content
+ * workspace. It publishes nothing — the chosen file keeps whatever visibility it had, and the
+ * public page shows initials until an organizer marks that asset publishable.
+ */
+export async function setSpeakerProfilePhoto(
+  profileId: string,
+  assetId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/photo`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(setSpeakerPhotoInputSchema.parse({ assetId })),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+/** Take the headshot off the profile; the uploaded file itself is untouched. */
+export async function clearSpeakerProfilePhoto(
+  profileId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/photo`, { method: "DELETE" });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
 
@@ -145,5 +175,20 @@ export async function publishSpeakerAsset(
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
   const response = await fetcher(`/api/speaker-assets/${assetId}/publish`, { method: "POST" });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+/**
+ * Return a published asset to private.
+ *
+ * The reverse of `publishSpeakerAsset`, and organizer-only for the same reason. A headshot
+ * withdrawn this way leaves the public gallery at the next publish, and its bytes stop being
+ * served anonymously immediately.
+ */
+export async function unpublishSpeakerAsset(
+  assetId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/speaker-assets/${assetId}/unpublish`, { method: "POST" });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }

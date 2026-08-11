@@ -14,11 +14,23 @@ const PORTAL = `/portal?event=${EVENT_ID}`;
 const HALLWAY = "Designing for the hallway track";
 // The seeded speaker whose portal this journey works in.
 const SAM = "10000000-0000-4000-8000-000000000001";
+const SLUG = "greenroom-demo-summit";
 /** The onboarding checklist the seed gives Sam, and the state this journey hands back. */
 const SEEDED_TASKS = ["Confirm profile details", "Upload a headshot"];
 
+/*
+ * A real 1x1 PNG, so the assertions below can demand that the browser actually decoded the
+ * bytes the asset route served. Three arbitrary bytes labelled `image/png` upload and store
+ * fine and render as a broken tile, which is exactly the failure this journey exists to catch.
+ */
+const PNG_1X1 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const decoded = (image: HTMLImageElement | SVGElement) => (image as HTMLImageElement).naturalWidth;
+
 interface Workspace {
   tasks: { id: string; speakerProfileId: string; title: string; status: string }[];
+  speakers: { id: string; photoAssetId?: string }[];
+  assets: { id: string; name: string; visibility: string }[];
 }
 
 /**
@@ -64,9 +76,37 @@ async function restoreOnboardingChecklist(page: Page) {
       ).ok(),
       `requesting ${title} failed`,
     ).toBe(true);
+
+  // The seed gives Sam no headshot — that is what makes "Upload a headshot" real work — so a
+  // run that ended between choosing one and handing it back is put right here rather than
+  // leaving every later run starting from a state the seed never describes. This is also the
+  // organizer half of the photo route: an organizer may remove a speaker's headshot.
+  const clearedPhoto = await page.request.delete(`/api/speaker-profiles/${SAM}/photo`);
+  expect(clearedPhoto.ok(), `clearing the seeded photo failed: ${await clearedPhoto.text()}`).toBe(
+    true,
+  );
 }
 
-test("organizer tracks accepted content and speaker completes portal work", async ({ page }) => {
+/** The organizer's view of the demo event's content, which is where ids come from. */
+async function contentWorkspace(page: Page): Promise<Workspace> {
+  const response = await page.request.get(`/api/events/${EVENT_ID}/content`);
+  expect(response.ok(), `reading the content workspace failed: ${await response.text()}`).toBe(
+    true,
+  );
+  return (await response.json()) as Workspace;
+}
+
+/** Publish the demo event, which is what moves a draft change onto the public page. */
+async function publishEvent(page: Page) {
+  await page.goto(`/publishing?event=${EVENT_ID}`);
+  await page.getByRole("button", { name: "Publish changes" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Published." })).toBeVisible();
+}
+
+test("organizer tracks accepted content and speaker completes portal work", async ({
+  page,
+  browser,
+}) => {
   // Everything this run creates is stamped, so a second run against the same fixture
   // addresses its own rows rather than colliding with the previous run's.
   const run = Date.now();
@@ -189,12 +229,55 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await expect(page.getByLabel("Bio")).toHaveValue("Speaker-managed public biography.");
 
   const uploads = page.getByRole("region", { name: "Private uploads" });
-  await uploads
-    .getByLabel("Speaker asset")
-    .setInputFiles({ name: headshot, mimeType: "image/png", buffer: Buffer.from([1, 2, 3]) });
+  await uploads.getByLabel("Speaker asset").setInputFiles({
+    name: headshot,
+    mimeType: "image/png",
+    buffer: Buffer.from(PNG_1X1, "base64"),
+  });
   await uploads.getByRole("button", { name: "Upload asset" }).click();
   await expect(uploads.getByRole("status")).toContainText(`${headshot} uploaded privately.`);
   await expect(uploads.getByText("Private", { exact: true }).first()).toBeVisible();
+
+  // ---- the headshot: chosen by the speaker, published by the organizer ----
+  //
+  // `speaker_profiles.photo_asset_id` was read by the public projection and cleared when its
+  // file was deleted, and nothing in the product could write it, so this is the step that used
+  // to be missing entirely. Choosing it is the speaker's own action, and it is deliberately
+  // *not* publication: the portal has to say so, because the speaker cannot make that call.
+  await expect(uploads.getByText(/You have no profile photo/)).toBeVisible();
+  const uploadedFile = uploads.locator("li").filter({ hasText: headshot });
+  await uploadedFile.getByRole("button", { name: /^Use as profile photo/ }).click();
+  await expect(uploads.getByRole("status")).toContainText(
+    `“${headshot}” is now your profile photo. It is not public yet`,
+  );
+  // The picture itself, fetched from the asset route by its owner's own session. A tile that
+  // renders as a broken image would still satisfy an assertion on the `src` attribute alone.
+  const preview = uploads.locator("img.photo-preview");
+  await expect(preview).toHaveAttribute("src", /\/api\/speaker-assets\//);
+  await expect.poll(() => preview.evaluate(decoded)).toBeGreaterThan(0);
+
+  // A slide deck cannot be a face. The portal never offers the control for one, so the
+  // refusal is asserted where a determined client would meet it: on the route.
+  const slides = await page.request.post("/api/speaker-assets", {
+    data: {
+      profileId: SAM,
+      name: `slides-${run}.pdf`,
+      contentType: "application/pdf",
+      contentBase64: "JVBERi0xLjQK",
+    },
+  });
+  expect(slides.status(), `uploading a slide deck failed: ${await slides.text()}`).toBe(201);
+  const slidesId = ((await slides.json()) as { asset: { id: string } }).asset.id;
+  await expect(uploads.locator("li").filter({ hasText: `slides-${run}.pdf` })).toHaveCount(0);
+  const refusedPdf = await page.request.put(`/api/speaker-profiles/${SAM}/photo`, {
+    data: { assetId: slidesId },
+  });
+  expect(refusedPdf.status()).toBe(400);
+  expect(
+    ((await refusedPdf.json()) as { error: { fieldErrors: { assetId: string[] } } }).error
+      .fieldErrors.assetId[0],
+  ).toContain("not an image");
+  expect((await page.request.delete(`/api/speaker-assets/${slidesId}`)).status()).toBe(204);
 
   // Only an organizer can clear a private upload for publication. Switching identity off
   // the speaker portal lands on the organizer's own home, since /portal is not a route an
@@ -205,17 +288,75 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
   const assets = page.getByRole("region", { name: "Speaker assets" });
   // The publish control repeats the filename in its accessible name, so match the cell
-  // that names the file and its content type.
-  await expect(assets.getByRole("cell", { name: `${headshot} image/png` })).toBeVisible();
+  // that names the file, its content type, and the headshot the speaker just chose.
+  await expect(
+    assets.getByRole("cell", { name: `${headshot} image/png · Profile photo` }),
+  ).toBeVisible();
   const uploaded = assets.getByRole("row", { name: new RegExp(headshot) });
+  // An organizer has to be able to take delivery of what a speaker sent, not just see it listed
+  // (issue #62). The bytes are read back so a link pointing at nothing would fail here.
+  const assetDownload = await Promise.all([
+    page.waitForEvent("download"),
+    uploaded.getByRole("link", { name: /^Download/ }).click(),
+  ]).then(([event]) => event);
+  expect(assetDownload.suggestedFilename()).toBe(headshot);
+  const delivered = await assetDownload.createReadStream().then(async (stream) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks);
+  });
+  // A PNG, byte for byte — the organizer received the file, not an error page.
+  expect([...delivered.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+
   await uploaded.getByRole("button", { name: /^Mark publishable/ }).click();
-  // The spent control stays in place so keyboard focus survives the round trip. The seed
+  // The control stays in place so keyboard focus survives the round trip, and it now offers
+  // the reverse — publication is withdrawable, which the end of this journey uses. The seed
   // already ships one publishable headshot and every earlier run left another, so the
   // assertion is scoped to the row for the file this run uploaded.
-  await expect(uploaded.getByRole("button", { name: /^Publishable/ })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  await expect(uploaded.getByRole("button", { name: /^Make private/ })).toBeVisible();
+
+  // ---- publish, and read the face off the public gallery ----
+  const assetId = (await contentWorkspace(page)).assets.find(({ name }) => name === headshot)?.id;
+  expect(assetId, "the uploaded headshot must be in the organizer workspace").toBeTruthy();
+  await publishEvent(page);
+
+  // A visitor with no session at all: a separate browser context, so nothing this run signed
+  // into can be what makes the image load.
+  const visitorOrigin = new URL(page.url()).origin;
+  const visitorContext = await browser.newContext();
+  const visitor = await visitorContext.newPage();
+  await visitor.goto(`${visitorOrigin}/events/${SLUG}/speakers`);
+  const samTile = visitor.locator(".pub-speaker").filter({ hasText: "Sam Speaker" });
+  const samAvatar = samTile.locator("img.pub-avatar");
+  await expect(samAvatar).toHaveAttribute("src", `/api/speaker-assets/${assetId}`);
+  await samAvatar.scrollIntoViewIfNeeded();
+  await expect.poll(() => samAvatar.evaluate(decoded)).toBeGreaterThan(0);
+
+  // And the portal now tells the speaker the thing that changed: it is public.
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
+  await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
+  await page.goto(PORTAL);
+  await expect(uploads.getByText("It is visible on the published programme.")).toBeVisible();
+
+  // ---- withdrawal: unpublishing the file takes the face off the gallery (issue #86) ----
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  await page.goto(SESSIONS);
+  await uploaded.getByRole("button", { name: /^Make private/ }).click();
+  await expect(uploaded.getByRole("button", { name: /^Mark publishable/ })).toBeVisible();
+  await publishEvent(page);
+  await visitor.goto(`${visitorOrigin}/events/${SLUG}/speakers`);
+  // Back to a monogram, and the seeded portrait is the only face on the page again.
+  await expect(samTile.locator("span.pub-avatar")).toHaveText("SS");
+  await expect(visitor.locator(".pub-speaker img.pub-avatar")).toHaveCount(1);
+  await visitorContext.close();
+
+  // Deleting the file clears the profile that pointed at it, so no later publish can
+  // advertise a URL the asset route would refuse. This also hands the fixture back.
+  expect((await page.request.delete(`/api/speaker-assets/${assetId}`)).status()).toBe(204);
+  const afterDelete = await contentWorkspace(page);
+  expect(afterDelete.assets.some(({ id }) => id === assetId)).toBe(false);
+  expect(afterDelete.speakers.find(({ id }) => id === SAM)?.photoAssetId).toBeUndefined();
 
   await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
@@ -243,8 +384,28 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
 });
 
 test("reviewers cannot call the private content workspace", async ({ request }) => {
+  // Anonymous first: the photo routes are authenticated, so they are 401 before they are 403.
+  expect(
+    (
+      await request.put(`/api/speaker-profiles/${SAM}/photo`, {
+        data: { assetId: "90000000-0000-4000-8000-000000000001" },
+      })
+    ).status(),
+  ).toBe(401);
+  expect((await request.delete(`/api/speaker-profiles/${SAM}/photo`)).status()).toBe(401);
+
   const session = await request.post("/api/demo-session", { data: { persona: "reviewer" } });
   expect(session.ok()).toBeTruthy();
   const response = await request.get(`/api/events/${EVENT_ID}/content`);
   expect(response.status()).toBe(403);
+  // A reviewer on this event has content access to nothing, including a speaker's headshot:
+  // choosing one belongs to the speaker and to the organizers, and to nobody else.
+  expect(
+    (
+      await request.put(`/api/speaker-profiles/${SAM}/photo`, {
+        data: { assetId: "90000000-0000-4000-8000-000000000001" },
+      })
+    ).status(),
+  ).toBe(403);
+  expect((await request.delete(`/api/speaker-profiles/${SAM}/photo`)).status()).toBe(403);
 });

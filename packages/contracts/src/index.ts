@@ -460,6 +460,18 @@ export const updateSpeakerProfileInputSchema = z.object({
   organization: z.string().trim().max(120),
 });
 export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInputSchema>;
+/**
+ * Which uploaded file is this speaker's headshot.
+ *
+ * A request of its own rather than a field on `updateSpeakerProfileInputSchema`, because the
+ * two carry different authority: the profile text is the speaker's to write, while a headshot
+ * may also be set — or removed — by an organizer of the event whose programme it appears on.
+ * Naming a photo is a *choice*, never an exposure: the asset's visibility is untouched, so a
+ * private upload stays private and the public projection emits a `photoUrl` only for an asset
+ * an organizer separately marked publishable. `DELETE` on the same address removes the choice.
+ */
+export const setSpeakerPhotoInputSchema = z.object({ assetId: z.string().uuid() });
+export type SetSpeakerPhotoInput = z.infer<typeof setSpeakerPhotoInputSchema>;
 export const uploadSpeakerAssetInputSchema = z.object({
   profileId: z.string().uuid(),
   name: z.string().trim().min(1).max(160),

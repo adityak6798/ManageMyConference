@@ -30,6 +30,7 @@ import {
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
   saveEvaluationInputSchema,
+  setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
@@ -60,6 +61,7 @@ import {
 import {
   type ContentService,
   SpeakerIdentityUnavailableError,
+  SpeakerPhotoInvalidError,
 } from "../../application/content/content-service";
 import {
   ProposalNotAcceptedError,
@@ -597,6 +599,61 @@ export function createHttpApp(
         params.data.profileId,
         parsed.data,
       ),
+    });
+  });
+  /*
+   * Which uploaded file is this speaker's headshot.
+   *
+   * Its own address rather than a field on the PATCH above, because the two carry different
+   * authority: the profile text is the speaker's to write, while an organizer of the event
+   * may also set or remove the headshot on the programme they run. The service decides which
+   * of the two the caller is; a reviewer and an unrelated speaker are refused.
+   *
+   * Naming a photo publishes nothing. The asset keeps whatever visibility it had, so a
+   * private upload stays private and the public page shows initials until an organizer
+   * separately marks that asset publishable — `POST /api/speaker-assets/{assetId}/publish`.
+   * A file that is not this speaker's, or is not an image, is a 400 naming `assetId`.
+   */
+  app.put("/api/speaker-profiles/:profileId/photo", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const params = profileParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Profile ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    const parsed = setSpeakerPhotoInputSchema.safeParse(await readJson(context.req));
+    if (!parsed.success)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "That profile photo reference is invalid.",
+          context.get("correlationId"),
+          validationFields(parsed.error.issues),
+        ),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      profile: await content.setProfilePhoto(
+        context.get("actor"),
+        params.data.profileId,
+        parsed.data.assetId,
+      ),
+    });
+  });
+  /* Withdrawing the choice needs no more authority than making it, and keeps the file. */
+  app.delete("/api/speaker-profiles/:profileId/photo", async (context) => {
+    requireCapability(context.get("actor"), "content:read");
+    const params = profileParamsSchema.safeParse(context.req.param());
+    if (!params.success)
+      return context.json(
+        envelope("VALIDATION_FAILED", "Profile ID is malformed.", context.get("correlationId")),
+        400,
+      );
+    if (!content) throw new Error("Content service is unavailable");
+    return context.json({
+      profile: await content.clearProfilePhoto(context.get("actor"), params.data.profileId),
     });
   });
   app.post("/api/events/:eventId/tasks/:taskId/complete", async (context) => {
@@ -1488,7 +1545,17 @@ export function createHttpApp(
   /*
    * The public schedule is addressed by the event's public slug, like every other public
    * route, and is gated on the publication being live: unpublishing has to take the whole
-   * public surface down, and the internal event UUID is not an address the public is given.
+   * public surface down.
+   *
+   * The slug is not a secrecy measure, and nothing here pretends otherwise: the projection
+   * this route reads publishes `event.eventId` to anonymous callers, and that UUID is the
+   * address of `GET /api/public/events/{eventId}/cfp` and
+   * `POST /api/public/events/{eventId}/submissions`, which is how the public CFP form is
+   * fetched and filled in. The slug is the *readable, stable* public name — derived from the
+   * event's own name, never a storage id — and using it consistently is what keeps storage
+   * identifiers out of the addresses a visitor sees, links, and shares. Authorization is
+   * carried by publication state on every one of these routes, never by an unguessable id.
+   *
    * Publishing owns "is this event public"; agenda owns the snapshot. Neither reads the
    * other's tables — this route composes their two public application interfaces.
    *
@@ -1651,6 +1718,18 @@ export function createHttpApp(
         envelope(
           "VALIDATION_FAILED",
           "The speaker identity could not be created.",
+          correlationId,
+          error.fields,
+        ),
+        400,
+      );
+    // A slide deck, or a file belonging to somebody else, named as a headshot. The caller can
+    // fix it by choosing a different upload, so it is a field error rather than a bare 400.
+    if (error instanceof SpeakerPhotoInvalidError)
+      return context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "That file cannot be used as a profile photo.",
           correlationId,
           error.fields,
         ),

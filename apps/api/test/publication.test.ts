@@ -367,6 +367,35 @@ describe("publication snapshots", () => {
     ]);
   });
 
+  it("drops a headshot from the gallery when its asset is unpublished", async () => {
+    const { record, service, repository, content } = await composedFixture();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.publish(organizer, record.eventId);
+    expect(repository.stored?.speakers.find(({ slug }) => slug === "jordan-bell")).toMatchObject({
+      photoUrl: `/api/speaker-assets/${PUBLISHABLE_ASSET}`,
+    });
+
+    // Issue #86's withdrawal, seen from the public page. Returning the asset to private
+    // closes the byte door immediately; the next publish takes the URL off the gallery too,
+    // so the snapshot never advertises a photo the asset route now refuses to serve. The
+    // speaker's choice of headshot survives — `photoAssetId` is untouched — so re-publishing
+    // the asset puts the same face back with no second decision from the speaker.
+    const withdrawn = await content.findAsset(PUBLISHABLE_ASSET);
+    if (!withdrawn) throw new Error("the fixture must seed a publishable headshot");
+    await content.updateAsset({ ...withdrawn, visibility: "private" });
+    await service.publish(organizer, record.eventId);
+    expect(
+      repository.stored?.speakers.find(({ slug }) => slug === "jordan-bell"),
+    ).not.toHaveProperty("photoUrl");
+    expect((await content.findProfile(JORDAN))?.photoAssetId).toBe(PUBLISHABLE_ASSET);
+
+    await content.updateAsset({ ...withdrawn, visibility: "publishable" });
+    await service.publish(organizer, record.eventId);
+    expect(repository.stored?.speakers.find(({ slug }) => slug === "jordan-bell")).toMatchObject({
+      photoUrl: `/api/speaker-assets/${PUBLISHABLE_ASSET}`,
+    });
+  });
+
   it("emits readable slugs that are unique within the event and never a storage id", async () => {
     const { record, service, repository, content } = await composedFixture();
     const organizer = await resolveSeededDemoActor("organizer");

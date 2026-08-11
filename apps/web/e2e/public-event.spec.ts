@@ -49,9 +49,12 @@ test("browses the same accessible published projection directly and embedded", a
   await expect(page.getByText("Northwind Access")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Share your conference story" })).toBeVisible();
   await expect(page.locator(".pub-cta a[href$='/cfp']")).toBeVisible();
-  // Both avatar paths ship in the seed. Jordan's headshot is a publishable asset, so the
-  // gallery renders a real image that an anonymous visitor can actually fetch; Sam has no
-  // headshot, so that tile draws a monogram rather than leaving a gap.
+  // Both avatar paths ship in the seed. Jordan's headshot is a publishable asset paired to
+  // the profile the way `PUT /api/speaker-profiles/{profileId}/photo` pairs one — the seed
+  // resolves it from Jordan's own image uploads rather than naming an id — so the gallery
+  // renders a real image an anonymous visitor can actually fetch. Sam has no headshot until
+  // a speaker chooses one, so that tile draws a monogram rather than leaving a gap; the
+  // speaker portal journey uploads one, publishes it, and hands the demo back this way.
   const portrait = page
     .locator(".pub-speaker")
     .filter({ hasText: "Jordan Bell" })

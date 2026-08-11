@@ -50,6 +50,19 @@ export interface SpeakerAsset {
   readonly uploadedAt: string;
 }
 
+/**
+ * Only an image can stand in for a person.
+ *
+ * The upload route accepts slide decks as well as headshots, so "this file belongs to the
+ * speaker" is not enough to make it a face: a PDF reached from `photoAssetId` renders as a
+ * broken tile in every gallery that trusts the projection, and the projection has no way to
+ * tell. The rule lives in the domain because it is a statement about what a speaker profile
+ * is, not about how any particular request is shaped.
+ */
+export function canBeProfilePhoto(asset: Pick<SpeakerAsset, "contentType">): boolean {
+  return /^image\//i.test(asset.contentType.trim());
+}
+
 export interface SpeakerMessage {
   readonly id: string;
   readonly eventId: string;

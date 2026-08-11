@@ -7,6 +7,11 @@ interface RunnableDatabase {
 /**
  * Split SQL on statement boundaries. A plain `split(";")` corrupts the trigger migrations,
  * whose bodies carry their own semicolons between BEGIN and END.
+ *
+ * `--` comments are dropped rather than carried along, because their prose is not SQL: an
+ * apostrophe in "the speaker's headshot" used to open a string literal that swallowed every
+ * quote after it, and the whole seed then failed to apply with "SQL code did not contain a
+ * statement" — a comment nobody would think to suspect.
  */
 export function statements(sql: string): string[] {
   const found: string[] = [];
@@ -32,6 +37,14 @@ export function statements(sql: string): string[] {
     if (character === "'") {
       inString = true;
       current += character;
+      continue;
+    }
+
+    // A line comment runs to the newline, which is kept so statements stay readable.
+    if (character === "-" && sql[index + 1] === "-") {
+      const newline = sql.indexOf("\n", index);
+      index = newline === -1 ? sql.length : newline;
+      current += "\n";
       continue;
     }
 

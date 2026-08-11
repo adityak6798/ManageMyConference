@@ -217,6 +217,7 @@
         "apps/api/test/d1-content-repository.integration.test.ts",
         "apps/web/src/ContentWorkspace.tsx",
         "apps/web/src/api/content.ts",
+        "apps/web/test/speaker-photo.test.tsx",
         "apps/web/e2e/speaker-portal.spec.ts"
       ]
     },

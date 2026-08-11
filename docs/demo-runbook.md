@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11 (commit `c72b796`)
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change)
 
 ## What this demo is, and is not
 
@@ -56,7 +56,10 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    strip, and the table of speakers with outstanding onboarding tasks.
 2. **Abstracts** (`/abstracts`) — triage submissions by status tab, search, assign reviewers,
    record decisions, inspect a proposal's submitted answers.
-3. **Sessions & speakers** (`/sessions`) — accepted content, speaker records, tasks, and assets.
+3. **Sessions & speakers** (`/sessions`) — accepted content, speaker records, tasks, and assets. Any
+   upload can be marked publishable and made private again, and any image can be named — or
+   un-named — as that speaker's profile photo; both decisions are reversible. Download hands you
+   the file itself, whatever its visibility.
 4. **Agenda** (`/agenda`) — place sessions on the room × time board by drag-and-drop or by
    keyboard (Enter to pick up, arrows to move, Enter to drop, Escape to cancel). Switch between
    List, Day, Week, Room, Track, and Conflicts; the chosen view is in the URL. Publish the schedule.
@@ -91,7 +94,10 @@ Every workspace has its own URL, so each step below is directly linkable and sur
 8. Switch to **reviewer** — only `/reviews` is reachable. Score the seeded assignment against the
    evaluation plan; unscored criteria are refused rather than silently scored at the minimum.
 9. Switch to **speaker** — only `/portal` is reachable. Complete a task, edit the profile, upload a
-   private asset, download the calendar file.
+   private asset, name one of your own images as your profile photo, and download the calendar file.
+   Choosing a headshot is not publishing it: the file keeps the visibility it had, the portal says so
+   in a sentence beside the preview, and the public gallery keeps showing initials until an organizer
+   marks that file publishable.
 10. Switch to **public**, then open `http://127.0.0.1:5173/events/greenroom-demo-summit` and follow
     schedule, sessions, speakers, and CFP. Submit a proposal through the live public form. The two
     `/embed/...` addresses above serve the same published projection with the marketing chrome
@@ -122,33 +128,49 @@ against the migrations, the tool/API/component test suites with coverage, both p
 and the Miniflare D1 integration suite. It does **not** run Playwright or `npm audit`; those are
 `npm run gate:browser` and `npm run gate:security`.
 
-To reproduce one acceptance row rather than the whole suite, name its spec — the `webServer` step
-still resets the database first, so this is a clean-reset reproduction:
+`npm run test:e2e` starts its own API and web server and resets the database first — but only when
+nothing is already answering on the ports it wants, because `apps/web/playwright.config.ts` sets
+`reuseExistingServer` outside CI. Point it at **free** ports whenever other servers are running, as
+above; pointing it at ports something else already holds makes it reuse that process, skip the reset,
+and test whatever that process is serving.
+
+Naming one spec runs that spec and nothing else:
 
 ```bash
-npm run test:e2e --workspace @greenroom/web -- e2e/agenda.spec.ts
+GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e --workspace @greenroom/web -- e2e/agenda.spec.ts
 ```
 
-`npm run test:e2e` starts its own API and web server and resets the database first — but only when
-nothing is already answering on the ports it wants. Point it at **free** ports whenever other
-servers are running, as above; pointing it at ports something else already holds makes it reuse that
-process and skip the reset.
+That is a debugging tool, **not** a clean-reset reproduction of an acceptance row, for two reasons.
+First, the reset is conditional, as above: against servers that are already up it does not happen at
+all — measured on 2026-08-11, that exact command passed 6 tests in 5.4s against running servers and a
+fixture two full suite runs had already mutated. Second, the specs are not independent: they share
+one mutable local D1 fixture at `workers: 1`, and their order is deliberate —
+`00-seed-state.spec.ts` is named to sort first precisely so that the CFP republish in `cfp.spec.ts`
+cannot repair a seed defect before it is asserted. One spec alone therefore proves less than the same
+spec proves inside the suite. The evidence the [scorecard](quality/scorecard.md) rests on is the
+whole suite, run from a reset — which is why that document names no per-row command.
 
-The suite is re-runnable. Measured on 2026-08-11 at commit `c72b796`: 30 tests passed three times
-consecutively — once immediately after `npm run reset`, then twice more against the same
-already-running servers with no reset in between. Every spec either restores what it mutated or
-scopes its assertions to rows the run itself created. Two exceptions are inherent and documented in
-the specs that carry them (`GAP-005`): a completed evaluation and a declared conflict are terminal by
-design, and no affordance returns a communication delivery to a failed state.
+The suite is re-runnable. Measured on 2026-08-11 against the current working tree: 30 tests passed
+immediately after `npm run reset`, and 30 passed again against the same already-running servers with
+no reset in between. Every spec either restores what it mutated or scopes its assertions to rows the
+run itself created. Two exceptions are inherent and documented in the specs that carry them
+(`GAP-005`): a completed evaluation and a declared conflict are terminal by design, and no affordance
+returns a communication delivery to a failed state. The second of those has a consequence worth
+stating plainly: recovering the seeded terminal delivery consumes its own precondition, so
+`communications.spec.ts` exercises recovery only on the run that follows a reset. On the second run
+it asserted the complement instead — the delivery is already queued, offers no retry control, and the
+route refuses one.
 
 Re-runnable is not the same as leaving no trace. Each run adds rows it does not remove — the event
 `publishing.spec.ts` creates, the abstracts `review-workflow.spec.ts` files, the prospect
 `crm.spec.ts` adds (`DEBT-007`). Run `npm run reset` before demoing to anyone.
 
 `test:quality` checks role-aware journey discovery, that every navigation destination renders,
-public semantics and labels, heading structure, mobile layout with no horizontal overflow, and
-conservative loading/resource budgets. Those budgets are measured against the Vite dev server, so
-they bound nothing about a built artifact (`GAP-014`).
+public semantics and labels, heading structure, mobile layout with no horizontal overflow, and two
+numbers on `/events/greenroom-demo-summit`: DOMContentLoaded under 10 seconds, and fewer than 100
+resource requests. Those are smoke ceilings, not a performance budget — they would catch a page that
+never finished loading or an accidental hundred-request waterfall, and nothing subtler — and they are
+measured against the Vite dev server, so they bound nothing about a built artifact (`GAP-014`).
 
 If a step fails, preserve the displayed correlation reference and the Playwright artifacts under
 `apps/web/test-results/`. Reset before retrying; never repair demo state with manual database edits.

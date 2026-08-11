@@ -1,6 +1,6 @@
 # Competition traceability
 
-Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-11 (commit `c72b796`)
+Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change)
 
 ## Where the nine features come from
 
@@ -15,12 +15,15 @@ itself becomes available, re-derive this table against it before relying on it (
 ## The nine features
 
 Verdicts are **shipped** (behaviour exists and an automated test asserts it), **partial** (the
-feature's named differentiator is missing), or **missing** (no implementation).
+feature's named differentiator is missing), or **missing** (no implementation). A qualifier after a
+verdict names a hole too small to make the feature partial and too real to leave out. This column
+judges the *feature*; the scorecard's `Verdict (local)` column judges this repository's *journey*,
+which is why a shipped journey can serve a partial feature.
 
 | # | Feature as cited by the issues | Verdict | Deciding file | Governing IDs |
 |---|---|---|---|---|
 | 1 | "custom call-for-speakers submission forms **with conditional logic and category-based routing**" (issue #49) | **partial** — typed, ordered, required-or-not fields compose, publish, and accept validated public submissions; the persisted form model has no notion of a condition or a route | [`apps/api/src/domain/cfp/cfp.ts`](../../apps/api/src/domain/cfp/cfp.ts) | `PRD-CFP-001`, `PRD-CFP-002`, `JNY-001`, `JNY-002`, `ACC-CFP`, `GAP-009` |
-| 2 | self-service speaker portal for bios, headshots and slides (issues #34, #62) | **shipped** — task-first portal with profile edit, private upload, organizer-controlled publication, reversible, and an anonymous read path gated on event publication | [`apps/web/src/ContentWorkspace.tsx`](../../apps/web/src/ContentWorkspace.tsx) | `PRD-SPK-001`, `PRD-SPK-002`, `JNY-005`, `ACC-SPEAKER` |
+| 2 | self-service speaker portal for bios, headshots and slides (issues #34, #62) | **shipped** — task-first portal with profile edit, private upload, a speaker-chosen headshot that reaches the public gallery on publish and falls back to initials when that file is unpublished, organizer-controlled reversible publication, an anonymous read path gated on event publication, and a download control that hands an organizer the bytes of any uploaded file. Asserted end to end in `apps/web/e2e/speaker-portal.spec.ts`, which reads the headshot off an anonymous browser context and reads the downloaded file's PNG magic bytes rather than only its filename | [`apps/web/src/ContentWorkspace.tsx`](../../apps/web/src/ContentWorkspace.tsx) | `PRD-SPK-001`, `PRD-SPK-002`, `JNY-005`, `ACC-SPEAKER` |
 | 3 | templated speaker communications, and "calendar invites delivered directly to each speaker's own calendar (Gmail, Outlook, iCal)" (issues #52, #56) | **partial** — immutable templates, a durable outbox with retry/terminal/recovery, and a conformant `.ics` **download** exist; nothing is triggered by a lifecycle event, the only provider is a deterministic fake, and no invite reaches a calendar | [`apps/api/src/index.ts`](../../apps/api/src/index.ts) (one fake wired to `email`, `airtable` and `accelevents`) | `PRD-COM-001`, `PRD-SPK-002`, `JNY-004`, `JNY-009`, `ACC-INTEGRATION`, `GAP-010` |
 | 4 | abstract review and scoring, with "optional AI-assisted review **across multiple rounds**" (issues #57, #80) | **partial** — blind queues, a locked rubric, drafts, terminal completion, conflicts and organizer aggregates are shipped and asserted in the browser; there is one round and no AI | [`apps/api/src/domain/review/review.ts`](../../apps/api/src/domain/review/review.ts) | `PRD-ABS-001`, `PRD-REV-001`, `PRD-AI-001`, `JNY-003`, `ACC-REVIEW`, `GAP-011` |
 | 5 | "drag-and-drop schedule/agenda building … viewable by list, day, week, track, or room" (issue #50) | **shipped** — room × time board with pointer drag and full keyboard parity, conflict explanation that blocks publication, six views in a shareable URL, event-timezone rendering | [`apps/web/src/AgendaWorkspace.tsx`](../../apps/web/src/AgendaWorkspace.tsx) | `PRD-AGD-001`, `JNY-006`, `ACC-AGENDA` |
@@ -29,10 +32,11 @@ feature's named differentiator is missing), or **missing** (no implementation).
 | 8 | "resource and wiki pages within the speaker portal, including HTML embed support for existing reference material" (issue #54) | **missing** — the portal has tasks, profile, uploads and a calendar download; there is no page model, no authoring surface and no sanitizer | [`apps/web/src/ContentWorkspace.tsx`](../../apps/web/src/ContentWorkspace.tsx) | `PRD-SPK-002`, `PRD-CNT-001`, `JNY-005`, `ACC-SPEAKER`, `GAP-013` |
 | 9 | "embeddable, mobile-friendly speaker gallery and schedule" (issues #46, #55) | **shipped** — `/events/:slug/*` and `/embed/events/:slug/{schedule,speakers}` serve one composed immutable snapshot, with headshots, day grouping, event-timezone times, copy-ready `<iframe>` snippets, `frame-ancestors *`, and no horizontal overflow at 390px | [`apps/web/src/PublicEventApp.tsx`](../../apps/web/src/PublicEventApp.tsx) | `PRD-PUB-001`, `JNY-007`, `ACC-PUBLIC` |
 
-Four shipped — one of them (feature 6) with no test on its rows — three partial, two missing.
-Nothing in this table is judged by the existence of a
-screen: a verdict of "shipped" means the [scorecard](../quality/scorecard.md) row that owns it names
-a command that proves it from a clean reset.
+Four shipped — feature 2 with a named hole in it, feature 6 with no test on its rows — three partial,
+two missing. Nothing in this table is judged by the existence of a screen: a verdict of "shipped"
+means the [scorecard](../quality/scorecard.md) row that owns it names the automated tests that assert
+it, and that those tests ran in the suites that document measures from a clean reset. No row here is
+evidence of anything on hosted CI, which has never run this branch.
 
 ## Internal areas behind those features
 

@@ -47,6 +47,7 @@ import {
   reviewOrganizerQuerySchema,
   reviewPlanResponseSchema,
   saveEvaluationInputSchema,
+  setSpeakerPhotoInputSchema,
   evaluationResponseSchema,
   declareConflictInputSchema,
   sessionResponseSchema,
@@ -444,6 +445,45 @@ registry.registerPath({
   responses: {
     200: {
       description: "Updated speaker profile",
+      content: json(z.object({ profile: speakerProfileSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/speaker-profiles/{profileId}/photo",
+  description:
+    "Records which of this speaker's own uploads is their headshot. The owning speaker or an organizer of the event may set it; anybody else is refused exactly like a profile that does not exist. It changes no asset visibility: a private upload stays private and the public page shows initials until an organizer marks that asset publishable. A file belonging to another profile, or one that is not an image, answers 400 naming `assetId`.",
+  security: [{ sessionCookie: [] }],
+  request: {
+    params: profileParamsSchema,
+    body: { required: true, content: json(setSpeakerPhotoInputSchema) },
+  },
+  responses: {
+    200: {
+      description: "Speaker profile carrying the chosen headshot",
+      content: json(z.object({ profile: speakerProfileSchema })),
+    },
+    400: errorResponse,
+    401: errorResponse,
+    403: errorResponse,
+    500: errorResponse,
+  },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/speaker-profiles/{profileId}/photo",
+  description:
+    "Removes the headshot choice and leaves the uploaded file in place. Same authority as setting it.",
+  security: [{ sessionCookie: [] }],
+  request: { params: profileParamsSchema },
+  responses: {
+    200: {
+      description: "Speaker profile with no headshot",
       content: json(z.object({ profile: speakerProfileSchema })),
     },
     400: errorResponse,

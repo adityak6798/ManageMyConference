@@ -17,7 +17,10 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
-import { ContentService } from "../src/application/content/content-service";
+import {
+  ContentService,
+  SpeakerPhotoInvalidError,
+} from "../src/application/content/content-service";
 import { ReviewService } from "../src/application/review/review-service";
 import { ProposalNotFoundError } from "../src/application/review/public";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
@@ -227,5 +230,32 @@ describe("D1ContentRepository", () => {
     await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
       visibility: "publishable",
     });
+
+    // The headshot link, against real D1: `photo_asset_id` round-trips through the same
+    // `UPDATE speaker_profiles` the profile edit uses, only an image is accepted, and the
+    // asset visibility is left exactly where the organizer put it.
+    const photoService = makeService("8");
+    await expect(
+      photoService.setProfilePhoto(organizer, managedProfile.id, privateAsset.id),
+    ).resolves.toMatchObject({ photoAssetId: privateAsset.id });
+    await expect(repository.findProfile(managedProfile.id)).resolves.toMatchObject({
+      photoAssetId: privateAsset.id,
+    });
+    await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
+    const slides = {
+      ...privateAsset,
+      id: "80000000-0000-4000-8000-000000000002",
+      name: "slides.pdf",
+      contentType: "application/pdf",
+      storageKey: "event/profile/slides",
+    };
+    await repository.addAsset(slides);
+    await expect(
+      photoService.setProfilePhoto(organizer, managedProfile.id, slides.id),
+    ).rejects.toBeInstanceOf(SpeakerPhotoInvalidError);
+    await photoService.clearProfilePhoto(organizer, managedProfile.id);
+    expect(await repository.findProfile(managedProfile.id)).not.toHaveProperty("photoAssetId");
   });
 });

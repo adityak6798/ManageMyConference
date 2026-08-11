@@ -1,9 +1,10 @@
-import type {
-  ContentSession,
-  ContentWorkspace,
-  SpeakerAsset,
-  SpeakerProfile,
-  SpeakerTask,
+import {
+  canBeProfilePhoto,
+  type ContentSession,
+  type ContentWorkspace,
+  type SpeakerAsset,
+  type SpeakerProfile,
+  type SpeakerTask,
 } from "../../domain/content/content";
 import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
 import type { AcceptedProposalQuery } from "../review/public";
@@ -33,6 +34,18 @@ export interface AcceptContentCommand {
 export class SpeakerIdentityUnavailableError extends Error {
   constructor(readonly fields: Record<string, string[]>) {
     super("Speaker identity could not be resolved for this proposal");
+  }
+}
+
+/**
+ * The named file cannot be this speaker's headshot, reported against the field that named it.
+ *
+ * A refusal the caller can act on — pick another file, or upload an image — so it is a typed
+ * 400 with the offending field, never an opaque failure.
+ */
+export class SpeakerPhotoInvalidError extends Error {
+  constructor(readonly fields: Record<string, string[]>) {
+    super("This file cannot be used as a profile photo");
   }
 }
 
@@ -263,6 +276,79 @@ export class ContentService {
     const updated = { ...profile, ...input };
     await this.dependencies.repository.updateProfile(updated);
     return updated;
+  }
+
+  /**
+   * Point a speaker profile at one of that speaker's own uploaded images.
+   *
+   * This is the link that was missing. `photo_asset_id` was read by the public projection and
+   * cleared when its asset was deleted, but nothing ever wrote it, so the only headshot that
+   * could exist anywhere was the one the seed inserted by hand — and "upload a headshot, use
+   * it as your profile photo" was a journey no speaker could complete.
+   *
+   * Two identities may record the choice, and only two: the speaker whose profile it is, doing
+   * their own portal work, and an organizer of the event whose programme the photo appears on,
+   * fixing it on their behalf. A speaker on the same event, a reviewer, and an anonymous caller
+   * are all refused identically to a profile that does not exist.
+   *
+   * Recording the choice never publishes anything. The asset's `visibility` is untouched, so
+   * marking a private upload as the headshot leaves it private: `PublicationService.preview`
+   * emits a `photoUrl` only for an asset the organizer separately marked publishable, and
+   * `readAsset` opens the public door only while the asset is publishable *and* its event's
+   * page is live. Choosing the face and publishing it stay two decisions, held by two people.
+   */
+  async setProfilePhoto(
+    actor: Actor | null,
+    profileId: string,
+    assetId: string,
+  ): Promise<SpeakerProfile> {
+    const profile = await this.requireProfileSteward(actor, profileId);
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    // Whoever gets this far already lists this profile's uploads through the workspace, so
+    // naming the mismatch reveals nothing new; an asset belonging to another profile and one
+    // that does not exist at all still answer identically (`ARC-AUTH-001`).
+    if (!asset || asset.speakerProfileId !== profile.id)
+      throw new SpeakerPhotoInvalidError({
+        assetId: ["Choose a file this speaker uploaded."],
+      });
+    if (!canBeProfilePhoto(asset))
+      throw new SpeakerPhotoInvalidError({
+        assetId: [`“${asset.name}” is not an image. A profile photo must be a PNG or JPEG.`],
+      });
+    const updated: SpeakerProfile = { ...profile, photoAssetId: asset.id };
+    await this.dependencies.repository.updateProfile(updated);
+    return updated;
+  }
+
+  /**
+   * Take the headshot back off the profile, leaving the file itself alone.
+   *
+   * The same two identities as `setProfilePhoto`, because withdrawing a choice cannot need
+   * more authority than making it. The upload survives — this is "not this picture", not
+   * "delete my file", which is what `deleteAsset` is for.
+   */
+  async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
+    const profile = await this.requireProfileSteward(actor, profileId);
+    const { photoAssetId: _removed, ...withoutPhoto } = profile;
+    await this.dependencies.repository.updateProfile(withoutPhoto);
+    return withoutPhoto;
+  }
+
+  /** The speaker whose profile it is, or an organizer of the event that profile belongs to. */
+  private async requireProfileSteward(
+    actor: Actor | null,
+    profileId: string,
+  ): Promise<SpeakerProfile> {
+    const authorized = requireCapability(actor, "content:read");
+    const profile = await this.dependencies.repository.findProfile(profileId);
+    const isOwner = Boolean(
+      profile &&
+        profile.userId === authorized.id &&
+        hasEventRole(authorized, profile.eventId, "speaker"),
+    );
+    if (!profile || (!isOwner && !hasEventRole(authorized, profile.eventId, "organizer")))
+      throw new CapabilityDeniedError("Speaker profile access denied");
+    return profile;
   }
 
   async completeTask(

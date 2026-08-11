@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (commit `c72b796`)
+Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change)
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -36,13 +36,18 @@ feature-by-feature verdict.
   the state. Completion of an evaluation and declaration of a conflict are terminal by design, so
   `review-workflow.spec.ts` files its own abstracts each run; no product affordance returns a
   communication delivery to a failed state, so `communications.spec.ts` asserts the recovery when a
-  failed delivery exists and the refusal when one does not. Impact: on a mutated fixture the second
-  branch runs, so the recovery path is only exercised after a reset. Owner: quality. Governing ID:
-  `ACC-DEMO-SMOKE`. Closure: a product affordance that can return a delivery to a failed state, plus
-  a reopen or per-run rubric that lets the review path re-execute unconditionally. *The wider
-  re-runnability gap this entry used to describe is closed: on 2026-08-11 the 30-test suite passed
-  three times consecutively, twice of them against already-running servers with no reset (issue
-  #72).*
+  failed delivery exists and the refusal when one does not. Impact, stated plainly: recovery consumes
+  its own precondition, so **the recovery half of that test executes only on the first suite run
+  after a reset** — in the 2026-08-11 measurement, run 1 of 2; run 2 asserted the complement. Any
+  claim that delivery recovery "is real", including the one the `ACC-INTEGRATION`
+  [scorecard](scorecard.md) row makes, rests on that single post-reset run plus
+  `communications-service.test.ts`, `communications-http.test.ts` and the D1 repository test — not on
+  a green suite. A green suite is compatible with the recovery path never having run. Owner: quality.
+  Governing ID: `ACC-DEMO-SMOKE`. Closure: a product affordance that can return a delivery to a
+  failed state, plus a reopen or per-run rubric that lets the review path re-execute
+  unconditionally. *The wider re-runnability gap this entry used to describe is closed: on
+  2026-08-11 the 30-test suite passed after `npm run reset` and again against the same
+  already-running servers with no reset (issue #72).*
 - `GAP-006` `tools/check-schema-drift.mjs` compares the migrated database with the declared Drizzle
   schema, and deliberately does **not** compare: UNIQUE and CHECK constraint *names* (SQLite does not
   expose them through pragmas); trigger and view *bodies* (Drizzle cannot express either, so the
@@ -95,15 +100,19 @@ feature-by-feature verdict.
   #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
   plainly it is not implemented.
 - `GAP-013` **Brief feature 8 is missing**: the speaker portal has no resource or wiki pages and no
-  sanitized HTML embed support. Impact: speakers have nowhere to read reference material the brief
-  expects the portal to carry. Owner: content. Governing ID: `PRD-SPK-002`, `ACC-SPEAKER`. Closure:
+  sanitized HTML embed support — it carries tasks, profile, uploads, headshot selection and a
+  calendar download, and nothing to read. Impact: speakers have nowhere to read reference material
+  the brief expects the portal to carry. Owner: content. Governing ID: `PRD-SPK-002`, `ACC-SPEAKER`. Closure:
   issue #54 — organizer-authored pages, speaker-visible in the portal, with pasted reference HTML
   rendered through a sanitizer covered by its own tests.
 - `GAP-014` The public accessibility evidence is a hand-rolled smoke on one page — heading order,
   landmarks, control labelling and 390px overflow — with no automated ruleset, contrast check, or
-  focus-order check; and the performance budget it carries is measured against the Vite dev server,
-  so it bounds nothing about a built artifact. Impact: `ACC-PUBLIC`'s accessibility and performance
-  claims are narrower than the words "accessible" and "budget" suggest. Owner: quality. Governing ID:
+  focus-order check; and what is called a performance budget is two ceilings on
+  `/events/greenroom-demo-summit` — DOMContentLoaded under 10 seconds and fewer than 100 resource
+  requests — measured against the Vite dev server. Impact: `ACC-PUBLIC`'s accessibility and
+  performance claims are narrower than the words "accessible" and "budget" suggest; those two numbers
+  would catch a page that never finished loading or an accidental hundred-request waterfall and
+  nothing subtler, and they bound nothing about a built artifact. Owner: quality. Governing ID:
   `ACC-PUBLIC`, `TST-006`. Closure: issues #48 and #84 — an automated ruleset across more than one
   page, and budgets measured against `vite preview` or a deployed artifact.
 - `GAP-015` **Brief feature 6 has no assertion on its rows.** The Overview dashboard renders each

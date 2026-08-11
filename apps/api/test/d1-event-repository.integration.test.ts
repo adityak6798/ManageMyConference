@@ -6,6 +6,7 @@ import {
   type D1DatabasePort,
   D1EventRepository,
 } from "../src/adapters/persistence/d1-event-repository";
+import { statements } from "./support/seeded-d1";
 
 describe("D1EventRepository", () => {
   let runtime: Miniflare | undefined;
@@ -168,12 +169,11 @@ describe("D1EventRepository", () => {
       .filter(Boolean))
       await database.prepare(statement).run();
     const reset = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
-    const statements = reset
-      .split(";")
-      .map((statement) => statement.trim())
-      .filter(Boolean);
+    // The shared splitter, not `split(";")`: the seed carries prose comments, and a
+    // semicolon or an apostrophe inside one is not a statement boundary.
+    const seedStatements = statements(reset);
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      for (const statement of statements) await database.prepare(statement).run();
+      for (const statement of seedStatements) await database.prepare(statement).run();
     }
     const repository = new D1EventRepository(database as D1DatabasePort);
     await expect(
