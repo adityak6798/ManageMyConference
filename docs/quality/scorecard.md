@@ -1,6 +1,6 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `3630977`)
+Status: canonical | Owner: quality | Last verified: 2026-08-11 (commit `330b916`)
 
 ## How to read this
 
@@ -34,20 +34,30 @@ Three terms are used precisely:
 
 ## What was measured
 
-Everything below was run on 2026-08-11, in this order, against the working tree this document
-describes. The browser commands name ports `4373`/`9087` because another checkout on this machine was
-holding the defaults, and Playwright silently tests whatever already answers on the port it wants
-(`GAP-004`).
+Everything below was run on 2026-08-11, in this order, against the commit this document names.
+Each run wrote a record under `.evidence/`, and `gate:evidence` refuses these rows if a record is
+missing, failed, or was produced against a different commit — so the numbers here are checkable
+rather than asserted.
+
+The browser commands used to name ports `4373`/`9087` because another checkout on this machine
+was holding the defaults. They no longer need to: ports are derived per checkout, and a server
+belonging to a different one aborts the run instead of being silently tested (`GAP-004`,
+issues #28 and #90).
 
 | Command | Result |
 |---|---|
-| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (362 tests across the `node --test` tool suite, `@greenroom/api` and `@greenroom/web`, plus both production builds), then `gate:d1` (28 tests in 12 files), then `gate:evidence` |
-| `npm run reset`, then `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` | 30 passed. This is the clean-reset run |
-| the same `npm run test:e2e` five more times, no reset, against the same still-running servers | 30 passed each time — six consecutive green runs on one fixture |
-| the same six runs, but with a second `wrangler dev` of this worktree also up on another port | **2 of 5 runs failed**, a different single spec each time. Not a suite defect: both instances open one D1 file (`GAP-004`) |
-| `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:quality` | 3 passed (2.2s) |
-| `npm run gate:security` | **not run in this measurement.** `npm audit` last succeeded on hosted CI at head `10eab436` |
+| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (376 tests across the `node --test` tool suite, `@greenroom/api` and `@greenroom/web`, plus both production builds), then `gate:d1` (28 tests in 12 files), then `gate:evidence` |
+| `npm run gate:browser` (`setup:local`, `reset`, then the suite) | 30 passed, on derived ports with no manual port assignment. This is the clean-reset run |
+| `npm run test:e2e` again against the same still-running servers | 30 passed — re-runnable on one fixture without a reset |
+| `npm run test:quality` | 3 passed |
+| `npm run gate:security` | exit 0 — `npm audit --audit-level=high` found 0 vulnerabilities |
 | gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
+
+The earlier measurement of two `wrangler dev` instances of one worktree corrupting each other —
+2 failures across 5 runs, a different spec each time — is **no longer reproducible and is not
+re-stated as current**: local D1 and R2 state is now keyed per instance, so the two processes no
+longer share a database (issue #28). The record of why that changed is in
+[known gaps](known-gaps.md) under `GAP-004`.
 
 **No row below has its own command, because no such command exists.** An earlier version of this
 table gave each row an `npm run test:e2e … -- e2e/<one>.spec.ts` line and called it that row's

@@ -81,6 +81,7 @@
 - `test` / `repository-fact`: [tools/tests/check-evidence.test.mjs](../../tools/tests/check-evidence.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-gate-drift.test.mjs](../../tools/tests/check-gate-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-schema-drift.test.mjs](../../tools/tests/check-schema-drift.test.mjs)
+- `test` / `repository-fact`: [tools/tests/review-loop.test.mjs](../../tools/tests/review-loop.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 - `test` / `repository-fact`: [tools/tests/worktree-env.test.mjs](../../tools/tests/worktree-env.test.mjs)
 

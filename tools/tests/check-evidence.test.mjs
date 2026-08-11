@@ -110,7 +110,26 @@ test("counts are parsed from each runner this repository uses", () => {
   assert.deepEqual(parseCounts("no counts here"), {});
 });
 
-test("this repository's own rows and records agree", () => {
-  const { declaration: real, verdicts: rows, context: real_context } = readInputs();
-  assert.deepEqual(analyse(real, rows, real_context), []);
+test("every scorecard row has a declared evidence entry, and no entry is orphaned", () => {
+  // Deliberately *not* asserting that the records are current. This suite runs inside
+  // `gate:test-build`, which writes the `test-build` record only after the suite finishes — so
+  // a test asserting that record could never see anything but the previous run's, and would
+  // fail on the first run after every commit for a reason that says nothing about the code.
+  // `gate:evidence` is where currency is judged, once, after the suites have run.
+  const { declaration, verdicts } = readInputs();
+  const structural = analyse(declaration, verdicts, {
+    commit: "ignored",
+    exists: () => true,
+    readRecord: () => ({ exitCode: 0, commit: "ignored" }),
+  });
+  assert.deepEqual(structural, []);
+});
+
+test("every spec file a row names actually exists", () => {
+  const { declaration, verdicts, context } = readInputs();
+  const missing = analyse(declaration, verdicts, {
+    ...context,
+    readRecord: () => ({ exitCode: 0, commit: context.commit }),
+  });
+  assert.deepEqual(missing, []);
 });

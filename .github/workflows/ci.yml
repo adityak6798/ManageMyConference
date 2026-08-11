@@ -39,6 +39,10 @@ jobs:
         with:
           name: run-record-test-build
           path: .evidence
+          # .evidence is a dot-directory, and upload-artifact@v4 skips hidden files by
+          # default — silently, with "No files were found", which is how the evidence job
+          # first ran against nothing at all.
+          include-hidden-files: true
           if-no-files-found: ignore
 
   d1:
@@ -52,6 +56,10 @@ jobs:
         with:
           name: run-record-d1
           path: .evidence
+          # .evidence is a dot-directory, and upload-artifact@v4 skips hidden files by
+          # default — silently, with "No files were found", which is how the evidence job
+          # first ran against nothing at all.
+          include-hidden-files: true
           if-no-files-found: ignore
 
   browser:
@@ -66,6 +74,10 @@ jobs:
         with:
           name: run-record-browser
           path: .evidence
+          # .evidence is a dot-directory, and upload-artifact@v4 skips hidden files by
+          # default — silently, with "No files were found", which is how the evidence job
+          # first ran against nothing at all.
+          include-hidden-files: true
           if-no-files-found: ignore
       - if: failure()
         uses: actions/upload-artifact@v4
