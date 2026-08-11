@@ -1,6 +1,6 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change this pass documents)
+Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `4a46216`)
 
 ## How to read this
 
@@ -41,10 +41,11 @@ holding the defaults, and Playwright silently tests whatever already answers on 
 
 | Command | Result |
 |---|---|
-| `npm run check` | exit 0 — `gate:integrity` (gate drift over 5 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 21 migrations), then `gate:test-build` (37 `node --test` tool tests; 132 tests in 17 files in `@greenroom/api`; 93 tests in 12 files in `@greenroom/web`; both production builds), then `gate:d1` (20 tests in 11 files) |
-| `npm run reset`, then `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` | 30 passed (28.0s). This is the clean-reset run |
-| the same `npm run test:e2e` a second time, no reset, against the same still-running servers | 30 passed (27.4s) |
-| `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:quality` | 3 passed (2.0s) |
+| `npm run check` | exit 0 — `gate:integrity` (gate drift over 5 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 21 migrations), then `gate:test-build` (38 `node --test` tool tests; 133 tests in 17 files in `@greenroom/api`; 93 tests in 12 files in `@greenroom/web`; both production builds), then `gate:d1` (20 tests in 11 files) |
+| `npm run reset`, then `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` | 30 passed (27.9s). This is the clean-reset run |
+| the same `npm run test:e2e` a second time, no reset, against the same still-running servers | 30 passed (27.6s) |
+| the same `npm run test:e2e` a third time, still no reset | 30 passed (28.1s) |
+| `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:quality` | 3 passed (2.2s) |
 | `npm run gate:security` | **not run in this measurement.** `npm audit` last succeeded on hosted CI at head `10eab436` |
 | gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
 

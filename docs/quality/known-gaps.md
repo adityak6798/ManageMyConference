@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change)
+Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `4a46216`)
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -38,7 +38,7 @@ feature-by-feature verdict.
   communication delivery to a failed state, so `communications.spec.ts` asserts the recovery when a
   failed delivery exists and the refusal when one does not. Impact, stated plainly: recovery consumes
   its own precondition, so **the recovery half of that test executes only on the first suite run
-  after a reset** — in the 2026-08-11 measurement, run 1 of 2; run 2 asserted the complement. Any
+  after a reset** — in the 2026-08-11 measurement, run 1 of 3; runs 2 and 3 asserted the complement. Any
   claim that delivery recovery "is real", including the one the `ACC-INTEGRATION`
   [scorecard](scorecard.md) row makes, rests on that single post-reset run plus
   `communications-service.test.ts`, `communications-http.test.ts` and the D1 repository test — not on

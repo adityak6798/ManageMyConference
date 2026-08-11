@@ -1,6 +1,6 @@
 # CI and release
 
-Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change)
+Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11 (working tree: commit `4a46216`)
 
 ## Hosted CI status, stated plainly
 

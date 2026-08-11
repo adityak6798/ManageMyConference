@@ -1,6 +1,6 @@
 # Technical debt register
 
-Status: canonical | Owner: engineering | Last verified: 2026-08-11 (commit `c72b796`)
+Status: canonical | Owner: engineering | Last verified: 2026-08-11 (commit `4a46216`)
 
 Accepted debt **is** recorded. Every entry carries an ID, impact, owner, governing spec,
 reproduction or evidence, intended resolution, and a review trigger. A TODO comment without a linked

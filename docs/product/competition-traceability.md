@@ -1,6 +1,6 @@
 # Competition traceability
 
-Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-11 (working tree: commit `ea91650` plus the uncommitted speaker-headshot change)
+Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-11 (working tree: commit `4a46216`)
 
 ## Where the nine features come from
 
