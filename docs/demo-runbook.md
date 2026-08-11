@@ -22,36 +22,30 @@ npm ci
 uv sync --locked
 npx playwright install chromium   # only needed to run the browser suite
 npm run setup:local
+npm run worktree:status
 npm run reset
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The reset is deterministic and safe to repeat. It restores the same
-event, CFP, proposals, review assignments, speakers, CRM records, agenda, delivery history, and
-published projection. Local delivery and uploads use deterministic adapters and require no live
-credentials.
+`npm run worktree:status` prints the two ports this checkout resolved to — they are derived from the
+checkout's path, so every worktree gets its own pair and no two collide. Open the web port it names.
+The reset is deterministic and safe to repeat. It restores the same event, CFP, proposals, review
+assignments, speakers, CRM records, agenda, delivery history, and published projection. Local
+delivery and uploads use deterministic adapters and require no live credentials.
 
-If port 5173 or 8787 is already taken — another checkout, another agent, another project — start the
-dev servers on free ports:
-
-```bash
-GREENROOM_WEB_PORT=5273 GREENROOM_API_PORT=8887 npm run dev
-```
-
-The API port matters beyond convenience. `npm run test:e2e` defaults to 4173 for the web server and
-**8787 for the API**, and Playwright reuses any server already answering on the port it wants
-(`reuseExistingServer` is on outside CI). A second checkout serving 8787 will therefore be tested in
-place of this one, silently. Give the suite free ports of its own when anything else is running:
+You no longer have to find free ports by hand, and `npm run test:e2e` resolves the same pair as
+`npm run dev`, so the suite tests the servers this checkout started. To pin specific ports anyway:
 
 ```bash
 GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e
 ```
 
-Free ports keep the suite off *another checkout's* servers. They do **not** make it safe to run the
-suite while a second instance of **this** worktree is up: both `wrangler dev` processes open the
-same `apps/api/.wrangler/state/v3/d1` file whatever port they listen on, and the suite then fails
-intermittently — a different single spec each time, looking exactly like a flaky assertion rather
-than a shared-database problem (`GAP-004`). Stop the demo server before running the suite.
+Two instances of **this** worktree are also safe now: local D1 and R2 state lives under
+`apps/api/.wrangler/instances/<api-port>/`, so a demo server on one port and the suite on another own
+separate databases. That was the sharp edge `GAP-004` recorded — both processes used to open the same
+`apps/api/.wrangler/state/v3/d1` file whatever port they listened on, and the suite then failed
+intermittently, a different single spec each time, looking exactly like a flaky assertion rather than
+a shared-database problem.
 
 ## Evaluator path
 
@@ -85,8 +79,11 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    the draft have moved ahead of the snapshot, so "why is my edit not on the site" is answered on
    screen. Both embed views are here with their addresses, a paste-ready `<iframe>` snippet behind a
    copy button, and a live frame of the real embed:
-   - `http://127.0.0.1:5173/embed/events/greenroom-demo-summit/schedule`
-   - `http://127.0.0.1:5173/embed/events/greenroom-demo-summit/speakers`
+   - `/embed/events/greenroom-demo-summit/schedule`
+   - `/embed/events/greenroom-demo-summit/speakers`
+
+   Addresses in this runbook are paths, because the host and port belong to your checkout —
+   `npm run worktree:status` names them.
 
    To prove this does not depend on the seed, create an event under `/settings`, select it in the
    event switcher, and publish it from `/publishing`: the slug is server-assigned and the panel
@@ -104,7 +101,7 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    Choosing a headshot is not publishing it: the file keeps the visibility it had, the portal says so
    in a sentence beside the preview, and the public gallery keeps showing initials until an organizer
    marks that file publishable.
-10. Switch to **public**, then open `http://127.0.0.1:5173/events/greenroom-demo-summit` and follow
+10. Switch to **public**, then open `/events/greenroom-demo-summit` and follow
     schedule, sessions, speakers, and CFP. Submit a proposal through the live public form. The two
     `/embed/...` addresses above serve the same published projection with the marketing chrome
     stripped; paste the copied snippet into any local HTML file to see it render in a real host page.

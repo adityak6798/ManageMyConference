@@ -80,6 +80,7 @@
 - `test` / `repository-fact`: [tools/tests/check-gate-drift.test.mjs](../../tools/tests/check-gate-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-schema-drift.test.mjs](../../tools/tests/check-schema-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
+- `test` / `repository-fact`: [tools/tests/worktree-env.test.mjs](../../tools/tests/worktree-env.test.mjs)
 
 ### `ACC-IDENTITY-EVENTS`
 - `test` / `repository-fact`: [apps/api/test/d1-identity-directory.integration.test.ts](../../apps/api/test/d1-identity-directory.integration.test.ts)

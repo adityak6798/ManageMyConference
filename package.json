@@ -26,14 +26,16 @@
     "lint": "biome lint . && node tools/check-errors.mjs && uv run ruff check tools",
     "openapi:check": "npm run openapi:check --workspace @greenroom/contracts",
     "openapi:generate": "npm run openapi:generate --workspace @greenroom/contracts",
-    "reset": "npm run reset --workspace @greenroom/api --if-present",
+    "reset": "node tools/local-wrangler.mjs reset",
     "schema:check": "node --test tools/tests/check-schema-drift.test.mjs && node tools/check-schema-drift.mjs",
     "setup:local": "node tools/setup-local.mjs",
     "test": "node --test tools/tests/*.test.mjs && npm test --workspaces --if-present",
     "test:d1": "npm run test:d1 --workspace @greenroom/api",
     "test:e2e": "npm run test:e2e --workspace @greenroom/web",
     "test:quality": "npm run test:quality --workspace @greenroom/web",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "worktree": "node tools/worktree-env.mjs",
+    "worktree:status": "node tools/worktree-env.mjs status"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",
