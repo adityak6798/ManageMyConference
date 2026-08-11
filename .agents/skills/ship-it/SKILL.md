@@ -66,7 +66,8 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
 ### 7. Post transparent PR comments
 
 - Add or update one PR comment containing the triaged findings table. Include Ralph and automated-review findings, their disposition, and evidence.
-- Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, and ownership. If nothing remains, say so explicitly.
+- Before calling the PR review-ready, give every actionable item that will survive merge a durable issue tracker. Link an appropriate open issue and update its scope when needed; create a new issue only when no existing issue cleanly owns the work. Avoid duplicates. Record the owner, deferral rationale or current state, and a concrete closure condition in the issue.
+- Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, ownership, and the linked issue for every actionable follow-on. If nothing remains, say so explicitly.
 - Use stable HTML markers so reruns update the two comments instead of creating duplicates. Follow [pr-ci-and-comments.md](references/pr-ci-and-comments.md).
 - Resolve a review thread only after its fix is pushed and validated, or after a clear documented rejection makes resolution appropriate.
 
@@ -86,6 +87,7 @@ Call the PR review-ready only when:
 - required hosted CI is green;
 - the final 15-minute bot-review window is complete or honestly reported as externally pending;
 - actionable review threads are triaged;
+- every actionable item that survives merge is tracked in a linked open issue with ownership and a closure condition;
 - findings and remaining-work comments reflect the final commit;
 - the worktree is clean and the branch is pushed.
 
