@@ -11,7 +11,7 @@ Status: canonical | Owner: product | Last verified: 2026-08-09
 ## CFP, abstracts, and review
 
 - `PRD-CFP-001` Organizers compose ordered typed fields, required rules, guidance, open/close state, preview, and publication.
-- `PRD-CFP-002` Submission is server validated and idempotent; applicants get a durable confirmation identifier. It is the only unauthenticated write, so it is bounded: a submission carries at most 40 answers, each within the `maxLength` its published field advertises, and repeated submissions from one address for one event are throttled.
+- `PRD-CFP-002` Submission is server validated and idempotent; applicants get a durable confirmation identifier. It is the only unauthenticated write, so it is bounded: a submission carries at most 40 answers, each within the `maxLength` its published field advertises, and repeated submissions from one address are throttled. The counter is keyed on the caller's address alone — never on anything the caller supplies, such as the event id in the path — because a caller who can mint counter keys can evict its own spent counter and start again.
 - `PRD-ABS-001` Organizers filter, assign, bulk-transition, and audit submissions through configured statuses.
 - `PRD-REV-001` An evaluation plan defines criteria and scales. Reviewers see assignments, conflicts, completion, and no aggregate bias before submission.
 

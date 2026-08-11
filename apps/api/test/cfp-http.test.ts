@@ -222,7 +222,7 @@ describe("CFP HTTP journey", () => {
     expect(accepted.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("throttles submissions per address and event", async () => {
+  it("throttles submissions per address, and a caller cannot buy a fresh budget", async () => {
     const { app, cookie } = await setup();
     await publish(app, cookie, [{ id: "title", type: "short_text", label: "Title" }]);
     const submit = (path: string, address: string) =>
@@ -241,13 +241,24 @@ describe("CFP HTTP journey", () => {
     expect(refused.status).toBe(429);
     expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
     await expect(refused.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
-    // The budget is per address and per event, so neither another submitter nor another
-    // event is affected by this one.
+    // A different submitter is unaffected: the budget is per address.
     expect((await submit(path, "203.0.113.8")).status).toBe(201);
+    // But the SAME address gets no fresh budget by naming a different event. The event id comes
+    // from the path and is never checked for existence, so keying on it would have let one
+    // client mint unlimited counters — and, against a bounded key table, evict its own spent one
+    // and start again. Keying on the address alone is what closes that.
     expect(
       (await submit(`/api/public/events/${otherEventId}/submissions`, "203.0.113.7")).status,
-      // The other event has no published CFP, so the throttle is not what refuses this one.
-    ).toBe(404);
+    ).toBe(429);
+    // Not even a syntactically valid event that does not exist.
+    expect(
+      (
+        await submit(
+          "/api/public/events/00000000-0000-4000-8000-0000000000ff/submissions",
+          "203.0.113.7",
+        )
+      ).status,
+    ).toBe(429);
   });
 
   it("is embeddable and cacheable from a third-party origin", async () => {

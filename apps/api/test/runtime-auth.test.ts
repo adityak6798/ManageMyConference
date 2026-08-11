@@ -71,14 +71,26 @@ describe("submission throttle", () => {
   });
 
   it("keeps a flooder from spending a first-time submitter's budget", () => {
-    // The end-to-end shape of the defect: 10k rotated keys must not refuse the 10,001st caller.
+    // The end-to-end shape of the defect: rotated keys must not refuse the next caller.
     const throttle = new FixedWindowThrottle(10, 60_000, 100);
     for (let index = 0; index < 500; index += 1)
       expect(throttle.check(`1.2.3.4:event-${index}`, 0).allowed).toBe(true);
-    expect(throttle.check("198.51.100.7:real-event", 0)).toEqual({
-      allowed: true,
-      retryAfterSeconds: 0,
-    });
+    expect(throttle.check("198.51.100.7", 0)).toEqual({ allowed: true, retryAfterSeconds: 0 });
+  });
+
+  it("gives one caller exactly one window, so its own traffic can never reset its counter", () => {
+    // Eviction and key-minting together would defeat the limiter: spend the budget, rotate
+    // enough keys to evict your own exhausted counter, start again. That is why the submissions
+    // route keys on the caller's address ALONE — nothing a caller supplies enters the key — and
+    // this asserts the property that makes eviction safe.
+    const throttle = new FixedWindowThrottle(2, 60_000, 4);
+    const flooder = "203.0.113.5";
+    expect(throttle.check(flooder, 0).allowed).toBe(true);
+    expect(throttle.check(flooder, 0).allowed).toBe(true);
+    // However hard it keeps trying, it occupies one key and stays refused for the window.
+    for (let attempt = 0; attempt < 50; attempt += 1)
+      expect(throttle.check(flooder, 0).allowed).toBe(false);
+    expect(throttle.check(flooder, 60_001).allowed).toBe(true);
   });
 
   it("prefers the address the edge wrote over anything the client can forge", () => {

@@ -1306,12 +1306,18 @@ export function createHttpApp(
       );
     /*
      * The only write in the API that needs no session, so it is the only one an anonymous
-     * flood can reach. The counter is per address *and* per event: one abusive submitter
-     * cannot spend another event's budget, and it is checked before the body is parsed so a
-     * refused caller costs nothing but a map lookup. Best effort by design — see `throttle.ts`.
+     * flood can reach. Checked before the body is parsed, so a refused caller costs nothing
+     * but a map lookup. Best effort by design — see `throttle.ts`.
+     *
+     * The key is the address ALONE, deliberately. Adding `:${eventId}` reads as tighter — one
+     * submitter cannot spend another event's budget — but the event id comes from the path and
+     * is never checked for existence, so it let one client mint unlimited distinct keys. With a
+     * bounded key table that is self-eviction: spend the budget on the real event, rotate 10,000
+     * junk ids, and the exhausted counter is gone. Reproduced against the shipped parameters.
+     * One address therefore owns exactly one window, and rotating ids creates no keys at all.
      */
     const throttled = submissionThrottle.check(
-      `${clientAddress(context.req.raw.headers)}:${params.data.eventId}`,
+      clientAddress(context.req.raw.headers),
       (auth.now ?? Date.now)(),
     );
     if (!throttled.allowed) {

@@ -11,11 +11,13 @@
  * space (a spoofed forwarded address per request) cannot grow it without bound.
  *
  * The cap evicts rather than refuses. Refusing a newcomer once the table is full would let one
- * client that rotates keys — a random event UUID per request is enough, since the key is formed
- * before the event is known to exist — lock every genuine submitter out for a whole window. A
- * rate limiter that fails closed on its own bookkeeping is a denial-of-service amplifier, so a
- * full table drops its oldest window instead. The worst an attacker gets is a reset counter for
- * somebody they evicted, which is the lenient direction.
+ * client that rotates keys lock every genuine submitter out for a whole window, and a rate
+ * limiter that fails closed on its own bookkeeping is a denial-of-service amplifier.
+ *
+ * Eviction is only safe while **a caller cannot mint keys**, because a caller who can mint keys
+ * can evict its own exhausted counter and start again. That is why the submissions route keys on
+ * the caller's address alone and not on anything from the request path — see the comment at its
+ * `submissionThrottle.check` call. Any future caller of this class owes the same property.
  */
 export interface ThrottleDecision {
   readonly allowed: boolean;
