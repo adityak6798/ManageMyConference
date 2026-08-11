@@ -127,3 +127,15 @@ feature-by-feature verdict.
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable
   route with a rendered docs page, covered by a route test.
+- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Twice
+  observed: once locally on 2026-08-11 after roughly 45 minutes of uptime, and once in the `browser`
+  job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with no message
+  and exited 38 seconds into the suite. Every subsequent request failed with
+  `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
+  a signature that reads as a mass authorization regression and is not one. The rerun of that same
+  commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
+  contributor can burn an afternoon on it; conversely the crash could mask a real failure behind
+  noise. Owner: platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails
+  with a diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between
+  spec files, or a Playwright global setup that fails fast when the API stops answering — and the
+  wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
