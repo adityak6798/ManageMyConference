@@ -345,15 +345,11 @@ test("renders slot times on the event's clock, not UTC", async ({ page }) => {
   await expect(page.getByRole("columnheader", { name: /Tue, Sep 1/ })).toBeVisible();
   await expect(page.getByRole("rowheader", { name: "09:00–10:00" })).toBeVisible();
 
-  // Switching events re-renders the board on the new event's clock with no reload.
-  // Greenroom Workshop Day is America/New_York; the abbreviation is read at the time
-  // the board is shown, so it is matched loosely enough to survive a winter run.
-  // Opening that board seeds it an empty draft, which nothing else in the suite reads.
+  // Switching to an event with no agenda now renders the explicit, read-only empty state.
+  // Issue #70 deliberately removed the old read-time provisioning this assertion relied on.
   const switcher = page.getByRole("combobox", { name: "Event workspace" });
   await switcher.selectOption({ label: "Greenroom Workshop Day" });
-  await expect(
-    page.getByText(/Times are shown in America\/New_York \(E[DS]T\)/).first(),
-  ).toBeVisible();
+  await expect(page.getByText("No agenda yet — create the first room and track")).toBeVisible();
 
   // Hand the shared fixture back the event the rest of this file works on.
   await switcher.selectOption({ label: "Greenroom Demo Summit" });

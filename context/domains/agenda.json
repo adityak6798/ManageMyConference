@@ -19,6 +19,8 @@
     "apps/api/test/agenda-service.test.ts",
     "apps/api/test/d1-agenda-repository.integration.test.ts",
     "apps/web/src/AgendaWorkspace.tsx",
+    "apps/web/src/agenda/AgendaWorkspace.tsx",
+    "apps/web/src/agenda/model.ts",
     "apps/web/src/api/agenda.ts",
     "apps/web/test/agenda-timezone.test.tsx",
     "apps/web/test/agenda-timeslots.test.tsx",

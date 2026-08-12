@@ -6,7 +6,7 @@
  * land everywhere at once.
  */
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { IconInbox } from "./icons";
 
 export function PageHeader({
@@ -79,7 +79,6 @@ export function Tabs({
 }) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   return (
-    // biome-ignore lint/a11y/useSemanticElements: the tablist role is the point here.
     <div className="tabs" role="tablist" aria-label={label}>
       {items.map((item, index) => (
         <button
@@ -221,4 +220,75 @@ export function useActionFeedback() {
   );
 
   return { announce, node, clear: () => setMessage(null) };
+}
+
+type LoadState<Key, Value> = {
+  key: Key;
+  data: Value | null;
+  error: string | null;
+  loading: boolean;
+};
+
+/**
+ * Owns one keyed read lifecycle. Changing the key clears the previous entity immediately,
+ * and a monotonically increasing sequence prevents an older response from painting over a
+ * newer request. Imperative reloads retain current data so forms do not unmount mid-edit.
+ */
+export function useLoad<Key, Value>(
+  key: Key,
+  loader: (key: Key) => Promise<Value>,
+  describeError: (reason: unknown) => string,
+) {
+  const sequence = useRef(0);
+  const mounted = useRef(true);
+  const [state, setState] = useState<LoadState<Key, Value>>({
+    key,
+    data: null,
+    error: null,
+    loading: true,
+  });
+
+  const run = useCallback(
+    async (clear = false) => {
+      const request = ++sequence.current;
+      setState((current) => ({
+        key,
+        data: clear ? null : current.data,
+        error: null,
+        loading: true,
+      }));
+      try {
+        const data = await loader(key);
+        if (mounted.current && sequence.current === request)
+          setState({ key, data, error: null, loading: false });
+        return data;
+      } catch (reason) {
+        if (mounted.current && sequence.current === request)
+          setState((current) => ({
+            key,
+            data: clear ? null : current.data,
+            error: clear || current.data === null ? describeError(reason) : null,
+            loading: false,
+          }));
+        throw reason;
+      }
+    },
+    [describeError, key, loader],
+  );
+
+  useEffect(() => {
+    mounted.current = true;
+    // ERROR-INTENT: useLoad stores the rejection in its returned error state.
+    void run(true).catch(() => undefined);
+    return () => {
+      mounted.current = false;
+      sequence.current += 1;
+    };
+  }, [run]);
+
+  const currentState = Object.is(state.key, key)
+    ? state
+    : { key, data: null, error: null, loading: true };
+
+  return { ...currentState, reload: () => run(false) };
 }

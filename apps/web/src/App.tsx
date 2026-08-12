@@ -1,5 +1,13 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
 import {
   ApiError,
@@ -9,8 +17,8 @@ import {
   listEvents,
   startDemoSession,
 } from "./api/events";
-import { OverviewPage } from "./OverviewPage";
 import { getPublicationSummary } from "./api/publication";
+import { OverviewPage } from "./OverviewPage";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
 import { IconDashboard, IconSettings } from "./ui/icons";
@@ -360,7 +368,7 @@ export function App() {
           title={title}
           {...(subtitle ? { subtitle } : {})}
         />
-        {workspace.render(context)}
+        <Fragment key={selectedEvent.id}>{workspace.render(context)}</Fragment>
       </>
     );
   }
