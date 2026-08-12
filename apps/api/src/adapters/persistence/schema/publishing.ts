@@ -1,5 +1,12 @@
 import { sql } from "drizzle-orm";
-import { type AnySQLiteColumn, check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  type AnySQLiteColumn,
+  check,
+  index,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }) {
   // @spec PRD-PUB-001
@@ -28,6 +35,9 @@ export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }
         sql`${table.publishedJson} IS NULL OR json_valid(${table.publishedJson})`,
       ),
       index("public_event_projections_slug_state_idx").on(table.slug, table.state),
+      uniqueIndex("public_event_projections_draft_slug_idx").on(
+        sql`json_extract(${table.draftJson}, '$.event.slug')`,
+      ),
     ],
   );
 

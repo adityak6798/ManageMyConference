@@ -19,10 +19,14 @@ import { CfpService, CfpUnavailableError } from "../src/application/cfp/cfp-serv
 import { ContentService } from "../src/application/content/content-service";
 import { EventService } from "../src/application/events/event-service";
 import { ReviewService } from "../src/application/review/review-service";
-import { PublicationService } from "../src/application/publishing/publication-service";
+import {
+  PublicationService,
+  PublicationSlugTakenError,
+} from "../src/application/publishing/publication-service";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import { createHttpApp } from "../src/transport/http/app";
-import { applySeed, seededAssetBytes } from "./support/seeded-d1";
+import { publishingRoutes } from "../src/transport/http/routes/publishing";
+import { applyMigrations, applySeed, applySeedData, seededAssetBytes } from "./support/seeded-d1";
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const DEMO_SLUG = "greenroom-demo-summit";
@@ -101,12 +105,104 @@ function publishingFor(database: never) {
     },
     () => new Date("2026-08-10T20:00:00.000Z"),
   );
-  return { agenda, contentRepository, events, identities, publicationRepository, publishing };
+  return {
+    agenda,
+    contentRepository,
+    events,
+    identities,
+    publicationRepository,
+    publishing,
+  };
 }
 
 describe("D1PublicationRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
+
+  it("refuses to migrate an existing live-to-draft slug collision", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-slug-migration-audit" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applyMigrations(database, { through: "1801_itinerary_retention.sql" });
+    await applySeedData(database);
+    const otherDraft = {
+      ...safeProjection,
+      event: {
+        ...safeProjection.event,
+        eventId: "00000000-0000-4000-8000-000000000002",
+        slug: DEMO_SLUG,
+      },
+    };
+    await database
+      .prepare(
+        `INSERT INTO public_event_projections
+          (event_id, slug, state, draft_json, published_json, published_at)
+         VALUES (?, ?, 'draft', ?, NULL, NULL)`,
+      )
+      .bind(
+        "00000000-0000-4000-8000-000000000002",
+        "different-live-address",
+        JSON.stringify(otherDraft),
+      )
+      .run();
+
+    await expect(
+      applyMigrations(database, {
+        from: "1802_publication_slug_reservations.sql",
+        through: "1802_publication_slug_reservations.sql",
+      }),
+    ).rejects.toThrow(/1802_publication_slug_reservations\.sql: statement \d+ failed/);
+  });
+
+  it("reserves a draft slug for published events when two writes race without a pre-check", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-slug-race" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const repository = new D1PublicationRepository(database);
+    const projectionFor = (eventId: string, slug: string) => ({
+      ...safeProjection,
+      event: { ...safeProjection.event, eventId, slug },
+    });
+    const firstEvent = "00000000-0000-4000-8000-000000000002";
+    const secondEvent = "00000000-0000-4000-8000-000000000099";
+
+    await repository.publish(
+      firstEvent,
+      "2026-08-10T20:00:00.000Z",
+      projectionFor(firstEvent, "first-live-address"),
+    );
+    await repository.publish(
+      secondEvent,
+      "2026-08-10T20:00:00.000Z",
+      projectionFor(secondEvent, "second-live-address"),
+    );
+
+    await repository.saveSettings(
+      firstEvent,
+      "raced-address",
+      projectionFor(firstEvent, "raced-address"),
+    );
+    const racedWrite = repository.saveSettings(
+      secondEvent,
+      "raced-address",
+      projectionFor(secondEvent, "raced-address"),
+    );
+    await expect(racedWrite).rejects.toBeInstanceOf(PublicationSlugTakenError);
+    // ERROR-INTENT: the assertion below inspects the rejected domain error's transport mapping.
+    const error = await racedWrite.catch((reason: unknown) => reason);
+    expect(publishingRoutes.translateError?.(error)).toMatchObject({
+      code: "CONFLICT",
+      status: 409,
+      fields: { slug: ["That public address is already taken."] },
+    });
+  });
 
   it("stores only allowlisted fields when publishing a contaminated draft", async () => {
     runtime = new Miniflare({
