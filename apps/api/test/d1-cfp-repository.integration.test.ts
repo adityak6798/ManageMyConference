@@ -95,7 +95,11 @@ describe("D1CfpRepository", () => {
         3,
       ),
     ).rejects.toThrow("CFP_ROUTE_STATUS_NOT_CONFIGURED");
-    await repository.savePublished({ ...routedForm, version: 3 }, false, { ...routedForm, version: 3 }.version);
+    await repository.savePublished(
+      { ...routedForm, version: 3 },
+      false,
+      { ...routedForm, version: 3 }.version,
+    );
     await expect(
       proposals.saveStatuses(
         form.eventId,
@@ -110,7 +114,11 @@ describe("D1CfpRepository", () => {
         (await proposals.listStatuses(form.eventId)).filter(({ key }) => key !== "workshop_queue"),
       ),
     ).rejects.toThrow("Configured statuses must include every status currently in use");
-    await repository.savePublished({ ...routedForm, version: 3 }, false, { ...routedForm, version: 3 }.version);
+    await repository.savePublished(
+      { ...routedForm, version: 3 },
+      false,
+      { ...routedForm, version: 3 }.version,
+    );
     const proposal = {
       id: "00000000-0000-4000-8000-000000000111",
       eventId: form.eventId,

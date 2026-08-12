@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
 import {
+  CfpDraftConflictError,
   CfpService,
   CfpUnavailableError,
   CfpValidationError,
@@ -45,8 +46,15 @@ describe("CFP service", () => {
       () => new Date("2026-08-10T12:00:00Z"),
     );
     expect(
-      (await service.save(actor, { eventId, title: "Speak", description: "Join us", fields }))
-        .status,
+      (
+        await service.save(actor, {
+          eventId,
+          title: "Speak",
+          description: "Join us",
+          fields,
+          expectedVersion: 0,
+        })
+      ).status,
     ).toBe("draft");
     expect((await service.changeState(actor, eventId, "publish")).status).toBe("open");
     expect((await service.changeState(actor, eventId, "close")).status).toBe("closed");
@@ -59,7 +67,13 @@ describe("CFP service", () => {
       () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,
       () => new Date("2026-08-10T12:00:00Z"),
     );
-    await service.save(actor, { eventId, title: "Speak", description: "", fields });
+    await service.save(actor, {
+      eventId,
+      title: "Speak",
+      description: "",
+      fields,
+      expectedVersion: 0,
+    });
     await service.changeState(actor, eventId, "publish");
     await expect(
       service.submit(eventId, "retry-key", { title: "", email: "bad" }),
@@ -124,6 +138,7 @@ describe("CFP service", () => {
           routeTo: { status: "under_review" },
         },
       ],
+      expectedVersion: 0,
     });
     await expect(
       service.save(actor, {
@@ -173,7 +188,13 @@ describe("CFP service", () => {
   });
   it("does not expose drafts and rejects cross-event organizers", async () => {
     const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());
-    await service.save(actor, { eventId, title: "Speak", description: "", fields });
+    await service.save(actor, {
+      eventId,
+      title: "Speak",
+      description: "",
+      fields,
+      expectedVersion: 0,
+    });
     await expect(service.getPublished(eventId)).rejects.toBeInstanceOf(CfpUnavailableError);
     await expect(service.changeState(actor, eventId, "close")).rejects.toThrow(
       "Only an open CFP can be closed",
@@ -185,11 +206,53 @@ describe("CFP service", () => {
       service.getForOrganizer(actor, "00000000-0000-4000-8000-000000000099"),
     ).rejects.toThrow("Organizer event access denied");
   });
+  it("rejects a stale draft save without replacing the newer draft", async () => {
+    const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());
+    await service.save(actor, {
+      eventId,
+      title: "Original",
+      description: "",
+      fields,
+      expectedVersion: 0,
+    });
+    await service.save(actor, {
+      eventId,
+      title: "Newer",
+      description: "",
+      fields,
+      expectedVersion: 1,
+    });
+    await expect(
+      service.save(actor, {
+        eventId,
+        title: "Stale",
+        description: "",
+        fields,
+        expectedVersion: 1,
+      }),
+    ).rejects.toBeInstanceOf(CfpDraftConflictError);
+    await expect(service.getForOrganizer(actor, eventId)).resolves.toMatchObject({
+      title: "Newer",
+      version: 2,
+    });
+  });
   it("keeps the published snapshot public while a replacement draft is edited", async () => {
     const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());
-    await service.save(actor, { eventId, title: "Published", description: "", fields });
+    await service.save(actor, {
+      eventId,
+      title: "Published",
+      description: "",
+      fields,
+      expectedVersion: 0,
+    });
     await service.changeState(actor, eventId, "publish");
-    await service.save(actor, { eventId, title: "New draft", description: "", fields });
+    await service.save(actor, {
+      eventId,
+      title: "New draft",
+      description: "",
+      fields,
+      expectedVersion: 1,
+    });
     await expect(service.getPublished(eventId)).resolves.toMatchObject({
       title: "Published",
       status: "open",
@@ -229,11 +292,23 @@ describe("CFP service", () => {
       () => crypto.randomUUID(),
       () => new Date(),
     );
-    await service.save(actor, { eventId, title: "Published", description: "", fields });
+    await service.save(actor, {
+      eventId,
+      title: "Published",
+      description: "",
+      fields,
+      expectedVersion: 0,
+    });
     await service.changeState(actor, eventId, "publish");
     await service.changeState(actor, eventId, "close");
 
-    await service.save(actor, { eventId, title: "Typo fixed", description: "", fields });
+    await service.save(actor, {
+      eventId,
+      title: "Typo fixed",
+      description: "",
+      fields,
+      expectedVersion: 1,
+    });
     const republished = await service.changeState(actor, eventId, "publish");
     expect(republished.publishedStatus).toBe("closed");
     await expect(service.getPublished(eventId)).resolves.toMatchObject({

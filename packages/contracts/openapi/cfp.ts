@@ -61,6 +61,7 @@ export const cfpPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: errorResponse,
         500: errorResponse,
       },
     });

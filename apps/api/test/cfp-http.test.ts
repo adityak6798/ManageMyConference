@@ -23,7 +23,7 @@ async function publish(
   const saved = await app.request(`/api/events/${eventId}/cfp`, {
     method: "PUT",
     headers: cookie,
-    body: JSON.stringify({ title: "Speak", description: "", fields }),
+    body: JSON.stringify({ title: "Speak", description: "", fields, expectedVersion: 0 }),
   });
   expect(saved.status).toBe(200);
   const published = await app.request(`/api/events/${eventId}/cfp/state`, {
@@ -86,6 +86,7 @@ describe("CFP HTTP journey", () => {
       body: JSON.stringify({
         title: "Speak",
         description: "",
+        expectedVersion: 0,
         fields: [{ id: "email", type: "email", label: "Email", required: true }],
       }),
     });
@@ -149,6 +150,30 @@ describe("CFP HTTP journey", () => {
       });
       expect(response.status).toBe(400);
     }
+  });
+  it("returns 409 for a stale organizer draft and retains the winning edit", async () => {
+    const { app, cookie } = await setup();
+    const path = `/api/events/${eventId}/cfp`;
+    const save = (title: string, expectedVersion: number) =>
+      app.request(path, {
+        method: "PUT",
+        headers: cookie,
+        body: JSON.stringify({
+          title,
+          expectedVersion,
+          fields: [{ id: "title", type: "short_text", label: "Title" }],
+        }),
+      });
+    expect((await save("Original", 0)).status).toBe(200);
+    expect((await save("Winning edit", 1)).status).toBe(200);
+    const stale = await save("Stale overwrite", 1);
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({
+      error: { code: "CONFLICT", message: expect.stringContaining("Reload") },
+    });
+    await expect((await app.request(path, { headers: cookie })).json()).resolves.toMatchObject({
+      cfp: { title: "Winning edit", version: 2 },
+    });
   });
   it("rejects unauthorized and cross-event organizer access", async () => {
     const { app } = await setup();

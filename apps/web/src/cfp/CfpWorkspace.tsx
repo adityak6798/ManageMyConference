@@ -65,10 +65,13 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const [baseline, setBaseline] = useState<string | null>(null);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [loadingCfp, setLoadingCfp] = useState(true);
+  const [draftConflict, setDraftConflict] = useState(false);
 
   const [published, setPublished] = useState<CfpFormDto | null>(null);
   const [liveProblem, setLiveProblem] = useState<string | null>(null);
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
+  const [routingStatusProblem, setRoutingStatusProblem] = useState(false);
+  const [routingStatusReload, setRoutingStatusReload] = useState(0);
 
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState<"save" | "publish" | "state" | null>(null);
@@ -82,39 +85,46 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const formRun = useRef(0);
   const liveRun = useRef(0);
 
-  const loadForm = useCallback(async () => {
-    const run = ++formRun.current;
-    setForm(null);
-    setFields(starter);
-    setTitle(DEFAULT_TITLE);
-    setDescription("");
-    setRouting([]);
-    setBaseline(null);
-    setErrors({});
-    setLoadFailure(null);
-    setLoadingCfp(true);
-    try {
-      const loaded = await loadCfp(eventId, organizer);
-      if (formRun.current !== run) return;
-      setForm(loaded);
-      setTitle(loaded.title);
-      setDescription(loaded.description);
-      setFields([...loaded.fields]);
-      setRouting([...loaded.routing]);
-      setBaseline(shape(loaded));
-    } catch (reason: unknown) {
-      if (formRun.current !== run) return;
-      // ERROR-INTENT: a missing CFP is the empty state, not a failure, so a NOT_FOUND is
-      // deliberately swallowed and the organizer starts from the starter template. Every
-      // other reason is reported through setLoadFailure and blocks editing — falling back
-      // to the starter would let Save overwrite a form we failed to read.
-      if (isNotFound(reason))
-        setBaseline(shape({ title: DEFAULT_TITLE, description: "", fields: starter }));
-      else setLoadFailure(describe(reason, "The call for proposals could not be loaded."));
-    } finally {
-      if (formRun.current === run) setLoadingCfp(false);
-    }
-  }, [eventId, organizer]);
+  const loadForm = useCallback(
+    async (preserveCurrent = false) => {
+      const run = ++formRun.current;
+      if (!preserveCurrent) {
+        setForm(null);
+        setFields(starter);
+        setTitle(DEFAULT_TITLE);
+        setDescription("");
+        setRouting([]);
+        setBaseline(null);
+      }
+      setErrors({});
+      setLoadFailure(null);
+      setLoadingCfp(true);
+      setDraftConflict(false);
+      try {
+        const loaded = await loadCfp(eventId, organizer);
+        if (formRun.current !== run) return;
+        setForm(loaded);
+        setTitle(loaded.title);
+        setDescription(loaded.description);
+        setFields([...loaded.fields]);
+        setRouting([...loaded.routing]);
+        setBaseline(shape(loaded));
+      } catch (reason: unknown) {
+        if (formRun.current !== run) return;
+        // ERROR-INTENT: a missing CFP is the empty state, not a failure, so a NOT_FOUND is
+        // deliberately swallowed and the organizer starts from the starter template. Every
+        // other reason is reported through setLoadFailure and blocks editing — falling back
+        // to the starter would let Save overwrite a form we failed to read.
+        if (isNotFound(reason))
+          setBaseline(shape({ title: DEFAULT_TITLE, description: "", fields: starter }));
+        else if (preserveCurrent) setDraftConflict(true);
+        else setLoadFailure(describe(reason, "The call for proposals could not be loaded."));
+      } finally {
+        if (formRun.current === run) setLoadingCfp(false);
+      }
+    },
+    [eventId, organizer],
+  );
 
   // The published snapshot is fetched through the public endpoint on purpose: it is
   // the same bytes an applicant receives, which is what makes the Live tab evidence
@@ -153,21 +163,26 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   }, [refreshLive]);
 
   useEffect(() => {
+    // ERROR-INTENT: reading the retry counter makes each increment restart this status request.
+    void routingStatusReload;
     if (!organizer) return;
     let current = true;
     // ERROR-INTENT: routing status load failure is reported when a rule is added; the rest of
     // the CFP editor remains usable and the server still rejects an unconfigured destination.
     void loadCfpRoutingStatuses(eventId)
       .then((statuses) => {
-        if (current) setRoutingStatuses(statuses);
+        if (current) {
+          setRoutingStatuses(statuses);
+          setRoutingStatusProblem(false);
+        }
       })
       .catch(() => {
-        if (current) setRoutingStatuses([]);
+        if (current) setRoutingStatusProblem(true);
       });
     return () => {
       current = false;
     };
-  }, [eventId, organizer]);
+  }, [eventId, organizer, routingStatusReload]);
 
   useEffect(() => {
     if (!organizer) return;
@@ -216,8 +231,15 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     setErrors({});
     setBusy("save");
     try {
-      const saved = await saveCfp(eventId, { title, description, fields, routing });
+      const saved = await saveCfp(eventId, {
+        title,
+        description,
+        fields,
+        routing,
+        expectedVersion: form?.version ?? 0,
+      });
       setForm(saved);
+      setDraftConflict(false);
       setBaseline(shape(saved));
       announce(
         "success",
@@ -228,13 +250,16 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
       return saved;
     } catch (reason: unknown) {
       // ERROR-INTENT: the announcement and the per-question errors are the failure state.
-      if (reason instanceof CfpApiError) setErrors(reason.envelope.error.fieldErrors ?? {});
+      if (reason instanceof CfpApiError) {
+        setErrors(reason.envelope.error.fieldErrors ?? {});
+        if (reason.envelope.error.code === "CONFLICT") setDraftConflict(true);
+      }
       announce("error", describe(reason, "The draft could not be saved."));
       return null;
     } finally {
       setBusy(null);
     }
-  }, [announce, description, eventId, fields, routing, title]);
+  }, [announce, description, eventId, fields, form?.version, routing, title]);
 
   const transition = useCallback(
     async (state: "publish" | "close" | "reopen") => {
@@ -463,6 +488,18 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
 
         <div className="cfp-status-foot">
           {feedback.node}
+          {draftConflict ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                // ERROR-INTENT: loadForm renders and announces its own recovery outcome.
+                void loadForm(true);
+              }}
+            >
+              Reload latest draft
+            </button>
+          ) : null}
           {absoluteUrl ? (
             <p className="cfp-link">
               Public submission URL: <code>{absoluteUrl}</code>
@@ -877,6 +914,18 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
               </button>
             }
           >
+            {routingStatusProblem ? (
+              <p role="status" className="error-text">
+                Routing destinations could not be loaded. Existing rules are unchanged.{" "}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setRoutingStatusReload((value) => value + 1)}
+                >
+                  Try again
+                </button>
+              </p>
+            ) : null}
             {routing.length ? (
               <ol className="cfp-questions">
                 {routing.map((rule, index) => (

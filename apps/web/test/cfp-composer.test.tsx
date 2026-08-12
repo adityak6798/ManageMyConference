@@ -139,6 +139,42 @@ describe("publishing what is on screen", () => {
       within(question("Proposal title")).queryByText("Give this question a label."),
     ).toBeNull();
   });
+
+  it("reports a stale draft and reloads only when the organizer chooses recovery", async () => {
+    let organizerLoads = 0;
+    const calls = stubApi((url, init) => {
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return errorResponse(
+          409,
+          "CONFLICT",
+          "This draft changed elsewhere. Reload the latest draft before saving again.",
+        );
+      if (url.startsWith("/api/events/")) {
+        organizerLoads += 1;
+        return jsonResponse({
+          cfp: form({
+            title: organizerLoads === 1 ? "Loaded draft" : "Other editor's draft",
+            version: organizerLoads === 1 ? 4 : 5,
+          }),
+        });
+      }
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    fireEvent.change(await screen.findByLabelText("Form title"), {
+      target: { value: "My unsaved edit" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
+    expect(screen.getByLabelText("Form title")).toHaveValue("My unsaved edit");
+    expect(writes(calls)[0]?.body.expectedVersion).toBe(4);
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest draft" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Form title")).toHaveValue("Other editor's draft"),
+    );
+  });
 });
 
 describe("building the question list", () => {

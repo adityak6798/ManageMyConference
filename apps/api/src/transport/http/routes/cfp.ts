@@ -15,6 +15,7 @@ import {
 } from "@greenroom/contracts";
 import {
   CfpRoutingConfigurationError,
+  CfpDraftConflictError,
   CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
@@ -192,6 +193,12 @@ export const cfpRoutes: RouteModule = {
       };
     if (error instanceof CfpRoutingConfigurationError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
+    if (error instanceof CfpDraftConflictError)
+      return {
+        code: "CONFLICT" as const,
+        message: "This draft changed elsewhere. Reload the latest draft before saving again.",
+        status: 409 as const,
+      };
     if (error instanceof CfpStateError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
     if (error instanceof CfpUnavailableError)

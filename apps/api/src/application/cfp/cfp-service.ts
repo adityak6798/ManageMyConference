@@ -15,6 +15,7 @@ import type { SubmittedProposalQuery } from "./submitted-proposal-interface";
 export class CfpUnavailableError extends Error {}
 export class CfpStateError extends Error {}
 export class CfpRoutingConfigurationError extends Error {}
+export class CfpDraftConflictError extends Error {}
 export class CfpValidationError extends Error {
   constructor(readonly fieldErrors: Record<string, string[]>) {
     super("Proposal validation failed");
@@ -60,32 +61,39 @@ export class CfpService {
   }
   async save(
     actor: Actor | null,
-    input: Omit<CfpForm, "status" | "version" | "publishedAt" | "publishedStatus">,
+    input: Omit<CfpForm, "status" | "version" | "publishedAt" | "publishedStatus"> & {
+      expectedVersion: number;
+    },
   ): Promise<CfpForm> {
     organizerFor(actor, input.eventId);
-    if (input.routing?.length) {
+    const published = await this.repository.findPublished(input.eventId);
+    const { expectedVersion, ...editable } = input;
+    if (editable.routing?.length) {
       const configured = new Set(
         (await this.routingStatuses(actor, input.eventId)).map(({ key }) => key),
       );
-      const invalid = input.routing.find(({ routeTo }) => !configured.has(routeTo.status));
+      const invalid = editable.routing.find(({ routeTo }) => !configured.has(routeTo.status));
       if (invalid)
         throw new CfpRoutingConfigurationError(
           `Choose a configured proposal status for routing rule ${invalid.id}`,
         );
     }
-    const [prior, published] = await Promise.all([
-      this.repository.findForm(input.eventId),
-      this.repository.findPublished(input.eventId),
-    ]);
     const form: CfpForm = {
-      ...input,
+      ...editable,
       status: "draft",
-      version: (prior?.version ?? 0) + 1,
+      version: expectedVersion + 1,
       publishedAt: null,
       publishedStatus:
         published?.status === "open" || published?.status === "closed" ? published.status : null,
     };
-    await this.repository.saveForm(form);
+    try {
+      if (!(await this.repository.saveForm(form, expectedVersion)))
+        throw new CfpDraftConflictError("This CFP draft changed in another editor");
+    } catch (error) {
+      if (String(error).includes("CFP_ROUTE_STATUS_NOT_CONFIGURED"))
+        throw new CfpRoutingConfigurationError("Choose a configured proposal status");
+      throw error;
+    }
     return form;
   }
   async changeState(
@@ -120,7 +128,14 @@ export class CfpService {
       publishedAt: source.publishedAt ?? this.now().toISOString(),
       publishedStatus: status,
     };
-    await this.repository.savePublished(form, state === "publish" || draft.status !== "draft");
+    if (
+      !(await this.repository.savePublished(
+        form,
+        state === "publish" || draft.status !== "draft",
+        draft.version,
+      ))
+    )
+      throw new CfpDraftConflictError("This CFP draft changed in another editor");
     return (await this.getForOrganizer(actor, eventId)) ?? form;
   }
   async getPublished(eventId: string): Promise<CfpForm> {

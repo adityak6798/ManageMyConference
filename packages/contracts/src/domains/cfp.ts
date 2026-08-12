@@ -98,6 +98,7 @@ const saveCfpBaseSchema = z.object({
   description: z.string().trim().max(2000).default(""),
   fields: cfpFieldsSchema,
   routing: z.array(cfpRoutingRuleSchema).max(20).default([]),
+  expectedVersion: z.number().int().nonnegative(),
 });
 export const saveCfpInputSchema = saveCfpBaseSchema.superRefine((form, context) => {
   const ids = new Set(form.fields.map(({ id }) => id));
@@ -118,7 +119,7 @@ export const saveCfpInputSchema = saveCfpBaseSchema.superRefine((form, context) 
     ruleIds.add(rule.id);
   });
 });
-export const cfpFormSchema = saveCfpBaseSchema.extend({
+export const cfpFormSchema = saveCfpBaseSchema.omit({ expectedVersion: true }).extend({
   eventId: z.string().uuid(),
   status: cfpStatusSchema,
   version: z.number().int().positive(),

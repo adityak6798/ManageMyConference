@@ -3,7 +3,12 @@ import type { CfpForm, ProposalSubmission } from "../../domain/cfp/cfp";
 export interface D1CfpDatabasePort {
   prepare(query: string): {
     bind(...values: unknown[]): ReturnType<D1CfpDatabasePort["prepare"]>;
-    run<T = unknown>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
+    run<T = unknown>(): Promise<{
+      results?: T[];
+      success: boolean;
+      error?: string;
+      meta?: { changes?: number };
+    }>;
     all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
   };
 }
@@ -73,29 +78,46 @@ export class D1CfpRepository implements CfpRepository {
       );
     return snapshot as CfpForm;
   }
-  async saveForm(form: CfpForm) {
+  async saveForm(form: CfpForm, expectedVersion: number) {
+    const statement =
+      expectedVersion === 0
+        ? "INSERT OR IGNORE INTO cfp_forms (event_id, title, description, fields_json, routing_json, status, version, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        : "UPDATE cfp_forms SET title = ?, description = ?, fields_json = ?, routing_json = ?, status = ?, version = ?, published_at = ? WHERE event_id = ? AND version = ?";
+    const values =
+      expectedVersion === 0
+        ? [
+            form.eventId,
+            form.title,
+            form.description,
+            JSON.stringify(form.fields),
+            JSON.stringify(form.routing ?? []),
+            form.status,
+            form.version,
+            form.publishedAt,
+          ]
+        : [
+            form.title,
+            form.description,
+            JSON.stringify(form.fields),
+            JSON.stringify(form.routing ?? []),
+            form.status,
+            form.version,
+            form.publishedAt,
+            form.eventId,
+            expectedVersion,
+          ];
     const result = await this.database
-      .prepare(
-        "INSERT INTO cfp_forms (event_id, title, description, fields_json, routing_json, status, version, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET title=excluded.title, description=excluded.description, fields_json=excluded.fields_json, routing_json=excluded.routing_json, status=excluded.status, version=excluded.version, published_at=excluded.published_at",
-      )
-      .bind(
-        form.eventId,
-        form.title,
-        form.description,
-        JSON.stringify(form.fields),
-        JSON.stringify(form.routing ?? []),
-        form.status,
-        form.version,
-        form.publishedAt,
-      )
+      .prepare(statement)
+      .bind(...values)
       .run();
     if (!result.success)
       throw new Error(`D1 failed to save CFP: ${result.error ?? "unknown error"}`);
+    return (result.meta?.changes ?? 0) === 1;
   }
-  async savePublished(form: CfpForm, updateEditable: boolean): Promise<void> {
+  async savePublished(form: CfpForm, updateEditable: boolean, expectedVersion: number) {
     const result = await this.database
       .prepare(
-        "UPDATE cfp_forms SET published_json = ?, title = CASE WHEN ? THEN ? ELSE title END, description = CASE WHEN ? THEN ? ELSE description END, fields_json = CASE WHEN ? THEN ? ELSE fields_json END, routing_json = CASE WHEN ? THEN ? ELSE routing_json END, status = CASE WHEN ? THEN ? ELSE status END, version = CASE WHEN ? THEN ? ELSE version END, published_at = CASE WHEN ? THEN ? ELSE published_at END WHERE event_id = ?",
+        "UPDATE cfp_forms SET published_json = ?, title = CASE WHEN ? THEN ? ELSE title END, description = CASE WHEN ? THEN ? ELSE description END, fields_json = CASE WHEN ? THEN ? ELSE fields_json END, routing_json = CASE WHEN ? THEN ? ELSE routing_json END, status = CASE WHEN ? THEN ? ELSE status END, version = CASE WHEN ? THEN ? ELSE version END, published_at = CASE WHEN ? THEN ? ELSE published_at END WHERE event_id = ? AND version = ?",
       )
       .bind(
         JSON.stringify(form),
@@ -114,10 +136,12 @@ export class D1CfpRepository implements CfpRepository {
         updateEditable,
         form.publishedAt,
         form.eventId,
+        expectedVersion,
       )
       .run();
     if (!result.success)
       throw new Error(`D1 failed to publish CFP: ${result.error ?? "unknown error"}`);
+    return (result.meta?.changes ?? 0) === 1;
   }
   async findSubmission(eventId: string, key: string) {
     const result = await this.database

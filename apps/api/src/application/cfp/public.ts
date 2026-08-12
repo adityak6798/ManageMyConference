@@ -6,6 +6,7 @@ export interface SubmittedProposalReference {
 }
 export {
   CfpRoutingConfigurationError,
+  CfpDraftConflictError,
   CfpService,
   CfpStateError,
   CfpUnavailableError,
