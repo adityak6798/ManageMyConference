@@ -1,5 +1,7 @@
 // @acceptance ACC-SPEAKER
 import { describe, expect, it } from "vitest";
+import { unzipSync } from "fflate";
+import { createDeliverablesZip } from "../src/adapters/content/create-deliverables-zip";
 import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { ContentService } from "../src/application/content/content-service";
@@ -73,6 +75,7 @@ function fixture() {
     speakerConversion: { createOrLink: async () => ({ speakerId: profileId }) },
     newId: () => `90000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,
     now: () => new Date("2026-08-11T12:00:00.000Z"),
+    createDeliverablesZip,
   });
   return { repository, service };
 }
@@ -102,6 +105,9 @@ describe("versioned and discussable deliverables", () => {
     ]);
     expect(await service.readAsset(speaker, first.id)).not.toBeNull();
     expect(second.versionGroupId).toBe(first.versionGroupId);
+    const archive = await service.bulkDownload(organizer, eventId, [second.id]);
+    expect(Object.keys(unzipSync(archive))).toEqual(["slides-v2.pdf"]);
+    await expect(service.bulkDownload(organizer, eventId, [first.id])).rejects.toThrow();
   });
 
   it("round-trips attributed comments and restores an attributed profile revision", async () => {

@@ -7,6 +7,7 @@ import { AgendaService } from "./application/agenda/agenda-service";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
+import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
 import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
@@ -166,6 +167,7 @@ export default {
       sanitizeResourceHtml,
       sanitizeResourceEmbed,
       parseSpeakerCsv,
+      createDeliverablesZip,
     });
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),

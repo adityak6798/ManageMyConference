@@ -18,6 +18,7 @@ import {
   setSpeakerProfilePhoto,
   updateSpeakerProfile,
   uploadSpeakerAsset,
+  addContentComment,
 } from "../api/content";
 import "../styles/content.css";
 import {
@@ -178,6 +179,7 @@ export function SpeakerView({
     if (busy) return;
     const input = formEvent.currentTarget.elements.namedItem("asset") as HTMLInputElement;
     const file = input.files?.[0];
+    const taskId = String(new FormData(formEvent.currentTarget).get("taskId") ?? "");
     if (!file) {
       uploadFeedback.announce("error", "Choose a file before uploading.");
       return;
@@ -190,6 +192,7 @@ export function SpeakerView({
         name: file.name,
         contentType: file.type as "image/jpeg" | "image/png" | "application/pdf",
         contentBase64,
+        ...(taskId ? { taskId } : {}),
       });
     }).then((result) => {
       if (result.ok) uploadFormRef.current?.reset();
@@ -422,6 +425,19 @@ export function SpeakerView({
                 PNG, JPEG, or PDF.
               </p>
             </div>
+            <label>
+              Requested task
+              <select name="taskId" defaultValue="">
+                <option value="">General upload</option>
+                {tasks
+                  .filter((task) => task.type === "file-request")
+                  .map((task) => (
+                    <option key={task.id} value={task.id}>
+                      {task.title}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <button type="submit" aria-disabled={busy}>
               {busy ? "Uploading…" : "Upload asset"}
             </button>
@@ -479,6 +495,31 @@ export function SpeakerView({
                         </button>
                       ) : null}
                     </span>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const body = String(new FormData(event.currentTarget).get("body"));
+                        void run(() => addContentComment(asset.id, body));
+                      }}
+                    >
+                      <input
+                        name="body"
+                        aria-label={`Comment on ${asset.name}`}
+                        placeholder="Add a comment"
+                        required
+                      />
+                      <button type="submit" className="ghost small" disabled={busy}>
+                        Comment
+                      </button>
+                    </form>
+                    {(workspace.comments ?? [])
+                      .filter((comment) => comment.assetId === asset.id)
+                      .map((comment) => (
+                        <p className="sub" key={comment.id}>
+                          <strong>{comment.authorName}</strong> · {shortDateTime(comment.createdAt)}{" "}
+                          — {comment.body}
+                        </p>
+                      ))}
                   </li>
                 );
               })}

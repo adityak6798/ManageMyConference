@@ -123,6 +123,7 @@ export interface ContentServiceDependencies {
     }[];
     errors: { row: number; message: string }[];
   };
+  createDeliverablesZip?: (files: readonly { name: string; bytes: Uint8Array }[]) => Uint8Array;
 }
 
 function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
@@ -958,6 +959,28 @@ export class ContentService {
     };
     await this.dependencies.repository.addComment(comment);
     return comment;
+  }
+
+  async bulkDownload(actor: Actor | null, eventId: string, assetIds: readonly string[]) {
+    requireEventCapability(actor, eventId, "content:manage");
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    const selected = workspace.assets.filter(
+      (asset) => assetIds.includes(asset.id) && asset.isLatest !== false,
+    );
+    if (selected.length !== new Set(assetIds).size)
+      throw new CapabilityDeniedError("Deliverable selection is unavailable");
+    const files: { name: string; bytes: Uint8Array }[] = [];
+    const used = new Set<string>();
+    for (const asset of selected.toSorted((a, b) => a.id.localeCompare(b.id))) {
+      const stored = await this.dependencies.assetStorage.get(asset.storageKey);
+      if (!stored) throw new CapabilityDeniedError("Deliverable selection is unavailable");
+      const safe =
+        asset.name.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "") || "deliverable";
+      const name = used.has(safe) ? `${asset.speakerProfileId}-${safe}` : safe;
+      used.add(name);
+      files.push({ name, bytes: stored.bytes });
+    }
+    return this.dependencies.createDeliverablesZip?.(files) ?? new Uint8Array();
   }
 
   async restoreRevision(actor: Actor | null, revisionId: string) {

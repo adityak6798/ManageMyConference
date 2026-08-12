@@ -118,12 +118,6 @@ feature-by-feature verdict.
   Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: issue
   #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
   plainly it is not implemented.
-- `GAP-013` **Brief feature 8 is missing**: the speaker portal has no resource or wiki pages and no
-  sanitized HTML embed support — it carries tasks, profile, uploads, headshot selection and a
-  calendar download, and nothing to read. Impact: speakers have nowhere to read reference material
-  the brief expects the portal to carry. Owner: content. Governing ID: `PRD-SPK-002`, `ACC-SPEAKER`. Closure:
-  issue #54 — organizer-authored pages, speaker-visible in the portal, with pasted reference HTML
-  rendered through a sanitizer covered by its own tests.
 - `GAP-014` The public accessibility evidence is a hand-rolled smoke on one page — heading order,
   landmarks, control labelling and 390px overflow — with no automated ruleset, contrast check, or
   focus-order check; and what is called a performance budget is two ceilings on

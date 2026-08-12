@@ -139,6 +139,9 @@ export async function uploadSpeakerAsset(
     name: string;
     contentType: "image/jpeg" | "image/png" | "application/pdf";
     contentBase64: string;
+    taskId?: string;
+    sessionId?: string;
+    versionGroupId?: string;
   },
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
@@ -222,6 +225,78 @@ export async function deleteSpeakerResource(
 ): Promise<void> {
   const response = await fetcher(`/api/speaker-resources/${resourceId}`, { method: "DELETE" });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+async function contentMutation(
+  path: string,
+  body: unknown,
+  fetcher: typeof fetch = fetch,
+): Promise<Response> {
+  const response = await fetcher(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+  return response;
+}
+
+export async function importSpeakerCsv(
+  eventId: string,
+  csv: string,
+  commit: boolean,
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await contentMutation("/api/speaker-imports", { eventId, csv, commit }, fetcher);
+  return response.json() as Promise<{
+    preview: boolean;
+    total: number;
+    valid: number;
+    imported: number;
+    invalid: number;
+    duplicates: number;
+    rows: { row: number; name: string; email: string; errors: string[] }[];
+  }>;
+}
+export async function bulkRequestSpeakerTasks(
+  input: {
+    profileIds: string[];
+    title: string;
+    dueAt: string;
+    type: "general" | "file-request";
+    instructions: string;
+  },
+  fetcher: typeof fetch = fetch,
+) {
+  await contentMutation("/api/speaker-tasks/bulk", input, fetcher);
+}
+export async function addContentComment(
+  assetId: string,
+  body: string,
+  fetcher: typeof fetch = fetch,
+) {
+  await contentMutation("/api/content-comments", { assetId, body }, fetcher);
+}
+export async function restoreContentRevision(revisionId: string, fetcher: typeof fetch = fetch) {
+  await contentMutation("/api/content-revisions/restore", { revisionId }, fetcher);
+}
+export async function downloadDeliverables(
+  eventId: string,
+  assetIds: string[],
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await contentMutation(
+    "/api/content-deliverables/bulk-download",
+    { eventId, assetIds },
+    fetcher,
+  );
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "speaker-deliverables.zip";
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function publishSpeakerAsset(

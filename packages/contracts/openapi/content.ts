@@ -34,6 +34,7 @@ import {
   addContentCommentInputSchema,
   restoreContentRevisionInputSchema,
   contentCommentSchema,
+  bulkDownloadDeliverablesInputSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -94,6 +95,22 @@ export const contentPaths: OpenApiFragment = {
         201: {
           description: "Attributed asset comment",
           content: json(z.object({ comment: contentCommentSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-deliverables/bulk-download",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(bulkDownloadDeliverablesInputSchema) } },
+      responses: {
+        200: {
+          description: "Deterministic ZIP containing exactly the latest selected deliverables",
+          content: { "application/zip": { schema: z.string() } },
         },
         400: errorResponse,
         401: errorResponse,

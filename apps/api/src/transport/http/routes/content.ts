@@ -27,6 +27,7 @@ import {
   updateSpeakerWorkflowInputSchema,
   addContentCommentInputSchema,
   restoreContentRevisionInputSchema,
+  bulkDownloadDeliverablesInputSchema,
 } from "@greenroom/contracts";
 import {
   ResourceEmbedDeniedError,
@@ -62,6 +63,7 @@ const routes = [
   "PATCH /api/speaker-profiles/:profileId/workflow",
   "POST /api/content-comments",
   "POST /api/content-revisions/restore",
+  "POST /api/content-deliverables/bulk-download",
 ] as const;
 
 export const contentRoutes: RouteModule = {
@@ -543,6 +545,30 @@ export const contentRoutes: RouteModule = {
         },
         201,
       );
+    });
+    app.post("/api/content-deliverables/bulk-download", async (context) => {
+      const parsed = bulkDownloadDeliverablesInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Deliverable selection is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      const archive = await content.bulkDownload(
+        context.get("actor"),
+        parsed.data.eventId,
+        parsed.data.assetIds,
+      );
+      return context.body(archive as unknown as ArrayBuffer, 200, {
+        "content-type": "application/zip",
+        "content-disposition": 'attachment; filename="speaker-deliverables.zip"',
+        "content-length": String(archive.byteLength),
+      });
     });
     app.post("/api/content-revisions/restore", async (context) => {
       const parsed = restoreContentRevisionInputSchema.safeParse(await readJson(context.req));

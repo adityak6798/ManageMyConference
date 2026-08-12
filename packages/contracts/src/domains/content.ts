@@ -213,6 +213,10 @@ export const addContentCommentInputSchema = z.object({
   body: z.string().trim().min(1).max(4000),
 });
 export const restoreContentRevisionInputSchema = z.object({ revisionId: z.string().uuid() });
+export const bulkDownloadDeliverablesInputSchema = z.object({
+  eventId: z.string().uuid(),
+  assetIds: z.array(z.string().uuid()).min(1).max(500),
+});
 export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),
   subject: z.string().trim().min(1).max(200),
