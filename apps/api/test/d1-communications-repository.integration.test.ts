@@ -404,6 +404,51 @@ describe("D1CommunicationsRepository", () => {
   });
 });
 
+describe("migration 1704, after invitations already exist", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("preserves the last legacy schedule and client-visible sequence", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "calendar-invite-backfill",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    await database.prepare("DROP TABLE calendar_invite_states").run();
+    await database.batch([
+      database.prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-a', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:session:profile:2026-09-01T16:00:00.000Z|2026-09-01T17:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'old@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000000' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T08:00:00.000Z', NULL, '2026-08-12T08:00:00.000Z', '2026-08-12T08:00:00.000Z')",
+      ),
+      database.prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-b', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:session:profile:2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'new@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000001' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T09:00:00.000Z', NULL, '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')",
+      ),
+    ]);
+
+    await applyMigrations(database as never, {
+      from: "1704_calendar_invite_states.sql",
+      through: "1704_calendar_invite_states.sql",
+    });
+
+    const state = await new D1CommunicationsRepository(database).calendarInviteState(
+      "00000000-0000-4000-8000-000000000010",
+      "00000000-0000-4000-8000-000000000001",
+      "session",
+      "profile",
+    );
+    expect(state).toEqual({
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      eventId: "00000000-0000-4000-8000-000000000001",
+      sessionId: "session",
+      speakerProfileId: "profile",
+      scheduleRef: "2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+      recipientRef: "new@example.test",
+      sequence: 19000001,
+      deliveryId: "legacy-b",
+    });
+  });
+});
+
 describe("migration 1703, against tables that already have rows", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());

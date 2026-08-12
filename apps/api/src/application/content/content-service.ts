@@ -87,6 +87,8 @@ export interface ScheduledContentSession extends ContentSession {
 /** The content workspace as it leaves the application layer, with schedules resolved. */
 export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
   readonly sessions: readonly ScheduledContentSession[];
+  /** The agenda publication those session schedules came from. */
+  readonly schedulePublicationVersion: number | null;
 }
 
 /**
@@ -591,12 +593,14 @@ export class ContentService {
    * empty or stale one.
    */
   private async projected(eventId: string, userId?: string): Promise<ContentWorkspaceView> {
-    const [workspace, schedules] = await Promise.all([
+    const [workspace, schedules, schedulePublicationVersion] = await Promise.all([
       this.dependencies.repository.workspace(eventId, userId),
       this.dependencies.agenda.publishedSessionSchedules(eventId),
+      this.dependencies.agenda.publishedScheduleVersion(eventId),
     ]);
     return {
       ...workspace,
+      schedulePublicationVersion,
       sessions: workspace.sessions.map((session) => {
         const schedule = schedules.get(session.id);
         return schedule ? { ...session, schedule } : session;

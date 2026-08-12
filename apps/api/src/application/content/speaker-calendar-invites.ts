@@ -131,7 +131,9 @@ export class SpeakerCalendarInviteService {
           });
           continue;
         }
-        const scheduleRef = `${schedule.startsAt}|${schedule.endsAt}|${schedule.location}`;
+        // The publication version distinguishes A -> unscheduled -> A even when nobody presses
+        // Send during the absent interval. Times alone would compare equal to the first A.
+        const scheduleRef = `${workspace.schedulePublicationVersion}|${schedule.startsAt}|${schedule.endsAt}|${schedule.location}`;
         const inviteFor = (sequence: number) =>
           buildSpeakerInvite({
             event: { id: event.id, name: event.name },

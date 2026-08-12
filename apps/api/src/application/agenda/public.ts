@@ -42,6 +42,8 @@ export interface ContentAgendaInterface {
    * the publishing domain's projection instead of this.
    */
   publishedSessionSchedules(eventId: string): Promise<ReadonlyMap<string, PlacedSessionTime>>;
+  /** Version of the same immutable publication returned above, or null before the first publish. */
+  publishedScheduleVersion(eventId: string): Promise<number | null>;
   /**
    * Take a session off the board, dropping every draft placement that holds it.
    *

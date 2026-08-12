@@ -257,6 +257,10 @@ export class AgendaService implements ContentAgendaInterface {
     return published ? placedSessionTimes(published.agenda) : new Map();
   }
 
+  async publishedScheduleVersion(eventId: string): Promise<number | null> {
+    return (await this.repository.getPublished(eventId))?.version ?? null;
+  }
+
   /**
    * `ContentAgendaInterface`: drop every draft placement of one session.
    *

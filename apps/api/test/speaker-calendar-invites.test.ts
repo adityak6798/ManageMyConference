@@ -89,6 +89,7 @@ function harness(
           tasks: [],
           assets: [],
           messages: [],
+          schedulePublicationVersion: 1,
           ...workspace,
         }) as ContentWorkspaceView,
     },
@@ -211,6 +212,33 @@ describe("sending speaker calendar invitations", () => {
     ]);
   });
 
+  it("reissues when a session is published as A -> unscheduled -> A", async () => {
+    const workspace = {
+      sessions: [session("s1", ["p1"], placed)],
+      speakers: [speaker("p1", "ada@example.test")],
+      schedulePublicationVersion: 1,
+    };
+    const test = harness(workspace);
+    await test.service.send(organizer, eventId);
+
+    workspace.sessions = [session("s1", ["p1"])];
+    workspace.schedulePublicationVersion = 2;
+    expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 0, alreadySent: 0 });
+
+    workspace.sessions = [session("s1", ["p1"], placed)];
+    workspace.schedulePublicationVersion = 3;
+    expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 1, alreadySent: 0 });
+
+    const clientVisible = test.requests.map((request) => {
+      const payload = request.payload as { calendarInvite: { content: string } };
+      return payload.calendarInvite.content.match(/(?:UID|DTSTART|SEQUENCE):[^\r]+/g);
+    });
+    expect(clientVisible).toEqual([
+      ["UID:s1@greenroom", "DTSTART:20260901T160000Z", "SEQUENCE:0"],
+      ["UID:s1@greenroom", "DTSTART:20260901T160000Z", "SEQUENCE:1"],
+    ]);
+  });
+
   it("reissues to a corrected speaker address with a higher SEQUENCE", async () => {
     const workspace = {
       sessions: [session("s1", ["p1"], placed)],
@@ -317,6 +345,7 @@ describe("sending speaker calendar invitations", () => {
             tasks: [],
             assets: [],
             messages: [],
+            schedulePublicationVersion: 1,
           }) as ContentWorkspaceView,
       },
       communications,
