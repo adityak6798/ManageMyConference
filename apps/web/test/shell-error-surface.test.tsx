@@ -62,7 +62,7 @@ describe("where a failed load is explained", () => {
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/api/session")) return json(session);
-        if (url.endsWith("/api/events")) return json({ events });
+        if (url.endsWith("/api/events/assigned")) return json({ events });
         if (url.includes("/api/communications/history"))
           return outboxFails
             ? refusal("comms-trace", "The outbox could not be read.")
@@ -104,7 +104,7 @@ describe("where a failed load is explained", () => {
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/api/session")) return json(session);
-        if (url.endsWith("/api/events")) return json({ events });
+        if (url.endsWith("/api/events/assigned")) return json({ events });
         if (url.endsWith(`/api/events/${eventId}/content`))
           return contentFails
             ? refusal("content-trace", "Sessions could not be read.")
@@ -141,7 +141,7 @@ describe("where a failed load is explained", () => {
             ...session,
             eventAccess: [{ eventId, role: "organizer", capabilities: ["agenda:manage"] }],
           });
-        if (url.endsWith("/api/events")) return json({ events });
+        if (url.endsWith("/api/events/assigned")) return json({ events });
         if (url.endsWith(`/api/events/${eventId}/agenda`))
           return refusal("agenda-trace", "The agenda could not be read.");
         return noFixture();
@@ -178,7 +178,7 @@ describe("where a failed load is explained", () => {
               capabilities: ["agenda:manage"],
             })),
           });
-        if (url.endsWith("/api/events")) return json({ events: bothEvents });
+        if (url.endsWith("/api/events/assigned")) return json({ events: bothEvents });
         if (url.endsWith(`/api/events/${eventId}/agenda`))
           return refusal("agenda-trace", "The agenda could not be read.");
         // The second board never answers, so nothing it reports can stand in for the
@@ -227,7 +227,7 @@ describe("where a failed load is explained", () => {
             },
             422,
           );
-        if (url.endsWith("/api/events")) return json({ events });
+        if (url.endsWith("/api/events/assigned")) return json({ events });
         return noFixture();
       }),
     );

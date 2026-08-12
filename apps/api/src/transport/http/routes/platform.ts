@@ -1,8 +1,15 @@
 /** Public API discovery routes owned by the platform domain. @spec ARC-001 ENG-CI-001 */
+import { eventIdParamsSchema } from "@greenroom/contracts";
+import { AgendaNotFoundError } from "../../../application/agenda/public";
+import {
+  AuthenticationRequiredError,
+  CapabilityDeniedError,
+} from "../../../application/identity/actor";
 import openApiDocument from "../../../../../../packages/contracts/openapi.json";
-import type { HttpApp, RouteModule } from "./contract";
+import { envelope } from "../runtime";
+import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
-const routes = ["GET /openapi.json", "GET /docs"] as const;
+const routes = ["GET /openapi.json", "GET /docs", "GET /api/events/:eventId/overview"] as const;
 
 const docsPage = `<!doctype html>
 <html lang="en">
@@ -98,7 +105,7 @@ const docsPage = `<!doctype html>
 export const platformRoutes: RouteModule = {
   domain: "platform",
   routes,
-  register(app: HttpApp) {
+  register(app: HttpApp, dependencies: HttpDependencies) {
     app.get("/openapi.json", (context) => context.json(openApiDocument));
     app.get("/docs", (context) =>
       context.html(docsPage, 200, {
@@ -107,5 +114,62 @@ export const platformRoutes: RouteModule = {
           "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
       }),
     );
+    app.get("/api/events/:eventId/overview", async (context) => {
+      const parsed = eventIdParamsSchema.safeParse(context.req.param());
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const { content, review, agenda, publishing, logger, auth } = dependencies;
+      const actor = context.get("actor");
+      const missing = (name: string) => Promise.reject(new Error(`${name} service is unavailable`));
+      const settled = await Promise.allSettled([
+        content?.workspace(actor, parsed.data.eventId) ?? missing("Content"),
+        review?.organizerWorkspace(actor, parsed.data.eventId) ?? missing("Review"),
+        agenda?.draft(actor, parsed.data.eventId) ?? missing("Agenda"),
+        publishing?.preview(actor, parsed.data.eventId) ?? missing("Publishing"),
+      ]);
+      const refusal = settled.find(
+        (result) =>
+          result.status === "rejected" &&
+          (result.reason instanceof AuthenticationRequiredError ||
+            result.reason instanceof CapabilityDeniedError),
+      );
+      if (refusal?.status === "rejected") throw refusal.reason;
+      const names = ["content", "review", "agenda", "publication"] as const;
+      const panel = (result: PromiseSettledResult<unknown>, index: number) => {
+        if (result.status === "fulfilled") return { ok: true as const, data: result.value };
+        const error =
+          result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+        const notFound = error instanceof AgendaNotFoundError;
+        if (!notFound)
+          logger.error(
+            {
+              correlationId: context.get("correlationId"),
+              operation: `overview.${names[index]}`,
+              actorId: actor?.id,
+              errorName: error.name,
+              errorMessage: error.message,
+              ...(auth.demoMode ? { errorStack: error.stack } : {}),
+            },
+            "request.exception",
+          );
+        return {
+          ok: false as const,
+          error: envelope(
+            notFound ? "NOT_FOUND" : "INTERNAL_ERROR",
+            notFound ? "No agenda has been configured." : "Something went wrong.",
+            context.get("correlationId"),
+          ).error,
+        };
+      };
+      return context.json({
+        content: panel(settled[0], 0),
+        review: panel(settled[1], 1),
+        agenda: panel(settled[2], 2),
+        publication: panel(settled[3], 3),
+      });
+    });
   },
 };

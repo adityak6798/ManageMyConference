@@ -15,7 +15,7 @@ export interface AgendaRepository {
     eventId: string,
     resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">,
   ): Promise<boolean>;
-  savePlacement(eventId: string, placement: Placement): Promise<void>;
+  savePlacement(eventId: string, placement: Placement): Promise<AgendaDraft | null>;
   removePlacement(eventId: string, placementId: string): Promise<void>;
   publish(schedule: PublishedSchedule): Promise<void>;
   getPublished(eventId: string): Promise<PublishedSchedule | null>;

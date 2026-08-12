@@ -33,6 +33,10 @@ export class AgendaService implements ContentAgendaInterface {
 
   async draft(actor: Actor | null, eventId: string) {
     await this.organizer(actor, eventId);
+    return this.readDraft(eventId);
+  }
+
+  private async readDraft(eventId: string) {
     const draft = await this.repository.getDraft(eventId);
     if (!draft) throw new AgendaNotFoundError("Agenda not found");
     const sessions = (await this.content.listSchedulableSessions(eventId)).map((session) => ({
@@ -46,8 +50,7 @@ export class AgendaService implements ContentAgendaInterface {
 
   async place(actor: Actor | null, eventId: string, placement: Placement) {
     await this.organizer(actor, eventId);
-    const draft = await this.draft(actor, eventId);
-    if (!draft) throw new AgendaNotFoundError("Agenda not found");
+    const draft = await this.readDraft(eventId);
     if (!draft.sessions.some(({ id }) => id === placement.sessionId))
       throw new AgendaNotFoundError("Session not found");
     if (!draft.rooms.some(({ id }) => id === placement.roomId))
@@ -56,8 +59,13 @@ export class AgendaService implements ContentAgendaInterface {
       throw new AgendaNotFoundError("Track not found");
     if (!draft.slots.some(({ id }) => id === placement.slotId))
       throw new AgendaNotFoundError("Slot not found");
-    await this.repository.savePlacement(eventId, placement);
-    return this.draft(actor, eventId);
+    const persisted = await this.repository.savePlacement(eventId, placement);
+    if (!persisted) throw new AgendaNotFoundError("Agenda not found");
+    const placed = {
+      ...persisted,
+      sessions: draft.sessions,
+    };
+    return { ...placed, conflicts: conflictsFor(placed) };
   }
 
   async configure(
@@ -68,7 +76,7 @@ export class AgendaService implements ContentAgendaInterface {
     await this.organizer(actor, eventId);
     if (!(await this.repository.saveResources(eventId, resources)))
       throw new AgendaResourceInUseError("Remove affected placements before deleting resources");
-    return this.draft(actor, eventId);
+    return this.readDraft(eventId);
   }
 
   async remove(actor: Actor | null, eventId: string, placementId: string) {
@@ -78,8 +86,7 @@ export class AgendaService implements ContentAgendaInterface {
 
   async publish(actor: Actor | null, eventId: string): Promise<PublishedSchedule> {
     const authorized = await this.organizer(actor, eventId);
-    const draft = await this.draft(actor, eventId);
-    if (!draft) throw new AgendaNotFoundError("Agenda not found");
+    const draft = await this.readDraft(eventId);
     const conflicts = conflictsFor(draft);
     if (conflicts.length) throw new AgendaConflictError(conflicts);
     const previous = await this.repository.getPublished(eventId);

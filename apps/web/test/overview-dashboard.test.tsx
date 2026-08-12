@@ -10,6 +10,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import type { EventDto } from "@greenroom/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OverviewPage } from "../src/OverviewPage";
+import { clearOrganizerOverviewCache, getOrganizerOverview } from "../src/api/overview";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "00000000-0000-4000-8000-000000000002";
@@ -136,11 +137,53 @@ function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status }));
 }
 
-function apiError(code: string, status: number) {
-  return json(
-    { error: { code, message: "No draft for this event.", correlationId: "t-1" } },
-    status,
-  );
+const panel = (value: unknown | false | "missing") =>
+  value === false
+    ? { ok: false, error: { code: "INTERNAL_ERROR", message: "Failed", correlationId: "t-1" } }
+    : value === "missing"
+      ? { ok: false, error: { code: "NOT_FOUND", message: "Missing", correlationId: "t-1" } }
+      : { ok: true, data: value };
+
+function overviewResponse(
+  options: {
+    content?: unknown | false;
+    review?: unknown | false;
+    agenda?: unknown | false | "missing";
+  } = {},
+) {
+  return {
+    content: panel(options.content ?? contentWorkspace()),
+    review: panel(options.review ?? reviewWorkspace),
+    agenda: panel(options.agenda ?? agendaDraft),
+    publication: panel({
+      eventId,
+      slug: "greenroom-workshop-day",
+      state: "published",
+      draft: {
+        event: {
+          eventId,
+          slug: "greenroom-workshop-day",
+          name: "Workshop day",
+          summary: "A workshop.",
+          startsOn: "2026-09-01",
+          endsOn: "2026-09-01",
+          timezone: "UTC",
+          venue: "Online",
+        },
+        cfp: {
+          title: "CFP",
+          description: "Submit.",
+          status: "closed",
+          publishedAt: null,
+          submissionUrl: "/cfp",
+        },
+        sessions: [],
+        speakers: [],
+      },
+      published: null,
+      publishedAt: null,
+    }),
+  };
 }
 
 /** Routes the three overview reads; `false` makes that source fail with a 500. */
@@ -149,19 +192,9 @@ function stubOverviewFetch(sources: {
   review?: unknown | false;
   agenda?: unknown | false | "missing";
 }) {
-  const answer = (value: unknown | false | "missing") => {
-    if (value === false) return apiError("INTERNAL_ERROR", 500);
-    if (value === "missing") return apiError("NOT_FOUND", 404);
-    return json(value);
-  };
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/content")) return answer(sources.content ?? contentWorkspace());
-    if (url.includes("/review/organizer")) return answer(sources.review ?? reviewWorkspace);
-    if (url.endsWith("/agenda")) {
-      const agenda = sources.agenda ?? agendaDraft;
-      return agenda === "missing" || agenda === false ? answer(agenda) : json({ agenda });
-    }
+    if (url.endsWith("/overview")) return json(overviewResponse(sources));
     throw new Error(`unexpected request ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -170,6 +203,7 @@ function stubOverviewFetch(sources: {
 
 describe("overview dashboard", () => {
   beforeEach(() => {
+    clearOrganizerOverviewCache();
     // waitFor still needs a clock that moves, so the fake timers advance with real time
     // and the 15s refresh is fired explicitly where a test needs it.
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -196,6 +230,35 @@ describe("overview dashboard", () => {
     expect(screen.queryByText(/The overview could not be loaded/)).not.toBeInTheDocument();
   });
 
+  it("uses one request for first paint and reuses it across a remount", async () => {
+    const fetchMock = stubOverviewFetch({});
+    const first = render(<OverviewPage event={event} query={`?event=${eventId}`} />);
+    await screen.findByText("Sam Speaker");
+    const firstStamp = screen.getByText(/^Updated /).textContent;
+    first.unmount();
+    vi.setSystemTime(new Date("2026-08-11T13:00:00.000Z"));
+    render(<OverviewPage event={event} query={`?event=${eventId}`} />);
+    await screen.findByText("Sam Speaker");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/^Updated /)).toHaveTextContent(firstStamp ?? "Updated");
+  });
+
+  it("deduplicates callers while the overview request is still in flight", async () => {
+    let finish: ((response: Response) => void) | undefined;
+    const fetcher = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    ) as unknown as typeof fetch;
+
+    const first = getOrganizerOverview(eventId, { fetcher });
+    const second = getOrganizerOverview(eventId, { fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    finish?.(new Response(JSON.stringify(overviewResponse())));
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
   it("degrades only the panel whose workspace failed", async () => {
     stubOverviewFetch({ content: false });
     render(<OverviewPage event={event} query={`?event=${eventId}`} />);
@@ -216,16 +279,22 @@ describe("overview dashboard", () => {
     );
   });
 
+  it("renders a terminal error when the aggregate response itself drifts", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}")));
+    render(<OverviewPage event={event} query={`?event=${eventId}`} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Reference: unavailable");
+  });
+
   it("keeps a rendered dashboard when a background refresh fails", async () => {
     let contentFails = false;
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.endsWith("/content"))
-          return contentFails ? apiError("INTERNAL_ERROR", 500) : json(contentWorkspace());
-        if (url.includes("/review/organizer")) return json(reviewWorkspace);
-        return json({ agenda: agendaDraft });
+        if (url.endsWith("/overview"))
+          return json(overviewResponse({ content: contentFails ? false : contentWorkspace() }));
+        throw new Error(`unexpected request ${url}`);
       }),
     );
     render(<OverviewPage event={event} query={`?event=${eventId}`} />);
@@ -253,12 +322,13 @@ describe("overview dashboard", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.endsWith("/content")) {
+        if (url.endsWith("/overview")) {
           contentCalls += 1;
-          return contentCalls === 1 ? deferred : json(contentWorkspace("Fresh task"));
+          return contentCalls === 1
+            ? deferred
+            : json(overviewResponse({ content: contentWorkspace("Fresh task") }));
         }
-        if (url.includes("/review/organizer")) return json(reviewWorkspace);
-        return json({ agenda: agendaDraft });
+        throw new Error(`unexpected request ${url}`);
       }),
     );
     render(<OverviewPage event={event} query={`?event=${eventId}`} />);
@@ -270,7 +340,9 @@ describe("overview dashboard", () => {
 
     // The first poll finally answers, with what the dashboard knew 15 seconds ago.
     await act(async () => {
-      releaseFirst(new Response(JSON.stringify(contentWorkspace("Stale task"))));
+      releaseFirst(
+        new Response(JSON.stringify(overviewResponse({ content: contentWorkspace("Stale task") }))),
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
@@ -289,7 +361,9 @@ describe("overview dashboard", () => {
  * every label names its own source, and the gap between them is counted rather than hidden.
  */
 describe("the board and the published schedule", () => {
+  beforeEach(() => clearOrganizerOverviewCache());
   afterEach(() => {
+    clearOrganizerOverviewCache();
     cleanup();
     vi.unstubAllGlobals();
   });

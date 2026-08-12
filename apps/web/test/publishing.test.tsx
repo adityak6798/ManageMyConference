@@ -396,7 +396,7 @@ describe("Publishing route", () => {
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
-        if (url.endsWith("/api/events")) return jsonResponse({ events: [event] });
+        if (url.endsWith("/api/events/assigned")) return jsonResponse({ events: [event] });
         if (url.endsWith("/preview")) return jsonResponse(publication());
         // Every other workspace fetch is irrelevant here; the surfaces render their
         // own failure states rather than rejecting.

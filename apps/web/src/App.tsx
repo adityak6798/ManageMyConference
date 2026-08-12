@@ -15,12 +15,10 @@ import {
   getAuthConfig,
   getSession,
   listAssignedEvents,
-  listEvents,
   requestLoginCode,
   startDemoSession,
   verifyLoginCode,
 } from "./api/events";
-import { getPublicationSummary } from "./api/publication";
 import { OverviewPage } from "./OverviewPage";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
@@ -129,12 +127,7 @@ export function App() {
   const path = location.split("?")[0] ?? "/";
 
   const loadShell = useCallback(async () => {
-    const currentSession = await getSession();
-    const loadedEvents = currentSession.capabilities.includes("events:read")
-      ? await listEvents()
-      : currentSession.actor.persona === "public"
-        ? await listAssignedEvents()
-        : [];
+    const [currentSession, loadedEvents] = await Promise.all([getSession(), listAssignedEvents()]);
     setSession(currentSession);
     setEvents(loadedEvents);
     // Read the requested event from the live URL rather than from render state, so this
@@ -220,22 +213,13 @@ export function App() {
     setAgendaLoadFailure(null);
   }, [path, selectedEventId]);
 
-  // The public slug is server-assigned, so it has to be read rather than guessed.
-  useEffect(() => {
-    // Drop the previous event's slug immediately; keeping it while the next request is in
-    // flight would point "View public site" at the event the organizer just left.
-    setPublication(null);
-    if (!selectedEventId || !isEventOrganizer) return;
-    let active = true;
-    // ERROR-INTENT: the outbound link is convenience only. getPublicationSummary catches
-    // its own failures and resolves to null, so the link is simply not offered.
-    void getPublicationSummary(selectedEventId).then((summary) => {
-      if (active) setPublication(summary);
-    });
-    return () => {
-      active = false;
-    };
-  }, [selectedEventId, isEventOrganizer]);
+  // The aggregate owns the server-assigned public slug, and clears it while events switch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clearing is keyed on the destination.
+  useEffect(() => setPublication(null), [selectedEventId]);
+  const handlePublicationChange = useCallback(
+    (summary: { slug: string; state: string } | null) => setPublication(summary),
+    [],
+  );
 
   async function switchPersona(persona: Persona) {
     setBusy(true);
@@ -294,7 +278,10 @@ export function App() {
         name,
         timezone: "America/Los_Angeles",
       });
-      const [refreshedSession, refreshedEvents] = await Promise.all([getSession(), listEvents()]);
+      const [refreshedSession, refreshedEvents] = await Promise.all([
+        getSession(),
+        listAssignedEvents(),
+      ]);
       setSession(refreshedSession);
       setEvents(refreshedEvents);
       // Selecting an event means the switcher *and* the address bar, always: a URL still
@@ -470,7 +457,14 @@ export function App() {
 
     // The shell's own two surfaces. A domain adds neither a case here nor an entry above.
     if (path === "/") {
-      if (activeRole === "organizer") return <OverviewPage event={selectedEvent} query={query} />;
+      if (activeRole === "organizer")
+        return (
+          <OverviewPage
+            event={selectedEvent}
+            query={query}
+            onPublicationChange={handlePublicationChange}
+          />
+        );
       return (
         <>
           <PageHeader title={selectedEvent.name} subtitle="Attendee view" />

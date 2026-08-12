@@ -10,9 +10,16 @@ import {
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
 import { createEventToken } from "../src/application/identity/real-auth";
-import type { Actor, Capability } from "../src/application/identity/actor";
+import {
+  type Actor,
+  type Capability,
+  requireEventCapability,
+} from "../src/application/identity/actor";
+import type { AgendaService } from "../src/application/agenda/public";
+import type { ContentService } from "../src/application/content/content-service";
+import type { ReviewService } from "../src/application/review/review-service";
 import { PublicationService } from "../src/application/publishing/publication-service";
-import { createHttpApp, type StructuredLogger } from "../src/transport/http/app";
+import { createHttpApp, createHttpAppFrom, type StructuredLogger } from "../src/transport/http/app";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 
@@ -140,6 +147,45 @@ describe("events HTTP transport", () => {
     expect(reviewer.status).toBe(200);
     await expect(reviewer.json()).resolves.toEqual({ events: [] });
     expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps overview authentication and authorization as transport-wide refusals", async () => {
+    const events = new EventService({
+      repository: new MemoryEventRepository(),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const authorizeOrganizer = (actor: Actor | null, eventId: string) => {
+      requireEventCapability(actor, eventId, "agenda:manage");
+      return {};
+    };
+    const app = createHttpAppFrom({
+      events,
+      logger,
+      auth: {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      content: {
+        workspace: async (actor: Actor | null, eventId: string) =>
+          authorizeOrganizer(actor, eventId),
+      } as unknown as ContentService,
+      review: {
+        organizerWorkspace: async (actor: Actor | null, eventId: string) =>
+          authorizeOrganizer(actor, eventId),
+      } as unknown as ReviewService,
+      agenda: {
+        draft: async (actor: Actor | null, eventId: string) => authorizeOrganizer(actor, eventId),
+      } as unknown as AgendaService,
+    });
+    const path = "/api/events/00000000-0000-4000-8000-000000000001/overview";
+
+    expect((await app.request(path)).status).toBe(401);
+    expect((await app.request(path, { headers: await cookieFor("reviewer") })).status).toBe(403);
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it("denies event mutations before persistence", async () => {

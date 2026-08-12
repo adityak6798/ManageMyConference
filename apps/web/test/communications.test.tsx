@@ -38,7 +38,7 @@ describe("communications history", () => {
               }),
             ),
           );
-        if (url.endsWith("/api/events"))
+        if (url.endsWith("/api/events/assigned"))
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -162,7 +162,7 @@ describe("communications history", () => {
                 }),
               ),
             );
-          if (url.endsWith("/api/events"))
+          if (url.endsWith("/api/events/assigned"))
             return Promise.resolve(
               new Response(
                 JSON.stringify({
@@ -276,7 +276,7 @@ describe("communications history", () => {
               }),
             ),
           );
-        if (url.endsWith("/api/events"))
+        if (url.endsWith("/api/events/assigned"))
           return Promise.resolve(
             new Response(
               JSON.stringify({

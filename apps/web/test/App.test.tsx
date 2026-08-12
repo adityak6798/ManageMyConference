@@ -46,6 +46,43 @@ const emptyWorkspaces: Record<string, unknown> = {
 };
 
 function workspaceBody(url: string) {
+  if (url.endsWith("/overview"))
+    return {
+      content: { ok: true, data: emptyWorkspaces.content },
+      review: { ok: true, data: emptyWorkspaces["review/organizer"] },
+      agenda: { ok: true, data: emptyWorkspaces.agenda },
+      publication: {
+        ok: true,
+        data: {
+          eventId,
+          slug: "greenroom-summit",
+          state: "published",
+          draft: {
+            event: {
+              eventId,
+              slug: "greenroom-summit",
+              name: event.name,
+              summary: "A summit.",
+              startsOn: "2026-09-01",
+              endsOn: "2026-09-01",
+              timezone: event.timezone,
+              venue: "Greenroom Labs",
+            },
+            cfp: {
+              title: "CFP",
+              description: "Submit.",
+              status: "closed",
+              publishedAt: null,
+              submissionUrl: "/cfp",
+            },
+            sessions: [],
+            speakers: [],
+          },
+          published: null,
+          publishedAt: null,
+        },
+      },
+    };
   for (const [suffix, body] of Object.entries(emptyWorkspaces))
     if (url.includes(`/${suffix}`)) return body;
   return null;
@@ -71,16 +108,14 @@ describe("App", () => {
   });
 
   it("lands an organizer on the overview with role-aware navigation", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
-        const workspace = workspaceBody(url);
-        if (workspace) return jsonResponse(workspace);
-        return jsonResponse({ events: [event] });
-      }),
-    );
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
+      const workspace = workspaceBody(url);
+      if (workspace) return jsonResponse(workspace);
+      return jsonResponse({ events: [event] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
@@ -91,6 +126,14 @@ describe("App", () => {
     // The organizer console is the product, not a walkthrough of one: no shipped copy calls
     // the seeded identities a demo (issue #35).
     expect((document.body.textContent ?? "").toLowerCase()).not.toContain("demo");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(
+      expect.arrayContaining([
+        "/api/session",
+        "/api/events/assigned",
+        `/api/events/${eventId}/overview`,
+      ]),
+    );
   });
 
   it("does not mount communications for a selected event where the actor is not organizer", async () => {
