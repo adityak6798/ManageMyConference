@@ -320,7 +320,7 @@ export function OrganizerView({
                                 <span className="hint">Not on the published schedule</span>
                               )}
                             </td>
-                            <td>
+                            <td aria-label="Session actions">
                               <div className="row-actions">
                                 <button
                                   type="button"
@@ -349,7 +349,11 @@ export function OrganizerView({
                           </tr>
                           {withdrawing ? (
                             <tr className="editor-row">
-                              <td colSpan={6} id={`session-withdraw-${session.id}`}>
+                              <td
+                                colSpan={6}
+                                id={`session-withdraw-${session.id}`}
+                                aria-label="Withdraw session confirmation"
+                              >
                                 <Notice tone="warn">
                                   <IconWarning size={15} />
                                   <span>
@@ -382,7 +386,11 @@ export function OrganizerView({
                           ) : null}
                           {expanded ? (
                             <tr className="editor-row">
-                              <td colSpan={6} id={`session-editor-${session.id}`}>
+                              <td
+                                colSpan={6}
+                                id={`session-editor-${session.id}`}
+                                aria-label="Session editor"
+                              >
                                 <SessionEditor
                                   session={session}
                                   speakers={workspace.speakers}

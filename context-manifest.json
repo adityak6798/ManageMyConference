@@ -334,6 +334,7 @@
         "apps/web/test/router.test.tsx",
         "apps/web/test/api-config.test.ts",
         "apps/web/src/ui/primitives.tsx",
+        "apps/web/e2e/event-scoped-loading.spec.ts",
         "apps/web/src/ui/icons.tsx",
         "apps/api/test/seed-state.integration.test.ts",
         "apps/web/src/workspaces/contract.ts",

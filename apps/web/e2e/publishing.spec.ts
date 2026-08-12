@@ -48,7 +48,9 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   // event sorts first — and unpublish that one instead.
   const eventId = new URL(page.url()).searchParams.get("event");
   expect(eventId, "the workspace URL must carry the selected event").toBeTruthy();
-  // An empty board also names the editor in its own copy, so address the disclosure.
+  // Missing agendas are read-only until the organizer explicitly creates one.
+  await page.getByRole("button", { name: "Create agenda" }).click();
+  // The created board names the editor in its own copy, so address the disclosure.
   await page.locator("summary").filter({ hasText: "Manage rooms, tracks, and times" }).click();
   await page.getByLabel("New timeslot start").fill("2026-11-04T09:00");
   await page.getByLabel("New timeslot end").fill("2026-11-04T10:00");

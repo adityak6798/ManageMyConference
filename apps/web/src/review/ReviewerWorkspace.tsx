@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getReviewerQueue } from "../api/review";
 import "../styles/review.css";
 import { IconInbox } from "../ui/icons";
-import { Card, EmptyState, Notice, Pill } from "../ui/primitives";
+import { Card, EmptyState, Notice, Pill, useLoad } from "../ui/primitives";
 
 import { EvaluationCard } from "./EvaluationCard";
 import { message, type PillTone, ProposalAnswers } from "./shared";
@@ -28,18 +28,10 @@ function queueState(item: QueueItem): { label: string; tone: PillTone } {
 }
 
 export function ReviewerWorkspace({ eventId }: { eventId: string }) {
-  const [data, setData] = useState<ReviewerQueueDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const load = useCallback(async () => setData(await getReviewerQueue(eventId)), [eventId]);
-
-  useEffect(() => {
-    setData(null);
-    setActiveId(null);
-    setError(null);
-    // ERROR-INTENT: React effects cannot await; the rejection renders in this workspace.
-    void load().catch((reason: unknown) => setError(message(reason)));
-  }, [load]);
+  const fetchQueue = useCallback((id: string) => getReviewerQueue(id), []);
+  const describeLoadFailure = useCallback((reason: unknown) => message(reason), []);
+  const { data, error, reload: load } = useLoad(eventId, fetchQueue, describeLoadFailure);
 
   /**
    * Which assignment the reviewer is working on.
@@ -114,7 +106,14 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
           <ProposalAnswers answers={active.proposal.answers} />
         </Card>
 
-        <EvaluationCard key={active.assignment.id} eventId={eventId} item={active} reload={load} />
+        <EvaluationCard
+          key={active.assignment.id}
+          eventId={eventId}
+          item={active}
+          reload={async () => {
+            await load();
+          }}
+        />
       </div>
 
       <Card

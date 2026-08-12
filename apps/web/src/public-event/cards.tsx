@@ -302,8 +302,6 @@ function ScheduleGroup({
 
 /* ------------------------------- app --------------------------------- */
 
-// @spec PRD-PUB-001
-
 export {
   Avatar,
   Empty,

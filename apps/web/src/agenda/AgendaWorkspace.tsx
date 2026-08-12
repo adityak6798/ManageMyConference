@@ -28,7 +28,7 @@
  * which is the only failure that leaves no workspace to report it in.
  */
 
-import type { AgendaDraftDto, EventDto } from "@greenroom/contracts";
+import type { EventDto } from "@greenroom/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AgendaApiError,
@@ -43,30 +43,43 @@ import { IconCalendar, IconCheck, IconClock, IconGrip, IconPlus, IconWarning } f
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
 
 import {
+  byInstant,
+  byStart,
+  type Carry,
+  type Cell,
   CONFLICT_LABELS,
+  type Conflict,
+  cellKey,
+  clockFor,
   DEFAULT_TRACK_COLOR,
+  type Draft,
+  errorsByRow,
   HOUR_MS,
+  inUseNote,
+  isViewId,
   NEW_SLOT,
+  type Placement,
+  readViewFromUrl,
+  type Slot,
+  type SlotForm,
   VIEW_LABELS,
   VIEW_TITLES,
   VIEWS,
-  byInstant,
-  byStart,
-  cellKey,
-  clockFor,
-  errorsByRow,
-  inUseNote,
-  isViewId,
-  readViewFromUrl,
-  type Carry,
-  type Cell,
-  type Conflict,
-  type Draft,
-  type Placement,
-  type Slot,
-  type SlotForm,
   type ViewId,
 } from "./model";
+
+function newAgenda(eventId: string): Draft {
+  return {
+    eventId,
+    rooms: [{ id: crypto.randomUUID(), name: "Main room" }],
+    tracks: [{ id: crypto.randomUUID(), name: "General", color: DEFAULT_TRACK_COLOR }],
+    slots: [],
+    sessions: [],
+    placements: [],
+    conflicts: [],
+  };
+}
+
 // This state-owning board intentionally exceeds 400 lines: pointer/keyboard drag, focus recovery,
 // slot drafts, resource edits, and conflict narration share one atomic agenda draft. Its nested
 // board/list renderers are single-use views of that state, so extracting them would violate issue
@@ -84,6 +97,7 @@ export function AgendaWorkspace({
   // re-renders of a drag, and a switch to an event in another zone rebuilds them.
   const clock = useMemo(() => clockFor(event.timezone), [event.timezone]);
   const [agenda, setAgenda] = useState<Draft | null>(null);
+  const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<ViewId>(readViewFromUrl);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -115,6 +129,7 @@ export function AgendaWorkspace({
     mounted.current = true;
     let active = true;
     setAgenda(null);
+    setMissing(false);
     // Half-typed times belong to the event they were typed for, never to the next one.
     setSlotForms({});
     setRowErrors({});
@@ -126,26 +141,8 @@ export function AgendaWorkspace({
       .catch((error: unknown) => {
         if (!active) return;
         if (error instanceof AgendaApiError && error.envelope.error.code === "NOT_FOUND") {
-          // ERROR-INTENT: The initialization promise updates this workspace or its visible error.
-          void saveAgendaResources(eventId, {
-            rooms: [{ id: crypto.randomUUID(), name: "Main room" }],
-            tracks: [
-              {
-                id: crypto.randomUUID(),
-                name: "General",
-                color: DEFAULT_TRACK_COLOR,
-              },
-            ],
-            slots: [],
-          })
-            .then((loaded) => {
-              if (active) setAgenda(loaded);
-            })
-            .catch(
-              (reason: unknown) =>
-                active &&
-                onError(reason instanceof Error ? reason.message : "Agenda initialization failed."),
-            );
+          setAgenda(newAgenda(eventId));
+          setMissing(true);
           return;
         }
         onError(error instanceof Error ? error.message : "Agenda failed to load.");
@@ -309,6 +306,7 @@ export function AgendaWorkspace({
     try {
       const updated = await action();
       if (!mounted.current) return;
+      setMissing(false);
       setAgenda(updated);
       if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
@@ -360,6 +358,7 @@ export function AgendaWorkspace({
         slots,
       });
       if (!mounted.current) return;
+      setMissing(false);
       setAgenda(updated);
       // Answered: this row's draft and its refusal both go. Drafts belonging to slots
       // that no longer exist go with them; the rest is still the operator's to save.
@@ -1089,6 +1088,45 @@ export function AgendaWorkspace({
   const boardHint = isBoardView
     ? `Drag a session onto a cell, or press Enter on a session to pick it up and place it with the arrow keys. Times are shown in ${zoneLabel}.`
     : `Times are shown in ${zoneLabel}.`;
+
+  if (missing)
+    return (
+      <div className="agenda">
+        <Card>
+          <EmptyState title="No agenda yet — create the first room and track">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                // ERROR-INTENT: this user-initiated write reports failure through the workspace.
+                void saveAgendaResources(eventId, {
+                  rooms: draft.rooms,
+                  tracks: draft.tracks,
+                  slots: draft.slots,
+                })
+                  .then((loaded) => {
+                    if (!mounted.current) return;
+                    setMissing(false);
+                    setAgenda(loaded);
+                  })
+                  .catch((reason: unknown) => {
+                    if (mounted.current)
+                      onError(
+                        reason instanceof Error ? reason.message : "Agenda initialization failed.",
+                      );
+                  })
+                  .finally(() => {
+                    if (mounted.current) setBusy(false);
+                  });
+              }}
+            >
+              Create agenda
+            </button>
+          </EmptyState>
+        </Card>
+      </div>
+    );
 
   return (
     <div className="agenda">

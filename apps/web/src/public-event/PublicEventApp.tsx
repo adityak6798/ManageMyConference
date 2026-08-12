@@ -12,12 +12,14 @@
  * version instead so the two surfaces stay independently deployable.
  */
 
-import type { PublicEventProjectionDto } from "@greenroom/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+// @spec PRD-PUB-001
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CfpApiError, type CfpFormDto, loadCfp } from "../api/cfp";
 import { getPublicEvent, PublicApiError } from "../api/publication";
 import "../public-event.css";
 import "../styles/public-pages.css";
+import { useLoad } from "../ui/primitives";
 
 import {
   Avatar,
@@ -56,8 +58,13 @@ import { PublicCfpView } from "./PublicCfpView";
 // presentational fragments. Reused cards, formatting, and routing live in cards.tsx/model.tsx.
 export function PublicEventApp() {
   const { embedded, slug, section, detail } = usePublicRoute();
-  const [projection, setProjection] = useState<PublicEventProjectionDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const fetchProjection = useCallback((eventSlug: string) => getPublicEvent(eventSlug), []);
+  const describeProjectionFailure = useCallback(
+    (reason: unknown) =>
+      reason instanceof PublicApiError ? reason.message : "The event could not be loaded.",
+    [],
+  );
+  const { data: projection, error } = useLoad(slug, fetchProjection, describeProjectionFailure);
   const [liveCfp, setLiveCfp] = useState<CfpFormDto | null>(null);
   // Kept apart from `submissionNotice`: "we could not read the call" is not "your
   // proposal was not submitted", and it can now happen on a page that has no form.
@@ -84,17 +91,6 @@ export function PublicEventApp() {
     setSpeakerQuery("");
   }
 
-  useEffect(() => {
-    // ERROR-INTENT: React effects cannot await; handlers render loading/error outcomes.
-    void getPublicEvent(slug)
-      .then(setProjection)
-      .catch((reason: unknown) =>
-        setError(
-          reason instanceof PublicApiError ? reason.message : "The event could not be loaded.",
-        ),
-      );
-  }, [slug]);
-
   /*
    * The projection is a snapshot frozen at publish time; whether the call is accepting
    * submissions is live state that the CFP domain enforces on submit. The two disagree
@@ -110,6 +106,8 @@ export function PublicEventApp() {
    * arrives on the home page and clicks through later is told the state as it is then.
    */
   useEffect(() => {
+    setLiveCfp(null);
+    setCfpUnavailable(null);
     if (!projection || !CFP_AWARE_VIEWS.has(section)) return;
     let live = true;
     // ERROR-INTENT: React effects cannot await; both outcomes below are rendered.
@@ -858,6 +856,7 @@ export function PublicEventApp() {
 
         {section === "cfp" ? (
           <PublicCfpView
+            key={projection.event.eventId}
             eventId={projection.event.eventId}
             liveCfp={liveCfp}
             unavailable={cfpUnavailable}

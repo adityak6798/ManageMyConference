@@ -1,14 +1,3 @@
-/*
- * Abstract triage (organizer) and the reviewer scoring queue.
- *
- * Triage leads on the organizer surface: statuses are tabs with counts, the
- * proposal table is the page, and the evaluation plan plus status pipeline are
- * folded into a secondary "Evaluation setup" panel — configuration is a rare act,
- * triage is the daily one. The reviewer surface inverts the old order so the
- * assigned proposal and its scoring form are the first thing on screen.
- */
-
-import type { OrganizerReviewWorkspaceDto } from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignReviewer,
@@ -19,7 +8,7 @@ import {
 } from "../api/review";
 import "../styles/review.css";
 import { IconInbox, IconReview } from "../ui/icons";
-import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
+import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback, useLoad } from "../ui/primitives";
 import { RubricForm } from "./RubricForm";
 import { StatusForm } from "./StatusForm";
 import {
@@ -46,8 +35,6 @@ const RECENT_CHANGES = 12;
 // detail branches are single-use renderers, which issue #70 says not to extract for size alone;
 // configuration, decision, assignment, and reviewer forms already own separate modules.
 export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
-  const [data, setData] = useState<OrganizerReviewWorkspaceDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -92,21 +79,14 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     if (!pending && dialog.open) dialog.close();
   }, [pending]);
 
-  const load = useCallback(async () => {
-    // The tab strip needs a count for every status in one paint, so the workspace
-    // loads the whole set once and narrows it in the client.
-    setData(await getOrganizerReview(eventId));
-  }, [eventId]);
-
-  useEffect(() => {
-    setData(null);
-    setSelected([]);
-    setOpenId(null);
-    setPending(null);
-    setError(null);
-    // ERROR-INTENT: React effects cannot await; the rejection renders in this workspace.
-    void load().catch((reason: unknown) => setError(message(reason)));
-  }, [load]);
+  const fetchWorkspace = useCallback((id: string) => getOrganizerReview(id), []);
+  const describeLoadFailure = useCallback((reason: unknown) => message(reason), []);
+  const {
+    data,
+    error,
+    loading,
+    reload: load,
+  } = useLoad(eventId, fetchWorkspace, describeLoadFailure);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -128,24 +108,16 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   }, [data, search, tab]);
 
   useEffect(() => {
-    // Never act on a row the organizer can no longer see.
-    const visible = new Set(rows.map(({ id }) => id));
-    setSelected((current) => {
-      const next = current.filter((id) => visible.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [rows]);
-
-  useEffect(() => {
     if (openId) detailRef.current?.focus();
   }, [openId]);
 
-  async function act(action: () => Promise<unknown>, success: string, clearSelection: boolean) {
+  async function act(action: () => Promise<unknown>, success: string) {
     setBusy(true);
     try {
       await action();
-      if (clearSelection) setSelected([]);
       await load();
+      // Selection is organizer work-in-progress. Issue #70 requires background reloads after
+      // transitions and assignments to preserve it along with unsaved configuration edits.
       feedback.announce("success", success);
     } catch (reason) {
       feedback.announce("error", message(reason));
@@ -203,9 +175,8 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         return;
       }
       setDecisionState("done");
-      // The rows have been decided, so the bulk bar's selection has done its work. Leaving it
-      // standing invites a second decision on the same abstracts.
-      if (!only) setSelected([]);
+      // Keep the selection through this reload too: the issue's acceptance criteria explicitly
+      // treats checked rows as in-progress organizer state, including after a bulk action.
       decisionFeedback.announce(
         "success",
         only
@@ -302,13 +273,12 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const assignmentsFor = (proposalId: string) =>
     data.assignments.filter((assignment) => assignment.proposalId === proposalId);
 
-  const transition = (proposalIds: string[], toStatus: string, clearSelection: boolean) => {
+  const transition = (proposalIds: string[], toStatus: string, _clearSelection: boolean) => {
     const label = labelFor(toStatus);
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
     void act(
       () => transitionProposals(eventId, { proposalIds, toStatus }),
       `${proposalIds.length} abstract${proposalIds.length === 1 ? "" : "s"} moved to ${label}.`,
-      clearSelection,
     );
   };
   /**
@@ -323,13 +293,12 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
     decisionFeedback.clear();
     setPending({ proposalIds, outcome });
   };
-  const assign = (proposalIds: string[], reviewerId: string, clearSelection: boolean) => {
+  const assign = (proposalIds: string[], reviewerId: string, _clearSelection: boolean) => {
     const name = reviewerName(reviewerId);
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
     void act(
       () => assignReviewer(eventId, { proposalIds, reviewerId }),
       `${name} is now reviewing ${proposalIds.length} abstract${proposalIds.length === 1 ? "" : "s"}.`,
-      clearSelection,
     );
   };
   /**
@@ -407,6 +376,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
 
   return (
     <>
+      {loading ? <p role="status">Updating abstract triage…</p> : null}
       <Tabs items={tabs} active={activeTab} onSelect={setTab} label="Filter abstracts by status" />
 
       <div
@@ -769,8 +739,20 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
           <span className="setup-summary-hint">Scoring criteria and the status pipeline</span>
         </summary>
         <div className="review-setup-body">
-          <RubricForm eventId={eventId} data={data} onSaved={load} />
-          <StatusForm eventId={eventId} data={data} onSaved={load} />
+          <RubricForm
+            eventId={eventId}
+            data={data}
+            onSaved={async () => {
+              await load();
+            }}
+          />
+          <StatusForm
+            eventId={eventId}
+            data={data}
+            onSaved={async () => {
+              await load();
+            }}
+          />
         </div>
       </details>
 

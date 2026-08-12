@@ -495,11 +495,15 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                   aria-describedby={errors.title ? "cfp-title-error" : undefined}
                   onChange={(event) => setTitle(event.target.value)}
                 />
-                {errors.title?.map((error) => (
-                  <p className="error-text" id="cfp-title-error" key={error}>
-                    {error}
-                  </p>
-                ))}
+                {errors.title ? (
+                  <div id="cfp-title-error">
+                    {errors.title.map((error) => (
+                      <p className="error-text" key={error}>
+                        {error}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="field">
                 <label htmlFor="cfp-description">Description</label>

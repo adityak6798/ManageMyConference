@@ -70,11 +70,15 @@ function FieldControl({
       ) : (
         <input {...shared} type={field.type === "email" ? "email" : "text"} />
       )}
-      {errors.map((error) => (
-        <p className="error-text" id={errorId} key={error}>
-          {error}
-        </p>
-      ))}
+      {errors.length > 0 ? (
+        <div id={errorId}>
+          {errors.map((error) => (
+            <p className="error-text" key={error}>
+              {error}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

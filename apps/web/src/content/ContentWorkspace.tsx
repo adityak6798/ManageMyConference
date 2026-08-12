@@ -10,15 +10,15 @@
  * that caused it instead of at the bottom of the page.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { ContentApiError, getContent } from "../api/content";
 import "../styles/content.css";
 import { IconWarning } from "../ui/icons";
-import { Card, EmptyState, Notice } from "../ui/primitives";
+import { Card, EmptyState, Notice, useLoad } from "../ui/primitives";
 
 import { OrganizerView } from "./OrganizerContent";
 import { SpeakerView } from "./SpeakerContent";
-import { type Props, type Run, type Workspace, withReference } from "./shared";
+import { type Props, type Run, withReference } from "./shared";
 
 function LoadingWorkspace() {
   return (
@@ -83,50 +83,27 @@ function LoadFailure({
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export function ContentWorkspace({ eventId, role }: Props) {
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  // A load that failed leaves nothing to put an announcement beside, so the failure is
-  // rendered where the workspace would have been. The skeleton used to stay up forever
-  // and the only account of why lived on a page-level surface the next click erased.
-  const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // The event whose answer is still wanted: a read for the event the organizer just left
-  // must not paint over the one they are on now, whichever way it resolves.
-  const requestedRef = useRef(eventId);
-
-  const load = useCallback(() => {
-    const requestedEventId = eventId;
-    setLoadFailure(null);
-    // ERROR-INTENT: React effects cannot await; the rejection handler renders the failure
-    // in place of the workspace, with the correlation id and a control to try again.
-    void getContent(requestedEventId).then(
-      (loaded) => {
-        if (requestedRef.current === requestedEventId) setWorkspace(loaded);
-      },
-      (reason: unknown) => {
-        if (requestedRef.current !== requestedEventId) return;
-        setLoadFailure(
-          withReference(
-            reason instanceof ContentApiError
-              ? reason.message
-              : "This workspace could not be loaded.",
-            reason,
-          ),
-        );
-      },
-    );
-  }, [eventId]);
-
-  useEffect(() => {
-    requestedRef.current = eventId;
-    setWorkspace(null);
-    load();
-  }, [load, eventId]);
+  const describeLoadFailure = useCallback(
+    (reason: unknown) =>
+      withReference(
+        reason instanceof ContentApiError ? reason.message : "This workspace could not be loaded.",
+        reason,
+      ),
+    [],
+  );
+  const fetchWorkspace = useCallback((id: string) => getContent(id), []);
+  const {
+    data: workspace,
+    error: loadFailure,
+    reload,
+  } = useLoad(eventId, fetchWorkspace, describeLoadFailure);
 
   const run: Run = async (action) => {
     setBusy(true);
     try {
       await action();
-      setWorkspace(await getContent(eventId));
+      await reload();
       return { ok: true };
     } catch (error) {
       // ERROR-INTENT: the rejection is handed back to the caller, which announces it next to
@@ -139,7 +116,16 @@ export function ContentWorkspace({ eventId, role }: Props) {
   };
 
   if (loadFailure)
-    return <LoadFailure message={loadFailure} speaker={role === "speaker"} onRetry={load} />;
+    return (
+      <LoadFailure
+        message={loadFailure}
+        speaker={role === "speaker"}
+        onRetry={() => {
+          // ERROR-INTENT: useLoad renders the retry failure in this workspace.
+          void reload().catch(() => undefined);
+        }}
+      />
+    );
 
   if (!workspace) return <LoadingWorkspace />;
 
