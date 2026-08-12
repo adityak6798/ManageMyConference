@@ -771,6 +771,30 @@ describe("ACC-CRM organization directory", () => {
     expect(after.tags).toHaveLength(25);
   });
 
+  it("collapses a repeated field key sent directly, as the CSV path does", async () => {
+    const { service } = setup();
+    // The API accepts a fields array; storage is keyed on (contact, key) and upserts. Returning
+    // both entries described a contact that never existed, and counted one extra toward the
+    // thirty-field limit — the same pair of defects the CSV path was corrected for.
+    const contact = await service.createContact(organizer, organizationId, {
+      name: "Direct Person",
+      email: "direct@example.test",
+      fields: [
+        { key: "topic", value: "first" },
+        { key: "topic", value: "second" },
+      ],
+    });
+    expect(contact.fields).toEqual([{ key: "topic", value: "second" }]);
+
+    const updated = await service.updateContact(organizer, organizationId, contact.id, {
+      fields: [
+        { key: "zone", value: "EU" },
+        { key: "zone", value: "US" },
+      ],
+    });
+    expect(updated.fields).toEqual([{ key: "zone", value: "US" }]);
+  });
+
   it("collapses a repeated field column the way storage does", async () => {
     const { service } = setup();
     // `crm_contact_fields` is keyed on (contact_id, field_key) and the write upserts, so a sheet

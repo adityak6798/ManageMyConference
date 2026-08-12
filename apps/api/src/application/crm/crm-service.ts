@@ -80,6 +80,20 @@ function capacityErrors(row: ParsedContactRow, existing: OrganizationContact): s
   return errors;
 }
 
+/**
+ * Custom fields with one entry per key, the last occurrence winning.
+ *
+ * `crm_contact_fields` is keyed on `(contact_id, field_key)` and the write upserts, so storage
+ * collapses repeats whatever the caller sent. Collapsing here too keeps the response describing
+ * what was stored, and keeps a count against the thirty-field limit from including entries that
+ * would have merged into one — the same correction the CSV parser carries, on the JSON path.
+ */
+function distinctFields(
+  fields: readonly { key: string; value: string }[] | undefined,
+): { key: string; value: string }[] {
+  return [...new Map((fields ?? []).map((field) => [field.key, field] as const)).values()];
+}
+
 export interface CreateProspectCommand {
   eventId: string;
   name: string;
@@ -434,7 +448,7 @@ export class CrmService {
       source,
       mergedIntoId: null,
       tags: [...new Set(input.tags ?? [])],
-      fields: input.fields ?? [],
+      fields: distinctFields(input.fields),
       aliases: [],
       events: [],
       activities: [],
@@ -492,7 +506,7 @@ export class CrmService {
       title: settled(command.title, current.title),
       notes: settled(command.notes, current.notes),
       tags: command.tags ? [...new Set(command.tags)] : current.tags,
-      fields: command.fields ?? current.fields,
+      fields: command.fields ? distinctFields(command.fields) : current.fields,
       activities: [...current.activities, ...activities],
       updatedAt: now,
     };

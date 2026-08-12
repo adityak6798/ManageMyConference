@@ -145,7 +145,9 @@ export class MemoryCrmRepository implements CrmRepository {
     activity: ContactActivity;
   }) {
     const primary = this.contacts.get(input.primaryId);
-    if (!primary || primary.organizationId !== input.organizationId)
+    // Liveness as well as ownership, the same predicate the D1 batch's seven statements share:
+    // a merge into a primary that has itself been merged away applies nothing there.
+    if (!primary || primary.organizationId !== input.organizationId || primary.mergedIntoId)
       throw new ContactNotFoundError("Contact not found");
     const moved: OrganizationContact["events"][number][] = [];
     const activities: ContactActivity[] = [];
