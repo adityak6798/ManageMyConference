@@ -1,7 +1,9 @@
 import {
   type AcceptedContent,
   ContentConflictError,
+  type ContentEdit,
   type ContentRepository,
+  type ContentRevisionDraft,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -313,19 +315,27 @@ export class D1ContentRepository
         ).map((row) => this.revision(row));
     return { sessions, speakers, tasks, assets, messages, resources, comments, revisions };
   }
+  private profileWrite(profile: SpeakerProfile): D1Statement {
+    return this.database
+      .prepare(
+        "UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
+      )
+      .bind(
+        profile.name,
+        profile.bio,
+        profile.pronouns,
+        profile.organization,
+        profile.photoAssetId ?? null,
+        profile.workflowStatus ?? "onboarding",
+        JSON.stringify(profile.logistics ?? {}),
+        JSON.stringify(profile.customFields ?? {}),
+        profile.id,
+      );
+  }
   async updateProfile(profile: SpeakerProfile) {
-    await this.run(
-      "UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
-      profile.name,
-      profile.bio,
-      profile.pronouns,
-      profile.organization,
-      profile.photoAssetId ?? null,
-      profile.workflowStatus ?? "onboarding",
-      JSON.stringify(profile.logistics ?? {}),
-      JSON.stringify(profile.customFields ?? {}),
-      profile.id,
-    );
+    const result = await this.profileWrite(profile).run();
+    if (!result.success)
+      throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
   }
   async updateTask(task: SpeakerTask) {
     await this.run(
@@ -335,18 +345,26 @@ export class D1ContentRepository
       task.id,
     );
   }
+  private sessionWrite(session: ContentSession): D1Statement {
+    return this.database
+      .prepare(
+        "UPDATE content_sessions SET title=?,abstract=?,format=?,speaker_profile_ids=?,tags=?,tracks=?,publication_state=? WHERE id=?",
+      )
+      .bind(
+        session.title,
+        session.abstract,
+        session.format,
+        JSON.stringify(session.speakerProfileIds),
+        JSON.stringify(session.tags),
+        JSON.stringify(session.tracks),
+        session.publicationState,
+        session.id,
+      );
+  }
   async updateSession(session: ContentSession) {
-    await this.run(
-      "UPDATE content_sessions SET title=?,abstract=?,format=?,speaker_profile_ids=?,tags=?,tracks=?,publication_state=? WHERE id=?",
-      session.title,
-      session.abstract,
-      session.format,
-      JSON.stringify(session.speakerProfileIds),
-      JSON.stringify(session.tags),
-      JSON.stringify(session.tracks),
-      session.publicationState,
-      session.id,
-    );
+    const result = await this.sessionWrite(session).run();
+    if (!result.success)
+      throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
   }
   async deleteSession(sessionId: string) {
     await this.run("DELETE FROM content_sessions WHERE id=?", sessionId);
@@ -550,18 +568,117 @@ export class D1ContentRepository
       comment.createdAt,
     );
   }
-  async addRevision(revision: ContentRevision) {
-    await this.run(
-      "INSERT INTO content_revisions (id,event_id,entity_type,entity_id,revision_number,snapshot_json,actor_id,created_at,restored_from_revision_id) VALUES (?,?,?,?,?,?,?,?,?)",
-      revision.id,
-      revision.eventId,
-      revision.entityType,
-      revision.entityId,
-      revision.revisionNumber,
-      revision.snapshotJson,
-      revision.actorId,
-      revision.createdAt,
-      revision.restoredFromRevisionId ?? null,
+  /**
+   * Run a batch as the single transaction D1 makes it, and report a failed statement rather
+   * than raise it.
+   *
+   * A batch reports a bad statement two ways — an unsuccessful result, or a rejected promise —
+   * and the caller has to distinguish "another writer took this revision number", which is
+   * retried, from "the canonical write is invalid", which is not. Both arrive as a message, so
+   * both leave as one.
+   */
+  private async batchFailure(statements: D1Statement[]): Promise<string | null> {
+    try {
+      const results = await this.database.batch(statements);
+      return results.find((result) => !result.success)?.error ?? null;
+    } catch (error) {
+      // ERROR-INTENT: returned to the caller, which decides between a retry and a throw; the
+      // driver's message is carried whole into whichever it picks.
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  /**
+   * Append the revision and apply the edit in one D1 batch, which is one transaction.
+   *
+   * Neither write can outlive the other: a canonical update that violates a constraint takes
+   * its revision down with it, which is what stops history from claiming an edit that never
+   * happened.
+   *
+   * The revision number comes from a single read of the row *and* its highest existing number,
+   * so a concurrent editor cannot slip between the two. If one does, its insert takes the
+   * number first and this batch fails the `UNIQUE(entity_type, entity_id, revision_number)`
+   * guard — which rolls back the canonical write too, so the retry re-reads a row that already
+   * carries the other edit and lands on top of it rather than reverting it. Both edits keep
+   * attributed history. Only a writer that loses this race repeatedly gives up, and it says so
+   * with a conflict rather than a silent no-op.
+   */
+  private async revise<T>(
+    entityType: ContentRevision["entityType"],
+    entityId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<T>,
+    table: string,
+    read: (row: Row) => T,
+    write: (next: T) => D1Statement,
+  ): Promise<T | null> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const row = (
+        await this.rows(
+          `SELECT owned.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type=? AND entity_id=owned.id) AS latest_revision FROM ${table} AS owned WHERE owned.id=? LIMIT 1`,
+          entityType,
+          entityId,
+        )
+      )[0];
+      if (!row) return null;
+      const current = read(row);
+      const next = edit(current);
+      const failure = await this.batchFailure([
+        this.database
+          .prepare(
+            "INSERT INTO content_revisions (id,event_id,entity_type,entity_id,revision_number,snapshot_json,actor_id,created_at,restored_from_revision_id) VALUES (?,?,?,?,?,?,?,?,?)",
+          )
+          .bind(
+            draft.id,
+            draft.eventId,
+            entityType,
+            entityId,
+            Number(row.latest_revision ?? 0) + 1,
+            JSON.stringify(current),
+            draft.actorId,
+            draft.createdAt,
+            draft.restoredFromRevisionId ?? null,
+          ),
+        write(next),
+      ]);
+      if (!failure) return next;
+      if (!/UNIQUE constraint failed: content_revisions\b/.test(failure))
+        throw new Error(`D1 content revision failed: ${failure}`);
+    }
+    throw new ContentConflictError(
+      "This record is being edited by someone else. Reload and try again.",
+    );
+  }
+
+  async reviseProfile(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<SpeakerProfile>,
+  ) {
+    return this.revise(
+      "profile",
+      profileId,
+      draft,
+      edit,
+      "speaker_profiles",
+      (row) => this.profile(row),
+      (next) => this.profileWrite(next),
+    );
+  }
+
+  async reviseSession(
+    sessionId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<ContentSession>,
+  ) {
+    return this.revise(
+      "session",
+      sessionId,
+      draft,
+      edit,
+      "content_sessions",
+      (row) => this.session(row),
+      (next) => this.sessionWrite(next),
     );
   }
   async findRevision(revisionId: string) {

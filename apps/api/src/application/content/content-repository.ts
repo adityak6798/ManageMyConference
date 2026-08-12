@@ -17,6 +17,33 @@ export interface AcceptedContent {
   messages: readonly SpeakerMessage[];
 }
 
+/**
+ * A revision the caller wants recorded, minus the two things only the store may decide.
+ *
+ * `revisionNumber` is absent because an application that reads the highest number and adds one
+ * has already lost the race: two organizers editing the same speaker both compute the same
+ * number, and `UNIQUE(entity_type, entity_id, revision_number)` refuses the second edit that
+ * was otherwise perfectly valid. `snapshotJson` is absent because the state a revision claims
+ * to preserve must be the state the row actually held immediately before the write — read by
+ * the store, in the same operation, not by a caller that read it moments earlier.
+ */
+export interface ContentRevisionDraft {
+  readonly id: string;
+  readonly eventId: string;
+  readonly actorId: string;
+  readonly createdAt: string;
+  readonly restoredFromRevisionId?: string | undefined;
+}
+
+/**
+ * The edit itself, applied to whatever the store finds when it takes the row.
+ *
+ * A function rather than a finished entity, because the store may have to re-read: an edit that
+ * lost the race for a revision number is retried against the row as it is *now*, so the losing
+ * organizer's change lands on top of the winner's instead of overwriting it from a stale copy.
+ */
+export type ContentEdit<T> = (current: T) => T;
+
 export interface ContentRepository {
   findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null>;
   accept(content: AcceptedContent): Promise<void>;
@@ -42,7 +69,25 @@ export interface ContentRepository {
   deleteResource(resourceId: string): Promise<void>;
   findResource(resourceId: string): Promise<SpeakerResource | null>;
   addComment(comment: ContentComment): Promise<void>;
-  addRevision(revision: ContentRevision): Promise<void>;
+  /**
+   * Record what the profile was and write what it becomes, as one indivisible operation.
+   *
+   * There is deliberately no way to append a revision on its own. The two writes used to be
+   * separate calls, so a failure on the second left a revision describing an edit that never
+   * happened — history that reads as authoritative and is not. Returns the stored profile, or
+   * `null` when the profile no longer exists.
+   */
+  reviseProfile(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<SpeakerProfile>,
+  ): Promise<SpeakerProfile | null>;
+  /** `reviseProfile` for a session: the same single-operation guarantee. */
+  reviseSession(
+    sessionId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<ContentSession>,
+  ): Promise<ContentSession | null>;
   findRevision(revisionId: string): Promise<ContentRevision | null>;
   findSpeakerImport(eventId: string, email: string): Promise<"pending" | "complete" | null>;
   beginSpeakerImport(eventId: string, email: string): Promise<void>;

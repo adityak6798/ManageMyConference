@@ -1,7 +1,9 @@
 import {
   type AcceptedContent,
   ContentConflictError,
+  type ContentEdit,
   type ContentRepository,
+  type ContentRevisionDraft,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -11,6 +13,7 @@ import type {
 import type {
   ContentComment,
   ContentRevision,
+  ContentSession,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerProfile,
@@ -255,8 +258,72 @@ export class MemoryContentRepository
   async addComment(comment: ContentComment) {
     this.comments = [...this.comments, comment];
   }
-  async addRevision(revision: ContentRevision) {
-    this.revisions = [...this.revisions, revision];
+  /**
+   * The same indivisible pair D1 gets, which here costs nothing: the read, the append and the
+   * write happen with no `await` between them, so nothing can interleave.
+   */
+  private revise<T extends { id: string }>(
+    entityType: ContentRevision["entityType"],
+    current: T | undefined,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<T>,
+  ): T | null {
+    if (!current) return null;
+    const next = edit(current);
+    this.revisions = [
+      ...this.revisions,
+      {
+        id: draft.id,
+        eventId: draft.eventId,
+        entityType,
+        entityId: current.id,
+        revisionNumber:
+          Math.max(
+            0,
+            ...this.revisions
+              .filter(
+                (revision) =>
+                  revision.entityType === entityType && revision.entityId === current.id,
+              )
+              .map(({ revisionNumber }) => revisionNumber),
+          ) + 1,
+        snapshotJson: JSON.stringify(current),
+        actorId: draft.actorId,
+        createdAt: draft.createdAt,
+        ...(draft.restoredFromRevisionId
+          ? { restoredFromRevisionId: draft.restoredFromRevisionId }
+          : {}),
+      },
+    ];
+    return next;
+  }
+  async reviseProfile(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<SpeakerProfile>,
+  ) {
+    const next = this.revise(
+      "profile",
+      this.speakers.find(({ id }) => id === profileId),
+      draft,
+      edit,
+    );
+    if (next) this.speakers = this.speakers.map((item) => (item.id === next.id ? next : item));
+    return next;
+  }
+  async reviseSession(
+    sessionId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<ContentSession>,
+  ) {
+    const next = this.revise(
+      "session",
+      this.sessions.find(({ id }) => id === sessionId),
+      draft,
+      edit,
+    );
+    if (next) this.sessions = this.sessions.map((item) => (item.id === next.id ? next : item));
+    return next;
   }
   async findRevision(revisionId: string) {
     return this.revisions.find(({ id }) => id === revisionId) ?? null;

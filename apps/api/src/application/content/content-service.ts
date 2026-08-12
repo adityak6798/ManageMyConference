@@ -320,9 +320,12 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
-    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
-    const updated = { ...profile, ...input };
-    await this.dependencies.repository.updateProfile(updated);
+    const updated = await this.dependencies.repository.reviseProfile(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      (current) => ({ ...current, ...input }),
+    );
+    if (!updated) throw new CapabilityDeniedError();
     return updated;
   }
 
@@ -572,9 +575,12 @@ export class ContentService {
       profile.userId !== authorized.id
     )
       throw new CapabilityDeniedError("Speaker profile access denied");
-    const updated = { ...profile, ...input };
-    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
-    await this.dependencies.repository.updateProfile(updated);
+    const updated = await this.dependencies.repository.reviseProfile(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      (current) => ({ ...current, ...input }),
+    );
+    if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
     return updated;
   }
 
@@ -719,9 +725,12 @@ export class ContentService {
     );
     if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
       throw new CapabilityDeniedError("Session speaker access denied");
-    const updated = { ...session, ...input };
-    await this.recordRevision(authorized, "session", session.id, session.eventId, session);
-    await this.dependencies.repository.updateSession(updated);
+    const updated = await this.dependencies.repository.reviseSession(
+      session.id,
+      this.draftRevision(authorized, session.eventId),
+      (current) => ({ ...current, ...input }),
+    );
+    if (!updated) throw new CapabilityDeniedError("Organizer session access denied");
     return updated;
   }
 
@@ -962,35 +971,23 @@ export class ContentService {
     return asset;
   }
 
-  private async recordRevision(
-    actor: Actor,
-    entityType: "profile" | "session",
-    entityId: string,
-    eventId: string,
-    snapshot: unknown,
-    restoredFromRevisionId?: string,
-  ) {
-    const workspace = await this.dependencies.repository.workspace(eventId);
-    const revisionNumber =
-      Math.max(
-        0,
-        ...(workspace.revisions ?? [])
-          .filter(
-            (revision) => revision.entityType === entityType && revision.entityId === entityId,
-          )
-          .map(({ revisionNumber }) => revisionNumber),
-      ) + 1;
-    await this.dependencies.repository.addRevision({
+  /**
+   * The revision half of an attributed edit: who is editing, when, and on whose behalf.
+   *
+   * The store fills in everything else. Numbering a revision here would mean reading the
+   * highest number and adding one, which two organizers editing the same speaker do
+   * identically and one of them then loses; snapshotting here would mean recording a state
+   * this service read before the write rather than the state the row held when it happened.
+   * Both belong to the operation that writes them (`ContentRevisionDraft`).
+   */
+  private draftRevision(actor: Actor, eventId: string, restoredFromRevisionId?: string) {
+    return {
       id: this.dependencies.newId(),
       eventId,
-      entityType,
-      entityId,
-      revisionNumber,
-      snapshotJson: JSON.stringify(snapshot),
       actorId: actor.id,
       createdAt: this.dependencies.now().toISOString(),
       ...(restoredFromRevisionId ? { restoredFromRevisionId } : {}),
-    });
+    };
   }
 
   async addAssetComment(actor: Actor | null, assetId: string, body: string) {
@@ -1049,41 +1046,32 @@ export class ContentService {
     const revision = await this.dependencies.repository.findRevision(revisionId);
     if (!revision) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, revision.eventId, "content:manage");
+    // A restore is an edit like any other, and takes the same indivisible path: the state it
+    // replaces is recorded by whatever writes the replacement, or neither happens. The identity
+    // columns are taken from the row being restored *into*, never from the snapshot, so a
+    // revision cannot move a profile to another event or hand it to another user.
+    const draft = this.draftRevision(authorized, revision.eventId, revision.id);
     if (revision.entityType === "profile") {
-      const current = await this.dependencies.repository.findProfile(revision.entityId);
-      if (!current) throw new CapabilityDeniedError();
-      await this.recordRevision(
-        authorized,
-        "profile",
-        current.id,
-        current.eventId,
-        current,
-        revision.id,
-      );
       const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
-      await this.dependencies.repository.updateProfile({
-        ...snapshot,
-        id: current.id,
-        eventId: current.eventId,
-        userId: current.userId,
-      });
-    } else {
-      const current = await this.dependencies.repository.findSession(revision.entityId);
-      if (!current) throw new CapabilityDeniedError();
-      await this.recordRevision(
-        authorized,
-        "session",
-        current.id,
-        current.eventId,
-        current,
-        revision.id,
+      const restored = await this.dependencies.repository.reviseProfile(
+        revision.entityId,
+        draft,
+        (current) => ({
+          ...snapshot,
+          id: current.id,
+          eventId: current.eventId,
+          userId: current.userId,
+        }),
       );
+      if (!restored) throw new CapabilityDeniedError();
+    } else {
       const snapshot = JSON.parse(revision.snapshotJson) as ContentSession;
-      await this.dependencies.repository.updateSession({
-        ...snapshot,
-        id: current.id,
-        eventId: current.eventId,
-      });
+      const restored = await this.dependencies.repository.reviseSession(
+        revision.entityId,
+        draft,
+        (current) => ({ ...snapshot, id: current.id, eventId: current.eventId }),
+      );
+      if (!restored) throw new CapabilityDeniedError();
     }
     return this.projected(revision.eventId);
   }

@@ -18,6 +18,7 @@ import {
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { AgendaService } from "../src/application/agenda/agenda-service";
+import type { SpeakerProfile } from "../src/domain/content/content";
 import {
   ContentService,
   SpeakerPhotoInvalidError,
@@ -255,5 +256,158 @@ describe("D1ContentRepository", () => {
     ).rejects.toBeInstanceOf(SpeakerPhotoInvalidError);
     await photoService.clearProfilePhoto(organizer, managedProfile.id);
     expect(await repository.findProfile(managedProfile.id)).not.toHaveProperty("photoAssetId");
+  });
+});
+
+/**
+ * Attributed history against real D1, where the guarantees actually live.
+ *
+ * A revision and the edit it describes used to be two calls, and a database is the only place
+ * that can prove they are now one: a memory repository has no constraint to violate halfway
+ * through, and no second writer to lose a race to. Both cases below are the ones issue #116
+ * names — a canonical write that fails after the revision is written, and two editors reaching
+ * for the same revision number — and both assert an outcome rather than the absence of a crash.
+ */
+describe("D1ContentRepository revisions", () => {
+  const eventId = "00000000-0000-4000-8000-000000000001";
+  const profileId = "10000000-0000-4000-8000-000000000001";
+  const sessionId = "20000000-0000-4000-8000-000000000001";
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  /** A migrated, seeded database with a repository and a `ContentService` factory over it. */
+  async function fixture(label: string) {
+    const migrated = await createMigratedDatabase({ label, seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1ContentRepository(database as ContentDatabasePort);
+    const now = () => new Date("2026-08-10T12:00:00.000Z");
+    // Each service gets its own id sequence, so a revision is traceable to the caller that
+    // wrote it even when two of them are in flight at once.
+    const service = (prefix: string) => {
+      let id = 0;
+      return new ContentService({
+        repository,
+        assetStorage: new DeterministicAssetStorage(),
+        proposals: {
+          acceptedProposal: async () => {
+            throw new ProposalNotFoundError();
+          },
+        },
+        agenda: new AgendaService(new D1AgendaRepository(database, now), now, repository),
+        speakerConversion: new D1SpeakerConversion(
+          database,
+          () => crypto.randomUUID(),
+          new D1IdentityDirectory(database),
+        ),
+        newId: () => `${prefix}0000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+        now,
+      });
+    };
+    const revisions = async () =>
+      ((await repository.workspace(eventId)).revisions ?? []).toSorted(
+        (left, right) => left.revisionNumber - right.revisionNumber,
+      );
+    return { repository, service, revisions };
+  }
+
+  it("writes no revision when the canonical update is refused", async () => {
+    const { repository, revisions } = await fixture("content-revision-atomicity");
+    const before = await repository.findProfile(profileId);
+
+    // Driven at the repository because the HTTP contract makes this state unreachable through
+    // the service — which is the point: the constraint is the last line, and this proves the
+    // revision does not survive the write it describes being rolled back.
+    await expect(
+      repository.reviseProfile(
+        profileId,
+        {
+          id: "a0000000-0000-4000-8000-000000000001",
+          eventId,
+          actorId: "seed-organizer",
+          createdAt: "2026-08-10T12:00:00.000Z",
+        },
+        (current) => ({
+          ...current,
+          workflowStatus: "not-a-status" as SpeakerProfile["workflowStatus"],
+        }),
+      ),
+    ).rejects.toThrow(/CHECK constraint failed|D1 content revision failed/);
+
+    expect(await revisions()).toEqual([]);
+    expect(await repository.findProfile(profileId)).toEqual(before);
+  });
+
+  it("gives two concurrent profile edits a number each, and loses neither", async () => {
+    const { repository, service, revisions } = await fixture("content-revision-race");
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    const outcomes = await Promise.all([
+      service("b").updateSpeakerWorkflow(organizer, profileId, {
+        workflowStatus: "ready",
+        logistics: { hotel: "confirmed" },
+        customFields: {},
+      }),
+      service("c").updateSpeakerWorkflow(organizer, profileId, {
+        workflowStatus: "blocked",
+        logistics: {},
+        customFields: { shirt: "M" },
+      }),
+    ]);
+
+    // Neither edit was refused, and neither took the other's number.
+    const history = await revisions();
+    expect(history.map(({ revisionNumber }) => revisionNumber)).toEqual([1, 2]);
+    expect(new Set(history.map(({ id }) => id)).size).toBe(2);
+    expect(history.every(({ actorId }) => actorId === organizer.id)).toBe(true);
+    expect(history.every(({ entityId }) => entityId === profileId)).toBe(true);
+
+    // Whichever edit landed second is the profile; the one it replaced is the second
+    // revision's snapshot, so the organizer who lost the race can still see and restore what
+    // they wrote. That is the difference between an overwrite and a disappearance.
+    const stored = await repository.findProfile(profileId);
+    const replaced = JSON.parse(history[1]?.snapshotJson ?? "{}");
+    expect(outcomes).toContainEqual(stored);
+    expect(outcomes).toContainEqual(replaced);
+    expect(replaced).not.toEqual(stored);
+    expect(JSON.parse(history[0]?.snapshotJson ?? "{}")).toMatchObject({ name: "Sam Speaker" });
+  });
+
+  it("keeps a restore racing an edit in one history, whichever wins", async () => {
+    const { repository, service, revisions } = await fixture("content-revision-restore-race");
+    const organizer = await resolveSeededDemoActor("organizer");
+    const original = await repository.findSession(sessionId);
+    if (!original) throw new Error("Seeded session is missing");
+    const edit = {
+      title: "Designing the calm conference, revised",
+      abstract: original.abstract,
+      format: original.format,
+      speakerProfileIds: [...original.speakerProfileIds],
+      tags: [...original.tags],
+      tracks: [...original.tracks],
+      publicationState: "ready" as const,
+    };
+    await service("d").updateSession(organizer, sessionId, edit);
+    const first = (await revisions())[0];
+    if (!first) throw new Error("The first edit recorded no revision");
+
+    await Promise.all([
+      service("e").restoreRevision(organizer, first.id),
+      service("f").updateSession(organizer, sessionId, { ...edit, publicationState: "draft" }),
+    ]);
+
+    const history = await revisions();
+    expect(history.map(({ revisionNumber }) => revisionNumber)).toEqual([1, 2, 3]);
+    expect(history.filter(({ restoredFromRevisionId }) => restoredFromRevisionId)).toHaveLength(1);
+    expect(history.every(({ actorId }) => actorId === organizer.id)).toBe(true);
+
+    // The last writer owns the session, and the history says which one that was: a restore
+    // last leaves the snapshot it named, an edit last leaves the edit applied on top of it.
+    const stored = await repository.findSession(sessionId);
+    expect(stored).toEqual(
+      history[2]?.restoredFromRevisionId
+        ? original
+        : { ...original, ...edit, publicationState: "draft" },
+    );
   });
 });
