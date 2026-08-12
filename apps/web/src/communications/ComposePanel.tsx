@@ -126,6 +126,12 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       );
     } catch (reason: unknown) {
       // ERROR-INTENT: announced beside the form that produced it, so the draft survives.
+      //
+      // The version number is computed from the list this panel last read, so two organizers
+      // publishing the same key at once both propose the same number and one is refused. Re-read
+      // before reporting: without it the recomputed number would be the same stale one and the
+      // organizer would retry into the identical failure forever.
+      await load();
       feedback.announce("error", readError(reason, "The template could not be saved."));
     } finally {
       setBusy(false);

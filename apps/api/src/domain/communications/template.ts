@@ -27,7 +27,14 @@ export class TemplateValueError extends Error {
   }
 }
 
-const PLACEHOLDER = /\{\{\s*([\w.]+)\s*\}\}/g;
+/**
+ * Any brace-delimited key, not just word characters.
+ *
+ * A narrower pattern would leave `{{speaker-name}}` in the message verbatim instead of refusing
+ * the enqueue, which is precisely the half-rendered message this module exists to prevent —
+ * payload keys are arbitrary strings, so the template author can write one this has to notice.
+ */
+const PLACEHOLDER = /\{\{([^{}]*)\}\}/g;
 
 const resolve = (payload: Readonly<Record<string, unknown>>, key: string): string => {
   if (!Object.hasOwn(payload, key)) throw new TemplatePlaceholderError(key);
@@ -55,7 +62,7 @@ export function renderTemplate(
   payload: Readonly<Record<string, unknown>>,
 ): { subject: string | null; body: string } {
   const substitute = (text: string) =>
-    text.replace(PLACEHOLDER, (_match, key: string) => resolve(payload, key));
+    text.replace(PLACEHOLDER, (_match, key: string) => resolve(payload, key.trim()));
   return {
     subject: template.subject === null ? null : substitute(template.subject),
     body: substitute(template.body),

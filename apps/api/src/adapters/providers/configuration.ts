@@ -63,8 +63,8 @@ const demand = (
   if (missing.length)
     throw new ProviderConfigurationError(
       `COMMUNICATIONS_PROVIDERS=live requires ${missing.join(", ")}. ` +
-        "Set the missing binding(s) as Worker secrets, or leave COMMUNICATIONS_PROVIDERS unset " +
-        "to use the deterministic providers.",
+        "Set the token bindings (EMAIL_API_TOKEN, AIRTABLE_TOKEN, ACCELEVENTS_TOKEN) as Worker " +
+        "secrets and the rest as vars. See docs/engineering/communications-providers.md.",
     );
 };
 
@@ -77,6 +77,28 @@ const demand = (
  * outcome this module exists to prevent.
  */
 const PRODUCTION_NAMES = new Set(["production", "prod", "live"]);
+
+/**
+ * An endpoint that will carry a bearer token has to be an absolute HTTPS URL.
+ *
+ * Presence alone is not enough: a typo'd or `http:` endpoint is accepted as valid configuration
+ * and then either burns three retries per delivery or transmits the credential in clear text.
+ * Both are worth refusing at resolution rather than discovering per delivery.
+ */
+const demandHttpsUrl = (name: keyof ProviderEnvironment, value: string) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    // ERROR-INTENT: the parse failure's own message adds nothing an operator can act on; the
+    // binding name and the requirement do.
+    throw new ProviderConfigurationError(`${name} must be an absolute https:// URL`);
+  }
+  if (url.protocol !== "https:")
+    throw new ProviderConfigurationError(
+      `${name} must use https:; a bearer credential is sent with every request to it`,
+    );
+};
 
 export function resolveProviders(environment: ProviderEnvironment): DeliveryProviders {
   const mode = environment.COMMUNICATIONS_PROVIDERS ?? "fixture";
@@ -104,6 +126,8 @@ export function resolveProviders(environment: ProviderEnvironment): DeliveryProv
     "ACCELEVENTS_API_ENDPOINT",
     "ACCELEVENTS_TOKEN",
   ]);
+  demandHttpsUrl("EMAIL_API_ENDPOINT", environment.EMAIL_API_ENDPOINT as string);
+  demandHttpsUrl("ACCELEVENTS_API_ENDPOINT", environment.ACCELEVENTS_API_ENDPOINT as string);
   return {
     email: new HttpEmailProvider({
       endpoint: environment.EMAIL_API_ENDPOINT as string,

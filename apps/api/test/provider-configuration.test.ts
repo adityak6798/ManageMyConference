@@ -99,6 +99,23 @@ describe("provider selection", () => {
     expect(message).toContain("ACCELEVENTS_TOKEN");
   });
 
+  it.each([
+    ["EMAIL_API_ENDPOINT", "http://mail.test/send"],
+    ["ACCELEVENTS_API_ENDPOINT", "http://accelevents.test/projections"],
+  ])("refuses to send a bearer token to %s over plaintext http", (name, value) => {
+    expect(() => resolveProviders({ ...LIVE, [name]: value })).toThrow(ProviderConfigurationError);
+    expect(() => resolveProviders({ ...LIVE, [name]: value })).toThrow("https:");
+  });
+
+  it.each(["EMAIL_API_ENDPOINT", "ACCELEVENTS_API_ENDPOINT"])(
+    "refuses %s that is not an absolute URL, rather than burning retries on it",
+    (name) => {
+      expect(() => resolveProviders({ ...LIVE, [name]: "/send" })).toThrow(
+        ProviderConfigurationError,
+      );
+    },
+  );
+
   it("rejects a mode it does not recognize instead of guessing", () => {
     expect(() => resolveProviders({ COMMUNICATIONS_PROVIDERS: "real" })).toThrow(
       ProviderConfigurationError,

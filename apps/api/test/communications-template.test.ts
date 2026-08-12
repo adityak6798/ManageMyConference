@@ -37,6 +37,24 @@ describe("template rendering", () => {
     ).toThrow(TemplatePlaceholderError);
   });
 
+  it.each(["{{speaker-name}}", "{{speaker name}}", "{{}}", "{{ }}"])(
+    "notices %s rather than leaving braces in the message",
+    (placeholder) => {
+      // Payload keys are arbitrary strings, so a template author can write a placeholder that a
+      // word-characters-only pattern would skip — and skipping it mails the braces.
+      expect(() => renderTemplate({ subject: null, body: placeholder }, {})).toThrow(
+        TemplatePlaceholderError,
+      );
+    },
+  );
+
+  it("fills a placeholder whose key is not a plain word", () => {
+    expect(
+      renderTemplate({ subject: null, body: "Hi {{speaker-name}}" }, { "speaker-name": "Ada" })
+        .body,
+    ).toBe("Hi Ada");
+  });
+
   it("distinguishes a missing key from a key whose value is empty", () => {
     expect(renderTemplate({ subject: null, body: "[{{note}}]" }, { note: "" }).body).toBe("[]");
   });

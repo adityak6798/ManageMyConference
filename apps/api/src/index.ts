@@ -33,8 +33,12 @@ export interface Environment {
   INITIAL_ORGANIZER_EMAIL?: string;
   ENVIRONMENT?: string;
   /**
-   * `fixture` (the default) or `live`. Everything below is required by `live` and must be set as
-   * Worker secrets, never as plaintext vars. See docs/engineering/communications-providers.md.
+   * `fixture` (the default) or `live`.
+   *
+   * `live` requires everything below except `AIRTABLE_REFERENCE_FIELD`, which defaults. The three
+   * `*_TOKEN` bindings are credentials and must be Worker **secrets**; the endpoints, sender
+   * address and Airtable identifiers are non-secret configuration and belong in vars. See
+   * docs/engineering/communications-providers.md.
    */
   COMMUNICATIONS_PROVIDERS?: string;
   EMAIL_API_ENDPOINT?: string;

@@ -121,6 +121,10 @@ describe("communications outbox", () => {
     expect(record).toMatchObject({ deliveryId: delivery.id, outcome: "succeeded", sequence: 1 });
     expect(JSON.stringify(record)).not.toContain("ada@example.test");
     expect(JSON.stringify(record)).not.toContain("Hello Ada");
+    // Nor the idempotency key: a caller of POST /deliveries chooses it and could key a delivery
+    // by the recipient's address.
+    expect(record).not.toHaveProperty("idempotencyKey");
+    expect(JSON.stringify(record)).not.toContain(delivery.idempotencyKey);
   });
 
   it("refuses a trigger whose payload cannot fill the template it names", async () => {

@@ -147,8 +147,9 @@ const insertDeliveryStatement = (database: Database, delivery: Delivery): Statem
  *
  * The composition root binds it to the database and hands the bound function to the domain that
  * needs it, so that domain never imports this module, never names a communications column, and
- * cannot write a row this repository would not have written. `INSERT OR IGNORE` on the
- * organization-scoped idempotency key keeps a retried command converging on one delivery.
+ * cannot write a row this repository would not have written. The conflict clause on the
+ * organization-scoped idempotency key keeps a retried command converging on one delivery, while
+ * any other constraint failure still fails the caller's batch rather than vanishing from it.
  *
  * @spec PRD-COM-001 ARC-FLOW-002
  */
@@ -190,18 +191,29 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     this.ensure(result, "find template");
     return result.results?.[0] ? templateFromRow(result.results[0]) : null;
   }
+  /**
+   * D1 binds at most 100 parameters per statement, and the organization consumes one of them.
+   *
+   * Worth stating because of *when* it would have bitten: the reload runs after the insert batch
+   * has committed, so a send to a hundred speakers would have queued every delivery and then
+   * answered the organizer with an error. Chunking keeps the read within the limit.
+   */
+  private static readonly RELOAD_CHUNK = 99;
+
   private async byKeys(organizationId: string, keys: readonly string[]) {
-    if (keys.length === 0) return new Map<string, Delivery>();
-    const result = await this.database
-      .prepare(
-        `SELECT ${deliveryColumns} FROM communication_deliveries WHERE organization_id = ? AND idempotency_key IN (${keys.map(() => "?").join(", ")})`,
-      )
-      .bind(organizationId, ...keys)
-      .all<DeliveryRow>();
-    this.ensure(result, "reload enqueued deliveries");
-    return new Map(
-      (result.results ?? []).map((row) => [row.idempotency_key, deliveryFromRow(row)] as const),
-    );
+    const found = new Map<string, Delivery>();
+    for (let start = 0; start < keys.length; start += D1CommunicationsRepository.RELOAD_CHUNK) {
+      const chunk = keys.slice(start, start + D1CommunicationsRepository.RELOAD_CHUNK);
+      const result = await this.database
+        .prepare(
+          `SELECT ${deliveryColumns} FROM communication_deliveries WHERE organization_id = ? AND idempotency_key IN (${chunk.map(() => "?").join(", ")})`,
+        )
+        .bind(organizationId, ...chunk)
+        .all<DeliveryRow>();
+      this.ensure(result, "reload enqueued deliveries");
+      for (const row of result.results ?? []) found.set(row.idempotency_key, deliveryFromRow(row));
+    }
+    return found;
   }
 
   async findByIdempotencyKey(organizationId: string, idempotencyKey: string) {

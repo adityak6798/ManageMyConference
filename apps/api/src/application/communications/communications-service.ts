@@ -205,7 +205,7 @@ export class CommunicationsService implements CommunicationsEnqueue {
             templateKey: template.key,
             templateVersion: template.version,
           },
-          { scopeChecked: true },
+          { scopeChecked: true, template },
         ),
       ),
     );
@@ -267,7 +267,7 @@ export class CommunicationsService implements CommunicationsEnqueue {
 
   private async prepare(
     input: DeliveryRequest,
-    options: { scopeChecked?: boolean } = {},
+    options: { scopeChecked?: boolean; template?: MessageTemplate } = {},
   ): Promise<Delivery> {
     if (
       !options.scopeChecked &&
@@ -277,13 +277,18 @@ export class CommunicationsService implements CommunicationsEnqueue {
       ))
     )
       throw new CommunicationsInputError("Event does not belong to that organization");
-    const template = input.templateKey
-      ? await this.dependencies.repository.findTemplate(
-          input.organizationId,
-          input.templateKey,
-          input.templateVersion,
-        )
-      : null;
+    // A fan-out resolves its template once and passes it in: reading the same row per recipient
+    // would put an avoidable query per speaker between the organizer and their send, and at a
+    // large event that is what exhausts the invocation.
+    const template =
+      options.template ??
+      (input.templateKey
+        ? await this.dependencies.repository.findTemplate(
+            input.organizationId,
+            input.templateKey,
+            input.templateVersion,
+          )
+        : null);
     if (input.templateKey && !template)
       throw new CommunicationsNotFoundError("Template version not found");
     if (input.channel === "email" && !template)

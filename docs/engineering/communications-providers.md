@@ -121,10 +121,15 @@ rewrites the previous ones — the procedure is in
 ## What is not logged
 
 `delivery.attempt` is the only line the outbox emits per provider call. It carries the delivery
-id, idempotency key, channel, trigger type, attempt sequence, normalized outcome, error code and
-provider reference. It deliberately carries **no** recipient, rendered message, payload or
-credential: this goes to a shared sink and the row itself is available under the same
-authorization as the history view.
+id, channel, trigger type, attempt sequence, normalized outcome, error code and provider
+reference. It deliberately carries **no** recipient, rendered message, payload or credential:
+this goes to a shared sink and the row itself is available under the same authorization as the
+history view.
+
+The idempotency key is deliberately **not** logged either, which is worth knowing if you go
+looking for it. `POST /api/communications/deliveries` lets a caller choose that key, so one
+keyed `invite:ada@example.test` would put an address into a shared sink. The delivery id is
+generated here and correlates just as well.
 
 No response body ever reaches an `error_code`. Bodies can echo a recipient address, a record's
 contents, or a token quoted back in an error message, and `error_code` is stored on an immutable
@@ -166,8 +171,25 @@ record the result here:
 3. Confirm the fail-safe first: deploy once with one token deliberately absent. The deploy will
    **succeed** — check the scheduled-invocation log for the thrown error naming the binding, and
    confirm a delivery enqueued in that state stays `queued` and is never sent.
-4. Send one delivery per channel from the organizer console to a sandbox recipient. Confirm each
-   reaches `succeeded` with a provider reference that resolves in that provider's own dashboard.
+4. Send one delivery per channel to a sandbox recipient and confirm each reaches `succeeded` with
+   a provider reference that resolves in that provider's own dashboard. Only email is reachable
+   from the console — the two projection channels have no organizer surface yet (issue #58), so
+   drive them with an authorized `POST /api/communications/deliveries`:
+
+   ```json
+   {
+     "organizationId": "…", "eventId": "…",
+     "idempotencyKey": "smoke:airtable:1",
+     "triggerType": "projection.requested",
+     "channel": "airtable",
+     "recipientRef": "session:smoke-1",
+     "projectionVersion": 1,
+     "payload": { "Title": "Smoke test session" }
+   }
+   ```
+
+   The same body with `"channel": "accelevents"` and a fresh key covers the third. Both require
+   `communications:manage` in the owning organization.
 5. Force each failure mode: an invalid recipient (terminal), a revoked token (terminal 401), a
    deleted Airtable column (terminal 4xx). Confirm the normalized code and that recovery works
    after the cause is fixed.
