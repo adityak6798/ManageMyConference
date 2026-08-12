@@ -1,6 +1,8 @@
 import {
+  type AgendaAssistedDraftDto,
   type AgendaDraftDto,
   type ApiErrorEnvelope,
+  agendaAssistedDraftSchema,
   agendaDraftSchema,
   agendaPlacementSchema,
   agendaResourcesSchema,
@@ -65,6 +67,25 @@ export async function removePlacement(
     method: "DELETE",
   });
   if (!response.ok) await decode(response, agendaDraftSchema);
+}
+
+/**
+ * Ask the API to seat the unscheduled sessions, or the named subset of them.
+ *
+ * One request for the whole pass. Sending a placement per session would put the round-trip
+ * cost back that issue #69 removed, and would let the board show a half-generated draft.
+ */
+export async function autoPlaceSessions(
+  eventId: string,
+  sessionIds: readonly string[] | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<AgendaAssistedDraftDto> {
+  const response = await fetcher(`/api/events/${eventId}/agenda/assisted-placements`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(sessionIds?.length ? { sessionIds } : {}),
+  });
+  return (await decode(response, z.object({ agenda: agendaAssistedDraftSchema }))).agenda;
 }
 
 export async function publishAgenda(eventId: string, fetcher: typeof fetch = fetch) {

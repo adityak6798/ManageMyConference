@@ -11,9 +11,11 @@ import type { Actor } from "../identity/actor";
 export {
   AgendaConflictError,
   AgendaNotFoundError,
+  AgendaPublicationConflictError,
   AgendaResourceInUseError,
   AgendaService,
 } from "./agenda-service";
+export type { SchedulePublishedEvent } from "../../domain/agenda/agenda";
 export type { PublicSchedule } from "./agenda-repository";
 export type { PlacedSessionTime as SessionSchedule } from "../../domain/agenda/agenda";
 

@@ -17,12 +17,14 @@
 ## Identifier backlinks
 
 ### `ACC-AGENDA`
+- `test` / `repository-fact`: [apps/api/test/agenda-http.test.ts](../../apps/api/test/agenda-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-service.test.ts](../../apps/api/test/agenda-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-agenda-repository.integration.test.ts](../../apps/api/test/d1-agenda-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/agenda.spec.ts](../../apps/web/e2e/agenda.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/event-scoped-loading.spec.ts](../../apps/web/e2e/event-scoped-loading.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/agenda-assisted-placement.test.tsx](../../apps/web/test/agenda-assisted-placement.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-failure-feedback.test.tsx](../../apps/web/test/agenda-failure-feedback.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timeslots.test.tsx](../../apps/web/test/agenda-timeslots.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timezone.test.tsx](../../apps/web/test/agenda-timezone.test.tsx)
@@ -277,6 +279,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/agenda.ts](../../apps/api/src/adapters/persistence/schema/agenda.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/agenda-service.ts](../../apps/api/src/application/agenda/agenda-service.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/agenda.ts](../../apps/api/src/domain/agenda/agenda.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/agenda/assisted-placement.ts](../../apps/api/src/domain/agenda/assisted-placement.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/agenda.ts](../../apps/api/src/transport/http/routes/agenda.ts)
 - `code` / `repository-fact`: [apps/web/src/agenda/AgendaWorkspace.tsx](../../apps/web/src/agenda/AgendaWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/agenda/model.ts](../../apps/web/src/agenda/model.ts)

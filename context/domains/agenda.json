@@ -17,6 +17,7 @@
     "apps/api/migrations/0017_agenda.sql",
     "apps/api/migrations/0018_agenda_draft_revision.sql",
     "apps/api/test/agenda-service.test.ts",
+    "apps/api/test/agenda-http.test.ts",
     "apps/api/test/d1-agenda-repository.integration.test.ts",
     "apps/web/src/AgendaWorkspace.tsx",
     "apps/web/src/agenda/AgendaWorkspace.tsx",
@@ -25,6 +26,7 @@
     "apps/web/test/agenda-timezone.test.tsx",
     "apps/web/test/agenda-timeslots.test.tsx",
     "apps/web/test/agenda-failure-feedback.test.tsx",
+    "apps/web/test/agenda-assisted-placement.test.tsx",
     "apps/web/e2e/agenda.spec.ts",
     "apps/api/src/transport/http/routes/agenda.ts",
     "apps/web/src/workspaces/agenda.tsx"
