@@ -140,24 +140,6 @@ feature-by-feature verdict.
   Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: issue
   #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
   plainly it is not implemented.
-- `GAP-014` The public accessibility evidence is a hand-rolled smoke on one page — heading order,
-  landmarks, control labelling and 390px overflow — with no automated ruleset, contrast check, or
-  focus-order check; and what is called a performance budget is two ceilings on
-  `/events/greenroom-demo-summit` — DOMContentLoaded under 10 seconds and fewer than 100 resource
-  requests — measured against the Vite dev server. Impact: `ACC-PUBLIC`'s accessibility and
-  performance claims are narrower than the words "accessible" and "budget" suggest; those two numbers
-  would catch a page that never finished loading or an accidental hundred-request waterfall and
-  nothing subtler, and they bound nothing about a built artifact. Owner: quality. Governing ID:
-  `ACC-PUBLIC`, `TST-006`. Closure: issues #48 and #84 — an automated ruleset across more than one
-  page, and budgets measured against `vite preview` or a deployed artifact.
-- `GAP-015` **Brief feature 6 has no assertion on its rows.** The Overview dashboard renders each
-  speaker with outstanding onboarding work, their task, due date and days overdue, but
-  `apps/web/e2e/lifecycle-demo.spec.ts` asserts only that the heading renders and the jsdom test
-  feeds the page an empty payload. It is also request-scoped rather than pushed, so "real-time" means
-  "current as of the last load". Impact: a regression in the one surface this feature is judged on
-  would pass every gate. Owner: quality. Governing ID: `ACC-SPEAKER`, `TST-006`. Closure: a browser
-  assertion that a seeded speaker with an open task appears in the table with their due date, and an
-  explicit decision on whether live updates are in scope.
 - `GAP-016` The generated OpenAPI document is checked for drift but not served, and there is no API
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable

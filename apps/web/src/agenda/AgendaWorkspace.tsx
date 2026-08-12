@@ -42,7 +42,6 @@ import {
 import "../styles/agenda.css";
 import { IconCalendar, IconCheck, IconClock, IconGrip, IconPlus, IconWarning } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
-
 import {
   byInstant,
   byStart,
@@ -68,6 +67,8 @@ import {
   VIEWS,
   type ViewId,
 } from "./model";
+import { UnscheduledRail } from "./UnscheduledRail";
+import { useSessionSelection } from "./useSessionSelection";
 
 function newAgenda(eventId: string): Draft {
   return {
@@ -85,7 +86,9 @@ function newAgenda(eventId: string): Draft {
 // slot drafts, resource edits, and conflict narration share one atomic agenda draft. Its nested
 // board/list renderers are single-use views of that state, so extracting them would violate issue
 // #70's higher-priority rule against presentational fragments. Pure clock/model logic is isolated
-// in model.ts; no further section owns an independent lifecycle that earns another file.
+// in model.ts, the Unscheduled rail owns its own surface in UnscheduledRail.tsx, and which
+// sessions the assisted pass is for owns its lifecycle in useSessionSelection.ts; no further
+// section owns an independent lifecycle that earns another file.
 export function AgendaWorkspace({
   event,
   onError,
@@ -114,7 +117,11 @@ export function AgendaWorkspace({
   const [unplaced, setUnplaced] = useState<ReadonlyMap<string, string>>(new Map());
   const [carry, setCarryState] = useState<Carry | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null);
-  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  /** Where focus goes after the next render, and whether it may take it from someone. */
+  const [pendingFocus, setPendingFocus] = useState<{
+    readonly id: string;
+    readonly onlyIfDropped?: boolean | undefined;
+  } | null>(null);
   // Typed-but-unsaved timeslot rows, keyed by slot id (and `NEW_SLOT` for the one that
   // has no id yet). A row with no entry here simply shows what the server holds.
   const [slotForms, setSlotForms] = useState<Record<string, SlotForm>>({});
@@ -169,13 +176,52 @@ export function AgendaWorkspace({
     return () => window.removeEventListener("popstate", sync);
   }, []);
 
-  // Focus follows the operator across a re-render: after a drop the card that moved
-  // takes focus, and after a cancel the card that was picked up takes it back.
+  /*
+   * Focus follows the operator across a re-render, in one of two ways.
+   *
+   * Most actions *move* it: picking a session up puts the operator on the grid that can receive
+   * it, dropping one puts them on the card that moved, cancelling gives them back the card they
+   * were holding. That is the default, because in each case the element they pressed is gone or
+   * is no longer where the work is.
+   *
+   * An action that only disabled its own control instead *recovers* focus (`onlyIfDropped`).
+   * The browser drops focus to the body when a focused control is disabled, so a body focus is
+   * the signal that nobody else has taken it. Without that test, an assisted pass finishing
+   * while the operator types in the search box would pull the caret out of the field, and their
+   * next space would press the button it had landed on rather than typing a space.
+   *
+   * Either way, when the named element is gone or still disabled and focus *has* been dropped,
+   * the panel takes it rather than leaving it on the body, where the next Tab would restart at
+   * the top of the console. The panel is read here rather than named when the action started,
+   * because the operator may have changed view while the request was in flight.
+   */
   useEffect(() => {
     if (!pendingFocus) return;
-    document.getElementById(pendingFocus)?.focus();
+    const { id, onlyIfDropped } = pendingFocus;
     setPendingFocus(null);
-  }, [pendingFocus]);
+    const dropped = document.activeElement === null || document.activeElement === document.body;
+    const target = document.getElementById(id);
+    const landable = target && !target.matches(":disabled") ? target : null;
+    if (landable) {
+      if (!onlyIfDropped || dropped) landable.focus();
+      return;
+    }
+    if (dropped) document.getElementById(`panel-${view}`)?.focus();
+  }, [pendingFocus, view]);
+
+  /*
+   * Which sessions the assisted pass may be asked to seat, before any search narrows the rail.
+   *
+   * Read here, above the loading return, because the selection it feeds is a hook and hooks
+   * cannot be conditional. It is also the honest input: a session the organizer has since
+   * placed is no longer selectable, and the selection is narrowed to this list on every read.
+   */
+  const unscheduledIds = useMemo(() => {
+    if (!agenda) return [];
+    const placed = new Set(agenda.placements.map(({ sessionId }) => sessionId));
+    return agenda.sessions.filter(({ id }) => !placed.has(id)).map(({ id }) => id);
+  }, [agenda]);
+  const selection = useSessionSelection(unscheduledIds);
 
   if (!agenda)
     return (
@@ -222,23 +268,24 @@ export function AgendaWorkspace({
     for (const id of [conflict.placementId, conflict.conflictingPlacementId])
       conflictsByPlacement.set(id, [...(conflictsByPlacement.get(id) ?? []), conflict]);
 
-  const placedSessionIds = new Set(draft.placements.map(({ sessionId }) => sessionId));
   const needle = query.trim().toLowerCase();
   /*
    * Everything without a slot, before the search box narrows it.
    *
-   * The assisted pass places every unscheduled session, not the ones currently matching a
-   * search, so the control that starts it has to be enabled from this count. Reading the
-   * filtered list instead made a search for something else disable a button that had plenty
-   * to do, and a search matching one of ten enable a button that then placed all ten.
+   * The assisted pass places every unscheduled session — or every *selected* one — and neither
+   * is "the ones currently matching a search", so the control that starts it is enabled from
+   * this count. Reading the filtered list instead made a search for something else disable a
+   * button that had plenty to do, and a search matching one of ten enable a button that then
+   * placed all ten.
    */
-  const unscheduledCount = draft.sessions.filter(
-    (session) => !placedSessionIds.has(session.id),
-  ).length;
+  const unscheduledCount = unscheduledIds.length;
+  // Filtered from the very list the selection is narrowed against, rather than from a second
+  // copy of the same predicate: two derivations of "unscheduled" can disagree, and the rail
+  // would then offer a tick that could never stay set.
+  const selectable = new Set(unscheduledIds);
   const unscheduled = draft.sessions.filter(
     (session) =>
-      !placedSessionIds.has(session.id) &&
-      (!needle || session.title.toLowerCase().includes(needle)),
+      selectable.has(session.id) && (!needle || session.title.toLowerCase().includes(needle)),
   );
   const sortedPlacements = [...draft.placements].sort((left, right) => {
     const leftSlot = slotOf(left.slotId);
@@ -322,10 +369,13 @@ export function AgendaWorkspace({
     describe: (updated: Draft) => string,
     {
       focusId,
+      /** Recover focus only if the action's own disabling dropped it. See the focus effect. */
+      recoverFocusOnly,
       row,
       explanations,
     }: {
       focusId?: string | undefined;
+      recoverFocusOnly?: boolean | undefined;
       row?: string | undefined;
       /**
        * Assisted-placement reasons this action produced; anything else clears them.
@@ -352,12 +402,22 @@ export function AgendaWorkspace({
       setUnplaced((current) => explanations?.() ?? (current.size ? new Map() : current));
       if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
-      if (focusId) setPendingFocus(focusId);
+      if (focusId) setPendingFocus({ id: focusId, onlyIfDropped: recoverFocusOnly });
     } catch (error) {
       if (!mounted.current) return;
       const message = error instanceof Error ? error.message : "Agenda update failed.";
       feedback.announce("error", message);
       if (row) setRowErrors((current) => ({ ...current, [row]: message }));
+      /*
+       * A refusal always *recovers* focus, whatever the caller asked for on success.
+       *
+       * Nothing moved, so there is nowhere to move focus to — and the operator has had the
+       * length of a request to go somewhere else. Restoring unconditionally here would take the
+       * caret out of the search box they had started typing in, and hand their next keystroke
+       * to whatever card it landed on. What is worth repairing is only the focus the control's
+       * own disabling dropped.
+       */
+      if (focusId) setPendingFocus({ id: focusId, onlyIfDropped: true });
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -367,27 +427,69 @@ export function AgendaWorkspace({
    * Fill the board in one pass, then say what is left and why.
    *
    * One request for the whole pass, so the board never shows a half-generated draft and the
-   * cost does not grow with the number of sessions. What comes back is an ordinary draft:
-   * every card it produced can be dragged, removed, or moved exactly as a hand-placed one,
-   * the conflict panel judges it by the same rules, and nothing is public until the organizer
-   * presses Publish.
+   * cost does not grow with the number of sessions — and a subset costs exactly what the whole
+   * board costs, because it is the same one request and the same one draft revision. What comes
+   * back is an ordinary draft: every card it produced can be dragged, removed, or moved exactly
+   * as a hand-placed one, the conflict panel judges it by the same rules, and nothing is public
+   * until the organizer presses Publish.
+   *
+   * With nothing ticked this seats everything unscheduled, which is what the control says it
+   * will do; with a selection it names those sessions, and the control says that instead.
    */
   function generateDraft() {
-    const before = draft.placements.length;
+    const chosen = selection.count ? [...selection.ids] : undefined;
     let couldNotPlace: readonly { sessionId: string; reason: string }[] = [];
+    let seated = 0;
     return act(
       async () => {
-        const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, undefined);
-        couldNotPlace = reported;
-        return board;
+        try {
+          const { placed, unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
+          couldNotPlace = reported;
+          /*
+           * The server's own answer, not a diff of two boards. Only it can separate what this
+           * pass seated from what another organizer did in the same seconds, and this control
+           * exists to say what it did.
+           */
+          seated = placed.length;
+          return board;
+        } catch (error) {
+          /*
+           * The board this screen is holding has outgrown the server's: either a named session
+           * is gone, or the whole draft is. Both arrive as the same NOT_FOUND, and this request
+           * is refused whole either way, so the message says what is certain — nothing was
+           * placed, and the screen is out of date — instead of naming a cause it cannot know.
+           */
+          if (error instanceof AgendaApiError && error.envelope.error.code === "NOT_FOUND")
+            throw new Error(
+              "The board has changed since it was loaded, so nothing was placed. Reload it, then try again.",
+            );
+          throw error;
+        }
       },
-      (updated) => {
-        const placed = updated.placements.length - before;
-        const seated = placed === 1 ? "Placed 1 session." : `Placed ${placed} sessions.`;
-        if (!couldNotPlace.length) return `${seated} Review the board, then publish when ready.`;
-        return `${seated} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
+      () => {
+        const placed = seated === 1 ? "Placed 1 session." : `Placed ${seated} sessions.`;
+        if (!couldNotPlace.length) return `${placed} Review the board, then publish when ready.`;
+        return `${placed} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
       },
       {
+        // Focus survives the press, and survives a refusal: this control disables itself
+        // while the request is in flight, and a disabled control cannot hold focus. Recovery
+        // only, because the operator may have moved on to the search box meanwhile.
+        focusId: "agenda-assisted-action",
+        recoverFocusOnly: true,
+        /*
+         * This pass's verdicts, and only this pass's.
+         *
+         * A subset pass judged just the sessions it was given, so it is tempting to keep the
+         * notes on the others — and the first review of #119 asked for exactly that. Two later
+         * passes showed why it cannot be done from here: whether those notes are still true
+         * depends on whether the board moved, and this screen cannot tell. A placement, a room,
+         * a slot, or another organizer's edit arrives in the same response, and a reason that
+         * survives the change which disproved it is worse than no reason at all. So the rule
+         * stays the one this map has always followed: a pass replaces the verdicts wholesale,
+         * and a session it was not asked about goes back to saying nothing until something
+         * judges it again.
+         */
         explanations: () =>
           new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason])),
       },
@@ -433,6 +535,13 @@ export function AgendaWorkspace({
       if (!mounted.current) return;
       setMissing(false);
       setAgenda(updated);
+      /*
+       * Adding or removing a time slot is a board change like any other, so the assisted
+       * pass's verdicts go with it. This is the one board-changing path that does not run
+       * through `act`, and leaving the map alone here was how "every room and time slot is
+       * already taken" could survive the operator adding the slot that disproves it.
+       */
+      setUnplaced((current) => (current.size ? new Map() : current));
       // Answered: this row's draft and its refusal both go. Drafts belonging to slots
       // that no longer exist go with them; the rest is still the operator's to save.
       const live = new Set(updated.slots.map(({ id }) => id));
@@ -527,7 +636,7 @@ export function AgendaWorkspace({
         : fallbackRoom && fallbackSlot
           ? cellKey(fallbackRoom.id, fallbackSlot.id)
           : null;
-      if (target) setPendingFocus(`agenda-cell-${target}`);
+      if (target) setPendingFocus({ id: `agenda-cell-${target}` });
     }
     feedback.announce(
       "success",
@@ -537,11 +646,11 @@ export function AgendaWorkspace({
 
   function cancelCarry() {
     if (!carry) return;
-    setPendingFocus(
-      carry.placementId
+    setPendingFocus({
+      id: carry.placementId
         ? `agenda-placement-${carry.placementId}`
         : `agenda-session-${carry.sessionId}`,
-    );
+    });
     feedback.announce("success", `Cancelled. “${carry.title}” was not moved.`);
     setCarry(null);
     setOverCell(null);
@@ -1272,12 +1381,46 @@ export function AgendaWorkspace({
           {zoneLabel}
         </span>
         <span className="agenda-count">
-          {placedSessionIds.size} of {draft.sessions.length} scheduled
+          {draft.sessions.length - unscheduledCount} of {draft.sessions.length} scheduled
         </span>
+        {/* Wherever the rail cannot carry the selection — the Conflicts view has no rail, and
+            a search that matches nothing leaves no group control to put Clear beside — the
+            toolbar carries it instead. Exactly one of the two is ever on screen, so there are
+            never two controls with the same name and different homes. */}
+        {selection.count && (view === "conflicts" || !unscheduled.length) ? (
+          <button
+            type="button"
+            className="secondary small"
+            disabled={busy}
+            onClick={() => {
+              selection.clear();
+              /*
+               * This control leaves with the selection it cleared, so focus is handed on rather
+               * than dropped — and not to the action beside it. Clearing turns that action back
+               * into "Generate draft", so parking focus there would leave a whole-board pass one
+               * space bar away from an operator who had just been narrowing one.
+               *
+               * Where it goes depends on why this hatch is here. With the rail emptied by a
+               * search, the search box is where the operator was. In the Conflicts view there is
+               * no rail at all and that box filters something off screen, so the conflicts panel
+               * takes it. Recovery only, as everywhere else: on a platform where clicking a
+               * button never focused it, nothing was dropped and nothing should be taken.
+               */
+              setPendingFocus({
+                id: view === "conflicts" ? `panel-${view}` : "agenda-search",
+                onlyIfDropped: true,
+              });
+            }}
+          >
+            Clear selection
+          </button>
+        ) : null}
         {/* Sits before Publish because that is the order the work happens in: fill the board,
             look at it, then commit it. Disabled with nothing to place so the control never
-            promises an action that would do nothing. */}
+            promises an action that would do nothing, and named for what it will actually do:
+            the whole board, or exactly the sessions ticked in the rail. */}
         <button
+          id="agenda-assisted-action"
           type="button"
           className="secondary"
           disabled={busy || !unscheduledCount}
@@ -1287,7 +1430,7 @@ export function AgendaWorkspace({
           }}
         >
           <IconCalendar size={15} />
-          Generate draft
+          {selection.count ? `Place ${selection.count} selected` : "Generate draft"}
         </button>
         <button
           type="button"
@@ -1392,82 +1535,35 @@ export function AgendaWorkspace({
         </div>
 
         {view === "conflicts" ? null : (
-          <aside
-            className="agenda-rail"
-            data-over={overCell === "rail" ? "true" : undefined}
-            onDragOver={(event) => {
-              if (!carried.current?.placementId) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setOverCell("rail");
-            }}
-            onDragLeave={() => setOverCell((current) => (current === "rail" ? null : current))}
-            onDrop={(event) => {
-              event.preventDefault();
+          <UnscheduledRail
+            sessions={unscheduled}
+            selection={selection}
+            unplaced={unplaced}
+            heldSessionId={carry?.placementId === null ? carry.sessionId : null}
+            busy={busy}
+            trackId={newTrackId}
+            searching={Boolean(needle)}
+            over={overCell === "rail"}
+            // Read from the ref rather than from state: a native drag fires faster than
+            // React re-renders, so what is being carried is only reliable there.
+            accepts={() => Boolean(carried.current?.placementId)}
+            onOver={(isOver) =>
+              setOverCell((current) => (isOver ? "rail" : current === "rail" ? null : current))
+            }
+            onDropHere={() => {
               const held = carried.current?.placementId;
               const placement = held ? placementOf(held) : undefined;
               if (placement) unschedule(placement);
             }}
-          >
-            <Card
-              labelledBy="agenda-unscheduled"
-              title="Unscheduled"
-              hint={`${unscheduled.length} session${unscheduled.length === 1 ? "" : "s"} without a slot`}
-              tight
-            >
-              {unscheduled.length ? (
-                <div className="agenda-rail-list">
-                  {unscheduled.map((session) => {
-                    const held = carry?.placementId === null && carry.sessionId === session.id;
-                    const reason = unplaced.get(session.id);
-                    const source: Carry = {
-                      sessionId: session.id,
-                      title: session.title,
-                      trackId: newTrackId,
-                      placementId: null,
-                      viaKeyboard: true,
-                    };
-                    return (
-                      <button
-                        key={session.id}
-                        id={`agenda-session-${session.id}`}
-                        type="button"
-                        className="sched-card"
-                        draggable={!busy}
-                        disabled={busy || !newTrackId}
-                        data-carrying={held ? "true" : undefined}
-                        // `aria-label` replaces the content rather than adding to it, so the
-                        // reason has to be repeated here or a screen reader never hears it.
-                        aria-label={`${session.title}. Not scheduled. ${reason ? `${reason} ` : ""}${
-                          held ? "Press Enter to cancel." : "Press Enter to pick this session up."
-                        }`}
-                        onDragStart={(event) => startDrag(event, { ...source, viaKeyboard: false })}
-                        onDragEnd={() => {
-                          setCarry(null);
-                          setOverCell(null);
-                        }}
-                        onKeyDown={onSourceKeys}
-                        onClick={() => (held ? cancelCarry() : pickUp(source))}
-                      >
-                        <span className="sched-title">{session.title}</span>
-                        {reason ? <span className="sched-unplaced">{reason}</span> : null}
-                        <span className="sched-meta">
-                          <IconGrip size={12} />
-                          Drag, or press Enter to place
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState title="Everything is scheduled" icon={<IconCheck size={20} />}>
-                  {query
-                    ? "No unscheduled session matches your search."
-                    : "Every accepted session has a room and a time slot."}
-                </EmptyState>
-              )}
-            </Card>
-          </aside>
+            onPickUp={pickUp}
+            onCancelCarry={cancelCarry}
+            onSourceKeys={onSourceKeys}
+            onStartDrag={startDrag}
+            onDragEnd={() => {
+              setCarry(null);
+              setOverCell(null);
+            }}
+          />
         )}
       </div>
 

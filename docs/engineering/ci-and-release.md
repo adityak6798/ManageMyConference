@@ -137,7 +137,7 @@ Current local verification evidence, measured on 2026-08-11 against the working 
 API tests, 93 web tests, 20 D1 tests, both builds);
 `GREENROOM_WEB_PORT=4373 GREENROOM_API_PORT=9087 npm run test:e2e` passes 30 tests immediately after
 `npm run reset` and 30 again against the same servers with no reset between; `npm run test:quality`
-passes 3. `npm run gate:security` was **not** run in that measurement. The full record, including
+passes 4. `npm run gate:security` was **not** run in that measurement. The full record, including
 what a single-spec invocation does and does not prove, is in the
 [quality scorecard](../quality/scorecard.md).
 

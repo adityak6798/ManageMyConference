@@ -1,17 +1,17 @@
 import {
-  conflictsFor,
-  placedSessionTimes,
   type AgendaDraft,
+  conflictsFor,
   type PlacedSessionTime,
   type Placement,
+  placedSessionTimes,
 } from "../../domain/agenda/agenda";
 import {
-  planAssistedPlacements,
   type AssistedPlacementPlan,
+  planAssistedPlacements,
 } from "../../domain/agenda/assisted-placement";
+import type { AgendaContentQuery } from "../content/public";
 import { type Actor, requireEventCapability } from "../identity/actor";
 import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
-import type { AgendaContentQuery } from "../content/public";
 import type { ContentAgendaInterface } from "./public";
 
 export class AgendaConflictError extends Error {
@@ -128,17 +128,32 @@ export class AgendaService implements ContentAgendaInterface {
      * request and is not part of the stored draft, so re-reading the draft cannot change it.
      */
     let unplaced: AssistedPlacementPlan["unplaced"] = [];
+    let planned: readonly Placement[] = [];
     const persisted = await this.repository.savePlacements(eventId, (current) => {
       const plan = planAssistedPlacements(
         { ...current, sessions: draft.sessions },
         { ...(sessionIds ? { sessionIds } : {}), trackHints },
       );
       unplaced = plan.unplaced;
+      planned = plan.placements;
       return plan.placements;
     });
     if (!persisted) throw new AgendaNotFoundError("Agenda not found");
-    const placed = { ...persisted, sessions: draft.sessions };
-    return { ...placed, conflicts: conflictsFor(placed), unplaced };
+    const board = { ...persisted, sessions: draft.sessions };
+    /*
+     * What this pass seated, told by the only party that can know it — and read off the board
+     * that was actually stored, not off the last plan this request computed.
+     *
+     * The caller cannot work it out: the board in this response also carries whatever another
+     * organizer committed while the request was in flight, so a difference of boards credits
+     * this action with their work. Nor is the plan itself the answer: the repository may run it
+     * more than once behind a compare-and-set, and an attempt that lost the race planned
+     * placements that were never written. A planned placement counts only if the stored board
+     * came back holding it.
+     */
+    const stored = new Set(persisted.placements.map(({ id }) => id));
+    const placed = planned.filter(({ id }) => stored.has(id)).map(({ sessionId }) => sessionId);
+    return { ...board, conflicts: conflictsFor(board), placed, unplaced };
   }
 
   async configure(

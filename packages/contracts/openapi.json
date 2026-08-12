@@ -8785,6 +8785,12 @@
                             ]
                           }
                         },
+                        "placed": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "unplaced": {
                           "type": "array",
                           "items": {
@@ -8816,6 +8822,7 @@
                         "sessions",
                         "placements",
                         "conflicts",
+                        "placed",
                         "unplaced"
                       ]
                     }

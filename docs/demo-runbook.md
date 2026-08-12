@@ -187,7 +187,7 @@ already-checked contract and introduce no authentication mechanism.
 npm run check          # gate:integrity + gate:test-build + gate:d1 — the same three gates CI runs
 npm run test:d1        # the D1 suite on its own (already included in npm run check)
 npm run test:e2e       # full browser acceptance suite — 30 tests (needs `npx playwright install chromium`)
-npm run test:quality   # the fast evaluator gate — 3 tests
+npm run test:quality   # the fast built-artifact evaluator gate — 5 tests
 ```
 
 `npm run check` is a `&&` chain of gate scripts, so what it runs is what CI's `integrity`,
@@ -234,12 +234,13 @@ Re-runnable is not the same as leaving no trace. Each run adds rows it does not 
 `publishing.spec.ts` creates, the abstracts `review-workflow.spec.ts` files, the prospect
 `crm.spec.ts` adds (`DEBT-007`). Run `npm run reset` before demoing to anyone.
 
-`test:quality` checks role-aware journey discovery, that every navigation destination renders,
-public semantics and labels, heading structure, mobile layout with no horizontal overflow, and two
-numbers on `/events/greenroom-demo-summit`: DOMContentLoaded under 10 seconds, and fewer than 100
-resource requests. Those are smoke ceilings, not a performance budget — they would catch a page that
-never finished loading or an accidental hundred-request waterfall, and nothing subtler — and they are
-measured against the Vite dev server, so they bound nothing about a built artifact (`GAP-014`).
+`test:quality` builds the web app, resets the shared fixture, and asks the Worker to serve that
+artifact. It runs axe WCAG A/AA checks over every organizer destination, the reviewer and speaker
+shells, all seven public routes, and all four embeds. It also proves skip links and landmarks, focus
+after client navigation, live navigation destinations, and 390px layout across every organizer and
+public route. On `/events/greenroom-demo-summit`, DOMContentLoaded must stay under 1.5 seconds,
+transferred bytes under 300 KiB, and resource requests under 12. Those ceilings were set after a
+local built-artifact measurement of 55 ms, 166 KiB, and 5 requests.
 
 If a step fails, preserve the displayed correlation reference and the Playwright artifacts under
 `apps/web/test-results/`. Reset before retrying; never repair demo state with manual database edits.

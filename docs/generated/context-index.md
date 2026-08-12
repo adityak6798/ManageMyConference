@@ -26,6 +26,7 @@
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/agenda-assisted-placement.test.tsx](../../apps/web/test/agenda-assisted-placement.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-failure-feedback.test.tsx](../../apps/web/test/agenda-failure-feedback.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/agenda-session-selection.test.tsx](../../apps/web/test/agenda-session-selection.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timeslots.test.tsx](../../apps/web/test/agenda-timeslots.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timezone.test.tsx](../../apps/web/test/agenda-timezone.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -60,7 +61,6 @@
 - `test` / `repository-fact`: [apps/web/e2e/00-seed-state.spec.ts](../../apps/web/e2e/00-seed-state.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
 - `specification` / `normative`: [docs/demo-runbook.md](../../docs/demo-runbook.md)
-- `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -139,10 +139,8 @@
 - `test` / `repository-fact`: [apps/web/test/public-itinerary.test.ts](../../apps/web/test/public-itinerary.test.ts)
 - `test` / `repository-fact`: [apps/web/test/publishing.test.tsx](../../apps/web/test/publishing.test.tsx)
 - `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
-- `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-REVIEW`
@@ -179,7 +177,6 @@
 - `test` / `repository-fact`: [apps/web/test/session-withdrawal.test.tsx](../../apps/web/test/session-withdrawal.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-photo.test.tsx](../../apps/web/test/speaker-photo.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ARC-001`
@@ -303,7 +300,9 @@
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/assisted-placement.ts](../../apps/api/src/domain/agenda/assisted-placement.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/agenda.ts](../../apps/api/src/transport/http/routes/agenda.ts)
 - `code` / `repository-fact`: [apps/web/src/agenda/AgendaWorkspace.tsx](../../apps/web/src/agenda/AgendaWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/agenda/UnscheduledRail.tsx](../../apps/web/src/agenda/UnscheduledRail.tsx)
 - `code` / `repository-fact`: [apps/web/src/agenda/model.ts](../../apps/web/src/agenda/model.ts)
+- `code` / `repository-fact`: [apps/web/src/agenda/useSessionSelection.ts](../../apps/web/src/agenda/useSessionSelection.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/agenda.tsx](../../apps/web/src/workspaces/agenda.tsx)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
