@@ -143,8 +143,42 @@ describe("review D1 persistence", () => {
       correlationId: "retry-correlation",
     });
     await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
-      { completedEvaluationCount: 1, averageScore: 4.5 },
+      { round: 1, completedEvaluationCount: 1, averageScore: 4 },
     ]);
+    const roundTwoAssignment = {
+      id: "20000000-0000-4000-8000-000000000012",
+      eventId,
+      proposalId: completionEvent.proposalId,
+      reviewerId: "seed-reviewer",
+      round: 2,
+      createdAt: "2026-08-10T13:00:00.000Z",
+    };
+    await expect(reviews.createAssignments([roundTwoAssignment])).resolves.toMatchObject([
+      { reviewerId: "seed-reviewer", round: 2 },
+    ]);
+    await reviews.completeEvaluation(
+      {
+        ...evaluation,
+        assignmentId: roundTwoAssignment.id,
+        scores: [{ criterionId: "relevance", value: 2 }],
+      },
+      {
+        ...completionEvent,
+        id: "40000000-0000-4000-8000-000000000012",
+        assignmentId: roundTwoAssignment.id,
+        occurredAt: "2026-08-10T13:30:00.000Z",
+        causationId: roundTwoAssignment.id,
+      },
+    );
+    await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
+      { round: 2, completedEvaluationCount: 1, averageScore: 2 },
+      { round: 1, completedEvaluationCount: 1, averageScore: 4 },
+    ]);
+    await expect(
+      reviews.getEvaluation(evaluation.assignmentId, evaluation.reviewerId),
+    ).resolves.toMatchObject({
+      scores: expect.arrayContaining([expect.objectContaining({ score: 4 })]),
+    });
     const events = await database
       .prepare("SELECT id FROM review_events WHERE assignment_id = ?")
       .bind(evaluation.assignmentId)
@@ -221,7 +255,8 @@ describe("review D1 persistence", () => {
       reviews.getEvaluation(evaluation.assignmentId, evaluation.reviewerId),
     ).resolves.toMatchObject({ state: "completed" });
     await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
-      { completedEvaluationCount: 1, averageScore: 4.5 },
+      { round: 2, completedEvaluationCount: 1, averageScore: 2 },
+      { round: 1, completedEvaluationCount: 1, averageScore: 4 },
     ]);
     // An id that is not there is not an error: the caller has already been told it is gone.
     await expect(

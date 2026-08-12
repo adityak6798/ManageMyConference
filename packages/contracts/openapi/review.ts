@@ -5,6 +5,8 @@
  * fragment, and the aggregate `openapi.json` is still generated from all of them together.
  */
 import {
+  advanceReviewRoundInputSchema,
+  advanceReviewRoundResponseSchema,
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
@@ -117,6 +119,28 @@ export const reviewPaths: OpenApiFragment = {
         201: {
           description: "Distributed assignments",
           content: json(reviewAssignmentsResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/review/rounds",
+      description:
+        "Advances proposals in one status into the next review round without replacing prior work.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewEventParamsSchema,
+        body: { required: true, content: json(advanceReviewRoundInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "Created next-round assignments",
+          content: json(advanceReviewRoundResponseSchema),
         },
         400: errorResponse,
         401: errorResponse,

@@ -408,6 +408,7 @@ describe("the locked evaluation plan", () => {
                     eventId,
                     proposalId: firstId,
                     reviewerId: "seed-reviewer",
+                    round: 1,
                     createdAt: "2026-08-11T09:00:00.000Z",
                   },
                 ]
@@ -465,6 +466,7 @@ describe("the reviewer's queue", () => {
           eventId,
           proposalId: firstId,
           reviewerId: "seed-reviewer",
+          round: 1,
           createdAt: "2026-08-10T09:00:00.000Z",
         },
         proposal: proposal(firstId, "Typed boundaries at scale", {
@@ -491,6 +493,7 @@ describe("the reviewer's queue", () => {
           eventId,
           proposalId: secondId,
           reviewerId: "seed-reviewer",
+          round: 1,
           createdAt: "2026-08-10T09:05:00.000Z",
         },
         proposal: proposal(secondId, "Hallway track", {

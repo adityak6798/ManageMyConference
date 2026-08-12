@@ -20,6 +20,7 @@ export type ReviewAssignment = {
   readonly eventId: string;
   readonly proposalId: string;
   readonly reviewerId: string;
+  readonly round?: number;
   readonly createdAt: string;
 };
 
@@ -49,6 +50,7 @@ export type Evaluation = {
 export type ReviewOutcome = {
   readonly eventId: string;
   readonly proposalId: string;
+  readonly round?: number;
   readonly completedEvaluationCount: number;
   readonly averageScore: number;
   readonly updatedAt: string;

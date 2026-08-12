@@ -32,6 +32,7 @@ type AssignmentRow = {
   event_id: string;
   proposal_id: string;
   reviewer_id: string;
+  round: number;
   created_at: string;
 };
 type ConflictRow = {
@@ -52,6 +53,7 @@ type EvaluationRow = {
 type OutcomeRow = {
   event_id: string;
   proposal_id: string;
+  round: number;
   completed_evaluation_count: number;
   average_score: number;
   updated_at: string;
@@ -80,6 +82,7 @@ const assignment = (row: AssignmentRow): ReviewAssignment => ({
   eventId: row.event_id,
   proposalId: row.proposal_id,
   reviewerId: row.reviewer_id,
+  round: row.round,
   createdAt: row.created_at,
 });
 const evaluation = (row: EvaluationRow): Evaluation => ({
@@ -140,9 +143,16 @@ export class D1ReviewRepository implements ReviewRepository {
         assignments.map((item) =>
           this.database
             .prepare(
-              "INSERT OR IGNORE INTO review_assignments (id, event_id, proposal_id, reviewer_id, created_at) VALUES (?, ?, ?, ?, ?)",
+              "INSERT OR IGNORE INTO review_assignments (id, event_id, proposal_id, reviewer_id, round, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             )
-            .bind(item.id, item.eventId, item.proposalId, item.reviewerId, item.createdAt),
+            .bind(
+              item.id,
+              item.eventId,
+              item.proposalId,
+              item.reviewerId,
+              item.round ?? 1,
+              item.createdAt,
+            ),
         ),
       );
     } catch (error) {
@@ -153,13 +163,72 @@ export class D1ReviewRepository implements ReviewRepository {
     if (results.some((result) => !result.success))
       throw new Error("D1 failed to create review assignments");
     const persisted = await this.listAssignments(assignments[0]?.eventId as string);
-    const requested = new Set(assignments.map((item) => `${item.proposalId}:${item.reviewerId}`));
-    return persisted.filter((item) => requested.has(`${item.proposalId}:${item.reviewerId}`));
+    const requested = new Set(
+      assignments.map((item) => `${item.proposalId}:${item.reviewerId}:${item.round ?? 1}`),
+    );
+    return persisted.filter((item) =>
+      requested.has(`${item.proposalId}:${item.reviewerId}:${item.round}`),
+    );
+  }
+  async createCappedAssignments(
+    assignments: readonly ReviewAssignment[],
+    caps: ReadonlyMap<string, number>,
+  ) {
+    if (!assignments.length) return [];
+    const first = assignments[0] as ReviewAssignment;
+    const reviewers = [...new Set(assignments.map(({ reviewerId }) => reviewerId))];
+    try {
+      const results = await this.database.batch([
+        ...reviewers.map((reviewerId) =>
+          this.database
+            .prepare(
+              "INSERT INTO review_assignment_caps (event_id, reviewer_id, round, assignment_cap) VALUES (?, ?, ?, ?) ON CONFLICT(event_id, reviewer_id, round) DO UPDATE SET assignment_cap = excluded.assignment_cap",
+            )
+            .bind(first.eventId, reviewerId, first.round ?? 1, caps.get(reviewerId)),
+        ),
+        ...assignments.map((item) =>
+          this.database
+            .prepare(
+              "INSERT OR IGNORE INTO review_assignments (id, event_id, proposal_id, reviewer_id, round, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(
+              item.id,
+              item.eventId,
+              item.proposalId,
+              item.reviewerId,
+              item.round ?? 1,
+              item.createdAt,
+            ),
+        ),
+        ...reviewers.map((reviewerId) =>
+          this.database
+            .prepare(
+              "DELETE FROM review_assignment_caps WHERE event_id = ? AND reviewer_id = ? AND round = ?",
+            )
+            .bind(first.eventId, reviewerId, first.round ?? 1),
+        ),
+      ]);
+      if (results.some((result) => !result.success))
+        throw new ReviewStateConflictError("Reviewer assignment cap changed; retry distribution");
+    } catch (error) {
+      if (String(error).includes("REVIEW_ASSIGNMENT_CAP"))
+        throw new ReviewStateConflictError("Reviewer assignment cap changed; retry distribution");
+      if (String(error).includes("REVIEW_PLAN_REQUIRED"))
+        throw new ReviewStateConflictError("Review plan is required");
+      throw error;
+    }
+    const persisted = await this.listAssignments(first.eventId);
+    const requested = new Set(
+      assignments.map((item) => `${item.proposalId}:${item.reviewerId}:${item.round ?? 1}`),
+    );
+    return persisted.filter((item) =>
+      requested.has(`${item.proposalId}:${item.reviewerId}:${item.round}`),
+    );
   }
   async listAssignments(eventId: string, reviewerId?: string) {
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, proposal_id, reviewer_id, created_at FROM review_assignments WHERE event_id = ?${reviewerId ? " AND reviewer_id = ?" : ""} ORDER BY created_at`,
+        `SELECT id, event_id, proposal_id, reviewer_id, round, created_at FROM review_assignments WHERE event_id = ?${reviewerId ? " AND reviewer_id = ?" : ""} ORDER BY round, created_at`,
       )
       .bind(eventId, ...(reviewerId ? [reviewerId] : []))
       .all<AssignmentRow>();
@@ -169,7 +238,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async findAssignment(eventId: string, assignmentId: string) {
     const result = await this.database
       .prepare(
-        "SELECT id, event_id, proposal_id, reviewer_id, created_at FROM review_assignments WHERE event_id = ? AND id = ? LIMIT 1",
+        "SELECT id, event_id, proposal_id, reviewer_id, round, created_at FROM review_assignments WHERE event_id = ? AND id = ? LIMIT 1",
       )
       .bind(eventId, assignmentId)
       .all<AssignmentRow>();
@@ -317,9 +386,9 @@ export class D1ReviewRepository implements ReviewRepository {
           ),
         this.database
           .prepare(
-            "INSERT INTO review_outcomes (event_id, proposal_id, completed_evaluation_count, average_score, updated_at) SELECT ?, ?, COUNT(DISTINCT e.assignment_id), SUM(COALESCE(CAST(json_extract(score.value, '$.value') AS REAL), CAST(json_extract(score.value, '$.score') AS REAL)) * COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)) / SUM(COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)), ? FROM review_evaluations e JOIN review_assignments a ON a.id = e.assignment_id JOIN json_each(e.scores_json) score JOIN review_plans p ON p.event_id = a.event_id JOIN json_each(p.criteria_json) criterion ON json_extract(criterion.value, '$.id') = json_extract(score.value, '$.criterionId') WHERE a.event_id = ? AND a.proposal_id = ? AND e.state = 'completed' AND (COALESCE(json_extract(criterion.value, '$.type'), 'numeric') = 'numeric') ON CONFLICT(event_id, proposal_id) DO UPDATE SET completed_evaluation_count = excluded.completed_evaluation_count, average_score = excluded.average_score, updated_at = excluded.updated_at",
+            "INSERT INTO review_outcomes (event_id, proposal_id, round, completed_evaluation_count, average_score, updated_at) SELECT ?, ?, target.round, COUNT(DISTINCT e.assignment_id), SUM(COALESCE(CAST(json_extract(score.value, '$.value') AS REAL), CAST(json_extract(score.value, '$.score') AS REAL)) * COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)) / SUM(COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)), ? FROM review_assignments target JOIN review_assignments a ON a.event_id = target.event_id AND a.proposal_id = target.proposal_id AND a.round = target.round JOIN review_evaluations e ON e.assignment_id = a.id AND e.state = 'completed' JOIN json_each(e.scores_json) score JOIN review_plans p ON p.event_id = a.event_id JOIN json_each(p.criteria_json) criterion ON json_extract(criterion.value, '$.id') = json_extract(score.value, '$.criterionId') WHERE target.id = ? AND (COALESCE(json_extract(criterion.value, '$.type'), 'numeric') = 'numeric') GROUP BY target.round ON CONFLICT(event_id, proposal_id, round) DO UPDATE SET completed_evaluation_count = excluded.completed_evaluation_count, average_score = excluded.average_score, updated_at = excluded.updated_at",
           )
-          .bind(event.eventId, event.proposalId, event.occurredAt, event.eventId, event.proposalId),
+          .bind(event.eventId, event.proposalId, event.occurredAt, event.assignmentId),
       ]);
     } catch (error) {
       if (String(error).includes("REVIEW_CONFLICT"))
@@ -373,7 +442,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async listOutcomes(eventId: string) {
     const result = await this.database
       .prepare(
-        "SELECT event_id, proposal_id, completed_evaluation_count, average_score, updated_at FROM review_outcomes WHERE event_id = ? ORDER BY average_score DESC, proposal_id",
+        "SELECT event_id, proposal_id, round, completed_evaluation_count, average_score, updated_at FROM review_outcomes WHERE event_id = ? ORDER BY round DESC, average_score DESC, proposal_id",
       )
       .bind(eventId)
       .all<OutcomeRow>();
@@ -381,6 +450,7 @@ export class D1ReviewRepository implements ReviewRepository {
     return (result.results ?? []).map((row) => ({
       eventId: row.event_id,
       proposalId: row.proposal_id,
+      round: row.round,
       completedEvaluationCount: row.completed_evaluation_count,
       averageScore: row.average_score,
       updatedAt: row.updated_at,

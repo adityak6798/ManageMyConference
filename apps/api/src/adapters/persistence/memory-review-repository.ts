@@ -40,6 +40,26 @@ export class MemoryReviewRepository implements ReviewRepository {
     for (const assignment of assignments) this.assignments.set(assignment.id, assignment);
     return assignments;
   }
+  async createCappedAssignments(
+    assignments: readonly ReviewAssignment[],
+    caps: ReadonlyMap<string, number>,
+  ) {
+    const next = [...this.assignments.values(), ...assignments];
+    for (const assignment of assignments) {
+      const cap = caps.get(assignment.reviewerId);
+      if (
+        cap === undefined ||
+        next.filter(
+          (item) =>
+            item.eventId === assignment.eventId &&
+            item.reviewerId === assignment.reviewerId &&
+            (item.round ?? 1) === (assignment.round ?? 1),
+        ).length > cap
+      )
+        throw new ReviewStateConflictError("Reviewer assignment cap changed; retry distribution");
+    }
+    return this.createAssignments(assignments);
+  }
   async listAssignments(eventId: string, reviewerId?: string) {
     return [...this.assignments.values()].filter(
       (assignment) =>
@@ -101,7 +121,21 @@ export class MemoryReviewRepository implements ReviewRepository {
     if (this.evaluations.get(key)?.state !== "completed") this.evaluations.set(key, evaluation);
     if (!this.events.some((item) => item.assignmentId === event.assignmentId))
       this.events.push(event);
-    const completed = await this.listCompletedEvaluations(event.eventId, event.proposalId);
+    const assignment = this.assignments.get(event.assignmentId);
+    const round = assignment?.round ?? 1;
+    const roundAssignmentIds = new Set(
+      [...this.assignments.values()]
+        .filter(
+          (item) =>
+            item.eventId === event.eventId &&
+            item.proposalId === event.proposalId &&
+            (item.round ?? 1) === round,
+        )
+        .map(({ id }) => id),
+    );
+    const completed = (await this.listCompletedEvaluations(event.eventId, event.proposalId)).filter(
+      (item) => roundAssignmentIds.has(item.assignmentId),
+    );
     const plan = this.plans.get(event.eventId);
     const numeric = new Map(
       (plan?.criteria ?? [])
@@ -115,9 +149,10 @@ export class MemoryReviewRepository implements ReviewRepository {
         return typeof value === "number" && weight ? [{ value, weight }] : [];
       }),
     );
-    this.outcomes.set(`${event.eventId}:${event.proposalId}`, {
+    this.outcomes.set(`${event.eventId}:${event.proposalId}:${round}`, {
       eventId: event.eventId,
       proposalId: event.proposalId,
+      round,
       completedEvaluationCount: completed.length,
       averageScore:
         values.reduce((total, item) => total + item.value * item.weight, 0) /

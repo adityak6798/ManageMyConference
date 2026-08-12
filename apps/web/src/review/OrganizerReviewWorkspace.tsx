@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  advanceReviewRound,
   assignReviewer,
   distributeReviewers,
   getOrganizerReview,
@@ -322,6 +323,24 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
       `${proposalIds.length} abstracts distributed across the reviewer team.`,
     );
   };
+  const startNextRound = () => {
+    const fromStatus = data.statuses.find(({ key }) => key === activeTab)?.key;
+    if (!fromStatus) {
+      feedback.announce("error", "Choose one status tab before starting the next round.");
+      return;
+    }
+    // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
+    void act(
+      () =>
+        advanceReviewRound(eventId, {
+          fromStatus,
+          reviewerIds: data.reviewers.map(({ id }) => id),
+          maxAssignmentsPerReviewer: 20,
+          currentRound: Math.max(0, ...data.assignments.map(({ round }) => round)),
+        }),
+      `Proposals in ${labelFor(fromStatus)} advanced to the next review round.`,
+    );
+  };
   const exportCsv = () => {
     const quote = (value: unknown) => {
       const raw = String(value ?? "");
@@ -335,6 +354,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         "Submitter",
         "Co-authors",
         "Status",
+        "Round",
         "Reviewer",
         "State",
         "Aggregate",
@@ -353,27 +373,34 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
             (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; "),
             proposal.status,
             "",
+            "",
             "unassigned",
             "",
+            ...criteria.map(() => ""),
           ]
             .map(quote)
             .join(","),
         );
       for (const assignment of assigned) {
         const evaluation = data.evaluations?.find((item) => item.assignmentId === assignment.id);
-        const outcome = data.outcomes.find((item) => item.proposalId === proposal.id);
+        const outcome = data.outcomes.find(
+          (item) => item.proposalId === proposal.id && item.round === assignment.round,
+        );
         lines.push(
           [
             proposal.title,
             proposal.submitterName,
             (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; "),
             proposal.status,
+            assignment.round,
             reviewerName(assignment.reviewerId),
             evaluation?.state ?? "outstanding",
             outcome?.averageScore ?? "",
-            ...criteria.map(
-              (criterion) =>
-                evaluation?.scores.find((score) => score.criterionId === criterion.id)?.value ?? "",
+            ...criteria.map((criterion) =>
+              (() => {
+                const score = evaluation?.scores.find((item) => item.criterionId === criterion.id);
+                return score?.value ?? score?.score ?? "";
+              })(),
             ),
           ]
             .map(quote)
@@ -436,7 +463,9 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
       <ul className="assigned-reviewers">
         {assigned.map((assignment) => (
           <li key={assignment.id}>
-            <span className="assigned-name">{reviewerName(assignment.reviewerId)}</span>
+            <span className="assigned-name">
+              {reviewerName(assignment.reviewerId)} · round {assignment.round}
+            </span>
             <button
               type="button"
               className="ghost small"
@@ -495,6 +524,14 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
             </button>
             <button type="button" className="secondary small" onClick={exportCsv}>
               Export CSV
+            </button>
+            <button
+              type="button"
+              className="secondary small"
+              disabled={busy || activeTab === "all" || !data.reviewers.length}
+              onClick={startNextRound}
+            >
+              Start next round
             </button>
           </div>
 

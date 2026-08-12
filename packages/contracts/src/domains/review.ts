@@ -126,13 +126,20 @@ export const reviewPlanSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 export const configureReviewPlanInputSchema = z.object({
-  criteria: z.array(reviewCriterionSchema).min(1).max(12),
+  criteria: z
+    .array(reviewCriterionSchema)
+    .min(1)
+    .max(12)
+    .refine((criteria) => criteria.some(({ type }) => !type || type === "numeric"), {
+      message: "At least one numeric criterion is required for the aggregate",
+    }),
 });
 export const reviewAssignmentSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
   proposalId: z.string().uuid(),
   reviewerId: z.string(),
+  round: z.number().int().positive(),
   createdAt: z.string().datetime(),
 });
 export const assignReviewersInputSchema = z.object({
@@ -143,6 +150,13 @@ export const distributeReviewersInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
   reviewerIds: z.array(z.string().trim().min(1)).min(1).max(100),
   maxAssignmentsPerReviewer: z.number().int().positive().max(100),
+  round: z.number().int().positive().optional(),
+});
+export const advanceReviewRoundInputSchema = z.object({
+  fromStatus: proposalStatusSchema,
+  reviewerIds: z.array(z.string().trim().min(1)).min(1).max(100),
+  maxAssignmentsPerReviewer: z.number().int().positive().max(100),
+  currentRound: z.number().int().nonnegative(),
 });
 export const bulkProposalTransitionInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
@@ -160,6 +174,7 @@ export const proposalAuditSchema = z.object({
 export const reviewOutcomeSchema = z.object({
   eventId: z.string().uuid(),
   proposalId: z.string().uuid(),
+  round: z.number().int().positive(),
   completedEvaluationCount: z.number().int().nonnegative(),
   averageScore: z.number(),
   updatedAt: z.string().datetime(),
@@ -240,11 +255,9 @@ export const reviewPlanResponseSchema = z.object({ plan: reviewPlanSchema });
 export const reviewAssignmentsResponseSchema = z.object({
   assignments: z.array(reviewAssignmentSchema),
 });
-export const reviewReminderInputSchema = z.object({
-  reviewerIds: z.array(z.string().trim().min(1)).min(1).max(100),
-});
-export const reviewReminderResponseSchema = z.object({
-  queuedReviewerIds: z.array(z.string()),
+export const advanceReviewRoundResponseSchema = z.object({
+  round: z.number().int().positive(),
+  assignments: z.array(reviewAssignmentSchema),
 });
 /**
  * The assignment that was removed, echoed back so the caller can name it in what it announces.

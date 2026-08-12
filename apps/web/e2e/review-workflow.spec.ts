@@ -537,5 +537,5 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
     .getByRole("row", { name: new RegExp(scored) });
   await expect(combined).toContainText("4");
   await expect(combined).toContainText("1 completed");
-  await expect(combined.getByText("Ravi Reviewer", { exact: true })).toBeVisible();
+  await expect(combined.getByText("Ravi Reviewer · round 1", { exact: true })).toBeVisible();
 });

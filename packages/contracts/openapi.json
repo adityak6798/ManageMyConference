@@ -14866,6 +14866,11 @@
                                       "reviewerId": {
                                         "type": "string"
                                       },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
+                                      },
                                       "createdAt": {
                                         "type": "string",
                                         "format": "date-time"
@@ -14876,6 +14881,7 @@
                                       "eventId",
                                       "proposalId",
                                       "reviewerId",
+                                      "round",
                                       "createdAt"
                                     ]
                                   }
@@ -14893,6 +14899,11 @@
                                         "type": "string",
                                         "format": "uuid"
                                       },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
+                                      },
                                       "completedEvaluationCount": {
                                         "type": "integer",
                                         "minimum": 0
@@ -14908,6 +14919,7 @@
                                     "required": [
                                       "eventId",
                                       "proposalId",
+                                      "round",
                                       "completedEvaluationCount",
                                       "averageScore",
                                       "updatedAt"
@@ -18936,6 +18948,11 @@
                           "reviewerId": {
                             "type": "string"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -18946,6 +18963,7 @@
                           "eventId",
                           "proposalId",
                           "reviewerId",
+                          "round",
                           "createdAt"
                         ]
                       }
@@ -19277,6 +19295,11 @@
                               "reviewerId": {
                                 "type": "string"
                               },
+                              "round": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "exclusiveMinimum": true
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -19287,6 +19310,7 @@
                               "eventId",
                               "proposalId",
                               "reviewerId",
+                              "round",
                               "createdAt"
                             ]
                           },
@@ -19939,6 +19963,11 @@
                     "minimum": 0,
                     "exclusiveMinimum": true,
                     "maximum": 100
+                  },
+                  "round": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true
                   }
                 },
                 "required": [
@@ -19978,6 +20007,11 @@
                           "reviewerId": {
                             "type": "string"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -19988,6 +20022,7 @@
                           "eventId",
                           "proposalId",
                           "reviewerId",
+                          "round",
                           "createdAt"
                         ]
                       }
@@ -20325,6 +20360,11 @@
                         "reviewerId": {
                           "type": "string"
                         },
+                        "round": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true
+                        },
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
@@ -20335,6 +20375,7 @@
                         "eventId",
                         "proposalId",
                         "reviewerId",
+                        "round",
                         "createdAt"
                       ]
                     }
@@ -22221,6 +22262,11 @@
                           "reviewerId": {
                             "type": "string"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -22231,6 +22277,7 @@
                           "eventId",
                           "proposalId",
                           "reviewerId",
+                          "round",
                           "createdAt"
                         ]
                       }
@@ -22248,6 +22295,11 @@
                             "type": "string",
                             "format": "uuid"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "completedEvaluationCount": {
                             "type": "integer",
                             "minimum": 0
@@ -22263,6 +22315,7 @@
                         "required": [
                           "eventId",
                           "proposalId",
+                          "round",
                           "completedEvaluationCount",
                           "averageScore",
                           "updatedAt"
@@ -23225,6 +23278,401 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/review/rounds": {
+      "post": {
+        "description": "Advances proposals in one status into the next review round without replacing prior work.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fromStatus": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[a-z0-9_-]+$"
+                  },
+                  "reviewerIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "maxAssignmentsPerReviewer": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 100
+                  },
+                  "currentRound": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "fromStatus",
+                  "reviewerIds",
+                  "maxAssignmentsPerReviewer",
+                  "currentRound"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created next-round assignments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "round": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "exclusiveMinimum": true
+                    },
+                    "assignments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "reviewerId": {
+                            "type": "string"
+                          },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "proposalId",
+                          "reviewerId",
+                          "round",
+                          "createdAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "round",
+                    "assignments"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {

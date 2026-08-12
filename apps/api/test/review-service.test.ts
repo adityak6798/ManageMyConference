@@ -739,5 +739,67 @@ describe("review workflow", () => {
     ]);
     expect(workspace.outcomes[0]?.averageScore).toBe(3.25);
     expect(workspace.progress?.[0]).toMatchObject({ completed: 1, outstanding: 0 });
+    await expect(
+      service.advanceRound(organizer, eventId, "submitted", [reviewer.id], 1, 1),
+    ).resolves.toMatchObject({
+      round: 2,
+      assignments: [{ proposalId, reviewerId: reviewer.id, round: 2 }],
+    });
+    // Retrying the same command carries the same observed current round and returns the round it
+    // already created instead of silently creating round 3.
+    await expect(
+      service.advanceRound(organizer, eventId, "submitted", [reviewer.id], 1, 1),
+    ).resolves.toMatchObject({
+      round: 2,
+      assignments: [{ proposalId, reviewerId: reviewer.id, round: 2 }],
+    });
+    const history = await service.reviewerQueue(reviewer, eventId);
+    expect(history.map(({ assignment }) => assignment.round)).toEqual([1, 2]);
+    expect(history[0]?.evaluation?.state).toBe("completed");
+  });
+
+  it("refuses a rubric that cannot produce an aggregate", async () => {
+    const { service } = build();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await expect(
+      service.configurePlan(organizer, eventId, [
+        {
+          id: "feedback",
+          name: "Feedback",
+          description: "Rationale",
+          type: "text",
+          maxLength: 500,
+        },
+      ]),
+    ).rejects.toMatchObject({
+      fields: { criteria: ["At least one numeric criterion is required for the aggregate"] },
+    });
+  });
+
+  it("keeps bulk distribution event-scoped and refuses organizer self-assignment", async () => {
+    const organizer = await resolveSeededDemoActor("organizer");
+    const { service } = build({
+      reviewers: [
+        { id: "seed-reviewer", name: "Ravi Reviewer" },
+        { id: organizer.id, name: "Olivia Organizer" },
+      ],
+    });
+    await service.configurePlan(organizer, eventId, [
+      { id: "fit", name: "Fit", description: "", minScore: 1, maxScore: 5 },
+    ]);
+    await expect(
+      service.distribute(organizer, eventId, [proposalId], [organizer.id], 1),
+    ).rejects.toMatchObject({
+      fields: { reviewerIds: ["Distribution cannot assign the organizer to their own event"] },
+    });
+    await expect(
+      service.distribute(
+        organizer,
+        eventId,
+        ["10000000-0000-4000-8000-000000000099"],
+        ["seed-reviewer"],
+        1,
+      ),
+    ).rejects.toBeInstanceOf(ReviewNotFoundError);
   });
 });

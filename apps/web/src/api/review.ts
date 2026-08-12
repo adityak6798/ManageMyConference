@@ -1,4 +1,6 @@
 import {
+  advanceReviewRoundInputSchema,
+  advanceReviewRoundResponseSchema,
   type ApiErrorEnvelope,
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
@@ -90,6 +92,18 @@ export async function distributeReviewers(
       json(distributeReviewersInputSchema.parse(input)),
     ),
     reviewAssignmentsResponseSchema,
+  );
+}
+export async function advanceReviewRound(
+  eventId: string,
+  input: z.input<typeof advanceReviewRoundInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/rounds`,
+      json(advanceReviewRoundInputSchema.parse(input)),
+    ),
+    advanceReviewRoundResponseSchema,
   );
 }
 /**

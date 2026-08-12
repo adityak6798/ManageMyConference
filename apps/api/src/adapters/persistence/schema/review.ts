@@ -69,11 +69,36 @@ export function defineReviewSchema(references: {
       reviewerId: text("reviewer_id")
         .notNull()
         .references(() => references.usersId),
+      round: integer("round").notNull().default(1),
       createdAt: text("created_at").notNull(),
     },
     (table) => [
-      unique("review_assignment_unique").on(table.eventId, table.proposalId, table.reviewerId),
+      check("review_assignments_round", sql`${table.round} > 0`),
+      unique("review_assignment_unique").on(
+        table.eventId,
+        table.proposalId,
+        table.reviewerId,
+        table.round,
+      ),
       index("review_assignments_reviewer_idx").on(table.eventId, table.reviewerId),
+    ],
+  );
+  const reviewAssignmentCaps = sqliteTable(
+    "review_assignment_caps",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      reviewerId: text("reviewer_id")
+        .notNull()
+        .references(() => references.usersId),
+      round: integer("round").notNull(),
+      assignmentCap: integer("assignment_cap").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.reviewerId, table.round] }),
+      check("review_assignment_caps_round", sql`${table.round} > 0`),
+      check("review_assignment_caps_cap", sql`${table.assignmentCap} > 0`),
     ],
   );
   const reviewConflicts = sqliteTable(
@@ -119,11 +144,15 @@ export function defineReviewSchema(references: {
       proposalId: text("proposal_id")
         .notNull()
         .references(() => references.cfpSubmissionsId),
+      round: integer("round").notNull().default(1),
       completedEvaluationCount: integer("completed_evaluation_count").notNull(),
       averageScore: real("average_score").notNull(),
       updatedAt: text("updated_at").notNull(),
     },
-    (table) => [primaryKey({ columns: [table.eventId, table.proposalId] })],
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.proposalId, table.round] }),
+      check("review_outcomes_round", sql`${table.round} > 0`),
+    ],
   );
   // The organizer's acceptance decision. `cfp_submissions.status` carries the workflow state the
   // triage board filters on and organizers may rename; this row is the durable record of who
@@ -181,6 +210,7 @@ export function defineReviewSchema(references: {
     cfpStatuses,
     reviewPlans,
     reviewAssignments,
+    reviewAssignmentCaps,
     reviewConflicts,
     reviewEvaluations,
     reviewOutcomes,
