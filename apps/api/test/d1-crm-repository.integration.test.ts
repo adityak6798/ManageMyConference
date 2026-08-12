@@ -686,9 +686,66 @@ describe("D1 CRM organization directory", () => {
     const after = await repository.findContact(organizationId, priyaDuplicateId);
     expect(after?.name).toBe(stored.name);
     expect(after?.tags).toEqual(stored.tags);
+    // The fields too: the update sent `fields: []`, which is what makes the field DELETE fire,
+    // so asserting only the name and tags would stay green if that statement's guard regressed.
+    expect(after?.fields).toEqual(stored.fields);
     expect(after?.activities.map(({ summary }) => summary)).toEqual(
       stored.activities.map(({ summary }) => summary),
     );
+  });
+
+  it("records an activity for a merged-away contact on the survivor rather than losing it", async () => {
+    const migrated = await migratedRuntime("crm-activity-survivor");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * The one write that must not simply refuse a merged-away contact: by the time outreach
+     * records its entry the message has been delivered and a delivery id returned, so dropping
+     * the entry loses the only trace of a send that really happened.
+     */
+    await database
+      .prepare("UPDATE crm_organization_contacts SET merged_into_id = ? WHERE id = ?")
+      .bind(priyaId, priyaDuplicateId)
+      .run();
+
+    await repository.recordContactActivities(organizationId, [
+      {
+        contactId: priyaDuplicateId,
+        activity: {
+          id: "71000000-0000-4000-8000-0000000000fc",
+          kind: "outreach",
+          summary: 'Sent "speaker-invite" (delivery delivery-1)',
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      },
+    ]);
+
+    const survivor = await repository.findContact(organizationId, priyaId);
+    expect(survivor?.activities.map(({ summary }) => summary)).toContain(
+      'Sent "speaker-invite" (delivery delivery-1)',
+    );
+    // And an id from another organization still records nothing at all.
+    await repository.recordContactActivities(otherOrganizationId, [
+      {
+        contactId: priyaId,
+        activity: {
+          id: "71000000-0000-4000-8000-0000000000fd",
+          kind: "note",
+          summary: "From another organization",
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      },
+    ]);
+    expect(
+      (await repository.findContact(organizationId, priyaId))?.activities.map(
+        ({ summary }) => summary,
+      ),
+    ).not.toContain("From another organization");
   });
 
   it("writes no pipeline row when the directory link is refused", async () => {

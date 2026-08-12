@@ -718,19 +718,77 @@ describe("ACC-CRM organization directory", () => {
     });
     expect(contact.tags).toHaveLength(20);
 
+    const overfilling = ["name,email,tags", "Full Person,full@example.test,brand-new"].join("\n");
+    // The preview says what the commit will do. A capacity check that ran only at commit time
+    // showed a green "update" row and then quietly refused it.
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "overfill.csv",
+      csv: overfilling,
+    });
+    expect(preview.summary).toEqual({ create: 0, update: 0, skip: 1 });
+    expect(preview.rows[0]?.errors.at(-1)).toMatch(/would take full@example.test to 21 tags/);
+
     const result = await service.importContacts(organizer, organizationId, {
       filename: "overfill.csv",
-      csv: ["name,email,tags", "Full Person,full@example.test,brand-new"].join("\n"),
+      csv: overfilling,
     });
     // The row is refused by name, and counted as skipped rather than reported as an update.
     expect(result.record.updatedCount).toBe(0);
     expect(result.record.skippedCount).toBe(1);
-    expect(result.rejected[0]?.errors.at(-1)).toMatch(/would give full@example.test 21 tags/);
+    expect(result.rejected[0]?.errors.at(-1)).toMatch(/would take full@example.test to 21 tags/);
     // Nothing was lost, and nothing was silently added.
     const after = await service.getContact(organizer, organizationId, contact.id);
     expect(after.tags).toHaveLength(20);
     expect(after.tags).toContain("keep-me");
     expect(after.tags).not.toContain("brand-new");
+  });
+
+  it("still accepts a row that adds nothing to a contact already over the limit", async () => {
+    const { service, repository } = setup();
+    /*
+     * A merge unions tags with no cap, so a contact above the limit legitimately exists.
+     * Measuring the *result* rather than the increase refused every later row against that
+     * address — including rows with no tags at all, whose write would have been identical to
+     * what was already stored — and told the organizer the row would do something it does not.
+     */
+    const contact = await contactOf(service, {
+      name: "Overfull",
+      email: "overfull@example.test",
+    });
+    await repository.updateContact({
+      ...contact,
+      tags: Array.from({ length: 25 }, (_, index) => `t${index}`),
+    });
+
+    const result = await service.importContacts(organizer, organizationId, {
+      filename: "correction.csv",
+      csv: ["name,email,company", "Overfull Corrected,overfull@example.test,Northwind"].join("\n"),
+    });
+    expect(result.record.updatedCount).toBe(1);
+    expect(result.record.skippedCount).toBe(0);
+    const after = await service.getContact(organizer, organizationId, contact.id);
+    expect(after.name).toBe("Overfull Corrected");
+    expect(after.tags).toHaveLength(25);
+  });
+
+  it("names both limits when a row breaks both", async () => {
+    const { service, repository } = setup();
+    const contact = await contactOf(service, { name: "Both", email: "both@example.test" });
+    await repository.updateContact({
+      ...contact,
+      tags: Array.from({ length: 20 }, (_, index) => `t${index}`),
+      fields: Array.from({ length: 30 }, (_, index) => ({ key: `k${index}`, value: "v" })),
+    });
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "both.csv",
+      csv: ["name,email,tags,field:brand", "Both,both@example.test,extra,new"].join("\n"),
+    });
+    // Fixing the one a single message named, only to earn a second refusal for the one it did
+    // not, is a poor way to learn what a file needs.
+    expect(preview.rows[0]?.errors).toEqual([
+      "This row would take both@example.test to 21 tags, and a contact may carry 20.",
+      "This row would take both@example.test to 31 custom fields, and a contact may carry 30.",
+    ]);
   });
 
   it("keeps the file's own values when an import enriches a contact", async () => {

@@ -815,7 +815,11 @@ export class D1CrmRepository implements CrmRepository {
      */
     const list = duplicateIds.map(() => "?").join(",");
     const losers = `SELECT id FROM crm_organization_contacts WHERE id IN (${list}) AND organization_id = ?`;
-    const owned = `AND EXISTS (SELECT 1 FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?)`;
+    // `LIVE`, the same clause as everywhere else. It was a weaker, merge-local variant until the
+    // activity insert started using the shared one, at which point a primary merged away
+    // mid-flight let every move land while the record *of* the merge silently vanished — an
+    // irreversible operation with nothing saying it happened. One clause refuses the batch whole.
+    const owned = `AND ${D1CrmRepository.LIVE}`;
     await this.runBatch(
       [
         ...input.aliases.map((alias) =>
@@ -953,15 +957,24 @@ export class D1CrmRepository implements CrmRepository {
     entries: readonly { contactId: string; activity: ContactActivity }[],
   ) {
     if (!entries.length) return;
+    /*
+     * Records onto the survivor, following the merge pointer, rather than onto the id it was
+     * given.
+     *
+     * This is the one write that must not simply refuse a merged-away contact. Its callers have
+     * already done the thing being recorded — `sendOutreach` has a delivery id in hand by the
+     * time it gets here — so dropping the entry loses the only trace of a message that was
+     * genuinely sent. `COALESCE(merged_into_id, id)` lands it where the organizer will look:
+     * the contact the merge kept.
+     */
     await this.runBatch(
       entries.map(({ contactId, activity }) =>
         this.database
           .prepare(
-            `INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,?,?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+            "INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,COALESCE(o.merged_into_id, o.id),?,?,?,?,? FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?",
           )
           .bind(
             activity.id,
-            contactId,
             activity.kind,
             activity.summary,
             activity.private ? 1 : 0,

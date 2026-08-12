@@ -114,7 +114,16 @@ export class MemoryCrmRepository implements CrmRepository {
   async createContact(contact: OrganizationContact) {
     this.contacts.set(contact.id, contact);
   }
+  /**
+   * Refuses the same writes the D1 adapter refuses.
+   *
+   * The guard the deployed adapter applies — this organization's, and not merged away — has to
+   * exist here too, or every service-level test describes writes that production would decline
+   * and only the integration suite can catch a regression in it.
+   */
   async updateContact(contact: OrganizationContact, _activities: readonly ContactActivity[] = []) {
+    const stored = this.contacts.get(contact.id);
+    if (!stored || stored.organizationId !== contact.organizationId || stored.mergedIntoId) return;
     this.contacts.set(contact.id, contact);
   }
   async commitImport(
@@ -194,9 +203,14 @@ export class MemoryCrmRepository implements CrmRepository {
     for (const { contactId, activity } of entries) {
       const contact = this.contacts.get(contactId);
       if (!contact || contact.organizationId !== organizationId) continue;
-      this.contacts.set(contactId, {
-        ...contact,
-        activities: [...contact.activities, activity],
+      // Follows the merge pointer, as the D1 adapter's `COALESCE(merged_into_id, id)` does: the
+      // act being recorded already happened, so the entry lands on the survivor.
+      const target = contact.mergedIntoId
+        ? (this.contacts.get(contact.mergedIntoId) ?? contact)
+        : contact;
+      this.contacts.set(target.id, {
+        ...target,
+        activities: [...target.activities, activity],
       });
     }
   }

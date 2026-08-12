@@ -35,6 +35,51 @@ import {
   SegmentNotFoundError,
 } from "./errors";
 
+/**
+ * What an import row and the contact it updates come to, together.
+ *
+ * The row's own values come first: a file is authoritative about what it names, so where both
+ * carry a key the file wins, and the surviving order reflects that. Shared by the preview and
+ * the commit because the two describing different unions is the defect this whole path keeps
+ * being repaired for.
+ */
+function union(
+  row: ParsedContactRow,
+  existing: OrganizationContact,
+): Pick<OrganizationContact, "tags" | "fields"> {
+  return {
+    tags: [...new Set([...row.tags, ...existing.tags])],
+    fields: [
+      ...row.fields,
+      ...existing.fields.filter(({ key }) => !row.fields.some((field) => field.key === key)),
+    ],
+  };
+}
+
+/**
+ * Why this row cannot be applied to this contact — empty when it can.
+ *
+ * The test is whether the row *increases* the count past the limit, not whether the result
+ * exceeds it. A merge unions tags with no cap, so a contact legitimately sitting above the
+ * limit exists; measuring the result alone refused every later row against that address,
+ * including rows carrying no tags at all, whose write would have been identical to what was
+ * already stored. Both limits are reported when both are broken, because fixing the one the
+ * message named and earning a second refusal for the one it did not is a poor way to learn.
+ */
+function capacityErrors(row: ParsedContactRow, existing: OrganizationContact): string[] {
+  const { tags, fields } = union(row, existing);
+  const errors: string[] = [];
+  if (tags.length > 20 && tags.length > existing.tags.length)
+    errors.push(
+      `This row would take ${row.email} to ${tags.length} tags, and a contact may carry 20.`,
+    );
+  if (fields.length > 30 && fields.length > existing.fields.length)
+    errors.push(
+      `This row would take ${row.email} to ${fields.length} custom fields, and a contact may carry 30.`,
+    );
+  return errors;
+}
+
 export interface CreateProspectCommand {
   eventId: string;
   name: string;
@@ -452,7 +497,20 @@ export class CrmService {
       updatedAt: now,
     };
     await this.dependencies.repository.updateContact(updated, activities);
-    return updated;
+    /*
+     * The stored record, not the one assembled above.
+     *
+     * The write is guarded on the contact still being live, and that check happens inside the
+     * batch, so a merge landing between the read at the top of this method and the write leaves
+     * it applying nothing. Returning the locally-built object then answered 200 with an edit
+     * that does not exist. Re-reading costs one query and makes the response describe storage.
+     */
+    const stored = await this.dependencies.repository.findContact(organizationId, contactId);
+    if (!stored || stored.mergedIntoId)
+      throw new ContactMergeInvalidError(
+        "This contact was merged while it was being edited; edit the primary",
+      );
+    return stored;
   }
 
   /* CSV import. */
@@ -479,10 +537,14 @@ export class CrmService {
       const existing = errors.length
         ? null
         : await this.dependencies.repository.findContactByEmail(organizationId, row.email);
+      // Capacity is decided here, where the preview is built, and not again at commit time.
+      // A check that ran only in the commit made the preview promise an update the write then
+      // refused — and this is the one method whose whole purpose is that those two agree.
+      const refusals = existing ? [...errors, ...capacityErrors(row, existing)] : errors;
       rows.push({
         ...row,
-        errors,
-        action: errors.length ? "skip" : existing ? "update" : "create",
+        errors: refusals,
+        action: refusals.length ? "skip" : existing ? "update" : "create",
       });
     }
     return rows;
@@ -551,8 +613,6 @@ export class CrmService {
     });
     const created: OrganizationContact[] = [];
     const updated: OrganizationContact[] = [];
-    /** Rows the file itself was fine with, but that this directory cannot accept as they are. */
-    const refused: (ParsedContactRow & { action: "create" | "update" | "skip" })[] = [];
     for (const row of preview.rows) {
       if (row.action === "skip") continue;
       const command: CreateContactCommand = {
@@ -579,35 +639,6 @@ export class CrmService {
       // Classified as an update a moment ago, so it exists; a concurrent merge is the only way
       // it could not, and then the row is simply not applied rather than resurrecting a record.
       if (!existing || existing.mergedIntoId) continue;
-      // The row's own values first, because a file is authoritative about what it names.
-      const tags = [...new Set([...row.tags, ...existing.tags])];
-      const fields = [
-        ...row.fields,
-        ...existing.fields.filter(({ key }) => !row.fields.some((field) => field.key === key)),
-      ];
-      /*
-       * A union that would exceed what one contact may carry refuses the row; it does not
-       * truncate it.
-       *
-       * Truncating looked like a cap and behaved like a delete: the sliced list is what the
-       * repository writes, and the write removes every tag and field not in it, so an import
-       * that merely enriched a contact silently destroyed values it never mentioned — and,
-       * because the union put the stored values first, discarded the organizer's new ones
-       * instead. Refusing keeps both, and says which row could not be applied.
-       */
-      if (tags.length > 20 || fields.length > 30) {
-        refused.push({
-          ...row,
-          action: "skip",
-          errors: [
-            ...row.errors,
-            tags.length > 20
-              ? `Applying this row would give ${row.email} ${tags.length} tags, and a contact may carry 20.`
-              : `Applying this row would give ${row.email} ${fields.length} custom fields, and a contact may carry 30.`,
-          ],
-        });
-        continue;
-      }
       updated.push({
         ...existing,
         name: row.name,
@@ -615,8 +646,8 @@ export class CrmService {
         title: row.title ?? existing.title,
         // An import enriches; it never silently erases a note somebody typed here.
         notes: existing.notes ?? row.notes,
-        tags,
-        fields,
+        // The same union the preview measured, from the same function.
+        ...union(row, existing),
         activities: [...existing.activities, activity(`Updated by import ${input.filename}`)],
         updatedAt: now,
       });
@@ -628,8 +659,7 @@ export class CrmService {
       rowCount: preview.rows.length,
       createdCount: created.length,
       updatedCount: updated.length,
-      // Rows the parser refused, plus the ones only the live directory could refuse.
-      skippedCount: preview.rows.filter(({ action }) => action === "skip").length + refused.length,
+      skippedCount: preview.rows.filter(({ action }) => action === "skip").length,
       importedAt: now,
       importedBy: authorized.id,
     };
@@ -637,7 +667,7 @@ export class CrmService {
     return {
       record,
       contacts: [...created, ...updated],
-      rejected: [...preview.rows.filter(({ action }) => action === "skip"), ...refused],
+      rejected: preview.rows.filter(({ action }) => action === "skip"),
     };
   }
 
