@@ -194,6 +194,140 @@ describe("choosing which sessions an assisted pass seats", () => {
     expect(rail().queryByRole("checkbox", { name: /Opening keynote/ })).toBeNull();
   });
 
+  it("keeps focus in the rail when the control that cleared the selection leaves with it", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    await screen.findByRole("button", { name: "Generate draft" });
+
+    tick("Opening keynote");
+    const clear = rail().getByRole("button", { name: "Clear selection" });
+    clear.focus();
+    fireEvent.click(clear);
+
+    // The button is gone with the selection it cleared. On `document.body`, the next Tab
+    // restarts at the top of the console — so focus lands on the group control instead.
+    expect(document.activeElement).toBe(
+      rail().getByRole("checkbox", { name: /^Select all/ }) as HTMLElement,
+    );
+  });
+
+  it("announces the count politely, without borrowing the action's own live region", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    await screen.findByRole("button", { name: "Generate draft" });
+
+    // Mounted before the change it will announce, or a screen reader hears nothing: ticking a
+    // box otherwise says only "checked", never that the action now means one session.
+    const live = document.querySelector(".agenda-rail-status")?.getAttribute("aria-live");
+    expect(live).toBe("polite");
+    // And it is not a second `status` region: the workspace's action feedback owns that role,
+    // and it reports what an action did rather than what the next one will do.
+    expect(
+      (document.querySelector(".agenda-rail-status") as HTMLElement).getAttribute("role"),
+    ).toBeNull();
+
+    tick("Opening keynote");
+    expect(rail().getByText("1 selected")).toBeTruthy();
+  });
+
+  /*
+   * What a subset pass is allowed to say about the sessions it was not given.
+   *
+   * The explanations in the rail are the verdict of one pass over one board, and the board's
+   * standing rule is that a board change makes every earlier verdict stale. A subset pass makes
+   * that rule sharper in both directions, and both directions are asserted here: a pass that
+   * seated nothing did not move the board, so notes it never judged still hold; a pass that
+   * seated something did, so they do not.
+   */
+  describe("explanations a subset pass did not overturn", () => {
+    const threeSessions = [
+      { id: "session-one", title: "Opening keynote", speakerIds: [] },
+      { id: "session-two", title: "Closing panel", speakerIds: [] },
+      { id: "session-three", title: "Hallway track", speakerIds: [] },
+    ];
+    const full = { ...board, sessions: threeSessions };
+    const seatedOne = {
+      ...full,
+      placements: [
+        {
+          id: "assisted-session-one",
+          sessionId: "session-one",
+          roomId: "room-main",
+          trackId: "track-platform",
+          slotId: "slot-0900",
+        },
+      ],
+    };
+
+    /** Answers each pass from the ids it names, so a subset gets a subset's answer. */
+    function stubPasses(subsetPlaces: boolean) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+          const method = init?.method ?? "GET";
+          if (method === "GET")
+            return Promise.resolve(new Response(JSON.stringify({ agenda: full }), { status: 200 }));
+          const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+          const asked: string[] | undefined = body.sessionIds;
+          const unplaced = (asked ?? ["session-two", "session-three"])
+            .filter((id) => id !== "session-one")
+            .map((sessionId) => ({ sessionId, title: sessionId, reason: NO_ROOM }));
+          // A subset pass either seats nothing (the board stands still) or seats its one
+          // session into a second room the response invents.
+          const placements =
+            asked && subsetPlaces
+              ? [
+                  ...seatedOne.placements,
+                  {
+                    id: `assisted-${asked[0]}`,
+                    sessionId: asked[0] as string,
+                    roomId: "room-main",
+                    trackId: "track-platform",
+                    slotId: "slot-0900",
+                  },
+                ]
+              : seatedOne.placements;
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                agenda: { ...seatedOne, placements, unplaced: asked ? unplaced : unplaced },
+              }),
+              { status: 200 },
+            ),
+          );
+        }),
+      );
+    }
+
+    it("keeps the note on a session it was never asked about, when it seated nothing", async () => {
+      stubPasses(false);
+      render(<AgendaWorkspace event={event} onError={onError} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Generate draft" }));
+      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
+
+      tick("Closing panel");
+      fireEvent.click(action());
+
+      // The pass judged one session and moved nothing. "Hallway track" is exactly as stuck as
+      // it was a moment ago, and taking its reason away would be losing what the organizer is
+      // reading rather than retracting something that stopped being true.
+      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
+    });
+
+    it("drops the others once it has actually moved the board", async () => {
+      stubPasses(true);
+      render(<AgendaWorkspace event={event} onError={onError} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Generate draft" }));
+      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
+
+      tick("Closing panel");
+      fireEvent.click(action());
+
+      // This pass seated something, so the board is not the board those verdicts were about.
+      await waitFor(() => expect(rail().queryAllByText(NO_ROOM)).toHaveLength(0));
+    });
+  });
+
   it("offers no selection control once every session is scheduled", async () => {
     vi.stubGlobal(
       "fetch",

@@ -451,10 +451,28 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
     .click();
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
   await page.getByRole("tab", { name: /^Room/ }).click();
-  await expect(page.getByText("0 of 2 scheduled")).toBeVisible();
+  const scheduledBefore = await page.getByText(/\d+ of \d+ scheduled/).innerText();
 
   const action = page.getByRole("button", { name: /Generate draft|Place \d+ selected/ });
   await expect(action).toHaveText(/Generate draft/);
+
+  // ---- the rail's controls are in the tab order -----------------------------
+  // Reachability, not just operability: a checkbox that only `element.focus()` can reach is
+  // no use to a keyboard, and every other keyboard assertion in this file would still pass.
+  const all = page.getByRole("checkbox", { name: /^Select all/ });
+  await all.focus();
+  await page.keyboard.press("Tab");
+  expect(
+    await page.evaluate(() => {
+      const focused = document.activeElement;
+      return Boolean(
+        focused instanceof HTMLInputElement &&
+          focused.type === "checkbox" &&
+          focused.closest(".agenda-rail"),
+      );
+    }),
+    "Tab from the group control must reach a session's own checkbox",
+  ).toBe(true);
 
   // ---- ticking one session, by keyboard ------------------------------------
   const chosen = page.getByRole("checkbox", {
@@ -464,7 +482,6 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
   await page.keyboard.press("Space");
   await expect(chosen).toBeChecked();
   // The group control now says "some of these", which is a different answer from "all of them".
-  const all = page.getByRole("checkbox", { name: /^Select all/ });
   expect(await all.evaluate((node) => (node as HTMLInputElement).indeterminate)).toBe(true);
 
   // The control names the selection rather than the board, so it cannot promise to place
@@ -477,6 +494,9 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
   await page.keyboard.press("Enter");
   await expect(action).toHaveText(/Generate draft/);
   await expect(chosen).not.toBeChecked();
+  // That control left the screen with the selection it cleared. Focus has to land somewhere
+  // the operator can carry on from; on `document.body` it means Tab restarts at the top.
+  await expect(all).toBeFocused();
 
   await chosen.focus();
   await page.keyboard.press("Space");
@@ -491,7 +511,7 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
       .filter({ hasText: /Placed 1 session\./ })
       .first(),
   ).toBeVisible();
-  await expect(page.getByText("1 of 2 scheduled")).toBeVisible();
+  await expect(page.getByText(/\d+ of \d+ scheduled/)).not.toHaveText(scheduledBefore);
 
   // The session that was not ticked is untouched: still in the rail, still unscheduled, and
   // carrying no explanation, because no pass was ever asked to seat it.

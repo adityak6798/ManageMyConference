@@ -251,10 +251,13 @@ export function AgendaWorkspace({
    * placed all ten.
    */
   const unscheduledCount = unscheduledIds.length;
+  // Filtered from the very list the selection is narrowed against, rather than from a second
+  // copy of the same predicate: two derivations of "unscheduled" can disagree, and the rail
+  // would then offer a tick that could never stay set.
+  const selectable = new Set(unscheduledIds);
   const unscheduled = draft.sessions.filter(
     (session) =>
-      !placedSessionIds.has(session.id) &&
-      (!needle || session.title.toLowerCase().includes(needle)),
+      selectable.has(session.id) && (!needle || session.title.toLowerCase().includes(needle)),
   );
   const sortedPlacements = [...draft.placements].sort((left, right) => {
     const leftSlot = slotOf(left.slotId);
@@ -346,9 +349,13 @@ export function AgendaWorkspace({
       /**
        * Assisted-placement reasons this action produced; anything else clears them.
        *
-       * Read after the action resolves, because the reasons arrive with its response.
+       * Read after the action resolves, because the reasons arrive with its response, and
+       * handed the reasons already on screen so a pass can decide which of them it has
+       * actually invalidated.
        */
-      explanations?: (() => ReadonlyMap<string, string>) | undefined;
+      explanations?:
+        | ((current: ReadonlyMap<string, string>) => ReadonlyMap<string, string>)
+        | undefined;
     } = {},
   ) {
     setBusy(true);
@@ -365,7 +372,7 @@ export function AgendaWorkspace({
        * the verdict of one pass over one board; when the board moves, the verdict is stale
        * whether or not the session it names has moved with it.
        */
-      setUnplaced((current) => explanations?.() ?? (current.size ? new Map() : current));
+      setUnplaced((current) => explanations?.(current) ?? (current.size ? new Map() : current));
       if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
       if (focusId) setPendingFocus(focusId);
@@ -396,21 +403,54 @@ export function AgendaWorkspace({
     const before = draft.placements.length;
     const chosen = selection.count ? [...selection.ids] : undefined;
     let couldNotPlace: readonly { sessionId: string; reason: string }[] = [];
+    let seated = 0;
     return act(
       async () => {
-        const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
-        couldNotPlace = reported;
-        return board;
+        try {
+          const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
+          couldNotPlace = reported;
+          seated = board.placements.length - before;
+          return board;
+        } catch (error) {
+          /*
+           * A named session the API cannot see means this screen has outgrown the board:
+           * someone withdrew it since the draft was read. The request is refused whole, so
+           * nothing was placed — and "the requested resource was not found" would leave the
+           * operator with no idea which resource, or what to do next.
+           */
+          if (
+            chosen &&
+            error instanceof AgendaApiError &&
+            error.envelope.error.code === "NOT_FOUND"
+          )
+            throw new Error(
+              "One of the selected sessions is no longer available. Reload the board, then try again.",
+            );
+          throw error;
+        }
       },
-      (updated) => {
-        const placed = updated.placements.length - before;
-        const seated = placed === 1 ? "Placed 1 session." : `Placed ${placed} sessions.`;
-        if (!couldNotPlace.length) return `${seated} Review the board, then publish when ready.`;
-        return `${seated} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
+      () => {
+        const placed = seated === 1 ? "Placed 1 session." : `Placed ${seated} sessions.`;
+        if (!couldNotPlace.length) return `${placed} Review the board, then publish when ready.`;
+        return `${placed} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
       },
       {
-        explanations: () =>
-          new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason])),
+        /*
+         * This pass's verdicts, plus the ones it did not overturn.
+         *
+         * A pass over the whole board re-judges every unscheduled session, so its answer is
+         * the complete answer and replaces what was there. A pass over a *subset* judged only
+         * the sessions it was given: if it seated none of them the board did not move, so the
+         * notes on the sessions it was never asked about are exactly as true as they were a
+         * moment ago and keeping them is the honest thing to do. If it did seat something the
+         * board moved, and the rule this map has always followed applies — every earlier
+         * verdict is stale, whether or not the session it names moved with it.
+         */
+        explanations: (current) => {
+          const judged = new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason]));
+          if (!chosen || seated) return judged;
+          return new Map([...current, ...judged]);
+        },
       },
     );
   }
@@ -1295,11 +1335,31 @@ export function AgendaWorkspace({
         <span className="agenda-count">
           {placedSessionIds.size} of {draft.sessions.length} scheduled
         </span>
+        {/* The Conflicts view is the one view without the rail, so it is also the one view
+            where the selection the button names cannot be seen or undone. The escape hatch
+            appears there and only there: two "Clear selection" controls on one screen would
+            be two controls with the same name and different homes. */}
+        {view === "conflicts" && selection.count ? (
+          <button
+            type="button"
+            className="secondary small"
+            disabled={busy}
+            onClick={() => {
+              selection.clear();
+              // This control leaves with the selection it cleared, so focus is handed to the
+              // action it was about rather than dropped on the document.
+              setPendingFocus("agenda-assisted-action");
+            }}
+          >
+            Clear selection
+          </button>
+        ) : null}
         {/* Sits before Publish because that is the order the work happens in: fill the board,
             look at it, then commit it. Disabled with nothing to place so the control never
             promises an action that would do nothing, and named for what it will actually do:
             the whole board, or exactly the sessions ticked in the rail. */}
         <button
+          id="agenda-assisted-action"
           type="button"
           className="secondary"
           disabled={busy || !unscheduledCount}

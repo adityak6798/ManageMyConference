@@ -45,20 +45,19 @@ export function useSessionSelection(selectable: readonly string[]): SessionSelec
    * again would return it pre-ticked — a selection the organizer never made, on the one control
    * whose whole job is to say exactly what it will act on.
    *
-   * Keyed on the ids themselves rather than on the array, because the board rebuilds this list
-   * on every render and only a change to *which* sessions are unscheduled is news here. It is
-   * serialized rather than joined: an id is an arbitrary string, and any separator could be
-   * inside one.
+   * The caller is expected to memoise `selectable` on the draft it came from, which is what
+   * makes this run when the board changes rather than on every keystroke. It stays correct
+   * either way: a fresh array each render re-runs the body, and an unchanged selection returns
+   * the same set, which React bails out on rather than re-rendering.
    */
-  const key = JSON.stringify(selectable);
   useEffect(() => {
-    const live = new Set(JSON.parse(key) as string[]);
+    const live = new Set(selectable);
     setChosen((current) => {
       const kept = [...current].filter((id) => live.has(id));
       // Same set, same reference: an unchanged selection must not re-render the board.
       return kept.length === current.size ? current : new Set(kept);
     });
-  }, [key]);
+  }, [selectable]);
 
   // Narrowed on read rather than only in the effect, so no render can ever count or send a
   // session that is already on the board — not even the one before the effect above runs.

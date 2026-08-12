@@ -16,6 +16,7 @@
  * moves something now — so the two live in separate controls with separate names.
  */
 
+import { useRef } from "react";
 import { IconCheck, IconGrip } from "../ui/icons";
 import { Card, EmptyState } from "../ui/primitives";
 import type { Carry } from "./model";
@@ -70,10 +71,19 @@ export function UnscheduledRail({
   const hidden = selection.ids.filter((id) => !listed.has(id)).length;
   const allListed = sessions.length > 0 && sessions.every(({ id }) => selection.isSelected(id));
   const someListed = sessions.some(({ id }) => selection.isSelected(id));
+  // Clearing takes the control that did it off the screen, and a control that removes itself
+  // leaves keyboard focus on `document.body` — which on this page means Tab restarts at the
+  // top of the console. Focus lands on the group control instead, or on the rail itself when
+  // a search has left nothing to group.
+  const group = useRef<HTMLInputElement | null>(null);
+  const rail = useRef<HTMLElement | null>(null);
 
   return (
     <aside
+      ref={rail}
       className="agenda-rail"
+      // Only a focus target for the recovery above; it is never in the tab order.
+      tabIndex={-1}
       data-over={over ? "true" : undefined}
       onDragOver={(event) => {
         if (!accepts()) return;
@@ -105,6 +115,7 @@ export function UnscheduledRail({
                   // Partly-ticked is a real third state, and saying it is the difference
                   // between "all of these" and "some of these" for a screen-reader user.
                   ref={(node) => {
+                    group.current = node;
                     if (node) node.indeterminate = !allListed && someListed;
                   }}
                   onChange={(event) =>
@@ -120,25 +131,41 @@ export function UnscheduledRail({
               </label>
             ) : null}
             {selection.count ? (
-              <>
-                <span className="agenda-rail-chosen">{selection.count} selected</span>
-                <button
-                  type="button"
-                  className="secondary small"
-                  disabled={busy}
-                  onClick={selection.clear}
-                >
-                  Clear selection
-                </button>
-              </>
+              <button
+                type="button"
+                className="secondary small agenda-rail-clear"
+                disabled={busy}
+                onClick={() => {
+                  selection.clear();
+                  (group.current ?? rail.current)?.focus();
+                }}
+              >
+                Clear selection
+              </button>
             ) : null}
           </div>
         ) : null}
 
-        {hidden ? (
-          <p className="agenda-rail-hidden">
-            {hidden === 1 ? "1 selected session is" : `${hidden} selected sessions are`} hidden by
-            your search, and will still be placed.
+        {/*
+         * Mounted whenever the rail is, and only its text changes, because a live region has
+         * to be on the page before the change it is announcing. Ticking a box otherwise says
+         * only "checked" — never that the toolbar action now means one session instead of the
+         * whole board, which is the very promise this affordance exists to keep.
+         *
+         * `aria-live` without `role="status"` on purpose: the workspace's action feedback is
+         * the page's one `status` region, and it reports what an action *did*.
+         */}
+        {sessions.length || selection.count ? (
+          <p className="agenda-rail-status" aria-live="polite">
+            {selection.count ? (
+              <span className="agenda-rail-chosen">{selection.count} selected</span>
+            ) : null}
+            {hidden ? (
+              <span className="agenda-rail-hidden">
+                {hidden === 1 ? "1 selected session is" : `${hidden} selected sessions are`} hidden
+                by your search, and will still be placed.
+              </span>
+            ) : null}
           </p>
         ) : null}
 
