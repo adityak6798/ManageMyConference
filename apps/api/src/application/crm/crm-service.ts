@@ -10,10 +10,11 @@ import {
 } from "../../domain/crm/contact";
 import {
   MAX_IMPORT_ROWS,
-  parseContactCsv,
   type ParsedContactRow,
+  parseContactCsv,
 } from "../../domain/crm/contact-import";
 import type { Prospect, ProspectActivity, ProspectStage } from "../../domain/crm/prospect";
+import type { SpeakerConversionPort } from "../content/speaker-conversion";
 import {
   type Actor,
   CapabilityDeniedError,
@@ -21,9 +22,7 @@ import {
   requireEventCapability,
 } from "../identity/actor";
 import type { AssignableOwner, IdentityDirectory } from "../identity/identity-directory";
-import type { SpeakerConversionPort } from "../content/speaker-conversion";
 import type { CrmRepository, ProspectFilters } from "./crm-repository";
-import type { OutreachDispatchPort } from "./outreach-dispatch";
 import {
   ContactEmailTakenError,
   ContactImportInvalidError,
@@ -38,6 +37,7 @@ import {
   SegmentNameTakenError,
   SegmentNotFoundError,
 } from "./errors";
+import type { OutreachDispatchPort } from "./outreach-dispatch";
 
 /**
  * What an import row and the contact it updates come to, together.
@@ -1012,6 +1012,27 @@ export class CrmService {
     const now = this.dependencies.now().toISOString();
     let prospectId = existing?.prospectId;
     if (!prospectId) {
+      const tracked = await this.dependencies.repository.findByPrimaryEmail(
+        command.eventId,
+        normalizeEmail(contact.email),
+      );
+      if (tracked) {
+        await this.dependencies.repository.linkContactToExistingProspect({
+          contact,
+          prospect: tracked,
+          activity: {
+            id: this.dependencies.newId(),
+            kind: "note",
+            summary: `Already tracked on event ${command.eventId}; linked existing prospect`,
+            private: false,
+            occurredAt: now,
+            actorId: authorized.id,
+          },
+        });
+        prospectId = tracked.id;
+      }
+    }
+    if (!prospectId) {
       const prospect: Prospect = {
         id: this.dependencies.newId(),
         eventId: command.eventId,
@@ -1061,33 +1082,20 @@ export class CrmService {
     const prospect = command.convert
       ? await this.convert(authorized, command.eventId, prospectId, correlationId)
       : await this.get(authorized, command.eventId, prospectId);
-    /*
-     * Recorded once per contact and event, however many pushes race.
-     *
-     * Two concurrent pushes both read `existing.speakerId` as null; the prospect conversion
-     * converges through its own idempotency key, but the directory-side entry was appended by
-     * both, leaving one conversion claimed twice on a timeline. Re-reading the contact and
-     * checking for the entry narrows the window; the summary names the event, so a repeat is
-     * recognisable rather than merely likely-looking.
-     */
-    const conversionNote = `Converted to a speaker on event ${command.eventId}`;
-    const alreadyRecorded = (
-      await this.getContact(authorized, organizationId, contactId)
-    ).activities.some((entry) => entry.kind === "conversion" && entry.summary === conversionNote);
-    if (command.convert && prospect.speakerId && !alreadyRecorded)
-      await this.dependencies.repository.recordContactActivities(organizationId, [
+    // The repository makes this insert-if-absent atomic, so concurrent pushes converge here as
+    // well as at the speaker-conversion boundary.
+    if (command.convert && prospect.speakerId)
+      await this.dependencies.repository.recordContactConversion(
+        organizationId,
+        contact.id,
+        command.eventId,
         {
-          contactId: contact.id,
-          activity: {
-            id: this.dependencies.newId(),
-            kind: "conversion",
-            summary: conversionNote,
-            private: false,
-            occurredAt: this.dependencies.now().toISOString(),
-            actorId: authorized.id,
-          },
+          id: this.dependencies.newId(),
+          private: false,
+          occurredAt: this.dependencies.now().toISOString(),
+          actorId: authorized.id,
         },
-      ]);
+      );
     return {
       contact: await this.getContact(authorized, organizationId, contactId),
       prospect,

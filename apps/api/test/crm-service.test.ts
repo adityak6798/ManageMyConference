@@ -9,9 +9,9 @@ import {
 } from "../src/application/crm/errors";
 import type { OutreachMessage } from "../src/application/crm/outreach-dispatch";
 import {
-  CapabilityDeniedError,
   type Actor,
   type Capability,
+  CapabilityDeniedError,
 } from "../src/application/identity/actor";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -498,6 +498,83 @@ describe("ACC-CRM organization directory", () => {
     expect(createOrLink).toHaveBeenCalledTimes(1);
     expect(again.contact.events).toHaveLength(1);
     expect(again.contact.activities.filter(({ kind }) => kind === "conversion")).toHaveLength(1);
+  });
+
+  it("adopts an event prospect with the same normalized address instead of duplicating it", async () => {
+    const { service, repository, createOrLink } = setup();
+    const tracked = await service.create(organizer, {
+      eventId,
+      name: "Ada before the directory",
+      ownerId: organizer.id,
+      nextAction: "Keep the original provenance",
+      contact: { name: "Ada Rivera", email: "  ADA@Example.Test " },
+    });
+    const contact = await contactOf(service, {
+      name: "Dr. Ada Rivera",
+      email: "ada@example.test",
+    });
+
+    const pushed = await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: organizer.id, convert: true },
+      "correlation-adopt",
+    );
+
+    expect(pushed.prospect).toMatchObject({
+      id: tracked.id,
+      name: tracked.name,
+      ownerId: tracked.ownerId,
+      nextAction: tracked.nextAction,
+    });
+    expect(await service.list(organizer, eventId, {})).toHaveLength(1);
+    expect(pushed.contact.events).toEqual([
+      expect.objectContaining({ eventId, prospectId: tracked.id }),
+    ]);
+    expect(pushed.contact.activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "note",
+          summary: `Already tracked on event ${eventId}; linked existing prospect`,
+        }),
+      ]),
+    );
+    expect(createOrLink).toHaveBeenCalledWith(
+      expect.objectContaining({ source: { kind: "crm-prospect", id: tracked.id } }),
+    );
+    await expect(
+      repository.linkContactToExistingProspect({
+        contact: pushed.contact,
+        prospect: pushed.prospect,
+        activity: {
+          id: "71000000-0000-4000-8000-000000000099",
+          kind: "note",
+          summary: "Duplicate link must not land",
+          private: false,
+          occurredAt: "2026-08-12T12:00:00.000Z",
+          actorId: organizer.id,
+        },
+      }),
+    ).rejects.toThrow("already in that event's pipeline");
+    const otherContact = await contactOf(service, {
+      name: "Another Ada",
+      email: "another-ada@example.test",
+    });
+    await expect(
+      repository.linkContactToExistingProspect({
+        contact: otherContact,
+        prospect: pushed.prospect,
+        activity: {
+          id: "71000000-0000-4000-8000-000000000098",
+          kind: "note",
+          summary: "Prospect cannot belong to two directory contacts",
+          private: false,
+          occurredAt: "2026-08-12T12:00:00.000Z",
+          actorId: organizer.id,
+        },
+      }),
+    ).rejects.toThrow("already in that event's pipeline");
   });
 
   it("refuses to source a contact into an event outside the organization or outside its reach", async () => {

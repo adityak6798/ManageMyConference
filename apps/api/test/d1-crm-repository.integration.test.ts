@@ -1,15 +1,14 @@
 // @acceptance ACC-CRM
-import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import { D1CrmRepository } from "../src/adapters/persistence/d1-crm-repository";
+import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
 import {
   ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactNotFoundError,
 } from "../src/application/crm/errors";
 import { createMigratedDatabase } from "./support/seeded-d1";
-import { D1CrmRepository } from "../src/adapters/persistence/d1-crm-repository";
-import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const otherEventId = "00000000-0000-4000-8000-000000000002";
@@ -1060,6 +1059,114 @@ describe("D1 CRM organization directory", () => {
         .bind(priyaDuplicateId, eventId, prospect.id, "2026-08-11T12:00:00.000Z")
         .run(),
     ).rejects.toThrow();
+  });
+
+  it("adopts an existing prospect by normalized primary address with link history atomically", async () => {
+    const migrated = await migratedRuntime("crm-adopt-existing");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    const contact = await repository.findContact(organizationId, priyaId);
+    if (!contact) throw new Error("The seeded contact is missing");
+    const tracked = {
+      id: "50000000-0000-4000-8000-0000000000b2",
+      eventId,
+      name: "Priya before the directory",
+      stage: "contacted" as const,
+      ownerId: "seed-organizer",
+      nextAction: "Keep this history",
+      nextActionAt: null,
+      contacts: [
+        {
+          id: "60000000-0000-4000-8000-0000000000b2",
+          name: "Priya Raman",
+          email: "  PRIYA@Example.Test ",
+          isPrimary: true,
+        },
+      ],
+      activities: [],
+      speakerId: null,
+      convertedAt: null,
+      createdAt: "2026-08-01T12:00:00.000Z",
+      updatedAt: "2026-08-01T12:00:00.000Z",
+    };
+    await repository.create(tracked);
+    await expect(
+      repository.findByPrimaryEmail(eventId, "priya@example.test"),
+    ).resolves.toMatchObject({ id: tracked.id });
+    const activity = {
+      id: "71000000-0000-4000-8000-0000000000b2",
+      kind: "note" as const,
+      summary: `Already tracked on event ${eventId}; linked existing prospect`,
+      private: false,
+      occurredAt: "2026-08-11T12:00:00.000Z",
+      actorId: "seed-organizer",
+    };
+
+    const prospectCount = (await repository.list(eventId, {})).length;
+    await database
+      .prepare(
+        "CREATE TRIGGER fail_adoption_activity BEFORE INSERT ON crm_contact_activities WHEN NEW.id='71000000-0000-4000-8000-0000000000b2' BEGIN SELECT RAISE(FAIL, 'injected adoption history failure'); END",
+      )
+      .run();
+    await expect(
+      repository.linkContactToExistingProspect({ contact, prospect: tracked, activity }),
+    ).rejects.toThrow();
+    await expect(repository.findContact(organizationId, priyaId)).resolves.toMatchObject({
+      events: [],
+    });
+    await database.prepare("DROP TRIGGER fail_adoption_activity").run();
+
+    await repository.linkContactToExistingProspect({ contact, prospect: tracked, activity });
+    await expect(
+      repository.linkContactToExistingProspect({
+        contact,
+        prospect: tracked,
+        activity: { ...activity, id: "71000000-0000-4000-8000-0000000000b3" },
+      }),
+    ).rejects.toThrow("already in that event's pipeline");
+
+    await expect(repository.list(eventId, {})).resolves.toHaveLength(prospectCount);
+    await expect(repository.findById(eventId, tracked.id)).resolves.toMatchObject({
+      name: tracked.name,
+      stage: tracked.stage,
+      nextAction: tracked.nextAction,
+    });
+    await expect(repository.findContact(organizationId, priyaId)).resolves.toMatchObject({
+      events: [expect.objectContaining({ eventId, prospectId: tracked.id })],
+      activities: expect.arrayContaining([
+        expect.objectContaining({ id: activity.id, summary: activity.summary }),
+      ]),
+    });
+  });
+
+  it("records one contact conversion when concurrent pushes finish together", async () => {
+    const migrated = await migratedRuntime("crm-contact-conversion-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const activities = [
+      "71000000-0000-4000-8000-0000000000c1",
+      "71000000-0000-4000-8000-0000000000c2",
+    ].map((id) => ({
+      id,
+      private: false,
+      occurredAt: "2026-08-11T12:00:00.000Z",
+      actorId: "seed-organizer",
+    }));
+
+    await Promise.all(
+      activities.map((activity) =>
+        repository.recordContactConversion(organizationId, priyaId, eventId, activity),
+      ),
+    );
+
+    const contact = await repository.findContact(organizationId, priyaId);
+    expect(
+      contact?.activities.filter(
+        ({ kind, summary }) =>
+          kind === "conversion" && summary === `Converted to a speaker on event ${eventId}`,
+      ),
+    ).toHaveLength(1);
   });
 
   it("commits an import as one operation and replaces a contact's tags rather than accreting them", async () => {
