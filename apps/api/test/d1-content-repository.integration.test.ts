@@ -36,6 +36,37 @@ const statements = (sql: string) =>
 describe("D1ContentRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
+  it("projects schedulable and speaker-owned content directly from real D1", async () => {
+    const migrated = await createMigratedDatabase({ label: "content-projections", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1ContentRepository(migrated.database as ContentDatabasePort);
+    const eventId = "00000000-0000-4000-8000-000000000001";
+
+    const schedulable = await repository.listSchedulableSessions(eventId);
+    expect(schedulable.length).toBeGreaterThan(1);
+    expect(schedulable).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "20000000-0000-4000-8000-000000000001",
+          speakerProfileIds: ["10000000-0000-4000-8000-000000000001"],
+        }),
+      ]),
+    );
+
+    const speaker = await repository.workspace(eventId, "seed-speaker");
+    expect(speaker.speakers).toHaveLength(1);
+    expect(speaker.sessions.length).toBeGreaterThan(0);
+    expect(
+      speaker.sessions.every(({ speakerProfileIds }) =>
+        speakerProfileIds.includes("10000000-0000-4000-8000-000000000001"),
+      ),
+    ).toBe(true);
+    expect(
+      [...speaker.tasks, ...speaker.assets, ...speaker.messages].every(
+        ({ speakerProfileId }) => speakerProfileId === "10000000-0000-4000-8000-000000000001",
+      ),
+    ).toBe(true);
+  });
   it("rolls back a failed acceptance and permits a clean retry", async () => {
     const migrated = await createMigratedDatabase({ label: "content", seed: true });
     runtime = migrated.runtime;

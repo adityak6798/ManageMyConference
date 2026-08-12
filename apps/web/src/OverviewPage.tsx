@@ -26,9 +26,10 @@
 
 import type { EventDto } from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AgendaApiError, getAgenda } from "./api/agenda";
-import { getContent } from "./api/content";
-import { getOrganizerReview } from "./api/review";
+import type { getAgenda } from "./api/agenda";
+import type { getContent } from "./api/content";
+import { getOrganizerOverview } from "./api/overview";
+import type { getOrganizerReview } from "./api/review";
 import { useLinkProps } from "./router";
 import {
   IconCalendar,
@@ -56,7 +57,7 @@ type Placed = { startsAt: string; endsAt: string; location: string };
  * failed refresh so a transient blip never blanks a card that has real data in it —
  * and `failed` says whether the most recent read of *this* source did not answer.
  */
-type Panel<T> = { value: T | null; failed: boolean };
+type Panel<T> = { value: T | null; failed: boolean; reason?: unknown };
 
 type Panels = {
   content: Panel<ContentData>;
@@ -134,16 +135,8 @@ function clockTime(at: number) {
  * never provision a draft to make itself renderable. Every other failure is re-thrown so
  * the agenda panel reports itself unavailable.
  */
-async function readAgenda(eventId: string): Promise<AgendaData> {
-  try {
-    const { placements, conflicts, slots, rooms } = await getAgenda(eventId);
-    return { placements, conflicts, slots, rooms };
-  } catch (reason: unknown) {
-    if (reason instanceof AgendaApiError && reason.envelope.error.code === "NOT_FOUND")
-      return { placements: [], conflicts: [], slots: [], rooms: [] };
-    throw reason;
-  }
-}
+const failed = <T,>(reason: unknown): PromiseSettledResult<T> => ({ status: "rejected", reason });
+const fulfilled = <T,>(value: T): PromiseSettledResult<T> => ({ status: "fulfilled", value });
 
 /**
  * Where the *working board* puts each session, keyed by session id.
@@ -185,7 +178,7 @@ function samePlacement(left: Placed | undefined, right: Placed | undefined) {
 function applyResult<T>(panel: Panel<T>, result: PromiseSettledResult<T>): Panel<T> {
   return result.status === "fulfilled"
     ? { value: result.value, failed: false }
-    : { value: panel.value, failed: true };
+    : { value: panel.value, failed: true, reason: result.reason };
 }
 
 /** What a card says when the workspace behind it did not answer. */
@@ -197,21 +190,59 @@ function PanelUnavailable({ what }: { what: string }) {
   );
 }
 
-export function OverviewPage({ event, query }: { event: EventDto; query: string }) {
+export function OverviewPage({
+  event,
+  query,
+  onPublicationChange,
+}: {
+  event: EventDto;
+  query: string;
+  onPublicationChange?: (publication: { slug: string; state: string } | null) => void;
+}) {
   const [dashboard, setDashboard] = useState<Dashboard>(IDLE);
   const linkProps = useLinkProps();
 
-  const load = useCallback(async () => {
-    // One parallel fan-out rather than a per-card waterfall: the overview is the
-    // first paint an evaluator sees and it should settle in a single round trip.
-    // Settled rather than all: each source reports for itself.
-    const [content, review, agenda] = await Promise.allSettled([
-      getContent(event.id),
-      getOrganizerReview(event.id),
-      readAgenda(event.id),
-    ]);
-    return { content, review, agenda };
-  }, [event.id]);
+  const load = useCallback(
+    async (refresh = false) => {
+      let overview: Awaited<ReturnType<typeof getOrganizerOverview>>;
+      try {
+        overview = await getOrganizerOverview(event.id, { refresh });
+      } catch (reason) {
+        // ERROR-INTENT: the request-level failure is converted into the same three rejected
+        // panels as an aggregate whose sources all failed; the page renders that terminal state.
+        return {
+          panels: {
+            content: failed<ContentData>(reason),
+            review: failed<ReviewData>(reason),
+            agenda: failed<AgendaData>(reason),
+          },
+          fetchedAt: Date.now(),
+          publication: null,
+        };
+      }
+      const panel = <T,>(result: { ok: true; data: T } | { ok: false; error: unknown }) =>
+        result.ok ? fulfilled(result.data) : failed<T>(result.error);
+      const agenda =
+        !overview.data.agenda.ok && overview.data.agenda.error.code === "NOT_FOUND"
+          ? fulfilled<AgendaData>({ placements: [], conflicts: [], slots: [], rooms: [] })
+          : panel<AgendaData>(overview.data.agenda);
+      return {
+        panels: {
+          content: panel<ContentData>(overview.data.content),
+          review: panel<ReviewData>(overview.data.review),
+          agenda,
+        },
+        fetchedAt: overview.fetchedAt,
+        publication: overview.data.publication.ok
+          ? {
+              slug: overview.data.publication.data.slug,
+              state: overview.data.publication.data.state,
+            }
+          : null,
+      };
+    },
+    [event.id],
+  );
 
   useEffect(() => {
     let active = true;
@@ -226,10 +257,10 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       const generation = ++issued;
       // ERROR-INTENT: effects cannot await, and load() settles every source rather than
       // rejecting; each source's failure is rendered by the panel that depends on it.
-      void load().then((settled) => {
+      void load(generation > 1).then(({ panels: settled, fetchedAt, publication }) => {
         if (!active || generation <= applied) return;
         applied = generation;
-        const at = Date.now();
+        onPublicationChange?.(publication);
         setDashboard((current) => {
           const panels: Panels = {
             content: applyResult(current.panels.content, settled.content),
@@ -237,7 +268,11 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
             agenda: applyResult(current.panels.agenda, settled.agenda),
           };
           const degraded = panels.content.failed || panels.review.failed || panels.agenda.failed;
-          return { panels, checkedAt: at, freshAt: degraded ? current.freshAt : at };
+          return {
+            panels,
+            checkedAt: fetchedAt,
+            freshAt: degraded ? current.freshAt : fetchedAt,
+          };
         });
       });
     };
@@ -250,7 +285,7 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
       active = false;
       clearInterval(timer);
     };
-  }, [load]);
+  }, [load, onPublicationChange]);
 
   const { content, review, agenda } = dashboard.panels;
   // Recomputed on every read so "overdue" does not go stale while the page is open.
@@ -308,6 +343,9 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
 
   const nothingLoaded = !content.value && !review.value && !agenda.value;
   const anyFailed = content.failed || review.failed || agenda.failed;
+  const requestFailure = [content.reason, review.reason, agenda.reason].find(
+    (reason) => reason instanceof Error,
+  );
 
   // Hard-fail only when there is genuinely nothing to show. One failed source over a
   // rendered dashboard degrades its own card instead.
@@ -315,7 +353,11 @@ export function OverviewPage({ event, query }: { event: EventDto; query: string 
     return (
       <>
         <PageHeader title="Overview" subtitle={event.name} />
-        <Notice tone="error">The overview could not be loaded. Reload to try again.</Notice>
+        <Notice tone="error">
+          {requestFailure instanceof Error
+            ? requestFailure.message
+            : "The overview could not be loaded. Reload to try again."}
+        </Notice>
       </>
     );
 

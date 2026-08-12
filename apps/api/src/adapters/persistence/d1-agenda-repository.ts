@@ -61,7 +61,7 @@ export class D1AgendaRepository implements AgendaRepository {
       throw new Error(`D1 failed to save agenda draft: ${result.error ?? "unknown error"}`);
   }
   async savePlacement(eventId: string, placement: Placement) {
-    await this.updateDraft(eventId, (draft) => ({
+    return this.updateDraft(eventId, (draft) => ({
       ...draft,
       placements: [...draft.placements.filter(({ id }) => id !== placement.id), placement],
     }));
@@ -71,15 +71,17 @@ export class D1AgendaRepository implements AgendaRepository {
       await this.saveDraft({ eventId, ...resources, sessions: [], placements: [] });
       return true;
     }
-    return this.updateDraft(eventId, (draft) =>
-      draft.placements.some(
-        (placement) =>
-          !resources.rooms.some(({ id }) => id === placement.roomId) ||
-          !resources.tracks.some(({ id }) => id === placement.trackId) ||
-          !resources.slots.some(({ id }) => id === placement.slotId),
-      )
-        ? null
-        : { ...draft, ...resources },
+    return (
+      (await this.updateDraft(eventId, (draft) =>
+        draft.placements.some(
+          (placement) =>
+            !resources.rooms.some(({ id }) => id === placement.roomId) ||
+            !resources.tracks.some(({ id }) => id === placement.trackId) ||
+            !resources.slots.some(({ id }) => id === placement.slotId),
+        )
+          ? null
+          : { ...draft, ...resources },
+      )) !== null
     );
   }
   async removePlacement(eventId: string, placementId: string) {
@@ -91,12 +93,12 @@ export class D1AgendaRepository implements AgendaRepository {
   private async updateDraft(
     eventId: string,
     update: (draft: AgendaDraft) => AgendaDraft | null,
-  ): Promise<boolean> {
+  ): Promise<AgendaDraft | null> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const current = await this.getDraftRow(eventId);
-      if (!current) return false;
+      if (!current) return null;
       const updated = update(current.draft);
-      if (!updated) return false;
+      if (!updated) return null;
       const result = await this.database
         .prepare(
           "UPDATE agenda_drafts SET draft_json = ?, updated_at = ?, revision = revision + 1 WHERE event_id = ? AND revision = ?",
@@ -105,7 +107,7 @@ export class D1AgendaRepository implements AgendaRepository {
         .run();
       if (!result.success)
         throw new Error(`D1 failed to update agenda draft: ${result.error ?? "unknown error"}`);
-      if ((result.meta?.changes ?? 0) === 1) return true;
+      if ((result.meta?.changes ?? 0) === 1) return updated;
     }
     throw new Error("D1 failed to update agenda draft after concurrent changes");
   }

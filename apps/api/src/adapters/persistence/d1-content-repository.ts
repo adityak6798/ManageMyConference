@@ -32,13 +32,23 @@ export class D1ContentRepository
 {
   constructor(private readonly database: ContentDatabasePort) {}
   async listSchedulableSessions(eventId: string) {
-    const workspace = await this.workspace(eventId);
-    return workspace.sessions.map(({ id, title, speakerProfileIds, tracks }) => ({
-      id,
-      title,
-      speakerProfileIds,
-      tracks,
-    }));
+    const sessions = await this.rows(
+      "SELECT id, title, speaker_profile_ids, tracks FROM content_sessions WHERE event_id = ? ORDER BY title",
+      eventId,
+    );
+    return sessions
+      .map((row) => ({
+        id: row.id ?? "",
+        title: row.title ?? "",
+        speakerProfileIds: parse<string[]>(row.speaker_profile_ids),
+        tracks: parse<string[]>(row.tracks),
+      }))
+      .map(({ id, title, speakerProfileIds, tracks }) => ({
+        id,
+        title,
+        speakerProfileIds,
+        tracks,
+      }));
   }
   async publishedEventContent(eventId: string) {
     const workspace = await this.workspace(eventId);
@@ -194,33 +204,47 @@ export class D1ContentRepository
       ...(userId ? [userId] : []),
     );
     const speakers = profileRows.map((row) => this.profile(row));
-    const ids = new Set(speakers.map(({ id }) => id));
+    if (userId && speakers.length === 0)
+      return { sessions: [], speakers: [], tasks: [], assets: [], messages: [] };
+    const scoped = <T>(table: string, order: string, map: (row: Row) => T) =>
+      this.rows(
+        `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND profile.user_id = ? ORDER BY ${order}`,
+        eventId,
+        userId,
+      ).then((rows) => rows.map(map));
     const sessions = (
-      await this.rows("SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title", eventId)
-    )
-      .map((row) => this.session(row))
-      .filter((session) => !userId || session.speakerProfileIds.some((id) => ids.has(id)));
-    const tasks = (
       await this.rows(
-        "SELECT * FROM speaker_tasks WHERE event_id = ? ORDER BY due_at,title",
+        userId
+          ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND profile.user_id = ? ORDER BY session.title"
+          : "SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title",
         eventId,
+        ...(userId ? [userId] : []),
       )
-    )
-      .map((row) => this.task(row))
-      .filter((item) => ids.has(item.speakerProfileId));
-    const assets = (
-      await this.rows(
-        "SELECT * FROM speaker_assets WHERE event_id = ? ORDER BY uploaded_at",
-        eventId,
-      )
-    )
-      .map((row) => this.asset(row))
-      .filter((item) => ids.has(item.speakerProfileId));
-    const messages = (
-      await this.rows("SELECT * FROM speaker_messages WHERE event_id = ? ORDER BY sent_at", eventId)
-    )
-      .map((row) => this.message(row))
-      .filter((item) => ids.has(item.speakerProfileId));
+    ).map((row) => this.session(row));
+    const tasks = userId
+      ? await scoped("speaker_tasks", "due_at,title", (row) => this.task(row))
+      : (
+          await this.rows(
+            "SELECT * FROM speaker_tasks WHERE event_id = ? ORDER BY due_at,title",
+            eventId,
+          )
+        ).map((row) => this.task(row));
+    const assets = userId
+      ? await scoped("speaker_assets", "uploaded_at", (row) => this.asset(row))
+      : (
+          await this.rows(
+            "SELECT * FROM speaker_assets WHERE event_id = ? ORDER BY uploaded_at",
+            eventId,
+          )
+        ).map((row) => this.asset(row));
+    const messages = userId
+      ? await scoped("speaker_messages", "sent_at", (row) => this.message(row))
+      : (
+          await this.rows(
+            "SELECT * FROM speaker_messages WHERE event_id = ? ORDER BY sent_at",
+            eventId,
+          )
+        ).map((row) => this.message(row));
     return { sessions, speakers, tasks, assets, messages };
   }
   async updateProfile(profile: SpeakerProfile) {

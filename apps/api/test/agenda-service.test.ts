@@ -1,5 +1,5 @@
 // @acceptance ACC-AGENDA
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { AgendaConflictError, AgendaService } from "../src/application/agenda/agenda-service";
 import type { Actor } from "../src/application/identity/actor";
@@ -50,6 +50,55 @@ const organizer: Actor = {
 const content = new FixtureSchedulableContentQuery(new Map([[eventId, draft.sessions]]));
 
 describe("agenda conflicts and publication", () => {
+  it("places with one draft read, one schedulable-content read, and one write", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const getDraft = vi.spyOn(repository, "getDraft");
+    const savePlacement = vi.spyOn(repository, "savePlacement");
+    const schedulable = new FixtureSchedulableContentQuery(new Map([[eventId, draft.sessions]]));
+    const listSessions = vi.spyOn(schedulable, "listSchedulableSessions");
+    const service = new AgendaService(repository, () => new Date(), schedulable);
+
+    const result = await service.place(organizer, eventId, {
+      id: "place-c",
+      sessionId: "session-a",
+      roomId: "room-lab",
+      trackId: "track-web",
+      slotId: "slot-9",
+    });
+
+    expect(getDraft).toHaveBeenCalledTimes(1);
+    expect(listSessions).toHaveBeenCalledTimes(1);
+    expect(savePlacement).toHaveBeenCalledTimes(1);
+    expect(result.placements).toContainEqual(expect.objectContaining({ id: "place-c" }));
+  });
+  it("returns the post-CAS draft when another placement landed before the write", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const concurrent = {
+      id: "place-concurrent",
+      sessionId: "session-b",
+      roomId: "room-lab",
+      trackId: "track-web",
+      slotId: "slot-930",
+    };
+    const original = repository.savePlacement.bind(repository);
+    vi.spyOn(repository, "savePlacement").mockImplementation(async (id, placement) => {
+      await original(id, concurrent);
+      return original(id, placement);
+    });
+    const service = new AgendaService(repository, () => new Date(), content);
+
+    const result = await service.place(organizer, eventId, {
+      id: "place-c",
+      sessionId: "session-a",
+      roomId: "room-lab",
+      trackId: "track-web",
+      slotId: "slot-9",
+    });
+
+    expect(result.placements.map(({ id }) => id)).toEqual(
+      expect.arrayContaining(["place-concurrent", "place-c"]),
+    );
+  });
   it("reports every overlapping resource with a resolution", () => {
     expect(conflictsFor(draft)).toEqual(
       expect.arrayContaining([

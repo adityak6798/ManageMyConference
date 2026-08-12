@@ -4,7 +4,11 @@
  * Owned by the `platform` domain. Adding a path here changes no other domain's
  * fragment, and the aggregate `openapi.json` is still generated from all of them together.
  */
-import { healthResponseSchema } from "../src/index";
+import {
+  eventIdParamsSchema,
+  healthResponseSchema,
+  organizerOverviewResponseSchema,
+} from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
 export const platformPaths: OpenApiFragment = {
@@ -15,6 +19,20 @@ export const platformPaths: OpenApiFragment = {
       path: "/health",
       responses: {
         200: { description: "Runtime readiness", content: json(healthResponseSchema) },
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/overview",
+      description: "Organizer landing-page composition with independently degradable panels.",
+      security: [{ sessionCookie: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: { description: "Organizer overview", content: json(organizerOverviewResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
         500: errorResponse,
       },
     });

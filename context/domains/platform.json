@@ -30,6 +30,7 @@
     "apps/web/src/App.tsx",
     "apps/web/src/main.tsx",
     "apps/web/src/api/config.ts",
+    "apps/web/src/api/overview.ts",
     "apps/api/test/http.test.ts",
     "apps/api/test/api-docs.test.ts",
     "apps/api/test/runtime-auth.test.ts",

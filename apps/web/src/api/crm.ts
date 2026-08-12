@@ -1,12 +1,13 @@
 import {
-  apiErrorEnvelopeSchema,
+  type ApiErrorEnvelope,
   type ProspectDto,
   type ProspectOwnerDto,
   prospectListResponseSchema,
   prospectOwnerListResponseSchema,
   prospectResponseSchema,
 } from "@greenroom/contracts";
-import { apiFetch as fetch } from "./config";
+import type { z } from "zod";
+import { apiFetch as fetch, decodeResponse } from "./config";
 export class CrmApiError extends Error {
   constructor(
     readonly correlationId: string,
@@ -18,20 +19,17 @@ export class CrmApiError extends Error {
   }
 }
 
-async function decode(response: Response) {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const error = apiErrorEnvelopeSchema.safeParse(body);
-    if (error.success)
-      throw new CrmApiError(
-        error.data.error.correlationId,
-        error.data.error.message,
-        error.data.error.fieldErrors ?? {},
-      );
-    throw new Error(`CRM API failed with status ${response.status}`);
-  }
-  return body;
-}
+const decode = <T>(response: Response, schema: z.ZodType<T>) =>
+  decodeResponse(
+    response,
+    schema,
+    (envelope: ApiErrorEnvelope) =>
+      new CrmApiError(
+        envelope.error.correlationId,
+        envelope.error.message,
+        envelope.error.fieldErrors ?? {},
+      ),
+  );
 
 /** Field-level detail from a handled CRM failure, keyed by the input path the server named. */
 export function crmFieldErrors(reason: unknown): Record<string, string[]> {
@@ -44,14 +42,20 @@ export function crmFieldErrors(reason: unknown): Record<string, string[]> {
  * from the same query the write path validates against.
  */
 export async function listProspectOwners(eventId: string): Promise<ProspectOwnerDto[]> {
-  return prospectOwnerListResponseSchema.parse(
-    await decode(await fetch(`/api/events/${eventId}/prospects/owners`)),
+  return (
+    await decode(
+      await fetch(`/api/events/${eventId}/prospects/owners`),
+      prospectOwnerListResponseSchema,
+    )
   ).owners;
 }
 export async function listProspects(eventId: string, filter = "all"): Promise<ProspectDto[]> {
   const query = filter === "all" ? "" : filter === "overdue" ? "?overdue=true" : `?stage=${filter}`;
-  return prospectListResponseSchema.parse(
-    await decode(await fetch(`/api/events/${eventId}/prospects${query}`)),
+  return (
+    await decode(
+      await fetch(`/api/events/${eventId}/prospects${query}`),
+      prospectListResponseSchema,
+    )
   ).prospects;
 }
 export async function createProspect(
@@ -69,13 +73,14 @@ export async function createProspect(
       contact: { name: input.name, email: input.email },
     }),
   });
-  return prospectResponseSchema.parse(await decode(response)).prospect;
+  return (await decode(response, prospectResponseSchema)).prospect;
 }
 export async function convertProspect(eventId: string, prospectId: string) {
-  return prospectResponseSchema.parse(
+  return (
     await decode(
       await fetch(`/api/events/${eventId}/prospects/${prospectId}/convert`, { method: "POST" }),
-    ),
+      prospectResponseSchema,
+    )
   ).prospect;
 }
 export async function updateProspect(
@@ -83,13 +88,14 @@ export async function updateProspect(
   prospectId: string,
   input: Record<string, unknown>,
 ) {
-  return prospectResponseSchema.parse(
+  return (
     await decode(
       await fetch(`/api/events/${eventId}/prospects/${prospectId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
-    ),
+      prospectResponseSchema,
+    )
   ).prospect;
 }

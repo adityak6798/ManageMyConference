@@ -1,5 +1,4 @@
 import {
-  apiErrorEnvelopeSchema,
   type CfpFormDto,
   cfpResponseSchema,
   cfpStateInputSchema,
@@ -8,20 +7,14 @@ import {
   submitProposalInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch } from "./config";
+import { apiFetch as fetch, decodeResponse } from "./config";
 export class CfpApiError extends Error {
   constructor(readonly envelope: import("@greenroom/contracts").ApiErrorEnvelope) {
     super(envelope.error.message);
   }
 }
 async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const error = apiErrorEnvelopeSchema.safeParse(body);
-    if (error.success) throw new CfpApiError(error.data);
-    throw new Error(`Invalid API response (${response.status})`);
-  }
-  return schema.parse(body);
+  return decodeResponse(response, schema, (envelope) => new CfpApiError(envelope));
 }
 export async function loadCfp(
   eventId: string,
