@@ -282,6 +282,8 @@ describe("events HTTP transport", () => {
           // and a denied one gets 403. That difference is the whole assertion.
           findPublicBySlug: async () => null,
           findByEventId: async () => null,
+          findEventIdBySlug: async () => null,
+          saveSettings: async () => null,
           publish: async () => null,
           unpublish: async () => null,
         }),

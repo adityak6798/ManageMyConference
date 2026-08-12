@@ -159,6 +159,9 @@ async function fixture() {
       (record = { ...record, state: "published", publishedAt, published }),
     unpublish: async () =>
       (record = { ...record, state: "unpublished", published: null, publishedAt: null }),
+    findEventIdBySlug: async (candidate) => (candidate === record.slug ? record.eventId : null),
+    saveSettings: async (_eventId: string, slug: string, draft: PublicEventProjection) =>
+      (record = { ...record, draft, ...(record.state === "published" ? {} : { slug }) }),
   };
   const site = new PublicationService(
     repository,

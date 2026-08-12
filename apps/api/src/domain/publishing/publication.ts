@@ -98,6 +98,51 @@ export const allowlistPublicProjection = (
 });
 
 /**
+ * The public-page fields the organizer types rather than the ones publishing composes.
+ *
+ * `undefined` leaves a field alone; the empty string is a real value that clears it. That
+ * distinction is the whole point for the two dates — clearing them hands the field back to
+ * the agenda-derived value, and there would otherwise be no way to say so.
+ */
+export interface PublicationSettings {
+  readonly slug?: string | undefined;
+  readonly summary?: string | undefined;
+  readonly venue?: string | undefined;
+  readonly startsOn?: string | undefined;
+  readonly endsOn?: string | undefined;
+}
+
+/**
+ * Merge organizer-typed settings into a stored draft.
+ *
+ * Applied to the **stored** draft, never to a composed preview. Composition fills empty
+ * dates from the agenda, so merging into a composed projection would write that derived
+ * date back as though the organizer had typed it — pinning the public page to whatever the
+ * agenda happened to say on the day an unrelated field was edited.
+ *
+ * `submissionUrl` is re-derived here because it embeds the slug; leaving it behind would
+ * point the call for proposals at the event's previous address.
+ */
+export const applyPublicationSettings = (
+  projection: PublicEventProjection,
+  settings: PublicationSettings,
+): PublicEventProjection => {
+  const slug = settings.slug ?? projection.event.slug;
+  return {
+    ...projection,
+    event: {
+      ...projection.event,
+      slug,
+      summary: settings.summary ?? projection.event.summary,
+      venue: settings.venue ?? projection.event.venue,
+      startsOn: settings.startsOn ?? projection.event.startsOn,
+      endsOn: settings.endsOn ?? projection.event.endsOn,
+    },
+    cfp: { ...projection.cfp, submissionUrl: `/events/${slug}/cfp` },
+  };
+};
+
+/**
  * A session the published snapshot places: everything `PublicSession` carries, with the
  * clock no longer optional. A session without a time is published but not scheduled.
  */

@@ -10,6 +10,7 @@ import {
   publicEventResponseSchema,
   publicEventSlugParamsSchema,
   publicationPreviewResponseSchema,
+  publicationSettingsInputSchema,
   publicScheduleSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
@@ -64,5 +65,26 @@ export const publishingPaths: OpenApiFragment = {
           500: errorResponse,
         },
       });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/publishing/events/{eventId}/settings",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventIdParamsSchema,
+        body: { required: true, content: json(publicationSettingsInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "Public details saved to the draft; the published snapshot is untouched",
+          content: json(publicationPreviewResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
   },
 };

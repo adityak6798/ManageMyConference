@@ -87,7 +87,12 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 /** Records every request so a test can assert that Preview never mutates. */
-function stubPublishing(responses: { preview?: unknown; publish?: unknown; unpublish?: unknown }) {
+function stubPublishing(responses: {
+  preview?: unknown;
+  publish?: unknown;
+  unpublish?: unknown;
+  settings?: unknown;
+}) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/publish")) return jsonResponse(responses.publish ?? publication());
@@ -96,6 +101,10 @@ function stubPublishing(responses: { preview?: unknown; publish?: unknown; unpub
         responses.unpublish ??
           publication({ state: "unpublished", published: null, publishedAt: null }),
       );
+    if (url.endsWith("/settings"))
+      return responses.settings instanceof Response
+        ? Promise.resolve(responses.settings.clone())
+        : jsonResponse(responses.settings ?? publication());
     if (url.endsWith("/preview")) return jsonResponse(responses.preview ?? publication());
     return jsonResponse({}, init?.method === "POST" ? 200 : 200);
   });
@@ -341,6 +350,111 @@ describe("PublishingWorkspace", () => {
     expect(await screen.findByRole("button", { name: "Publish changes" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Unpublish" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
+  });
+
+  /*
+   * The public details form. Before it existed, `summary` and `venue` had no writer
+   * anywhere in the product, so every organizer-created event published an empty summary
+   * and a nameless venue (issue #37).
+   */
+  describe("public details", () => {
+    const settingsForm = async () => {
+      await screen.findByLabelText("Summary");
+      return {
+        summary: screen.getByLabelText<HTMLTextAreaElement>("Summary"),
+        venue: screen.getByLabelText<HTMLInputElement>("Venue"),
+        startsOn: screen.getByLabelText<HTMLInputElement>("First day"),
+        endsOn: screen.getByLabelText<HTMLInputElement>("Last day"),
+        slug: screen.getByLabelText<HTMLInputElement>("Public address"),
+        save: screen.getByRole("button", { name: "Save public details" }),
+      };
+    };
+
+    it("sends only the fields the organizer changed", async () => {
+      const fetchMock = stubPublishing({});
+      renderWorkspace();
+      const form = await settingsForm();
+
+      // The dates on screen may be composed from the agenda rather than typed, so sending
+      // them back unchanged would store a derived value as an organizer-set one and stop
+      // the public page tracking the agenda. Only `venue` moved, so only `venue` is sent.
+      fireEvent.change(form.venue, { target: { value: "Harbor Conference Center" } });
+      fireEvent.click(form.save);
+
+      await waitFor(() => {
+        const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+        expect(patch).toBeDefined();
+        expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+          venue: "Harbor Conference Center",
+        });
+      });
+    });
+
+    it("saves to the draft and says the live page is unchanged until republished", async () => {
+      stubPublishing({});
+      renderWorkspace();
+      const form = await settingsForm();
+
+      fireEvent.change(form.summary, { target: { value: "A day on running better events." } });
+      fireEvent.click(form.save);
+
+      expect(await screen.findByText(/Publish again to put them on the live page/)).toBeVisible();
+    });
+
+    it("cannot be submitted until something changes, and discards back to the server copy", async () => {
+      stubPublishing({});
+      renderWorkspace();
+      const form = await settingsForm();
+
+      expect(form.save).toBeDisabled();
+      fireEvent.change(form.venue, { target: { value: "Somewhere else" } });
+      expect(form.save).toBeEnabled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+      expect(form.venue).toHaveValue("Bay Pavilion");
+      expect(screen.getByRole("button", { name: "Save public details" })).toBeDisabled();
+    });
+
+    it("puts a refused public address on the address field", async () => {
+      stubPublishing({
+        settings: new Response(
+          JSON.stringify({
+            error: {
+              code: "CONFLICT",
+              message: "That public address is already taken.",
+              correlationId: "trace-4",
+              fieldErrors: { slug: ["That public address is already taken."] },
+            },
+          }),
+          { status: 409 },
+        ),
+      });
+      renderWorkspace();
+      const form = await settingsForm();
+
+      fireEvent.change(form.slug, { target: { value: "already-taken" } });
+      fireEvent.click(form.save);
+
+      const message = await screen.findByText("That public address is already taken.", {
+        selector: ".publishing-field-error",
+      });
+      expect(message).toBeVisible();
+      // Named by the input, so a screen reader reaches the refusal from the field it is about
+      // rather than only from the announcement at the end of the form.
+      expect(form.slug).toHaveAccessibleDescription("That public address is already taken.");
+    });
+
+    it("is read-only for a role that may read but not update settings", async () => {
+      stubPublishing({});
+      render(
+        <PublishingWorkspace eventId={eventId} eventName="Greenroom Summit" canPublish={false} />,
+      );
+      const form = await settingsForm();
+
+      for (const field of [form.summary, form.venue, form.startsOn, form.endsOn, form.slug])
+        expect(field).toBeDisabled();
+      expect(form.save).toBeDisabled();
+    });
   });
 
   it("keeps the panel readable when the publication cannot be loaded", async () => {

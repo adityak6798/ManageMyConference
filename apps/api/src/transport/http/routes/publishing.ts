@@ -12,9 +12,14 @@ import {
   publicEventSlugParamsSchema,
   publicScheduleSchema,
   publicationPreviewResponseSchema,
+  publicationSettingsInputSchema,
 } from "@greenroom/contracts";
-import { composePublicSchedule } from "../../../application/publishing/public";
-import { envelope } from "../runtime";
+import {
+  composePublicSchedule,
+  PublicationSettingsError,
+  PublicationSlugTakenError,
+} from "../../../application/publishing/public";
+import { envelope, readJson, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
@@ -26,6 +31,7 @@ const routes = [
   // promises.
   "POST /api/publishing/events/:eventId/publish",
   "POST /api/publishing/events/:eventId/unpublish",
+  "PATCH /api/publishing/events/:eventId/settings",
   "GET /api/public/events/:slug/schedule",
 ] as const;
 
@@ -93,6 +99,46 @@ export const publishingRoutes: RouteModule = {
           );
         return context.json(publicationPreviewResponseSchema.parse({ publication }));
       });
+    /*
+     * The only write in this module that is not a state transition. It edits the draft the
+     * organizer is composing — `summary`, `venue`, the two dates and the public address —
+     * and deliberately leaves the published snapshot alone, so an edit here changes what
+     * publishing *would* produce rather than what visitors are being served.
+     */
+    app.patch("/api/publishing/events/:eventId/settings", async (context) => {
+      const parsed = eventIdParamsSchema.safeParse(context.req.param());
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const body = publicationSettingsInputSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Review the highlighted public details.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const publication = await publishing?.updateSettings(
+        context.get("actor"),
+        parsed.data.eventId,
+        body.data,
+      );
+      if (!publication)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      return context.json(publicationPreviewResponseSchema.parse({ publication }));
+    });
     app.get("/api/public/events/:slug/schedule", async (context) => {
       const notPublished = () =>
         context.json(
@@ -115,5 +161,24 @@ export const publishingRoutes: RouteModule = {
       if (!schedule.success) return notPublished();
       return context.json({ schedule: schedule.data });
     });
+  },
+  translateError(error: unknown) {
+    if (error instanceof PublicationSlugTakenError)
+      return {
+        code: "CONFLICT" as const,
+        message: error.message,
+        status: 409 as const,
+        // Named so the form can put the refusal on the field that caused it, rather than
+        // printing "already taken" above a form of five inputs.
+        fields: { slug: [error.message] },
+      };
+    if (error instanceof PublicationSettingsError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+        fields: { endsOn: [error.message] },
+      };
+    return null;
   },
 };

@@ -74,6 +74,30 @@
   gap: var(--s-3);
 }
 
+/* ------------------------ public details ------------------------- */
+
+.publishing-details {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+}
+
+/*
+ * The two dates are one fact, so they sit together — but `auto-fit` rather than two fixed
+ * columns, because a date input has a browser-drawn calendar button that does not shrink,
+ * and two of them side by side overflow a 360px viewport.
+ */
+.publishing-details-dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--s-4);
+}
+
+.publishing-field-error {
+  color: var(--danger-fg);
+  font-size: var(--text-xs);
+}
+
 /* ---------------------------- preview ---------------------------- */
 
 .publishing-tabs {

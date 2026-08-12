@@ -56,6 +56,45 @@ export class D1PublicationRepository implements PublicationRepository {
     return result.results?.[0] ? fromRow(result.results[0]) : null;
   }
 
+  async findEventIdBySlug(slug: string): Promise<string | null> {
+    const result = await this.database
+      .prepare("SELECT event_id FROM public_event_projections WHERE slug = ? LIMIT 1")
+      .bind(slug)
+      .all<{ event_id: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to resolve publication slug: ${result.error ?? "unknown error"}`);
+    return result.results?.[0]?.event_id ?? null;
+  }
+
+  async saveSettings(
+    eventId: string,
+    slug: string,
+    draft: PublicEventProjection,
+  ): Promise<Publication | null> {
+    const result = await this.database
+      .prepare(
+        `INSERT INTO public_event_projections
+          (event_id, slug, state, draft_json, published_json, published_at)
+         VALUES (?, ?, 'draft', ?, NULL, NULL)
+         ON CONFLICT(event_id) DO UPDATE SET
+          draft_json = excluded.draft_json,
+          -- The row's own \`slug\` is the address currently being *served*, so a draft edit
+          -- may only move it while nothing is published; publishing promotes the draft's
+          -- slug in its own statement. Otherwise renaming the draft would silently redirect
+          -- the live page away from the URL people have already been given, and leave the
+          -- frozen snapshot's \`event.slug\` disagreeing with the row that serves it.
+          slug = CASE
+            WHEN public_event_projections.state = 'published' THEN public_event_projections.slug
+            ELSE excluded.slug
+          END`,
+      )
+      .bind(eventId, slug, JSON.stringify(draft))
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to save publication settings: ${result.error ?? "unknown error"}`);
+    return this.findByEventId(eventId);
+  }
+
   async publish(
     eventId: string,
     publishedAt: string,

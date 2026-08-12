@@ -1,6 +1,9 @@
 import type { PublicationRepository } from "./publication-repository";
 import {
   allowlistPublicProjection,
+  applyPublicationSettings,
+  type Publication,
+  type PublicationSettings,
   publicEventSlug,
   publicSlugs,
 } from "../../domain/publishing/publication";
@@ -12,6 +15,11 @@ import {
 } from "../identity/actor";
 import type { PublishingContentQuery } from "../content/public";
 import type { PublicSchedule } from "../agenda/public";
+
+/** The organizer sent a coherent field that contradicts the stored one — a caller mistake. */
+export class PublicationSettingsError extends Error {}
+/** The requested public address already belongs to another event. */
+export class PublicationSlugTakenError extends Error {}
 
 export interface PublicationSources {
   event(actor: Actor, eventId: string): Promise<{ name: string; timezone: string } | null>;
@@ -59,6 +67,48 @@ export class PublicationService {
     return actor;
   }
 
+  /**
+   * The publication an event has before anything has been stored for it.
+   *
+   * Shared with `updateSettings`, which needs the same starting point: an organizer may
+   * edit their public details before they ever publish, and `publish` is what inserts the
+   * row, so until then there is nothing to merge into.
+   */
+  private emptyPublication(
+    eventId: string,
+    event: { name: string; timezone: string },
+  ): Publication {
+    const slug = publicEventSlug(event.name, eventId);
+    return {
+      eventId,
+      slug,
+      state: "draft",
+      draft: {
+        event: {
+          eventId,
+          slug,
+          name: event.name,
+          summary: "",
+          startsOn: "",
+          endsOn: "",
+          timezone: event.timezone,
+          venue: "",
+        },
+        cfp: {
+          title: "Call for proposals",
+          description: "",
+          status: "closed",
+          publishedAt: null,
+          submissionUrl: `/events/${slug}/cfp`,
+        },
+        sessions: [],
+        speakers: [],
+      },
+      published: null,
+      publishedAt: null,
+    };
+  }
+
   async preview(actor: Actor | null, eventId: string) {
     const organizer = this.requireOrganizer(actor, eventId, "events:settings:read");
     if (!organizer) return null;
@@ -66,37 +116,7 @@ export class PublicationService {
     if (!this.sources) return stored;
     const event = await this.sources.event(organizer, eventId);
     if (!event) return null;
-    const slug = publicEventSlug(event.name, eventId);
-    const publication =
-      stored ??
-      ({
-        eventId,
-        slug,
-        state: "draft",
-        draft: {
-          event: {
-            eventId,
-            slug,
-            name: event.name,
-            summary: "",
-            startsOn: "",
-            endsOn: "",
-            timezone: event.timezone,
-            venue: "",
-          },
-          cfp: {
-            title: "Call for proposals",
-            description: "",
-            status: "closed",
-            publishedAt: null,
-            submissionUrl: `/events/${slug}/cfp`,
-          },
-          sessions: [],
-          speakers: [],
-        },
-        published: null,
-        publishedAt: null,
-      } satisfies import("../../domain/publishing/publication").Publication);
+    const publication = stored ?? this.emptyPublication(eventId, event);
     const [cfp, content, schedule] = await Promise.all([
       this.sources.cfp(eventId),
       this.sources.content.publishedEventContent(eventId),
@@ -129,15 +149,29 @@ export class PublicationService {
       "speaker",
     );
     const publishableAssets = new Set(content.assets.map(({ id }) => id));
+    /*
+     * The draft's own address, which is not always the row's. The row's `slug` column is the
+     * one being served right now; a slug the organizer has edited but not yet published
+     * lives in the draft and only becomes the served address at publish time.
+     */
+    const draftSlug = publication.draft.event.slug || publication.slug;
     return {
       ...publication,
       draft: allowlistPublicProjection({
         event: {
           ...publication.draft.event,
+          slug: draftSlug,
           name: event.name,
           timezone: event.timezone,
-          startsOn: sortedDates[0] ?? publication.draft.event.startsOn,
-          endsOn: sortedDates.at(-1) ?? publication.draft.event.endsOn,
+          /*
+           * The organizer's typed dates win, and the agenda fills the gap when they have
+           * typed none. It used to be the other way round — the agenda's first and last slot
+           * dates overwrote whatever was stored, and the stored value showed only when no
+           * agenda existed at all — which left an organizer unable to say "the conference
+           * runs Monday to Wednesday" while a single rehearsal slot sat on the Sunday.
+           */
+          startsOn: publication.draft.event.startsOn || (sortedDates[0] ?? ""),
+          endsOn: publication.draft.event.endsOn || (sortedDates.at(-1) ?? ""),
         },
         cfp: cfp
           ? {
@@ -145,7 +179,7 @@ export class PublicationService {
               description: cfp.description,
               status: cfp.status,
               publishedAt: cfp.publishedAt,
-              submissionUrl: `/events/${publication.slug}/cfp`,
+              submissionUrl: `/events/${draftSlug}/cfp`,
             }
           : publication.draft.cfp,
         sessions: content.sessions.map((session) => {
@@ -178,6 +212,42 @@ export class PublicationService {
         })),
       }),
     };
+  }
+
+  /**
+   * Edit the public-page fields publishing owns outright.
+   *
+   * Writes the **draft** and nothing else: visitors keep receiving the frozen snapshot until
+   * the organizer publishes again, which is the same promise every other draft edit makes.
+   *
+   * The merge target is the stored draft rather than the composed preview, so that editing
+   * the venue cannot quietly pin the agenda-derived dates — see `applyPublicationSettings`.
+   */
+  async updateSettings(actor: Actor | null, eventId: string, settings: PublicationSettings) {
+    const organizer = this.requireOrganizer(actor, eventId, "events:settings:update");
+    if (!organizer) return null;
+    if (!this.sources) return null;
+    const event = await this.sources.event(organizer, eventId);
+    if (!event) return null;
+    const stored = await this.repository.findByEventId(eventId);
+    const base = stored ?? this.emptyPublication(eventId, event);
+    const merged = applyPublicationSettings(base.draft, settings);
+    // Checked after the merge, not in the contract: a request that sends only `endsOn` has to
+    // be compared against the stored `startsOn`, which the contract cannot see. An empty end
+    // of the range is deferred to the agenda and so cannot contradict anything.
+    if (merged.event.startsOn && merged.event.endsOn && merged.event.startsOn > merged.event.endsOn)
+      throw new PublicationSettingsError("The end date cannot fall before the start date.");
+    if (merged.event.slug !== base.draft.event.slug) {
+      const owner = await this.repository.findEventIdBySlug(merged.event.slug);
+      if (owner && owner !== eventId)
+        throw new PublicationSlugTakenError("That public address is already taken.");
+    }
+    await this.repository.saveSettings(
+      eventId,
+      merged.event.slug,
+      allowlistPublicProjection(merged),
+    );
+    return this.preview(actor, eventId);
   }
 
   async publish(actor: Actor | null, eventId: string) {
