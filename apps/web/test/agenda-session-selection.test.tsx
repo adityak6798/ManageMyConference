@@ -84,8 +84,10 @@ function stubFetch() {
 const rail = () => within(screen.getByRole("region", { name: /Unscheduled/i }) as HTMLElement);
 const action = () =>
   screen.getByRole("button", { name: /Generate draft|Place \d+ selected/ }) as HTMLButtonElement;
-const tick = (title: string) =>
-  fireEvent.click(rail().getByRole("checkbox", { name: `Select ${title} for assisted placement` }));
+/** Matched on the title alone: the name also carries the session's position in the rail. */
+const box = (title: string) =>
+  rail().getByRole("checkbox", { name: new RegExp(`^Select ${title},`) });
+const tick = (title: string) => fireEvent.click(box(title));
 
 describe("choosing which sessions an assisted pass seats", () => {
   const onError = vi.fn<(message: string) => void>();
@@ -230,6 +232,57 @@ describe("choosing which sessions an assisted pass seats", () => {
     expect(rail().getByText("1 selected")).toBeTruthy();
   });
 
+  it("keeps the live region on the page when a search empties the rail", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    await screen.findByRole("button", { name: "Generate draft" });
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz no match" } });
+
+    // Emptied, never removed. A screen reader that registers live regions as they are inserted
+    // will not see one that arrives already carrying the news it was supposed to announce.
+    await waitFor(() => expect(rail().queryByRole("checkbox")).toBeNull());
+    expect(document.querySelector(".agenda-rail-status")).not.toBeNull();
+  });
+
+  it("offers the escape hatch in the toolbar when the rail has no room for it", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    await screen.findByRole("button", { name: "Generate draft" });
+
+    tick("Opening keynote");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz no match" } });
+    await waitFor(() => expect(rail().queryByRole("checkbox")).toBeNull());
+
+    // The selection is still armed and the action still names it, so there has to be a way to
+    // undo it — and the rail no longer has a group control to hang one on.
+    expect(action().textContent).toContain("Place 1 selected");
+    const clear = screen.getByRole("button", { name: "Clear selection" });
+    fireEvent.click(clear);
+    expect(action().textContent).toContain("Generate draft");
+    // Exactly one control by that name at a time; two would be two homes for one job.
+    expect(screen.queryAllByRole("button", { name: "Clear selection" })).toHaveLength(0);
+  });
+
+  it("names each checkbox by its position as well as its title", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    await screen.findByRole("button", { name: "Generate draft" });
+
+    // Two sessions may share a title — the assisted planner breaks ties on id for exactly that
+    // reason — and two identical announcements give a screen-reader user nothing to choose by.
+    expect(
+      rail().getByRole("checkbox", {
+        name: "Select Opening keynote, 1 of 2, for assisted placement",
+      }),
+    ).toBeTruthy();
+    expect(
+      rail().getByRole("checkbox", {
+        name: "Select Closing panel, 2 of 2, for assisted placement",
+      }),
+    ).toBeTruthy();
+  });
+
   /*
    * What a subset pass is allowed to say about the sessions it was not given.
    *
@@ -314,6 +367,55 @@ describe("choosing which sessions an assisted pass seats", () => {
       await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
     });
 
+    it("drops the others when the board moved but the totals did not", async () => {
+      // The pass seats one session in the same second another organizer unschedules a different
+      // one. Placement *counts* are identical either side, so a count is not a board: the
+      // verdicts are about a board that no longer exists and every one of them has to go.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+          const method = init?.method ?? "GET";
+          if (method === "GET")
+            return Promise.resolve(
+              new Response(JSON.stringify({ agenda: seatedOne }), { status: 200 }),
+            );
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                agenda: {
+                  ...seatedOne,
+                  // One in, one out: the same total, a different board.
+                  placements: [
+                    {
+                      id: "assisted-session-two",
+                      sessionId: "session-two",
+                      roomId: "room-main",
+                      trackId: "track-platform",
+                      slotId: "slot-0900",
+                    },
+                  ],
+                  unplaced: [
+                    { sessionId: "session-three", title: "Hallway track", reason: NO_ROOM },
+                  ],
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }),
+      );
+      render(<AgendaWorkspace event={event} onError={onError} />);
+      await screen.findByRole("button", { name: "Generate draft" });
+
+      tick("Closing panel");
+      fireEvent.click(action());
+
+      // Exactly one note survives — this pass's own — and the announcement counts what the
+      // organizer asked for rather than the difference between two totals, which here is zero.
+      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(1));
+      expect(screen.getByRole("status").textContent).toContain("Placed 1 session.");
+    });
+
     it("drops the others once it has actually moved the board", async () => {
       stubPasses(true);
       render(<AgendaWorkspace event={event} onError={onError} />);
@@ -326,6 +428,20 @@ describe("choosing which sessions an assisted pass seats", () => {
       // This pass seated something, so the board is not the board those verdicts were about.
       await waitFor(() => expect(rail().queryAllByText(NO_ROOM)).toHaveLength(0));
     });
+  });
+
+  it("drops the explanations when a new time slot could have made them untrue", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate draft" }));
+    await waitFor(() => expect(rail().getByText(NO_ROOM)).toBeTruthy());
+
+    // Adding a slot is a board change like any other, and it is the change that most obviously
+    // disproves "every room and time slot is already taken" — but it is the one board-changing
+    // path that does not run through `act`, so it has to drop the verdicts itself.
+    fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
+
+    await waitFor(() => expect(screen.queryByText(NO_ROOM)).toBeNull());
   });
 
   it("offers no selection control once every session is scheduled", async () => {

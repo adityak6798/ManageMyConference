@@ -37,9 +37,16 @@ void (
       </StrictMode>,
     );
   })
-  .catch(() => {
+  .catch((reason: unknown) => {
     // A root that never arrives leaves a blank document, which reads as a broken deployment
-    // rather than as a request to retry. The reason is deliberately not shown: it is a bundler
-    // path, it means nothing to a visitor, and this text is served to anonymous readers.
+    // rather than as a request to retry. The reason is deliberately not shown here: it is a
+    // bundler path, it means nothing to a visitor, and this text is served to anonymous readers.
     container.textContent = "Something went wrong. Please retry; if it continues, contact support.";
+    // It is not swallowed either. Rethrowing in a fresh task, after the message is on screen,
+    // hands the failure to the platform's own reporting — the dev overlay, `window.onerror`,
+    // whatever a deployment has attached — which a handled rejection would otherwise silence,
+    // leaving an operator debugging a blank page with nothing at all to go on.
+    setTimeout(() => {
+      throw reason;
+    });
   });

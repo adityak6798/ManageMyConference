@@ -59,6 +59,7 @@ import {
   isViewId,
   NEW_SLOT,
   type Placement,
+  placementShape,
   readViewFromUrl,
   type Slot,
   type SlotForm,
@@ -176,9 +177,18 @@ export function AgendaWorkspace({
   // takes focus, and after a cancel the card that was picked up takes it back.
   useEffect(() => {
     if (!pendingFocus) return;
-    document.getElementById(pendingFocus)?.focus();
+    const target = document.getElementById(pendingFocus);
+    /*
+     * A control that the action disabled — the assisted button once the last session is
+     * seated — cannot take focus, and the browser has already dropped focus to the body,
+     * where the next Tab restarts at the top of the console. The panel holding the result
+     * is the honest place to land instead: it is labelled by the tab that names it, and it
+     * is on screen in every view.
+     */
+    const landable = target && !target.matches(":disabled") ? target : null;
+    (landable ?? document.getElementById(`panel-${view}`))?.focus();
     setPendingFocus(null);
-  }, [pendingFocus]);
+  }, [pendingFocus, view]);
 
   /*
    * Which sessions the assisted pass may be asked to seat, before any search narrows the rail.
@@ -400,31 +410,43 @@ export function AgendaWorkspace({
    * will do; with a selection it names those sessions, and the control says that instead.
    */
   function generateDraft() {
-    const before = draft.placements.length;
     const chosen = selection.count ? [...selection.ids] : undefined;
+    // What this pass is answerable for. The count it announces and the notes it is allowed to
+    // keep are both about these sessions, never about a board another organizer moved
+    // underneath it.
+    const asked = new Set(chosen ?? unscheduledIds);
+    const seatedBefore = new Set(draft.placements.map(({ sessionId }) => sessionId));
+    const boardBefore = placementShape(draft.placements);
     let couldNotPlace: readonly { sessionId: string; reason: string }[] = [];
     let seated = 0;
+    let boardMoved = false;
     return act(
       async () => {
         try {
           const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
           couldNotPlace = reported;
-          seated = board.placements.length - before;
+          /*
+           * Counted from the sessions this pass was asked about, not from how many placements
+           * the board gained. A difference of totals also counts a card another organizer
+           * dragged in the same second, and reporting theirs as "placed" under this button
+           * would be the same lie the label was fixed to stop telling.
+           */
+          const seatedNow = new Set(board.placements.map(({ sessionId }) => sessionId));
+          seated = [...asked].filter((id) => seatedNow.has(id) && !seatedBefore.has(id)).length;
+          // Every placement, by identity and position — so "the board did not move" is a fact
+          // about the board rather than about a total that two opposite edits leave unchanged.
+          boardMoved = placementShape(board.placements) !== boardBefore;
           return board;
         } catch (error) {
           /*
-           * A named session the API cannot see means this screen has outgrown the board:
-           * someone withdrew it since the draft was read. The request is refused whole, so
-           * nothing was placed — and "the requested resource was not found" would leave the
-           * operator with no idea which resource, or what to do next.
+           * The board this screen is holding has outgrown the server's: either a named session
+           * is gone, or the whole draft is. Both arrive as the same NOT_FOUND, and this request
+           * is refused whole either way, so the message says what is certain — nothing was
+           * placed, and the screen is out of date — instead of naming a cause it cannot know.
            */
-          if (
-            chosen &&
-            error instanceof AgendaApiError &&
-            error.envelope.error.code === "NOT_FOUND"
-          )
+          if (error instanceof AgendaApiError && error.envelope.error.code === "NOT_FOUND")
             throw new Error(
-              "One of the selected sessions is no longer available. Reload the board, then try again.",
+              "The board has changed since it was loaded, so nothing was placed. Reload it, then try again.",
             );
           throw error;
         }
@@ -435,20 +457,23 @@ export function AgendaWorkspace({
         return `${placed} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
       },
       {
+        // Focus survives the press: this control disables itself while the request is in
+        // flight, and a disabled control cannot hold focus.
+        focusId: "agenda-assisted-action",
         /*
-         * This pass's verdicts, plus the ones it did not overturn.
+         * This pass's verdicts, plus the ones it had no business overturning.
          *
-         * A pass over the whole board re-judges every unscheduled session, so its answer is
-         * the complete answer and replaces what was there. A pass over a *subset* judged only
-         * the sessions it was given: if it seated none of them the board did not move, so the
-         * notes on the sessions it was never asked about are exactly as true as they were a
-         * moment ago and keeping them is the honest thing to do. If it did seat something the
-         * board moved, and the rule this map has always followed applies — every earlier
-         * verdict is stale, whether or not the session it names moved with it.
+         * A pass over the whole board re-judges every unscheduled session, so its answer is the
+         * complete answer and replaces what was there. A pass over a *subset* judged only the
+         * sessions it was given — and if the board is the board those other verdicts were about,
+         * they are exactly as true as they were a moment ago. Anything that moves the board
+         * drops them, which is the rule this map has always followed: the check is on the
+         * placements themselves, because a pass that seats one session while another organizer
+         * unschedules another leaves every total unchanged and the verdicts stale anyway.
          */
         explanations: (current) => {
           const judged = new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason]));
-          if (!chosen || seated) return judged;
+          if (!chosen || boardMoved) return judged;
           return new Map([...current, ...judged]);
         },
       },
@@ -494,6 +519,13 @@ export function AgendaWorkspace({
       if (!mounted.current) return;
       setMissing(false);
       setAgenda(updated);
+      /*
+       * Adding or removing a time slot is a board change like any other, so the assisted
+       * pass's verdicts go with it. This is the one board-changing path that does not run
+       * through `act`, and leaving the map alone here was how "every room and time slot is
+       * already taken" could survive the operator adding the slot that disproves it.
+       */
+      setUnplaced((current) => (current.size ? new Map() : current));
       // Answered: this row's draft and its refusal both go. Drafts belonging to slots
       // that no longer exist go with them; the rest is still the operator's to save.
       const live = new Set(updated.slots.map(({ id }) => id));
@@ -1335,11 +1367,11 @@ export function AgendaWorkspace({
         <span className="agenda-count">
           {placedSessionIds.size} of {draft.sessions.length} scheduled
         </span>
-        {/* The Conflicts view is the one view without the rail, so it is also the one view
-            where the selection the button names cannot be seen or undone. The escape hatch
-            appears there and only there: two "Clear selection" controls on one screen would
-            be two controls with the same name and different homes. */}
-        {view === "conflicts" && selection.count ? (
+        {/* Wherever the rail cannot carry the selection — the Conflicts view has no rail, and
+            a search that matches nothing leaves no group control to put Clear beside — the
+            toolbar carries it instead. Exactly one of the two is ever on screen, so there are
+            never two controls with the same name and different homes. */}
+        {selection.count && (view === "conflicts" || !unscheduled.length) ? (
           <button
             type="button"
             className="secondary small"

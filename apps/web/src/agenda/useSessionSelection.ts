@@ -15,6 +15,13 @@
  * The one thing it must not survive is a session ceasing to be unscheduled. A tick on a session
  * that has since been placed would make the count — and the request — describe a board that no
  * longer exists, so `selectable` is the authority and everything read here is narrowed to it.
+ *
+ * Nothing in the body is agenda-specific — it is opaque ids in, opaque ids out — and the review
+ * of #119 was right that the review and content workspaces each hand-roll a weaker version of
+ * the same thing. It stays here anyway, deliberately: it has one caller, #70's rule is that a
+ * shared primitive earns `ui/primitives.tsx` by being shared rather than by being general, and
+ * promoting it usefully means converting those two surfaces — other domains' code, in a PR about
+ * a rail. The second caller is what should move it, and should bring them with it.
  */
 import { useEffect, useState } from "react";
 

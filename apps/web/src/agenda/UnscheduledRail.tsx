@@ -73,17 +73,14 @@ export function UnscheduledRail({
   const someListed = sessions.some(({ id }) => selection.isSelected(id));
   // Clearing takes the control that did it off the screen, and a control that removes itself
   // leaves keyboard focus on `document.body` — which on this page means Tab restarts at the
-  // top of the console. Focus lands on the group control instead, or on the rail itself when
-  // a search has left nothing to group.
+  // top of the console. Focus lands on the group control instead, which is why this rail
+  // offers Clear only when that control is on screen to receive it; with the list empty, the
+  // toolbar carries the escape hatch and hands focus to the action button.
   const group = useRef<HTMLInputElement | null>(null);
-  const rail = useRef<HTMLElement | null>(null);
 
   return (
     <aside
-      ref={rail}
       className="agenda-rail"
-      // Only a focus target for the recovery above; it is never in the tab order.
-      tabIndex={-1}
       data-over={over ? "true" : undefined}
       onDragOver={(event) => {
         if (!accepts()) return;
@@ -104,32 +101,28 @@ export function UnscheduledRail({
         hint={`${sessions.length} session${sessions.length === 1 ? "" : "s"} without a slot`}
         tight
       >
-        {sessions.length || selection.count ? (
+        {sessions.length ? (
           <div className="agenda-rail-select">
-            {sessions.length ? (
-              <label className="agenda-rail-all">
-                <input
-                  type="checkbox"
-                  checked={allListed}
-                  disabled={busy}
-                  // Partly-ticked is a real third state, and saying it is the difference
-                  // between "all of these" and "some of these" for a screen-reader user.
-                  ref={(node) => {
-                    group.current = node;
-                    if (node) node.indeterminate = !allListed && someListed;
-                  }}
-                  onChange={(event) =>
-                    selection.chooseMany(
-                      sessions.map(({ id }) => id),
-                      event.target.checked,
-                    )
-                  }
-                />
-                {searching
-                  ? `Select all ${sessions.length} shown`
-                  : `Select all ${sessions.length}`}
-              </label>
-            ) : null}
+            <label className="agenda-rail-all">
+              <input
+                type="checkbox"
+                checked={allListed}
+                disabled={busy}
+                // Partly-ticked is a real third state, and saying it is the difference
+                // between "all of these" and "some of these" for a screen-reader user.
+                ref={(node) => {
+                  group.current = node;
+                  if (node) node.indeterminate = !allListed && someListed;
+                }}
+                onChange={(event) =>
+                  selection.chooseMany(
+                    sessions.map(({ id }) => id),
+                    event.target.checked,
+                  )
+                }
+              />
+              {searching ? `Select all ${sessions.length} shown` : `Select all ${sessions.length}`}
+            </label>
             {selection.count ? (
               <button
                 type="button"
@@ -137,7 +130,7 @@ export function UnscheduledRail({
                 disabled={busy}
                 onClick={() => {
                   selection.clear();
-                  (group.current ?? rail.current)?.focus();
+                  group.current?.focus();
                 }}
               >
                 Clear selection
@@ -147,31 +140,30 @@ export function UnscheduledRail({
         ) : null}
 
         {/*
-         * Mounted whenever the rail is, and only its text changes, because a live region has
-         * to be on the page before the change it is announcing. Ticking a box otherwise says
-         * only "checked" — never that the toolbar action now means one session instead of the
-         * whole board, which is the very promise this affordance exists to keep.
+         * Mounted for as long as the rail is, empty rather than absent, because a live region
+         * has to be on the page before the change it announces — a screen reader that registers
+         * regions on insertion never sees one that arrives carrying its own news. Ticking a box
+         * otherwise says only "checked", never that the toolbar action now means one session
+         * instead of the whole board, which is the promise this affordance exists to keep.
          *
          * `aria-live` without `role="status"` on purpose: the workspace's action feedback is
          * the page's one `status` region, and it reports what an action *did*.
          */}
-        {sessions.length || selection.count ? (
-          <p className="agenda-rail-status" aria-live="polite">
-            {selection.count ? (
-              <span className="agenda-rail-chosen">{selection.count} selected</span>
-            ) : null}
-            {hidden ? (
-              <span className="agenda-rail-hidden">
-                {hidden === 1 ? "1 selected session is" : `${hidden} selected sessions are`} hidden
-                by your search, and will still be placed.
-              </span>
-            ) : null}
-          </p>
-        ) : null}
+        <p className="agenda-rail-status" aria-live="polite">
+          {selection.count ? (
+            <span className="agenda-rail-chosen">{selection.count} selected</span>
+          ) : null}
+          {hidden ? (
+            <span className="agenda-rail-hidden">
+              {hidden === 1 ? "1 selected session is" : `${hidden} selected sessions are`} hidden by
+              your search, and will still be placed.
+            </span>
+          ) : null}
+        </p>
 
         {sessions.length ? (
           <div className="agenda-rail-list">
-            {sessions.map((session) => {
+            {sessions.map((session, index) => {
               const held = heldSessionId === session.id;
               const chosen = selection.isSelected(session.id);
               const reason = unplaced.get(session.id);
@@ -191,9 +183,15 @@ export function UnscheduledRail({
                   <input
                     type="checkbox"
                     className="agenda-rail-check"
-                    // The card beside this box replaces its own content with an `aria-label`,
-                    // so the box has to name the session itself rather than borrow it.
-                    aria-label={`Select ${session.title} for assisted placement`}
+                    /*
+                     * The card beside this box replaces its own content with an `aria-label`,
+                     * so the box has to name the session itself rather than borrow it — and it
+                     * carries its position because two sessions may share a title. The domain
+                     * expects that: `planAssistedPlacements` breaks ties on id precisely
+                     * because "two sessions sharing a title" is an ordinary board. Without the
+                     * position, choosing between two identical announcements is guesswork.
+                     */
+                    aria-label={`Select ${session.title}, ${index + 1} of ${sessions.length}, for assisted placement`}
                     checked={chosen}
                     disabled={busy}
                     onChange={(event) => selection.choose(session.id, event.target.checked)}

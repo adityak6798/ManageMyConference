@@ -205,6 +205,24 @@ const byInstant = (left: string, right: string) => {
   return Number.isNaN(delta) ? left.localeCompare(right) : delta;
 };
 const byStart = (left: Slot, right: Slot) => byInstant(left.startsAt, right.startsAt);
+
+/**
+ * A board's placements as one comparable value, so "did this change?" is a fact about the
+ * placements rather than about how many there are.
+ *
+ * Counting cannot answer it: one session seated while another is unscheduled leaves the total
+ * where it was, and a move changes no total at all. Sorted, so two readings of the same board
+ * compare equal whatever order they arrived in.
+ */
+const placementShape = (placements: readonly Placement[]) =>
+  placements
+    // Serialized rather than joined on a separator: every field is an arbitrary string, so a
+    // separator could appear inside one and make two different boards read as the same.
+    .map(({ id, sessionId, roomId, trackId, slotId }) =>
+      JSON.stringify([id, sessionId, roomId, trackId, slotId]),
+    )
+    .sort()
+    .join("\n");
 const cellKey = (roomId: string, slotId: string) => `${roomId}~${slotId}`;
 
 function isViewId(value: string | null): value is ViewId {
@@ -271,6 +289,7 @@ export {
   isViewId,
   LOCAL_INPUT,
   NEW_SLOT,
+  placementShape,
   readViewFromUrl,
   resolveZone,
   VIEW_LABELS,
