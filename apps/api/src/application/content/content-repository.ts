@@ -59,6 +59,14 @@ export interface ContentRepository {
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<void>;
   updateTask(task: SpeakerTask): Promise<void>;
+  /**
+   * Write a session with no revision and no guard.
+   *
+   * No production path calls this, and none should: an organizer's session edit goes through
+   * `reviseSession`, which records who changed what and refuses to write from a copy the row
+   * has moved past. It survives because fixtures in other domains' suites build session state
+   * with it. A new caller here is a caller that has bypassed attributed history.
+   */
   updateSession(session: ContentSession): Promise<void>;
   /** Remove a withdrawn session. Its speaker, their tasks, and their uploads are untouched. */
   deleteSession(sessionId: string): Promise<void>;

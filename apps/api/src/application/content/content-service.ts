@@ -621,9 +621,16 @@ export class ContentService {
       throw new SpeakerPhotoInvalidError({
         assetId: [`“${asset.name}” is not an image. A profile photo must be a PNG or JPEG.`],
       });
-    const updated: SpeakerProfile = { ...profile, photoAssetId: asset.id };
     await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id);
-    return updated;
+    // Answered from the store rather than from the copy read a moment ago. Now that this writes
+    // one column, an organizer's edit landing alongside it survives — and a response assembled
+    // from the earlier read would report the bio it replaced as though it were still there.
+    return (
+      (await this.dependencies.repository.findProfile(profile.id)) ?? {
+        ...profile,
+        photoAssetId: asset.id,
+      }
+    );
   }
 
   /**
@@ -637,7 +644,7 @@ export class ContentService {
     const profile = await this.requireProfileSteward(actor, profileId);
     const { photoAssetId: _removed, ...withoutPhoto } = profile;
     await this.dependencies.repository.updateProfilePhoto(profile.id, null);
-    return withoutPhoto;
+    return (await this.dependencies.repository.findProfile(profile.id)) ?? withoutPhoto;
   }
 
   /** The speaker whose profile it is, or an organizer of the event that profile belongs to. */

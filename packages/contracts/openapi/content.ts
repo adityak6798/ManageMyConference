@@ -43,14 +43,18 @@ export const contentPaths: OpenApiFragment = {
   domain: "content",
   register(registry, { json, errorResponse }) {
     /**
-     * Two organizers edited the same speaker or session at the same moment, repeatedly.
+     * Two people edited the same speaker or session at the same moment, repeatedly.
      *
-     * Contention rather than a malformed request, and the only 4xx here a client should answer
-     * by reloading and trying again: every profile and session edit records an attributed
-     * revision in the same transaction, and a writer that loses the revision number five times
-     * running stops rather than writing from a copy the record has moved past.
+     * Carries its own description rather than reusing the standard envelope's, because this is
+     * the one 4xx on these routes a client should answer by reloading and retrying rather than
+     * by correcting the request — and a consumer reading the generated contract has no other
+     * way to learn that.
      */
-    const revisionConflictResponse = errorResponse;
+    const revisionConflictResponse = {
+      ...errorResponse,
+      description:
+        "Contention, not a malformed request. Every profile and session edit records an attributed revision in the same transaction as the change itself, and a writer that loses the revision number five times running stops rather than writing from a copy the record has moved past. Nothing was changed; reload and try again.",
+    };
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/content",

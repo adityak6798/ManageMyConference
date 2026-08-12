@@ -5017,7 +5017,7 @@
             }
           },
           "409": {
-            "description": "Standard error envelope",
+            "description": "Contention, not a malformed request. Every profile and session edit records an attributed revision in the same transaction as the change itself, and a writer that loses the revision number five times running stops rather than writing from a copy the record has moved past. Nothing was changed; reload and try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5471,7 +5471,7 @@
             }
           },
           "409": {
-            "description": "Standard error envelope",
+            "description": "Contention, not a malformed request. Every profile and session edit records an attributed revision in the same transaction as the change itself, and a writer that loses the revision number five times running stops rather than writing from a copy the record has moved past. Nothing was changed; reload and try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40166,7 +40166,7 @@
             }
           },
           "409": {
-            "description": "Standard error envelope",
+            "description": "Contention, not a malformed request. Every profile and session edit records an attributed revision in the same transaction as the change itself, and a writer that loses the revision number five times running stops rather than writing from a copy the record has moved past. Nothing was changed; reload and try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41247,7 +41247,7 @@
             }
           },
           "409": {
-            "description": "Standard error envelope",
+            "description": "Contention, not a malformed request. Every profile and session edit records an attributed revision in the same transaction as the change itself, and a writer that loses the revision number five times running stops rather than writing from a copy the record has moved past. Nothing was changed; reload and try again.",
             "content": {
               "application/json": {
                 "schema": {

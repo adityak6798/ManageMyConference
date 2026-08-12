@@ -356,7 +356,11 @@ export class D1ContentRepository
       ? []
       : (
           await this.rows(
-            "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at",
+            // Timestamp first, then the entity's own numbering. Two revisions of one record can
+            // legitimately share an instant — a retried edit is stamped no earlier than the
+            // revision it follows — and SQLite's sort is not stable, so without the tiebreak the
+            // console could list revision 2 above revision 1 with both numbers on screen.
+            "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at,entity_type,entity_id,revision_number",
             eventId,
           )
         ).map((row) => this.revision(row));
@@ -637,7 +641,14 @@ export class D1ContentRepository
       // turn `{ success: false }` into "nothing went wrong" and hand back a write that never
       // landed, which is the class of defect this whole operation exists to remove.
       if (failed) return { failure: failed.error ?? "unknown error" };
-      return { changes: results.map((result) => result.meta?.changes ?? 0) };
+      // A driver that cannot say how many rows it touched is a failure too, and specifically not
+      // a retry. Reading a missing count as zero would send a write that *did* land back around
+      // the loop to be attempted a second time under the same revision id — reporting an edit
+      // that succeeded as a primary-key fault. Silence about the count is not evidence of none.
+      const changes = results.map((result) => result.meta?.changes);
+      if (changes.some((count) => typeof count !== "number"))
+        return { failure: "D1 reported no row count for a content revision batch" };
+      return { changes: changes as number[] };
     } catch (error) {
       // ERROR-INTENT: returned to the caller, which decides between a retry and a throw; the
       // driver's message is carried whole into whichever it picks.
