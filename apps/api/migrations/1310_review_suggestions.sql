@@ -1,10 +1,14 @@
 -- Review suggestions: AI drafts, held apart from the reviewer's own record.
 --
 -- No table rebuild here, deliberately: every statement is a CREATE or an ADD COLUMN, so nothing
--- depends on `PRAGMA foreign_keys` being honoured between statements the way `1300`'s rebuild
--- does. D1 applies this as-is, and it is independent of whatever `1301` does to repair that
--- rebuild (issue #134, another lane's work — this file deliberately starts at `1310` to leave
--- `1301`-`1309` free for it).
+-- depends on `PRAGMA foreign_keys` being honoured between statements — the trap `1300` fell into
+-- and `1301` repairs. This runs after `1301`, so the ALTER TABLEs below apply to the rebuilt
+-- `review_evaluations`.
+--
+-- **What this adds for the next person who rebuilds a review table.** `review_suggestions` is now
+-- a child of `review_assignments`, and `review_evaluations.suggestion_id` makes `review_evaluations`
+-- a child of `review_suggestions`. A future rebuild of either parent has to copy and drop those
+-- children in the order `1301` demonstrates — the chain is one link longer than it was.
 --
 -- The separation is the whole point. `review_suggestions` is a sibling of `review_evaluations`,
 -- not a column on it: nothing that computes `review_outcomes` joins this table, so no query can

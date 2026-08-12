@@ -129,11 +129,17 @@ recorded).
 Closes the last gap in brief feature 4. Read this before touching the review domain or the
 `1300` migration block.
 
-- **Migration numbers inside `1300`.** The #134 lane owns `1301`–`1309` for its corrective rebuild
-  of `1300`. This lane starts at **`1310`** (`1310_review_suggestions.sql`) and takes nothing
-  below it. `1310` is `CREATE`/`ADD COLUMN` only — no table rebuild — so it is independent of
-  whatever `1301` does and does not depend on `PRAGMA foreign_keys` holding between statements.
-- **Merge order.** #134 merges first; this lane rebases onto it rather than merge-resolving.
+- **Migration numbers inside `1300`.** The #134 lane took `1301` for its corrective rebuild of
+  `1300`. This lane starts at **`1310`** and takes nothing below it. `1310` is `CREATE`/`ADD
+  COLUMN` only — no table rebuild — so it does not depend on `PRAGMA foreign_keys` holding
+  between statements, and it applies to the table `1301` rebuilt.
+- **Merge order — done.** #134 merged as PR #140; this lane rebased onto it rather than
+  merge-resolving. Three conflicts, all trivial (a migration list, a test import, the generated
+  manifest). Two things came *back* from that lane and were adopted rather than duplicated: the
+  shared `d1-write-result.ts` row-count contract (#133), which replaced this lane's own copy of
+  the same rule, and the lesson `1301` encodes — `1310`'s header now records that
+  `review_suggestions` makes the review foreign-key chain one link longer for whoever rebuilds
+  those tables next.
 - **Files this lane did not touch**, by ruling: `apps/api/test/d1-migration-rebuild.integration.test.ts`
   and `apps/api/test/support/seeded-d1.ts` (both #134's). New storage coverage went into
   `d1-review-repository.integration.test.ts`, which review owns. `apps/api/src/index.ts` and

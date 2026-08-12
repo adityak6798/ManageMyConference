@@ -2,6 +2,7 @@ import {
   type ReviewRepository,
   ReviewStateConflictError,
 } from "../../application/review/review-repository";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 import type {
   DecisionOutcome,
   Evaluation,
@@ -24,8 +25,9 @@ interface D1Result<T> {
   /**
    * What the driver says the statement touched.
    *
-   * Optional on the type because the driver may omit it — never because a caller may ignore it.
-   * See `changed` below.
+   * Optional here because most reads never look at it; a *write* whose correctness depends on it
+   * goes through `changedRows`, which refuses a missing count rather than guessing. That contract
+   * is the repository's rather than this adapter's — see `d1-write-result.ts` (#133).
    */
   meta?: { changes?: number };
 }
@@ -168,21 +170,19 @@ export class D1ReviewRepository implements ReviewRepository {
       throw new Error(`D1 failed to ${operation}: ${result.error ?? "unknown error"}`);
   }
   /**
-   * How many rows a statement touched — or a thrown failure if the driver did not say.
+   * How many rows a write touched, through the repository-wide contract.
    *
-   * A driver that cannot report a count is a **failure**, never a silent 0 or 1. Reading a missing
-   * count as zero would report a suggestion the reviewer really did accept as "already answered",
-   * and reading it as one would report an acceptance that never landed as done — the second is the
-   * dangerous direction here, because the whole feature rests on a reviewer's acceptance being a
-   * real, recorded act. Silence about the count is not evidence of either. This follows the
-   * convention `d1-content-repository.ts` sets for the same reason.
+   * A driver that cannot report a count is a **failure**, never a silent 0 or 1 — `changedRows`
+   * enforces that for every adapter (#133), and this wrapper only adds the statement-level
+   * success check that has to happen first. The stakes here are specific: reading a missing count
+   * as zero would report a suggestion the reviewer really did accept as "already answered", and
+   * reading it as one would report an acceptance that never landed as done. The second is the
+   * dangerous direction, because this feature rests on a reviewer's acceptance being a real,
+   * recorded act.
    */
   private changed(result: D1Result<unknown>, operation: string): number {
     this.ensure(result, operation);
-    const changes = result.meta?.changes;
-    if (typeof changes !== "number")
-      throw new Error(`D1 reported no row count while trying to ${operation}`);
-    return changes;
+    return changedRows(result as D1WriteResult, operation);
   }
   async getPlan(eventId: string) {
     const result = await this.database
