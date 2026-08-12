@@ -53,6 +53,7 @@ const generated = {
       slotId: "slot-0900",
     },
   ],
+  placed: ["session-one"],
   unplaced: [{ sessionId: "session-two", title: "Closing panel", reason: NO_ROOM }],
 };
 

@@ -205,6 +205,7 @@ const byInstant = (left: string, right: string) => {
   return Number.isNaN(delta) ? left.localeCompare(right) : delta;
 };
 const byStart = (left: Slot, right: Slot) => byInstant(left.startsAt, right.startsAt);
+
 const cellKey = (roomId: string, slotId: string) => `${roomId}~${slotId}`;
 
 function isViewId(value: string | null): value is ViewId {

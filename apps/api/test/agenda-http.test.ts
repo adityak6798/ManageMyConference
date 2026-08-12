@@ -9,8 +9,8 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
-import { createHttpAppFrom } from "../src/transport/http/app";
 import type { AgendaDraft } from "../src/domain/agenda/agenda";
+import { createHttpAppFrom } from "../src/transport/http/app";
 
 const secret = "agenda-http-secret";
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -75,9 +75,17 @@ describe("assisted placement route", () => {
 
     expect(response.status).toBe(200);
     const { agenda } = (await response.json()) as {
-      agenda: { placements: unknown[]; conflicts: unknown[]; unplaced: unknown[] };
+      agenda: {
+        placements: unknown[];
+        conflicts: unknown[];
+        placed: string[];
+        unplaced: unknown[];
+      };
     };
     expect(agenda.placements).toHaveLength(2);
+    // The route reports what the pass seated, not only the board it produced: a client cannot
+    // separate this action's work from a concurrent one by comparing boards.
+    expect([...agenda.placed].sort()).toEqual(["session-1", "session-2"]);
     expect(agenda.conflicts).toEqual([]);
     expect(agenda.unplaced).toEqual([]);
   });

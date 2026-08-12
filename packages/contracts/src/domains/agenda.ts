@@ -78,13 +78,20 @@ export const agendaAutoPlaceSchema = z.object({
   sessionIds: z.array(z.string().min(1)).min(1).optional(),
 });
 /**
- * The board after an assisted pass, plus what it could not seat and why.
+ * The board after an assisted pass, plus what it seated and what it could not.
  *
  * `unplaced` is part of the result rather than an error: a pass that seats eleven of twelve
  * sessions succeeded, and the twelfth needs an explanation the organizer can act on, not a
  * failed request.
+ *
+ * `placed` names the sessions *this* pass seated. Only the server knows that: a client can
+ * compare the board it sent against the board it got back, but the difference also contains
+ * whatever another organizer did in the same seconds, so a count taken there credits this
+ * action with someone else's drag — or misses a session the client never knew was unscheduled.
+ * The control announces what it did, so what it did has to be reported rather than inferred.
  */
 export const agendaAssistedDraftSchema = agendaDraftSchema.extend({
+  placed: z.array(z.string()),
   unplaced: z.array(z.object({ sessionId: z.string(), title: z.string(), reason: z.string() })),
 });
 export type AgendaAssistedDraftDto = z.infer<typeof agendaAssistedDraftSchema>;

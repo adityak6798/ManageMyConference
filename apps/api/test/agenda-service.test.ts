@@ -6,10 +6,10 @@ import {
   AgendaPublicationConflictError,
   AgendaService,
 } from "../src/application/agenda/agenda-service";
-import type { Actor } from "../src/application/identity/actor";
-import { conflictsFor, type AgendaDraft } from "../src/domain/agenda/agenda";
-import { planAssistedPlacements } from "../src/domain/agenda/assisted-placement";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
+import type { Actor } from "../src/application/identity/actor";
+import { type AgendaDraft, conflictsFor } from "../src/domain/agenda/agenda";
+import { planAssistedPlacements } from "../src/domain/agenda/assisted-placement";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const draft: AgendaDraft = {
@@ -105,6 +105,77 @@ describe("assisted agenda placement", () => {
     expect(savePlacement).not.toHaveBeenCalled();
     expect(result.placements).toHaveLength(4);
     expect(result.unplaced).toEqual([]);
+  });
+
+  /*
+   * The half of the contract the board could not reach until issue #119.
+   *
+   * `sessionIds` has been accepted since the action shipped, but nothing asserted that naming a
+   * subset seats *only* it — the route test covers the refusal for an unknown session and the
+   * cost is asserted for the whole board. Both halves matter now that an organizer can tick two
+   * of five sessions and press the button.
+   */
+  it("seats only the sessions it was given, at the same cost as the whole board", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const getDraft = vi.spyOn(repository, "getDraft");
+    const savePlacements = vi.spyOn(repository, "savePlacements");
+    const service = new AgendaService(repository, () => new Date(), boardContent());
+
+    const result = await service.autoPlace(organizer, eventId, ["session-2", "session-4"]);
+
+    expect(result.placements.map(({ sessionId }) => sessionId).sort()).toEqual([
+      "session-2",
+      "session-4",
+    ]);
+    // What the pass seated, said by the only party that can know it: the board it returns also
+    // carries whatever else landed while the request was in flight, so a caller diffing boards
+    // cannot tell this pass's work from another organizer's.
+    expect([...result.placed].sort()).toEqual(["session-2", "session-4"]);
+    // The two it was not asked about are left where they were, not reported as unplaceable:
+    // they were never candidates, and an explanation would be about a pass that never ran.
+    expect(result.unplaced).toEqual([]);
+    // One read and one write for a subset, exactly as for the whole board (issue #119): a
+    // selection must not reintroduce the per-placement round trip issue #69 removed.
+    expect(getDraft).toHaveBeenCalledTimes(1);
+    expect(savePlacements).toHaveBeenCalledTimes(1);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  /*
+   * The one path where "what this pass seated" can disagree with what exists.
+   *
+   * `savePlacements` takes a planner the repository may run more than once: it plans against the
+   * revision it is about to replace, so a lost compare-and-set re-plans, and the attempt that
+   * lost the race planned placements that were never written. Both implementations write the
+   * whole plan or none of it, so reading `placed` off the stored board is defence rather than a
+   * bug fix — but it is the difference between a number that follows from what exists and one
+   * that follows from an attempt, and only the first stays true if that ever changes.
+   *
+   * The double below drives that shape directly: the planner runs twice and the write keeps one
+   * placement. It does not reproduce D1's compare-and-set itself, which belongs to the
+   * repository's own integration test.
+   */
+  it("reports only the placements the write kept, when the planner runs more than once", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const real = repository.savePlacements.bind(repository);
+    vi.spyOn(repository, "savePlacements").mockImplementation(async (id, plan) =>
+      real(id, (current) => {
+        // A first run whose plan is thrown away, as a lost compare-and-set discards one.
+        plan(current);
+        // The run that counts, of which the write keeps only the first placement.
+        const [first] = plan(current);
+        return first ? [first] : [];
+      }),
+    );
+    const service = new AgendaService(repository, () => new Date(), boardContent());
+
+    const result = await service.autoPlace(organizer, eventId);
+
+    expect(result.placed).toHaveLength(1);
+    expect(result.placements).toHaveLength(1);
+    // Said about the stored board, not about an attempt: every id reported is on it.
+    const stored = new Set(result.placements.map(({ sessionId }) => sessionId));
+    expect(result.placed.every((sessionId) => stored.has(sessionId))).toBe(true);
   });
 
   it("produces a conflict-free board, keeping a shared speaker out of one hour", async () => {
