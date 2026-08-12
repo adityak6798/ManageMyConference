@@ -1,6 +1,6 @@
 # Integration architecture
 
-Status: canonical | Owner: platform | IDs: `PORT-EMAIL`, `PORT-CALENDAR`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS`, `PORT-AI` | Last verified: 2026-08-09
+Status: canonical | Owner: platform | IDs: `PORT-EMAIL`, `PORT-CALENDAR`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS`, `PORT-AI` | Last verified: 2026-08-12
 
 Application services call typed provider-neutral ports. Live implementations are credential-gated and cannot be required for pull-request CI.
 
@@ -49,3 +49,43 @@ The organizer recovery procedure is:
 4. Reinspect history until a new immutable attempt is `succeeded` or yields a new actionable failure.
 
 The retry action never deletes or rewrites prior attempts. Only an organizer in the owning organization has `communications:manage`; denial occurs before request-body parsing.
+
+## A late projection can leave the external system stale
+
+`PROJECTION_SUPERSEDED` is checked before the provider call, so it cannot see a newer version
+requested *during* one. Two projections for the same destination/event/resource can therefore
+both be sent, and nothing orders their arrival: v1's HTTP call, issued first, can land after
+v2's. When it does, the external system keeps v1's data while `outbound_projection_state`
+correctly records v2 — the version guard on that row (`excluded.version >= …`) refuses the older
+write. Both deliveries look like successes afterwards. Nothing in the history says the external
+system disagrees with us, and nothing ever asks it.
+
+**This is not fixed by a conditional write, because the providers do not offer one.** Airtable's
+REST API has no precondition on a record write: no `If-Match`, no ETag, no compare-and-set, and
+`performUpsert` matches on a field value rather than on a version. There is no request we could
+send that the server would refuse on version grounds, so "only apply if you still hold v1" is not
+expressible. The same is true of the Accelevents contract as documented. A precondition is the
+right fix and it is unavailable, which is why what follows is a repair rather than a prevention.
+
+**What the code does instead is detect and repair.** The refusal above is observable — the upsert
+updates no row — so `complete` reports it, and in the same durable batch re-queues the delivery
+that owns the recorded version. That delivery re-sends the winning payload, and because every
+projection adapter upserts on the resource reference, the external system converges rather than
+duplicating. It terminates: the re-send records a version equal to the recorded one, which the
+guard accepts, so no further repair is queued. The repair is in the batch rather than in the
+worker because the refusal is observable exactly once — a worker that noticed it and then failed
+would leave a stale external record that nothing could detect again.
+
+**The window is bounded, not eliminated.** Between the stale write landing and the repair
+draining, the external system genuinely holds older data — at most one outbox tick plus the
+queue ahead of it, and longer if the repair's own attempts fail. A consumer reading Airtable in
+that window reads stale rows. Anything that needs a strict guarantee must read SQL, which is
+canonical by design (`PRD-INT-001`); the projection is a view and is eventually consistent with
+a bounded, now self-correcting, lag.
+
+The repair is visible: `delivery.attempt` carries `staleProjectionRepaired`, the re-send is an
+ordinary second attempt on the winning delivery rather than a rewritten first one, and a rising
+rate of it means projections are being enqueued faster than the outbox drains them. One case is
+deliberately left alone — if the winning delivery has since been manually retried into
+`terminal`, the repair does not resurrect it, because re-sending something an operator has
+watched fail would fight the operator rather than help them.

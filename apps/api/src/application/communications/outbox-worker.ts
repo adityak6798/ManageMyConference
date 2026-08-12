@@ -25,6 +25,17 @@ export interface DeliveryAttemptRecord {
   readonly outcome: string;
   readonly errorCode: string | null;
   readonly providerReference: string | null;
+  /**
+   * This projection reached the provider after a newer one had already been recorded, so the
+   * external system was left holding older data and the newer delivery has been re-queued to
+   * overwrite it.
+   *
+   * The only externally visible trace of a race that is otherwise invisible: both provider calls
+   * succeeded, both attempts read `succeeded`, and the row that lost is a normal-looking success.
+   * An operator watching this go from never to often is watching projections being enqueued
+   * faster than the outbox drains them.
+   */
+  readonly staleProjectionRepaired: boolean;
 }
 
 export interface OutboxTelemetry {
@@ -107,7 +118,7 @@ export class OutboxWorker {
             ? `RETRY_EXHAUSTED:${result.code}`
             : result.code,
     };
-    await this.repository.complete(
+    const completion = await this.repository.complete(
       leaseToken,
       attempt,
       { state, nextAttemptAt, updatedAt: completedAt },
@@ -137,6 +148,7 @@ export class OutboxWorker {
         outcome: attempt.outcome,
         errorCode: attempt.errorCode,
         providerReference: attempt.providerReference,
+        staleProjectionRepaired: !completion.projectionApplied,
       });
     } catch {
       // ERROR-INTENT: the attempt is already durable and readable in the delivery history; a

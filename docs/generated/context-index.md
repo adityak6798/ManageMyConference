@@ -421,6 +421,7 @@
 - `test` / `repository-fact`: [apps/api/test/provider-contract.test.ts](../../apps/api/test/provider-contract.test.ts)
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
+- `specification` / `normative`: [docs/architecture/integrations.md](../../docs/architecture/integrations.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)

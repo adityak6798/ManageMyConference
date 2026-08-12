@@ -138,6 +138,170 @@ describe("D1CommunicationsRepository", () => {
     await expect(repository.isProjectionSuperseded(delivery)).resolves.toBe(true);
   });
 
+  /**
+   * The same repair as `communications-service.test.ts` proves against the in-memory model, run
+   * against the SQL that actually ships — because both halves of it live in SQL and nowhere else:
+   * the refusal is a `WHERE excluded.version >= …` on an upsert, and the repair is a conditional
+   * `UPDATE` in the same batch. A model that agrees with a statement it does not execute proves
+   * nothing about `meta.changes`, about the batch's atomicity, or about the guards on the update.
+   */
+  it("reports a refused projection and re-queues the delivery that owns the newer version", async () => {
+    const migrated = await createMigratedDatabase({ label: "communications-stale", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1CommunicationsRepository(migrated.database);
+    const base = {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      eventId: "00000000-0000-4000-8000-000000000001",
+      triggerType: "projection.requested" as const,
+      channel: "airtable" as const,
+      templateId: null,
+      templateVersion: null,
+      recipientRef: "session:77",
+      renderedSubject: null,
+      renderedBody: null,
+      state: "queued" as const,
+      attemptCount: 0,
+      nextAttemptAt: "2026-08-10T11:00:00.000Z",
+      leaseToken: null,
+      createdAt: "2026-08-10T12:00:00.000Z",
+      updatedAt: "2026-08-10T12:00:00.000Z",
+    };
+    const stale = {
+      ...base,
+      id: "stale-v1",
+      idempotencyKey: "projection:session:77:v1",
+      payload: { title: "Old" },
+      projectionVersion: 1,
+    };
+    const winner = { ...base, id: "winner-v2", idempotencyKey: "projection:session:77:v2" };
+    await repository.enqueue(stale);
+    await repository.enqueue({ ...winner, payload: { title: "New" }, projectionVersion: 2 });
+    // Leases are taken by hand rather than through `leaseNext`, which orders by due time and would
+    // pick between these two — and the seeded event's own queued deliveries — arbitrarily. What
+    // is under test is `complete`, and it needs a named delivery on each side of the race.
+    const lease = async (deliveryId: string, token: string) => {
+      const result = await migrated.database
+        .prepare("UPDATE communication_deliveries SET lease_token = ? WHERE id = ?")
+        .bind(token, deliveryId)
+        .run();
+      expect(result.meta?.changes).toBe(1);
+    };
+
+    // v2 completes first and records the projection state.
+    await lease(winner.id, "lease-v2");
+    const winnerCompletion = await repository.complete(
+      "lease-v2",
+      {
+        id: "attempt-v2",
+        deliveryId: winner.id,
+        sequence: 1,
+        startedAt: "2026-08-10T12:00:00.000Z",
+        completedAt: "2026-08-10T12:00:01.000Z",
+        outcome: "succeeded",
+        providerReference: "fake:airtable:winner-v2",
+        errorCode: null,
+      },
+      {
+        state: "succeeded",
+        nextAttemptAt: "2026-08-10T12:00:01.000Z",
+        updatedAt: "2026-08-10T12:00:01.000Z",
+      },
+      {
+        destination: "airtable",
+        eventId: base.eventId,
+        resourceRef: base.recipientRef,
+        version: 2,
+        deliveryId: winner.id,
+        projectedAt: "2026-08-10T12:00:01.000Z",
+      },
+    );
+    expect(winnerCompletion.projectionApplied).toBe(true);
+
+    // v1's provider call was already in flight and lands afterwards, overwriting v2 remotely.
+    await lease(stale.id, "lease-v1");
+    const staleCompletion = await repository.complete(
+      "lease-v1",
+      {
+        id: "attempt-v1",
+        deliveryId: stale.id,
+        sequence: 1,
+        startedAt: "2026-08-10T12:00:00.000Z",
+        completedAt: "2026-08-10T12:00:03.000Z",
+        outcome: "succeeded",
+        providerReference: "fake:airtable:stale-v1",
+        errorCode: null,
+      },
+      {
+        state: "succeeded",
+        nextAttemptAt: "2026-08-10T12:00:03.000Z",
+        updatedAt: "2026-08-10T12:00:03.000Z",
+      },
+      {
+        destination: "airtable",
+        eventId: base.eventId,
+        resourceRef: base.recipientRef,
+        version: 1,
+        deliveryId: stale.id,
+        projectedAt: "2026-08-10T12:00:03.000Z",
+      },
+    );
+
+    expect(staleCompletion.projectionApplied).toBe(false);
+    // The projection row still names v2 — the version guard held.
+    const recorded = await migrated.database
+      .prepare(
+        "SELECT version, delivery_id FROM outbound_projection_state WHERE destination = ? AND event_id = ? AND resource_ref = ?",
+      )
+      .bind("airtable", base.eventId, base.recipientRef)
+      .all<{ version: number; delivery_id: string }>();
+    expect(recorded.results?.[0]).toMatchObject({ version: 2, delivery_id: winner.id });
+    // v1's own attempt is still recorded as the success it was.
+    expect(await repository.attempts(stale.id)).toHaveLength(1);
+    // The repair: v2 is queued again, so the winning payload is re-sent to the external system.
+    expect(await repository.get(winner.id)).toMatchObject({
+      state: "queued",
+      nextAttemptAt: "2026-08-10T12:00:03.000Z",
+    });
+    // The re-queued row still carries v2's payload, so what gets re-sent is the winning data
+    // rather than an empty replay.
+    expect(await repository.get(winner.id)).toMatchObject({
+      payload: { title: "New" },
+      projectionVersion: 2,
+    });
+    await lease(winner.id, "lease-repair");
+
+    // Re-sending an equal version is accepted, so the repair does not queue another repair.
+    const repairCompletion = await repository.complete(
+      "lease-repair",
+      {
+        id: "attempt-repair",
+        deliveryId: winner.id,
+        sequence: 2,
+        startedAt: "2026-08-10T12:00:04.000Z",
+        completedAt: "2026-08-10T12:00:05.000Z",
+        outcome: "succeeded",
+        providerReference: "fake:airtable:winner-v2-again",
+        errorCode: null,
+      },
+      {
+        state: "succeeded",
+        nextAttemptAt: "2026-08-10T12:00:05.000Z",
+        updatedAt: "2026-08-10T12:00:05.000Z",
+      },
+      {
+        destination: "airtable",
+        eventId: base.eventId,
+        resourceRef: base.recipientRef,
+        version: 2,
+        deliveryId: winner.id,
+        projectedAt: "2026-08-10T12:00:05.000Z",
+      },
+    );
+    expect(repairCompletion.projectionApplied).toBe(true);
+    expect(await repository.get(winner.id)).toMatchObject({ state: "succeeded" });
+    expect(await repository.attempts(winner.id)).toHaveLength(2);
+  });
+
   it("executes queued work through the deployed scheduled entrypoint", async () => {
     const migrated = await createMigratedDatabase({
       label: "communications-scheduled",

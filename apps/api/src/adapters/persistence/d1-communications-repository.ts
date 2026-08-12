@@ -16,7 +16,11 @@ interface Statement {
 }
 type Database = {
   prepare(query: string): Statement;
-  batch(statements: Statement[]): Promise<{ success: boolean; error?: string }[]>;
+  // `meta.changes` is what tells a conditional upsert apart from one whose WHERE guard declined
+  // it: both are successful statements, and only the row count distinguishes them.
+  batch(
+    statements: Statement[],
+  ): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }[]>;
 };
 type TemplateRow = {
   id: string;
@@ -387,7 +391,8 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
           leaseToken,
         ),
     ];
-    if (projection)
+    const projectionStatement = projection ? statements.length : -1;
+    if (projection) {
       statements.push(
         this.database
           .prepare(
@@ -404,10 +409,48 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
             attempt.deliveryId,
           ),
       );
+      // The repair, in the same batch as the attempt that made it necessary.
+      //
+      // Reached only when the upsert above was refused — the recorded version is strictly newer
+      // than this delivery's, so this delivery's provider call was the late one and the external
+      // system is now holding older data than the database records. Re-queuing the delivery that
+      // owns the recorded version re-sends the winning payload; because every projection adapter
+      // upserts on the resource reference, that converges rather than duplicating.
+      //
+      // It is in the batch rather than in the worker because the refusal is observable exactly
+      // once. A worker that noticed it, then failed before writing the repair, would leave a
+      // stale external record nothing could detect again — the attempt is already durable, and
+      // no later drain re-derives it.
+      //
+      // Terminates: the re-send records a version equal to the recorded one, which `>=` accepts,
+      // so `version > ?` is false the second time round and no further repair is queued.
+      statements.push(
+        this.database
+          .prepare(
+            "UPDATE communication_deliveries SET state = 'queued', next_attempt_at = ?, updated_at = ? WHERE id = (SELECT delivery_id FROM outbound_projection_state WHERE destination = ? AND event_id = ? AND resource_ref = ? AND version > ?) AND state = 'succeeded' AND lease_token IS NULL AND EXISTS (SELECT 1 FROM communication_attempts WHERE id = ? AND delivery_id = ?)",
+          )
+          .bind(
+            projection.projectedAt,
+            projection.projectedAt,
+            projection.destination,
+            projection.eventId,
+            projection.resourceRef,
+            projection.version,
+            attempt.id,
+            attempt.deliveryId,
+          ),
+      );
+    }
     const results = await this.database.batch(statements);
     for (const result of results) this.ensure(result, "complete delivery atomically");
     const recorded = await this.attempts(attempt.deliveryId);
     if (!recorded.some(({ id }) => id === attempt.id)) throw new Error("Delivery lease lost");
+    // The upsert changed no row exactly when its version guard refused it. Without a projection
+    // there is nothing to be stale, so nothing to report.
+    return {
+      projectionApplied:
+        projectionStatement < 0 || (results[projectionStatement]?.meta?.changes ?? 0) > 0,
+    };
   }
   async retry(deliveryId: string, organizationId: string, now: string) {
     const result = await this.database

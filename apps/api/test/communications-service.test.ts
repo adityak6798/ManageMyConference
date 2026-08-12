@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { MemoryCommunicationsRepository } from "../src/adapters/persistence/memory-communications-repository";
 import { DeterministicProvider } from "../src/adapters/providers/deterministic-provider";
 import { CommunicationsService } from "../src/application/communications/communications-service";
-import { OutboxWorker } from "../src/application/communications/outbox-worker";
+import {
+  type DeliveryAttemptRecord,
+  OutboxWorker,
+} from "../src/application/communications/outbox-worker";
+import type { DeliveryProvider } from "../src/application/communications/ports";
 import type { Actor } from "../src/application/identity/actor";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
@@ -347,6 +351,96 @@ describe("communications outbox", () => {
     expect(await test.repository.attempts(stale.id)).toEqual([
       expect.objectContaining({ outcome: "retryable_failure" }),
       expect.objectContaining({ outcome: "terminal_failure", errorCode: "PROJECTION_SUPERSEDED" }),
+    ]);
+  });
+
+  /**
+   * The race the pre-call supersession guard cannot see, and the repair for it.
+   *
+   * The guard at the top of `runOne` reads the database before the provider call. A v2 enqueued
+   * *during* v1's in-flight call therefore passes it, and both calls succeed — but they land at
+   * the external system in the wrong order, so it keeps v1's data while the database correctly
+   * records v2. Nothing about either delivery looks wrong afterwards: two successes, two
+   * `succeeded` attempts, and a projection row naming the right version over stale remote data.
+   *
+   * `deliverOrder` below is the whole point: it is the external system's write order, and the
+   * assertion is that v2 is written to it again *after* v1 overwrote it.
+   */
+  it("re-sends the newer projection when an overtaken one reaches the provider last", async () => {
+    const test = harness();
+    const deliverOrder: (number | null)[] = [];
+    const telemetry: DeliveryAttemptRecord[] = [];
+    const stale = await test.service.trigger(organizer, {
+      organizationId,
+      eventId,
+      idempotencyKey: "projection:session:42:v1",
+      triggerType: "projection.requested",
+      channel: "airtable",
+      recipientRef: "session:42",
+      payload: { title: "Old" },
+      projectionVersion: 1,
+    });
+
+    let overtaking: (() => Promise<void>) | null = async () => {
+      const winner = await test.service.trigger(organizer, {
+        organizationId,
+        eventId,
+        idempotencyKey: "projection:session:42:v2",
+        triggerType: "projection.requested",
+        channel: "airtable",
+        recipientRef: "session:42",
+        payload: { title: "New" },
+        projectionVersion: 2,
+      });
+      // v1 is leased and mid-call, so this drains v2 and nothing else.
+      await racing.runOne();
+      expect(await test.repository.get(winner.id)).toMatchObject({ state: "succeeded" });
+    };
+    const provider: DeliveryProvider = {
+      async deliver(delivery) {
+        const interleave = overtaking;
+        overtaking = null;
+        if (interleave) await interleave();
+        deliverOrder.push(delivery.projectionVersion);
+        return { kind: "success", providerReference: `fake:${delivery.id}` };
+      },
+    };
+    const racing = new OutboxWorker(
+      test.repository,
+      { email: provider, airtable: provider, accelevents: provider },
+      { newId: () => `race-${deliverOrder.length}-${telemetry.length}`, now: () => new Date() },
+      { attempt: (record) => telemetry.push(record) },
+    );
+
+    await racing.runOne();
+
+    // v2 was written to the external system first and v1 overwrote it — the stale state this
+    // whole mechanism exists to detect.
+    expect(deliverOrder).toEqual([2, 1]);
+    // The database was never wrong: the version guard refused v1's projection row.
+    expect(test.repository.projections.get(`airtable:${eventId}:session:42`)).toMatchObject({
+      version: 2,
+    });
+    expect(await test.repository.get(stale.id)).toMatchObject({ state: "succeeded" });
+    // The repair: v2's delivery is queued again, so the winning payload is re-sent.
+    const winner = await test.repository.findByIdempotencyKey(
+      organizationId,
+      "projection:session:42:v2",
+    );
+    expect(winner).toMatchObject({ state: "queued" });
+    expect(telemetry.at(-1)).toMatchObject({ outcome: "succeeded", staleProjectionRepaired: true });
+
+    await racing.runOne();
+    // The external system now holds v2 again, and the re-send is the last word.
+    expect(deliverOrder).toEqual([2, 1, 2]);
+    // Re-sending an equal version is accepted, so the repair does not queue another repair.
+    expect(telemetry.at(-1)).toMatchObject({ staleProjectionRepaired: false });
+    expect(await racing.runOne()).toBe(false);
+    expect(deliverOrder).toEqual([2, 1, 2]);
+    // The re-send is an honest second attempt on the same delivery, not a rewritten first one.
+    expect(await test.repository.attempts(winner?.id ?? "")).toEqual([
+      expect.objectContaining({ sequence: 1, outcome: "succeeded" }),
+      expect.objectContaining({ sequence: 2, outcome: "succeeded" }),
     ]);
   });
 

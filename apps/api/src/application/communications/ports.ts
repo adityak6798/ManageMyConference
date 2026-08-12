@@ -16,6 +16,23 @@ export interface DeliveryProvider {
   deliver(delivery: Delivery): Promise<ProviderResult>;
 }
 
+/** What `complete` durably did, for the caller that has to report it. */
+export interface DeliveryCompletion {
+  /**
+   * Whether this delivery's version is the one `outbound_projection_state` now records.
+   *
+   * `false` means the projection write was refused because a newer version had already landed —
+   * so this delivery's provider call was a late one that overwrote fresher data in the external
+   * system. It is the only signal that the external system is now stale, and it exists because
+   * nothing else can observe it: the refusal is a `WHERE` clause that declines to update a row,
+   * which is a perfectly successful statement.
+   *
+   * Always `true` when no projection accompanied the completion, including for every email
+   * delivery — there is nothing to be stale.
+   */
+  readonly projectionApplied: boolean;
+}
+
 // @spec PRD-COM-001 PRD-INT-001
 export interface CommunicationsRepository {
   createTemplate(template: MessageTemplate): Promise<void>;
@@ -50,12 +67,22 @@ export interface CommunicationsRepository {
   }>;
   get(deliveryId: string): Promise<Delivery | null>;
   leaseNext(now: string, leaseToken: string): Promise<Delivery | null>;
+  /**
+   * Append the attempt, move the delivery, and record the projection — atomically.
+   *
+   * When `projection` is supplied and a newer version has already been recorded for the same
+   * destination/event/resource, two things happen in the same durable batch: the projection row
+   * is left alone, and the delivery that owns that newer version is re-queued so its payload is
+   * sent again. That re-send is the repair for a late provider call having overwritten the
+   * external system with older data — see `DeliveryCompletion.projectionApplied` and
+   * `docs/architecture/integrations.md#a-late-projection-can-leave-the-external-system-stale`.
+   */
   complete(
     leaseToken: string,
     attempt: DeliveryAttempt,
     next: Pick<Delivery, "state" | "nextAttemptAt" | "updatedAt">,
     projection?: ProjectionState,
-  ): Promise<void>;
+  ): Promise<DeliveryCompletion>;
   retry(deliveryId: string, organizationId: string, now: string): Promise<Delivery>;
   attempts(deliveryId: string): Promise<readonly DeliveryAttempt[]>;
   isProjectionSuperseded(delivery: Delivery): Promise<boolean>;

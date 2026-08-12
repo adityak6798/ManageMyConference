@@ -1,6 +1,6 @@
 # Communications providers: configuration and operations
 
-Status: canonical | Owner: communications-integrations | IDs: `PORT-EMAIL`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS` | Last verified: 2026-08-11
+Status: canonical | Owner: communications-integrations | IDs: `PORT-EMAIL`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS` | Last verified: 2026-08-12
 
 How outbound deliveries actually leave the Worker: which provider is selected, what has to be
 configured, what an operator does when one fails, and — stated plainly below — what has not been
@@ -121,10 +121,19 @@ rewrites the previous ones — the procedure is in
 ## What is not logged
 
 `delivery.attempt` is the only line the outbox emits per provider call. It carries the delivery
-id, channel, trigger type, attempt sequence, normalized outcome, error code and provider
-reference. It deliberately carries **no** recipient, rendered message, payload or credential:
-this goes to a shared sink and the row itself is available under the same authorization as the
-history view.
+id, channel, trigger type, attempt sequence, normalized outcome, error code, provider reference,
+and `staleProjectionRepaired`. It deliberately carries **no** recipient, rendered message,
+payload or credential: this goes to a shared sink and the row itself is available under the same
+authorization as the history view.
+
+`staleProjectionRepaired` is true when this projection reached the provider *after* a newer one
+had already been recorded, so the external system was left holding older data and the newer
+delivery has been re-queued to overwrite it. It is the only externally visible trace of a race
+that is otherwise invisible — both calls succeeded, both attempts read `succeeded`, and the row
+that lost looks like an ordinary success. Seeing it go from never to often means projections are
+being enqueued faster than the outbox drains them. The mechanism, and why a conditional write is
+not available to prevent it, are in
+[integration architecture](../architecture/integrations.md#a-late-projection-can-leave-the-external-system-stale).
 
 The idempotency key is deliberately **not** logged either, which is worth knowing if you go
 looking for it. `POST /api/communications/deliveries` lets a caller choose that key, so one
@@ -135,11 +144,9 @@ No response body ever reaches an `error_code`. Bodies can echo a recipient addre
 contents, or a token quoted back in an error message, and `error_code` is stored on an immutable
 attempt and rendered in the organizer's UI. The status is enough to act on.
 
-One caveat on `idempotencyKey`, which the line does carry: for a console send it is
-`broadcast:{templateKey}:v{version}:{eventId}:{userId}` — identifiers, no address. But
-`POST /api/communications/deliveries` lets a caller choose the key freely, so a caller that keys
-a delivery `invite:ada@example.test` puts that address into this log line. Key deliveries by
-identifier, not by address.
+Keying deliveries by identifier rather than by address is still the right habit — the key is
+stored on the row and shown in the organizer's history — but it is no longer what stands between
+an address and the shared log sink.
 
 ## Rate limits and volume
 
