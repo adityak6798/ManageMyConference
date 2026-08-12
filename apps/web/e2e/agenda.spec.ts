@@ -6,6 +6,9 @@ const openingSession = "20000000-0000-4000-8000-000000000001";
 const secondSessionId = "20000000-0000-4000-8000-000000000002";
 const secondSession = "Accessible by default";
 const openingPlacement = "placement-opening";
+// Assisted placement derives a placement's id from the session it seats, so a card the pass
+// created is addressable without reading it back off the board.
+const assistedSecondPlacement = `assisted-${secondSessionId}`;
 // The board names a placement it creates after the session it holds, so a session the
 // tests below schedule from scratch is always addressable by this id.
 const secondPlacement = `placement-${secondSessionId}`;
@@ -421,6 +424,87 @@ test("generates a conflict-free draft in one action and keeps it editable", asyn
   // And it is still an ordinary board: a session the pass placed can be sent back with the
   // same control that removes a hand-placed one, through the same list view.
   await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+});
+
+/*
+ * `#119`: the same action over a chosen subset, reached with the keyboard alone.
+ *
+ * Every gesture below is a key press, because selection is subject to the board's standing rule
+ * that a scheduling tool which needs a mouse is unusable for part of an organizing team. The
+ * assertions either side of the press are the ones that matter: the control has to say which of
+ * the two things it will do *before* it is pressed, and the session that was not ticked has to
+ * still be sitting unscheduled afterwards.
+ */
+test("places only the sessions ticked in the rail, chosen with the keyboard", async ({ page }) => {
+  await openAgenda(page);
+
+  // Free both sessions, so a subset is a real choice rather than the only one available.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: /Designing the calm conference/ })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await page.getByRole("tab", { name: /^Room/ }).click();
+  await expect(page.getByText("0 of 2 scheduled")).toBeVisible();
+
+  const action = page.getByRole("button", { name: /Generate draft|Place \d+ selected/ });
+  await expect(action).toHaveText(/Generate draft/);
+
+  // ---- ticking one session, by keyboard ------------------------------------
+  const chosen = page.getByRole("checkbox", {
+    name: `Select ${secondSession} for assisted placement`,
+  });
+  await chosen.focus();
+  await page.keyboard.press("Space");
+  await expect(chosen).toBeChecked();
+  // The group control now says "some of these", which is a different answer from "all of them".
+  const all = page.getByRole("checkbox", { name: /^Select all/ });
+  expect(await all.evaluate((node) => (node as HTMLInputElement).indeterminate)).toBe(true);
+
+  // The control names the selection rather than the board, so it cannot promise to place
+  // everything and then place one — the defect class the search filter had in #113.
+  await expect(action).toHaveText(/Place 1 selected/);
+
+  // Clearing is reachable the same way, and the promise reverts with it.
+  const clear = page.getByRole("button", { name: "Clear selection" });
+  await clear.focus();
+  await page.keyboard.press("Enter");
+  await expect(action).toHaveText(/Generate draft/);
+  await expect(chosen).not.toBeChecked();
+
+  await chosen.focus();
+  await page.keyboard.press("Space");
+  await expect(action).toHaveText(/Place 1 selected/);
+
+  // ---- and one press seats exactly that session ----------------------------
+  await action.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: /Placed 1 session\./ })
+      .first(),
+  ).toBeVisible();
+  await expect(page.getByText("1 of 2 scheduled")).toBeVisible();
+
+  // The session that was not ticked is untouched: still in the rail, still unscheduled, and
+  // carrying no explanation, because no pass was ever asked to seat it.
+  await expect(
+    page.getByRole("button", { name: /Designing the calm conference\. Not scheduled/ }),
+  ).toBeVisible();
+
+  // ---- and what it produced is an ordinary, editable placement --------------
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByLabel(`Room assignment ${assistedSecondPlacement}`)
+    .selectOption({ label: "Workshop lab" });
+  await expect(page.getByRole("status")).toContainText("moved to a new room");
   await page
     .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })

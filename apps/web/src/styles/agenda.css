@@ -294,6 +294,57 @@
   overflow-y: auto;
 }
 
+/*
+ * Which sessions the next assisted pass is for.
+ *
+ * The tick is the signal and the row tint only follows it, because a tint is invisible to a
+ * screen reader and unreliable for a reader who cannot separate these two greens. The card's
+ * own "carrying" state keeps the stronger border, so holding a session still reads as the
+ * louder of the two.
+ */
+.agenda-rail-select {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: var(--s-3) var(--s-3) 0;
+}
+.agenda-rail-all {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.agenda-rail-chosen {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 620;
+}
+.agenda-rail-hidden {
+  margin: var(--s-2) 0 0;
+  padding: 0 var(--s-3);
+  color: var(--warn-fg);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  text-wrap: pretty;
+}
+.agenda-rail-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: var(--s-2);
+  padding: var(--s-1);
+  border-radius: var(--r-md);
+}
+.agenda-rail-item[data-selected="true"] {
+  background: var(--green-50);
+}
+.agenda-rail-check {
+  margin-top: var(--s-3);
+}
+
 /* --------------------------- tracks ---------------------------- */
 
 .agenda-track-group + .agenda-track-group {

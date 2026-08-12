@@ -42,7 +42,6 @@ import {
 import "../styles/agenda.css";
 import { IconCalendar, IconCheck, IconClock, IconGrip, IconPlus, IconWarning } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
-
 import {
   byInstant,
   byStart,
@@ -68,6 +67,8 @@ import {
   VIEWS,
   type ViewId,
 } from "./model";
+import { UnscheduledRail } from "./UnscheduledRail";
+import { useSessionSelection } from "./useSessionSelection";
 
 function newAgenda(eventId: string): Draft {
   return {
@@ -85,7 +86,9 @@ function newAgenda(eventId: string): Draft {
 // slot drafts, resource edits, and conflict narration share one atomic agenda draft. Its nested
 // board/list renderers are single-use views of that state, so extracting them would violate issue
 // #70's higher-priority rule against presentational fragments. Pure clock/model logic is isolated
-// in model.ts; no further section owns an independent lifecycle that earns another file.
+// in model.ts, the Unscheduled rail owns its own surface in UnscheduledRail.tsx, and which
+// sessions the assisted pass is for owns its lifecycle in useSessionSelection.ts; no further
+// section owns an independent lifecycle that earns another file.
 export function AgendaWorkspace({
   event,
   onError,
@@ -177,6 +180,20 @@ export function AgendaWorkspace({
     setPendingFocus(null);
   }, [pendingFocus]);
 
+  /*
+   * Which sessions the assisted pass may be asked to seat, before any search narrows the rail.
+   *
+   * Read here, above the loading return, because the selection it feeds is a hook and hooks
+   * cannot be conditional. It is also the honest input: a session the organizer has since
+   * placed is no longer selectable, and the selection is narrowed to this list on every read.
+   */
+  const unscheduledIds = useMemo(() => {
+    if (!agenda) return [];
+    const placed = new Set(agenda.placements.map(({ sessionId }) => sessionId));
+    return agenda.sessions.filter(({ id }) => !placed.has(id)).map(({ id }) => id);
+  }, [agenda]);
+  const selection = useSessionSelection(unscheduledIds);
+
   if (!agenda)
     return (
       <div className="agenda">
@@ -227,14 +244,13 @@ export function AgendaWorkspace({
   /*
    * Everything without a slot, before the search box narrows it.
    *
-   * The assisted pass places every unscheduled session, not the ones currently matching a
-   * search, so the control that starts it has to be enabled from this count. Reading the
-   * filtered list instead made a search for something else disable a button that had plenty
-   * to do, and a search matching one of ten enable a button that then placed all ten.
+   * The assisted pass places every unscheduled session — or every *selected* one — and neither
+   * is "the ones currently matching a search", so the control that starts it is enabled from
+   * this count. Reading the filtered list instead made a search for something else disable a
+   * button that had plenty to do, and a search matching one of ten enable a button that then
+   * placed all ten.
    */
-  const unscheduledCount = draft.sessions.filter(
-    (session) => !placedSessionIds.has(session.id),
-  ).length;
+  const unscheduledCount = unscheduledIds.length;
   const unscheduled = draft.sessions.filter(
     (session) =>
       !placedSessionIds.has(session.id) &&
@@ -367,17 +383,22 @@ export function AgendaWorkspace({
    * Fill the board in one pass, then say what is left and why.
    *
    * One request for the whole pass, so the board never shows a half-generated draft and the
-   * cost does not grow with the number of sessions. What comes back is an ordinary draft:
-   * every card it produced can be dragged, removed, or moved exactly as a hand-placed one,
-   * the conflict panel judges it by the same rules, and nothing is public until the organizer
-   * presses Publish.
+   * cost does not grow with the number of sessions — and a subset costs exactly what the whole
+   * board costs, because it is the same one request and the same one draft revision. What comes
+   * back is an ordinary draft: every card it produced can be dragged, removed, or moved exactly
+   * as a hand-placed one, the conflict panel judges it by the same rules, and nothing is public
+   * until the organizer presses Publish.
+   *
+   * With nothing ticked this seats everything unscheduled, which is what the control says it
+   * will do; with a selection it names those sessions, and the control says that instead.
    */
   function generateDraft() {
     const before = draft.placements.length;
+    const chosen = selection.count ? [...selection.ids] : undefined;
     let couldNotPlace: readonly { sessionId: string; reason: string }[] = [];
     return act(
       async () => {
-        const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, undefined);
+        const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
         couldNotPlace = reported;
         return board;
       },
@@ -1276,7 +1297,8 @@ export function AgendaWorkspace({
         </span>
         {/* Sits before Publish because that is the order the work happens in: fill the board,
             look at it, then commit it. Disabled with nothing to place so the control never
-            promises an action that would do nothing. */}
+            promises an action that would do nothing, and named for what it will actually do:
+            the whole board, or exactly the sessions ticked in the rail. */}
         <button
           type="button"
           className="secondary"
@@ -1287,7 +1309,7 @@ export function AgendaWorkspace({
           }}
         >
           <IconCalendar size={15} />
-          Generate draft
+          {selection.count ? `Place ${selection.count} selected` : "Generate draft"}
         </button>
         <button
           type="button"
@@ -1392,82 +1414,35 @@ export function AgendaWorkspace({
         </div>
 
         {view === "conflicts" ? null : (
-          <aside
-            className="agenda-rail"
-            data-over={overCell === "rail" ? "true" : undefined}
-            onDragOver={(event) => {
-              if (!carried.current?.placementId) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setOverCell("rail");
-            }}
-            onDragLeave={() => setOverCell((current) => (current === "rail" ? null : current))}
-            onDrop={(event) => {
-              event.preventDefault();
+          <UnscheduledRail
+            sessions={unscheduled}
+            selection={selection}
+            unplaced={unplaced}
+            heldSessionId={carry?.placementId === null ? carry.sessionId : null}
+            busy={busy}
+            trackId={newTrackId}
+            searching={Boolean(needle)}
+            over={overCell === "rail"}
+            // Read from the ref rather than from state: a native drag fires faster than
+            // React re-renders, so what is being carried is only reliable there.
+            accepts={() => Boolean(carried.current?.placementId)}
+            onOver={(isOver) =>
+              setOverCell((current) => (isOver ? "rail" : current === "rail" ? null : current))
+            }
+            onDropHere={() => {
               const held = carried.current?.placementId;
               const placement = held ? placementOf(held) : undefined;
               if (placement) unschedule(placement);
             }}
-          >
-            <Card
-              labelledBy="agenda-unscheduled"
-              title="Unscheduled"
-              hint={`${unscheduled.length} session${unscheduled.length === 1 ? "" : "s"} without a slot`}
-              tight
-            >
-              {unscheduled.length ? (
-                <div className="agenda-rail-list">
-                  {unscheduled.map((session) => {
-                    const held = carry?.placementId === null && carry.sessionId === session.id;
-                    const reason = unplaced.get(session.id);
-                    const source: Carry = {
-                      sessionId: session.id,
-                      title: session.title,
-                      trackId: newTrackId,
-                      placementId: null,
-                      viaKeyboard: true,
-                    };
-                    return (
-                      <button
-                        key={session.id}
-                        id={`agenda-session-${session.id}`}
-                        type="button"
-                        className="sched-card"
-                        draggable={!busy}
-                        disabled={busy || !newTrackId}
-                        data-carrying={held ? "true" : undefined}
-                        // `aria-label` replaces the content rather than adding to it, so the
-                        // reason has to be repeated here or a screen reader never hears it.
-                        aria-label={`${session.title}. Not scheduled. ${reason ? `${reason} ` : ""}${
-                          held ? "Press Enter to cancel." : "Press Enter to pick this session up."
-                        }`}
-                        onDragStart={(event) => startDrag(event, { ...source, viaKeyboard: false })}
-                        onDragEnd={() => {
-                          setCarry(null);
-                          setOverCell(null);
-                        }}
-                        onKeyDown={onSourceKeys}
-                        onClick={() => (held ? cancelCarry() : pickUp(source))}
-                      >
-                        <span className="sched-title">{session.title}</span>
-                        {reason ? <span className="sched-unplaced">{reason}</span> : null}
-                        <span className="sched-meta">
-                          <IconGrip size={12} />
-                          Drag, or press Enter to place
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState title="Everything is scheduled" icon={<IconCheck size={20} />}>
-                  {query
-                    ? "No unscheduled session matches your search."
-                    : "Every accepted session has a room and a time slot."}
-                </EmptyState>
-              )}
-            </Card>
-          </aside>
+            onPickUp={pickUp}
+            onCancelCarry={cancelCarry}
+            onSourceKeys={onSourceKeys}
+            onStartDrag={startDrag}
+            onDragEnd={() => {
+              setCarry(null);
+              setOverCell(null);
+            }}
+          />
         )}
       </div>
 
