@@ -37,7 +37,7 @@
   ],
   "symbols": {
     "CommunicationsEnqueue": "apps/api/src/application/communications/public.ts",
-    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
+    "CommunicationsService": "apps/api/src/application/communications/public.ts",
     "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
     "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts"
   }

@@ -730,7 +730,7 @@
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
     "CommunicationsEnqueue": "apps/api/src/application/communications/public.ts",
     "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
-    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
+    "CommunicationsService": "apps/api/src/application/communications/public.ts",
     "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts",
     "ContentService": "apps/api/src/application/content/content-service.ts",
     "CrmContentQuery": "apps/api/src/application/content/public.ts",
