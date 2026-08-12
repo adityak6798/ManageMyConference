@@ -362,14 +362,23 @@ export class CommunicationsService implements CommunicationsEnqueue {
         request.sessionId,
         request.speakerProfileId,
       );
+      const legacyMatch =
+        current &&
+        !/^\d+\|/.test(current.scheduleRef) &&
+        current.scheduleRef === request.scheduleRef.slice(request.scheduleRef.indexOf("|") + 1);
       if (
         current &&
-        (current.scheduleRef === request.scheduleRef ||
-          (!/^\d+\|/.test(current.scheduleRef) &&
-            current.scheduleRef ===
-              request.scheduleRef.slice(request.scheduleRef.indexOf("|") + 1))) &&
+        (current.scheduleRef === request.scheduleRef || legacyMatch) &&
         current.recipientRef === request.recipientRef
       ) {
+        if (
+          legacyMatch &&
+          !(await this.dependencies.repository.normalizeCalendarInviteScheduleRef(
+            { ...current, scheduleRef: request.scheduleRef },
+            current.scheduleRef,
+          ))
+        )
+          continue;
         const delivery = await this.dependencies.repository.get(current.deliveryId);
         if (!delivery) throw new Error("Calendar invitation state refers to no delivery");
         return {

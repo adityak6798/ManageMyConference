@@ -121,6 +121,18 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     return stored;
   }
 
+  async normalizeCalendarInviteScheduleRef(
+    state: CalendarInviteState,
+    expectedScheduleRef: string,
+  ) {
+    const key = this.calendarInviteKey(state);
+    const current = this.calendarInvites.get(key);
+    if (current?.scheduleRef !== expectedScheduleRef || current.sequence !== state.sequence)
+      return false;
+    this.calendarInvites.set(key, state);
+    return true;
+  }
+
   async list(organizationId: string, eventId: string) {
     return [...this.deliveries.values()]
       .filter((item) => item.organizationId === organizationId && item.eventId === eventId)

@@ -423,6 +423,35 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     return this.get(delivery.id);
   }
 
+  async normalizeCalendarInviteScheduleRef(
+    state: CalendarInviteState,
+    expectedScheduleRef: string,
+  ) {
+    const result = await this.database
+      .prepare(
+        "UPDATE calendar_invite_states SET schedule_ref = ? WHERE organization_id = ? AND event_id = ? AND session_id = ? AND speaker_profile_id = ? AND schedule_ref = ? AND sequence = ? AND delivery_id = ?",
+      )
+      .bind(
+        state.scheduleRef,
+        state.organizationId,
+        state.eventId,
+        state.sessionId,
+        state.speakerProfileId,
+        expectedScheduleRef,
+        state.sequence,
+        state.deliveryId,
+      )
+      .run();
+    this.ensure(result, "normalize calendar invitation schedule revision");
+    const current = await this.calendarInviteState(
+      state.organizationId,
+      state.eventId,
+      state.sessionId,
+      state.speakerProfileId,
+    );
+    return current?.scheduleRef === state.scheduleRef && current.sequence === state.sequence;
+  }
+
   async listTemplates(organizationId: string) {
     const result = await this.database
       .prepare(

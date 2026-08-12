@@ -466,6 +466,36 @@ describe("migration 1704, after invitations already exist", () => {
         },
       }),
     ).resolves.toMatchObject({ created: false, sequence: 19000001, id: "legacy-b" });
+
+    await expect(
+      communications.enqueueCalendarInvite({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        sessionId: "session",
+        speakerProfileId: "profile",
+        scheduleRef: "5|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+        recipientRef: "new@example.test",
+        deliveryFor: (sequence) => ({
+          organizationId: "00000000-0000-4000-8000-000000000010",
+          eventId: "00000000-0000-4000-8000-000000000001",
+          idempotencyKey: `calendar-invite:session:profile:${sequence}`,
+          triggerType: "speaker.calendar_invite",
+          channel: "email",
+          recipientRef: "new@example.test",
+          templateKey: "speaker-calendar-invite",
+          payload: {
+            speakerName: "Speaker",
+            sessionTitle: "Session",
+            eventName: "Greenroom Demo Summit",
+            calendarInvite: {
+              method: "REQUEST",
+              filename: "invite.ics",
+              content: `SEQUENCE:${sequence}`,
+            },
+          },
+        }),
+      }),
+    ).resolves.toMatchObject({ created: true, sequence: 19000002 });
   });
 });
 

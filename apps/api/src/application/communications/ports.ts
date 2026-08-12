@@ -115,6 +115,10 @@ export interface CommunicationsRepository {
     state: CalendarInviteState,
     expectedSequence: number | null,
   ): Promise<Delivery | null>;
+  normalizeCalendarInviteScheduleRef(
+    state: CalendarInviteState,
+    expectedScheduleRef: string,
+  ): Promise<boolean>;
   list(organizationId: string, eventId: string): Promise<readonly Delivery[]>;
   historyPage(
     organizationId: string,
