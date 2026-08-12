@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node ../../tools/local-wrangler.mjs build",
+    "deploy": "wrangler deploy",
     "dev": "node ../../tools/local-wrangler.mjs dev",
     "migrate:local": "node ../../tools/local-wrangler.mjs migrate",
     "reset": "node ../../tools/local-wrangler.mjs reset",

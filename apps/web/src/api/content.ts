@@ -11,6 +11,7 @@ import {
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
+import { apiFetch as fetch } from "./config";
 
 export class ContentApiError extends Error {
   constructor(readonly envelope: import("@greenroom/contracts").ApiErrorEnvelope) {

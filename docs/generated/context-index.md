@@ -71,6 +71,7 @@
 - `test` / `repository-fact`: [apps/api/test/event-service.test.ts](../../apps/api/test/event-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/http.test.ts](../../apps/api/test/http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/runtime-auth.test.ts](../../apps/api/test/runtime-auth.test.ts)
+- `test` / `repository-fact`: [apps/web/test/api-config.test.ts](../../apps/web/test/api-config.test.ts)
 - `test` / `repository-fact`: [apps/web/test/error-fallback.test.tsx](../../apps/web/test/error-fallback.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/overview-dashboard.test.tsx](../../apps/web/test/overview-dashboard.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/router.test.tsx](../../apps/web/test/router.test.tsx)

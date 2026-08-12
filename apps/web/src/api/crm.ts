@@ -6,6 +6,7 @@ import {
   prospectOwnerListResponseSchema,
   prospectResponseSchema,
 } from "@greenroom/contracts";
+import { apiFetch as fetch } from "./config";
 export class CrmApiError extends Error {
   constructor(
     readonly correlationId: string,

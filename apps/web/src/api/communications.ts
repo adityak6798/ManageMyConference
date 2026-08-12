@@ -6,6 +6,7 @@ import {
   deliveryResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
+import { apiFetch as fetch } from "./config";
 
 export class CommunicationsApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {

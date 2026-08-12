@@ -8,6 +8,7 @@ import {
   publishedScheduleSchema,
 } from "@greenroom/contracts";
 import { z } from "zod";
+import { apiFetch as fetch } from "./config";
 
 export class AgendaApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {
