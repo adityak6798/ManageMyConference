@@ -52,6 +52,18 @@ export const schemaFragments = [
   reviewSchema,
 ];
 
+export const schema = {
+  ...agendaSchema,
+  ...cfpSchema,
+  ...communicationsIntegrationsSchema,
+  ...contentSchema,
+  ...crmSchema,
+  ...eventsSchema,
+  ...identityAccessSchema,
+  ...publishingSchema,
+  ...reviewSchema,
+};
+
 export const {
   agendaDrafts,
   agendaPublications,
@@ -87,4 +99,4 @@ export const {
   speakerProfiles,
   speakerTasks,
   users,
-} = Object.assign({}, ...schemaFragments);
+} = schema;

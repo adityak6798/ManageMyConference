@@ -150,8 +150,8 @@ export function generateDdl(schema) {
 }
 
 export async function loadDeclaredSchema() {
-  const { schemaFragments } = await import(schemaRegistry.href);
-  return Object.assign({}, ...schemaFragments);
+  const { schema } = await import(schemaRegistry.href);
+  return schema;
 }
 
 export async function loadDeclaredDdl() {

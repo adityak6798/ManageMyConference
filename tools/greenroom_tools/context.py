@@ -377,6 +377,18 @@ def drizzle_schema(paths: list[Path]) -> dict[str, set[str]]:
     return tables
 
 
+def schema_drift_problems(schema_paths: list[Path], migration_paths: list[Path]) -> list[str]:
+    """Compare declared and migrated table shapes, refusing empty declaration discovery."""
+    problems: list[str] = []
+    schema_tables = drizzle_schema(schema_paths)
+    if not schema_tables:
+        problems.append("No Drizzle tables discovered in domain schema fragments")
+    migration_tables = migration_schema(migration_paths)
+    if schema_tables != migration_tables:
+        problems.append("Drizzle/migration table or column drift; regenerate and review migrations")
+    return problems
+
+
 SCORECARD = "docs/quality/scorecard.md"
 ACTIVE_PLANS = "docs/exec-plans/active.md"
 COMPLETED_PLANS = "docs/exec-plans/completed.md"
@@ -747,13 +759,8 @@ def check_repository() -> list[str]:
 
     schema_directory = ROOT / "apps/api/src/adapters/persistence/schema"
     schema_paths = sorted(schema_directory.glob("*.ts"))
-    schema_tables = drizzle_schema(schema_paths)
-    if not schema_tables:
-        problems.append("No Drizzle tables discovered in domain schema fragments")
     migration_paths = sorted(path for path in all_files((".sql",)) if "migrations" in path.parts)
-    migration_tables = migration_schema(migration_paths)
-    if schema_tables != migration_tables:
-        problems.append("Drizzle/migration table or column drift; regenerate and review migrations")
+    problems.extend(schema_drift_problems(schema_paths, migration_paths))
     return problems
 
 
