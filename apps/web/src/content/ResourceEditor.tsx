@@ -19,6 +19,7 @@ export function ResourceEditor({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(() =>
       saveSpeakerResource({
         eventId,
@@ -80,6 +81,7 @@ export function ResourceEditor({
                 className="ghost small"
                 disabled={busy}
                 onClick={() => {
+                  // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
                   void run(() => deleteSpeakerResource(resource.id));
                 }}
               >

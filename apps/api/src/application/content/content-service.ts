@@ -1,11 +1,11 @@
 import {
-  canBeProfilePhoto,
   type ContentSession,
   type ContentWorkspace,
+  canBeProfilePhoto,
   type SpeakerAsset,
   type SpeakerProfile,
-  type SpeakerTask,
   type SpeakerResource,
+  type SpeakerTask,
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import {
@@ -15,13 +15,13 @@ import {
   requireEventCapability,
 } from "../identity/actor";
 import type { AcceptedProposalQuery } from "../review/public";
-import type { SpeakerConversionPort } from "./speaker-conversion";
 import {
   type AssetStoragePort,
   ContentConflictError,
   type ContentRepository,
   type EventPublicationQuery,
 } from "./content-repository";
+import type { SpeakerConversionPort } from "./speaker-conversion";
 
 /**
  * Acceptance carries a proposal reference and nothing else.
@@ -252,6 +252,7 @@ export class ContentService {
               const result = JSON.parse(value);
               return typeof result === "object" && result ? (result as Record<string, string>) : {};
             } catch {
+              // ERROR-INTENT: malformed optional custom-field JSON imports as an empty field set; row-level required data was already validated.
               return {};
             }
           };

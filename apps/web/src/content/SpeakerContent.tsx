@@ -501,6 +501,7 @@ export function SpeakerView({
                       onSubmit={(event) => {
                         event.preventDefault();
                         const body = String(new FormData(event.currentTarget).get("body"));
+                        // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
                         void run(() => addContentComment(asset.id, body));
                       }}
                     >

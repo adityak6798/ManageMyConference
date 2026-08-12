@@ -30,6 +30,7 @@ export function ContentOperations({
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const commit = data.get("mode") === "commit";
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(async () =>
       setPreview(await importSpeakerCsv(eventId, String(data.get("csv")), commit)),
     ).then((result) =>
@@ -46,6 +47,7 @@ export function ContentOperations({
   function tasks(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(() =>
       bulkRequestSpeakerTasks({
         profileIds: selectedSpeakers,
@@ -151,6 +153,7 @@ export function ContentOperations({
                   onSubmit={(event) => {
                     event.preventDefault();
                     const body = String(new FormData(event.currentTarget).get("body"));
+                    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
                     void run(() => addContentComment(asset.id, body));
                   }}
                 >
@@ -163,6 +166,7 @@ export function ContentOperations({
               type="button"
               disabled={!selectedAssets.length || busy}
               onClick={() => {
+                // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
                 void run(() => downloadDeliverables(eventId, selectedAssets));
               }}
             >
@@ -186,6 +190,7 @@ export function ContentOperations({
                   type="button"
                   disabled={busy}
                   onClick={() => {
+                    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
                     void run(() => restoreContentRevision(revision.id));
                   }}
                 >
