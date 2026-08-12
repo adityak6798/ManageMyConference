@@ -10,7 +10,11 @@ const organizerSession = {
   actor: { id: "seed-organizer", name: "Olivia Organizer", persona: "organizer" },
   organizations: [{ id: organizationId, name: "Greenroom Labs" }],
   eventAccess: [
-    { eventId, role: "organizer", capabilities: ["events:read", "events:settings:read"] },
+    {
+      eventId,
+      role: "organizer",
+      capabilities: ["events:read", "events:settings:read", "events:settings:update"],
+    },
   ],
   capabilities: ["events:read", "events:create"],
 };
@@ -312,6 +316,39 @@ describe("App", () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       organizationId,
       name: "New Summit",
+    });
+  });
+
+  it("renames the selected event and changes its timezone", async () => {
+    const updated = { ...event, name: "Renamed Summit", timezone: "America/New_York" };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
+      if (url.endsWith(`/api/events/${eventId}`) && init?.method === "PATCH")
+        return jsonResponse({ event: updated });
+      const workspace = workspaceBody(url);
+      if (workspace) return jsonResponse(workspace);
+      return jsonResponse({ events: [event] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
+    fireEvent.change(await screen.findByLabelText("Current event name"), {
+      target: { value: updated.name },
+    });
+    fireEvent.change(screen.getByLabelText("Event timezone"), {
+      target: { value: updated.timezone },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save event settings" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(`${updated.name} · ${updated.timezone}`)).toBeVisible(),
+    );
+    const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === "PATCH");
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+      name: updated.name,
+      timezone: updated.timezone,
     });
   });
 

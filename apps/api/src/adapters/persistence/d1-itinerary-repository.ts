@@ -78,4 +78,28 @@ export class D1ItineraryRepository implements ItineraryRepository {
       throw new Error(`D1 failed to save itinerary: ${result.error ?? "unknown error"}`);
     return this.findByTokenHash(tokenHash);
   }
+
+  async prune(emptyBefore: string, endedBefore: string): Promise<void> {
+    const result = await this.database
+      .prepare(
+        `DELETE FROM attendee_itineraries
+         WHERE (session_slugs = '[]' AND updated_at < ?)
+            OR event_id IN (
+              SELECT event_id
+              FROM public_event_projections
+              WHERE COALESCE(
+                json_extract(published_json, '$.event.endsOn'),
+                json_extract(draft_json, '$.event.endsOn')
+              ) <> ''
+                AND COALESCE(
+                  json_extract(published_json, '$.event.endsOn'),
+                  json_extract(draft_json, '$.event.endsOn')
+                ) < ?
+            )`,
+      )
+      .bind(emptyBefore, endedBefore)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to prune itineraries: ${result.error ?? "unknown error"}`);
+  }
 }

@@ -9,9 +9,10 @@
  *
  * That budget is the reason the ceiling was reached, but it is not the reason this is right:
  * the public page is the one surface an ordinary visitor loads, and it has no business
- * downloading an organizer's console to render a schedule.
+ * downloading an organizer's console to render a schedule. An attendee's itinerary is public
+ * in exactly the same sense and is served from the same module, so it takes the same path.
  *
- * Only the console is deferred. Keeping the public root in the entry costs an organizer a
+ * Only the console is deferred. Keeping the public roots in the entry costs an organizer a
  * little more to download — they are signed in and reading their own console — and buys the
  * visitor a first paint that is already styled: a dynamically imported root brings its
  * stylesheet with it, so `index.html` would carry no `<link>` at all and the public page would
@@ -19,25 +20,38 @@
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { PublicEventApp } from "./PublicEventApp";
+import { PublicEventApp, StableItineraryRedirect } from "./PublicEventApp";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Application root element is missing");
 const container = root;
 
+const itineraryMatch = window.location.pathname.match(/^\/itineraries\/([^/]+)\/?$/);
+let itineraryToken: string | null = null;
+if (itineraryMatch) {
+  try {
+    itineraryToken = decodeURIComponent(itineraryMatch[1] ?? "");
+  } catch {
+    // ERROR-INTENT: malformed external paths are rendered as unavailable itineraries below.
+    itineraryToken = "";
+  }
+}
+
+const isItinerary = window.location.pathname.startsWith("/itineraries/");
 const isPublic =
+  isItinerary ||
   window.location.pathname.startsWith("/events/") ||
   window.location.pathname.startsWith("/embed/events/");
 
+/** Built only on the path that renders it, so the console pays nothing for it. */
+const publicRoot = () =>
+  isItinerary ? <StableItineraryRedirect token={itineraryToken ?? ""} /> : <PublicEventApp />;
+
 // ERROR-INTENT: bootstrapping cannot await, and there is no React tree yet to render a failure
 // into — so the outcome is rendered into the document instead, by both branches below.
-void (isPublic ? Promise.resolve(PublicEventApp) : import("./App").then((module) => module.App))
-  .then((Root) => {
-    createRoot(container).render(
-      <StrictMode>
-        <Root />
-      </StrictMode>,
-    );
+void (isPublic ? Promise.resolve(publicRoot()) : import("./App").then(({ App }) => <App />))
+  .then((element) => {
+    createRoot(container).render(<StrictMode>{element}</StrictMode>);
   })
   .catch((reason: unknown) => {
     // A root that never arrives leaves a blank document, which reads as a broken deployment

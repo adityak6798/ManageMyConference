@@ -28,7 +28,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await page.getByRole("link", { name: /Event settings/ }).click();
-  await page.getByLabel("Event name").fill(name);
+  await page.getByLabel("Event name", { exact: true }).fill(name);
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
 

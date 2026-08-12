@@ -6,9 +6,13 @@
  *
  * @spec PRD-EVT-001
  */
-import { createEventInputSchema, eventIdParamsSchema } from "@greenroom/contracts";
-import { requireCapability } from "../../../application/identity/actor";
-import { createEventInputToCommand, eventToDto } from "../event-mappers";
+import {
+  createEventInputSchema,
+  eventIdParamsSchema,
+  updateEventInputSchema,
+} from "@greenroom/contracts";
+import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
+import { createEventInputToCommand, eventToDto, updateEventInputToCommand } from "../event-mappers";
 import { envelope, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -17,6 +21,7 @@ const routes = [
   "GET /api/events/assigned",
   "POST /api/events",
   "GET /api/events/:eventId",
+  "PATCH /api/events/:eventId",
 ] as const;
 
 export const eventsRoutes: RouteModule = {
@@ -71,6 +76,41 @@ export const eventsRoutes: RouteModule = {
           400,
         );
       const event = await service.get(context.get("actor"), parsed.data.eventId);
+      if (!event)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      return context.json({ event: eventToDto(event) });
+    });
+    app.patch("/api/events/:eventId", async (context) => {
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "events:settings:update");
+      const body = updateEventInputSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The event settings could not be saved.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const event = await service.update(
+        context.get("actor"),
+        params.data.eventId,
+        updateEventInputToCommand(body.data),
+      );
       if (!event)
         return context.json(
           envelope(

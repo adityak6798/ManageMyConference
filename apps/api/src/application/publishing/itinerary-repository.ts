@@ -25,4 +25,5 @@ export interface ItineraryRepository {
     sessionSlugs: readonly string[],
     now: string,
   ): Promise<StoredItinerary | null>;
+  prune(emptyBefore: string, endedBefore: string): Promise<void>;
 }

@@ -170,9 +170,7 @@ test("hands an itinerary to another browser through its link alone", async ({ pa
   await page.getByRole("button", { name: "Add Accessible by default to my itinerary" }).click();
   await awaitStoredItinerary(page, 1);
   await page.goto(`/events/${SLUG}/itinerary`);
-  const shareUrl = await page
-    .getByRole("link", { name: /\/itinerary\?plan=/ })
-    .getAttribute("href");
+  const shareUrl = await page.getByRole("link", { name: /\/itineraries\// }).getAttribute("href");
   expect(shareUrl).toBeTruthy();
 
   // A genuinely separate browser context: no shared storage, no shared cookie jar. The link
@@ -180,9 +178,17 @@ test("hands an itinerary to another browser through its link alone", async ({ pa
   const second = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const other = await second.newPage();
   await other.goto(shareUrl ?? "");
+  await expect(other).toHaveURL(new RegExp(`/events/${SLUG}/itinerary\\?plan=`));
   await expect(other.getByRole("heading", { level: 1, name: "My itinerary" })).toBeVisible();
   await expect(other.getByRole("link", { name: "Accessible by default" })).toBeVisible();
   await second.close();
+});
+
+test("renders malformed stable itinerary links as unavailable", async ({ page }) => {
+  await page.goto("/itineraries/token/extra");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Itinerary unavailable" }),
+  ).toBeVisible();
 });
 
 test("serves a configured embed anonymously and honours the configuration", async ({ page }) => {

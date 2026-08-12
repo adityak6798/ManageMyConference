@@ -8,6 +8,14 @@ export class MemoryEventRepository implements EventRepository {
     this.events.set(event.id, event);
   }
 
+  async update(eventId: string, name: string, timezone: string): Promise<Event | null> {
+    const event = this.events.get(eventId);
+    if (!event) return null;
+    const updated = { ...event, name, timezone };
+    this.events.set(eventId, updated);
+    return updated;
+  }
+
   async list(scope: {
     organizationIds: readonly string[];
     eventIds: readonly string[];
