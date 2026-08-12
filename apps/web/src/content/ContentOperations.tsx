@@ -100,18 +100,24 @@ export function ContentOperations({
         title="Bulk assignments"
         hint="Select speakers, then assign one dated task to all of them."
       >
-        <div>
-          {workspace.speakers.map((speaker) => (
-            <label key={speaker.id}>
-              <input
-                type="checkbox"
-                checked={selectedSpeakers.includes(speaker.id)}
-                onChange={() => toggle(selectedSpeakers, speaker.id, setSelectedSpeakers)}
-              />{" "}
-              {speaker.name} · {speaker.workflowStatus ?? "onboarding"}
-            </label>
-          ))}
-        </div>
+        <label>
+          Speakers
+          <select
+            multiple
+            value={selectedSpeakers}
+            onChange={(event) =>
+              setSelectedSpeakers(
+                Array.from(event.currentTarget.selectedOptions, (option) => option.value),
+              )
+            }
+          >
+            {workspace.speakers.map((speaker) => (
+              <option key={speaker.id} value={speaker.id}>
+                {speaker.name} · {speaker.workflowStatus ?? "onboarding"}
+              </option>
+            ))}
+          </select>
+        </label>
         <form className="form-stack" onSubmit={tasks}>
           <label>
             Task
