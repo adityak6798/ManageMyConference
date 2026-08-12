@@ -4,6 +4,7 @@ import {
   type ContentEdit,
   type ContentRepository,
   type ContentRevisionDraft,
+  type SpeakerWorkflowFields,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -206,19 +207,9 @@ export class MemoryContentRepository
   async updateProfile(profile: SpeakerProfile) {
     this.speakers = this.speakers.map((item) => (item.id === profile.id ? profile : item));
   }
-  async updateProfileWorkflow(
-    profileId: string,
-    fields: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
-  ) {
+  async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
     this.speakers = this.speakers.map((item) =>
-      item.id === profileId
-        ? {
-            ...item,
-            workflowStatus: fields.workflowStatus ?? "onboarding",
-            logistics: fields.logistics ?? {},
-            customFields: fields.customFields ?? {},
-          }
-        : item,
+      item.id === profileId ? { ...item, ...fields } : item,
     );
   }
   async updateProfilePhoto(profileId: string, assetId: string | null) {

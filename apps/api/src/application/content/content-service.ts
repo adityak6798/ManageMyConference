@@ -20,6 +20,7 @@ import {
   ContentConflictError,
   type ContentRepository,
   type EventPublicationQuery,
+  type SpeakerWorkflowFields,
 } from "./content-repository";
 import type { SpeakerConversionPort } from "./speaker-conversion";
 
@@ -290,7 +291,7 @@ export class ContentService {
                 row.workflowStatus ?? "",
               )
                 ? row.workflowStatus
-                : "onboarding") as SpeakerProfile["workflowStatus"],
+                : "onboarding") as SpeakerWorkflowFields["workflowStatus"],
               logistics: parseFields(row.logistics),
               customFields: parseFields(row.customFields),
             });

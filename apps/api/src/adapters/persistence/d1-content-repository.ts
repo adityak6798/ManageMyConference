@@ -4,6 +4,7 @@ import {
   type ContentEdit,
   type ContentRepository,
   type ContentRevisionDraft,
+  type SpeakerWorkflowFields,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -391,15 +392,12 @@ export class D1ContentRepository
   async updateProfilePhoto(profileId: string, assetId: string | null) {
     await this.run("UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?", assetId, profileId);
   }
-  async updateProfileWorkflow(
-    profileId: string,
-    fields: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
-  ) {
+  async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
     await this.run(
       "UPDATE speaker_profiles SET workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
-      fields.workflowStatus ?? "onboarding",
-      JSON.stringify(fields.logistics ?? {}),
-      JSON.stringify(fields.customFields ?? {}),
+      fields.workflowStatus,
+      JSON.stringify(fields.logistics),
+      JSON.stringify(fields.customFields),
       profileId,
     );
   }

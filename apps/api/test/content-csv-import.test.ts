@@ -44,12 +44,12 @@ it("resumes a claimed row after profile enrichment fails and validates JSON befo
   let failEnrichment = true;
   // The write the import actually makes: the three columns it owns, not the whole profile row.
   const updateProfileWorkflow = repository.updateProfileWorkflow.bind(repository);
-  repository.updateProfileWorkflow = async (profileId, fields) => {
+  repository.updateProfileWorkflow = async (enriched, fields) => {
     if (failEnrichment) {
       failEnrichment = false;
       throw new Error("transient");
     }
-    await updateProfileWorkflow(profileId, fields);
+    await updateProfileWorkflow(enriched, fields);
   };
   let conversions = 0;
   const service = new ContentService({

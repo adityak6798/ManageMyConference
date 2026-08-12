@@ -514,6 +514,37 @@ describe("D1ContentRepository revisions", () => {
     });
   });
 
+  it("writes only the columns a narrow writer owns, against the real schema", async () => {
+    const { repository } = await fixture("content-narrow-writes");
+    const before = await repository.findProfile(profileId);
+    if (!before) throw new Error("Seeded profile is missing");
+
+    // Every column these two statements name is checked against the migrated schema here and
+    // nowhere else. A typo — `logistics_jsn`, or a transposed bind — is invisible to a memory
+    // repository, passes every unit test, and only fails once it reaches a real database.
+    await repository.updateProfileWorkflow(profileId, {
+      workflowStatus: "ready",
+      logistics: { hotel: "confirmed" },
+      customFields: { shirt: "M" },
+    });
+    const enriched = await repository.findProfile(profileId);
+    expect(enriched).toEqual({
+      ...before,
+      workflowStatus: "ready",
+      logistics: { hotel: "confirmed" },
+      customFields: { shirt: "M" },
+    });
+
+    await repository.updateProfilePhoto(profileId, "90000000-0000-4000-8000-000000000001");
+    expect(await repository.findProfile(profileId)).toEqual({
+      ...enriched,
+      photoAssetId: "90000000-0000-4000-8000-000000000001",
+    });
+    // Clearing the headshot leaves the import's three columns exactly where the import put them.
+    await repository.updateProfilePhoto(profileId, null);
+    expect(await repository.findProfile(profileId)).toEqual(enriched);
+  });
+
   it("refuses with a conflict rather than a silent no-op when it never wins the row", async () => {
     const { database, repository, revisions } = await fixture("content-revision-conflict");
     const before = await repository.findProfile(profileId);

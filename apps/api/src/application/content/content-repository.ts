@@ -44,6 +44,13 @@ export interface ContentRevisionDraft {
  */
 export type ContentEdit<T> = (current: T) => T;
 
+/** The workflow columns a bulk import owns, all three required. See `updateProfileWorkflow`. */
+export interface SpeakerWorkflowFields {
+  readonly workflowStatus: NonNullable<SpeakerProfile["workflowStatus"]>;
+  readonly logistics: NonNullable<SpeakerProfile["logistics"]>;
+  readonly customFields: NonNullable<SpeakerProfile["customFields"]>;
+}
+
 export interface ContentRepository {
   findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null>;
   accept(content: AcceptedContent): Promise<void>;
@@ -58,16 +65,18 @@ export interface ContentRepository {
    */
   updateProfile(profile: SpeakerProfile): Promise<void>;
   /**
-   * Set the three fields a bulk import owns, and touch nothing else.
+   * Replace the three fields a bulk import owns, and touch nothing else.
    *
    * Same reasoning as `updateProfilePhoto`. An import that wrote the whole row would carry a
    * name, bio and headshot from whenever it read the profile, so importing a logistics column
    * could revert an organizer's edit made while the import was running.
+   *
+   * All three are required, and each is a *replacement* rather than a patch — an omitted
+   * `logistics` would be stored as `{}`, not left alone. They are required in the type for
+   * exactly that reason: `SpeakerProfile` has all three optional, so a `Pick` of it would let a
+   * caller pass one field and silently erase the other two.
    */
-  updateProfileWorkflow(
-    profileId: string,
-    fields: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
-  ): Promise<void>;
+  updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields): Promise<void>;
   /**
    * Point a profile at one of its uploads, or at none — and touch nothing else.
    *
