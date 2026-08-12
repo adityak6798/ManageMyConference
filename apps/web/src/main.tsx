@@ -47,19 +47,23 @@ const isPublic =
 const publicRoot = () =>
   isItinerary ? <StableItineraryRedirect token={itineraryToken ?? ""} /> : <PublicEventApp />;
 
+/*
+ * What the catch below covers, and what it cannot.
+ *
+ * It covers the console's deferred load, which is the fetch that can fail after this module is
+ * already running. A public root that throws while *this* module is evaluating faults before any
+ * handler exists at all — exactly as it did when both roots were static imports.
+ */
 // ERROR-INTENT: bootstrapping cannot await, and there is no React tree yet to render a failure
-// into — so the outcome is rendered into the document instead. This covers the console's
-// deferred load, which is the fetch that can fail after this module is running; a public root
-// that throws while *this* module is evaluating faults before any handler exists, exactly as it
-// did when both roots were static imports.
+// into, so the outcome is rendered into the document and the reason rethrown for the platform.
 void (isPublic ? Promise.resolve(publicRoot()) : import("./App").then(({ App }) => <App />))
   .then((element) => {
     createRoot(container).render(<StrictMode>{element}</StrictMode>);
   })
   .catch((reason: unknown) => {
     // A root that never arrives leaves a blank document, which reads as a broken deployment
-    // rather than as a request to retry. The reason is deliberately not shown here: it is a
-    // bundler path, it means nothing to a visitor, and this text is served to anonymous readers.
+    // rather than as a request to retry. The reason is deliberately not shown: it is a bundler
+    // path, it means nothing to a visitor, and this text is served to anonymous readers.
     container.textContent = "Something went wrong. Please retry; if it continues, contact support.";
     // It is not swallowed either. Rethrowing in a fresh task, after the message is on screen,
     // hands the failure to the platform's own reporting — the dev overlay, `window.onerror`,
