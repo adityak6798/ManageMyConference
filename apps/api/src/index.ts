@@ -28,9 +28,9 @@ import {
 } from "./application/communications/public";
 import { ContentService } from "./application/content/content-service";
 import { CrmService } from "./application/crm/crm-service";
-import { OutreachRejectedError } from "./application/crm/public";
 import type { OutreachMessage } from "./application/crm/public";
-import { EventService } from "./application/events/event-service";
+import { OutreachRejectedError } from "./application/crm/public";
+import { EventService } from "./application/events/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { ReviewService } from "./application/review/review-service";

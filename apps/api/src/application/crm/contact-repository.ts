@@ -78,12 +78,25 @@ export interface CrmDirectoryRepository {
     organizationId: string,
     entries: readonly { contactId: string; activity: ContactActivity }[],
   ): Promise<void>;
+  /** Atomically append this event's conversion provenance once, even under concurrent pushes. */
+  recordContactConversion(
+    organizationId: string,
+    contactId: string,
+    eventId: string,
+    activity: Omit<ContactActivity, "kind" | "summary">,
+  ): Promise<void>;
   /**
    * Source a directory contact into one event: the event's prospect row, its primary contact
    * row and the directory link are one write, so a link can never point at a prospect that was
    * never stored.
    */
   linkContactToEvent(input: {
+    contact: OrganizationContact;
+    prospect: Prospect;
+    activity: ContactActivity;
+  }): Promise<void>;
+  /** Link to a prospect the event already tracks without replacing its provenance or history. */
+  linkContactToExistingProspect(input: {
     contact: OrganizationContact;
     prospect: Prospect;
     activity: ContactActivity;
