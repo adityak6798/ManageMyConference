@@ -12,6 +12,7 @@ import { D1ContentRepository } from "./adapters/persistence/d1-content-repositor
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
@@ -30,6 +31,7 @@ import { CrmService } from "./application/crm/crm-service";
 import { OutreachRejectedError } from "./application/crm/public";
 import type { OutreachMessage } from "./application/crm/public";
 import { EventService } from "./application/events/event-service";
+import { ItineraryService } from "./application/publishing/itinerary-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { ReviewService } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
@@ -287,6 +289,10 @@ export default {
       content: contentRepository,
       schedule: (eventId) => agenda.published(eventId),
     });
+    const itineraries = new ItineraryService(
+      new D1ItineraryRepository(environment.DB),
+      publicationRepository,
+    );
     const app = createHttpApp(
       service,
       logger,
@@ -340,6 +346,7 @@ export default {
       environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
         ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
         : undefined,
+      itineraries,
     );
     return Promise.resolve(app.fetch(request));
   },

@@ -27,10 +27,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  type PublicationDto,
   PublicationApiError,
+  type PublicationDto,
   previewPublication,
   setPublicationState,
+  updatePublicationSettings,
 } from "./api/publication";
 import "./styles/publishing.css";
 import {
@@ -53,11 +54,55 @@ const EMBED_VIEWS = [
     description: "The published day-by-day itinerary, chrome stripped.",
   },
   {
+    id: "sessions",
+    label: "Sessions",
+    description: "The searchable session list, chrome stripped.",
+  },
+  {
     id: "speakers",
     label: "Speakers",
-    description: "The published speaker gallery, chrome stripped.",
+    description: "The searchable speaker directory, chrome stripped.",
+  },
+  {
+    id: "gallery",
+    label: "Gallery",
+    description: "The photo-forward speaker gallery, in surname order.",
   },
 ] as const;
+
+/*
+ * The optional fields a host page can choose to print on a session card.
+ *
+ * Selecting none means "all of them", which is what every snippet issued before this
+ * option existed asks for — so an embed already pasted into someone's site keeps rendering
+ * exactly as it did rather than quietly losing its times.
+ */
+const EMBED_FIELDS = [
+  { id: "time", label: "Times" },
+  { id: "room", label: "Room" },
+  { id: "track", label: "Track" },
+  { id: "format", label: "Format" },
+  { id: "abstract", label: "Description" },
+  { id: "speakers", label: "Speakers" },
+] as const;
+
+interface EmbedConfig {
+  track: string;
+  accent: string;
+  fields: readonly string[];
+  bare: boolean;
+}
+
+/** The query string a configuration produces; empty when nothing has been chosen. */
+function embedQuery(config: EmbedConfig): string {
+  const parameters = new URLSearchParams();
+  if (config.track) parameters.set("track", config.track);
+  if (config.accent) parameters.set("accent", config.accent);
+  if (config.fields.length > 0) parameters.set("fields", config.fields.join(","));
+  if (config.bare) parameters.set("chrome", "none");
+  const query = parameters.toString();
+  return query ? `?${query}` : "";
+}
 
 function describe(reason: unknown, fallback: string): string {
   if (reason instanceof PublicationApiError)
@@ -218,6 +263,218 @@ function ProjectionPreview({ projection, timezone }: { projection: Projection; t
         </section>
       </div>
     </div>
+  );
+}
+
+const SETTINGS_FIELDS = ["slug", "summary", "venue", "startsOn", "endsOn"] as const;
+type SettingsField = (typeof SETTINGS_FIELDS)[number];
+type SettingsForm = Record<SettingsField, string>;
+
+/*
+ * The public details an organizer types, as opposed to the ones publishing composes from
+ * content, the agenda and the CFP.
+ *
+ * Only *changed* fields are sent, and that is load-bearing rather than an optimisation.
+ * The dates shown here are the composed ones, so when the organizer has typed no dates the
+ * inputs are displaying values derived from the agenda's first and last slot. Submitting the
+ * form wholesale would store those back as though they had been typed, and the public page
+ * would silently stop tracking the agenda the first time anyone edited the venue.
+ */
+function PublicDetailsPanel({
+  publication,
+  canEdit,
+  onSaved,
+}: {
+  publication: PublicationDto;
+  canEdit: boolean;
+  onSaved: (next: PublicationDto) => void;
+}) {
+  const { slug, summary, venue, startsOn, endsOn } = publication.draft.event;
+  // Depending on the values rather than on `publication` keeps a recomposed preview that
+  // changed nothing from throwing away whatever the organizer is halfway through typing.
+  const initial = useMemo<SettingsForm>(
+    () => ({ slug, summary, venue, startsOn, endsOn }),
+    [slug, summary, venue, startsOn, endsOn],
+  );
+  const [form, setForm] = useState<SettingsForm>(initial);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingsField, string>>>({});
+  const [saving, setSaving] = useState(false);
+  const feedback = useActionFeedback();
+  const { announce } = feedback;
+
+  useEffect(() => {
+    setForm(initial);
+    setFieldErrors({});
+  }, [initial]);
+
+  const changed = SETTINGS_FIELDS.filter((field) => form[field] !== initial[field]);
+  const set = (field: SettingsField) => (value: string) =>
+    setForm((current) => ({ ...current, [field]: value }));
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    setFieldErrors({});
+    try {
+      const next = await updatePublicationSettings(
+        publication.eventId,
+        Object.fromEntries(changed.map((field) => [field, form[field]])),
+      );
+      onSaved(next);
+      announce(
+        "success",
+        publication.state === "published"
+          ? "Public details saved to the draft. Publish again to put them on the live page."
+          : "Public details saved.",
+      );
+    } catch (reason: unknown) {
+      // ERROR-INTENT: the announcement and the per-field messages are the user-facing
+      // failure state. A refusal that names fields is put on those fields, because
+      // "already taken" printed above a form of five inputs does not say which one.
+      const fields =
+        reason instanceof PublicationApiError ? reason.envelope.error.fieldErrors : undefined;
+      if (fields)
+        setFieldErrors(
+          Object.fromEntries(
+            SETTINGS_FIELDS.filter((field) => fields[field]?.length).map((field) => [
+              field,
+              fields[field]?.join(" ") ?? "",
+            ]),
+          ),
+        );
+      announce("error", describe(reason, "The public details could not be saved."));
+    } finally {
+      setSaving(false);
+    }
+  }, [announce, changed, form, onSaved, publication.eventId, publication.state]);
+
+  const describedBy = (field: SettingsField) =>
+    fieldErrors[field] ? `settings-${field}-error` : undefined;
+  const fieldError = (field: SettingsField) =>
+    fieldErrors[field] ? (
+      <p className="publishing-field-error" id={`settings-${field}-error`}>
+        {fieldErrors[field]}
+      </p>
+    ) : null;
+
+  return (
+    <Card
+      labelledBy="publishing-details"
+      title="Public details"
+      hint="What the public page says about the event itself. Saved to the draft, never straight to the live page."
+    >
+      <form
+        className="publishing-details"
+        onSubmit={(submitEvent) => {
+          submitEvent.preventDefault();
+          // ERROR-INTENT: handlers cannot await; save announces both outcomes.
+          void save();
+        }}
+      >
+        <div className="field">
+          <label htmlFor="settings-summary">Summary</label>
+          <textarea
+            id="settings-summary"
+            rows={3}
+            maxLength={2000}
+            disabled={!canEdit}
+            value={form.summary}
+            aria-describedby={describedBy("summary")}
+            onChange={(changeEvent) => set("summary")(changeEvent.target.value)}
+            placeholder="One paragraph describing the event to someone who has never heard of it."
+          />
+          {fieldError("summary")}
+        </div>
+
+        <div className="field">
+          <label htmlFor="settings-venue">Venue</label>
+          <input
+            id="settings-venue"
+            maxLength={200}
+            disabled={!canEdit}
+            value={form.venue}
+            aria-describedby={describedBy("venue")}
+            onChange={(changeEvent) => set("venue")(changeEvent.target.value)}
+            placeholder="Harbor Conference Center, Oakland"
+          />
+          {fieldError("venue")}
+        </div>
+
+        <div className="publishing-details-dates">
+          <div className="field">
+            <label htmlFor="settings-startsOn">First day</label>
+            <input
+              id="settings-startsOn"
+              type="date"
+              disabled={!canEdit}
+              value={form.startsOn}
+              aria-describedby={describedBy("startsOn")}
+              onChange={(changeEvent) => set("startsOn")(changeEvent.target.value)}
+            />
+            {fieldError("startsOn")}
+          </div>
+          <div className="field">
+            <label htmlFor="settings-endsOn">Last day</label>
+            <input
+              id="settings-endsOn"
+              type="date"
+              disabled={!canEdit}
+              value={form.endsOn}
+              aria-describedby={describedBy("endsOn")}
+              onChange={(changeEvent) => set("endsOn")(changeEvent.target.value)}
+            />
+            {fieldError("endsOn")}
+          </div>
+        </div>
+        <p className="publishing-sub">
+          Leave both dates empty and the public page follows the agenda, showing the first and last
+          day anything is scheduled. Typing a date pins it.
+        </p>
+
+        <div className="field">
+          <label htmlFor="settings-slug">Public address</label>
+          <input
+            id="settings-slug"
+            maxLength={120}
+            disabled={!canEdit}
+            value={form.slug}
+            aria-describedby={describedBy("slug")}
+            onChange={(changeEvent) => set("slug")(changeEvent.target.value)}
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+          />
+          {fieldError("slug")}
+          <p className="publishing-sub">
+            <code>/events/{form.slug || "…"}</code>
+            {publication.state === "published" && form.slug !== initial.slug
+              ? " — visitors keep reaching the current address until you publish again."
+              : " — lowercase words separated by hyphens."}
+          </p>
+        </div>
+
+        <div className="toolbar">
+          <button type="submit" disabled={!canEdit || saving || changed.length === 0}>
+            {saving ? "Saving…" : "Save public details"}
+          </button>
+          {changed.length > 0 && !saving ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setForm(initial);
+                setFieldErrors({});
+              }}
+            >
+              Discard changes
+            </button>
+          ) : null}
+        </div>
+        {feedback.node}
+        {canEdit ? null : (
+          <p className="publishing-sub">
+            Your role on this event can read the public details but not change them.
+          </p>
+        )}
+      </form>
+    </Card>
   );
 }
 
@@ -386,6 +643,14 @@ export function PublishingWorkspace({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"preview" | "publish" | "unpublish" | null>(null);
   const [tab, setTab] = useState("publishing-draft");
+  // The embed configuration is the organizer's composing state, not the publication's:
+  // changing it rewrites the snippets on screen and touches nothing on the server.
+  const [embedConfig, setEmbedConfig] = useState<EmbedConfig>({
+    track: "",
+    accent: "",
+    fields: [],
+    bare: false,
+  });
   const feedback = useActionFeedback();
   const { announce } = feedback;
   const statusRef = useRef<HTMLDivElement>(null);
@@ -492,8 +757,11 @@ export function PublishingWorkspace({
       draftPrint: fingerprint(publication.draft),
       publishedPrint: fingerprint(published),
       changed: changedAreas(publication.draft, published),
+      tracks: [
+        ...new Set(publication.draft.sessions.map((session) => session.track).filter(Boolean)),
+      ].sort(),
       embeds: EMBED_VIEWS.map((view) => {
-        const path = `/embed/events/${publication.slug}/${view.id}`;
+        const path = `/embed/events/${publication.slug}/${view.id}${embedQuery(embedConfig)}`;
         const url = absolute(path);
         const title = `${eventName} ${view.label.toLowerCase()}`;
         return {
@@ -504,7 +772,7 @@ export function PublishingWorkspace({
         };
       }),
     };
-  }, [eventName, publication]);
+  }, [embedConfig, eventName, publication]);
 
   if (loading)
     return (
@@ -682,6 +950,8 @@ export function PublishingWorkspace({
         </Notice>
       )}
 
+      <PublicDetailsPanel publication={publication} canEdit={canPublish} onSaved={adopt} />
+
       <Card
         labelledBy="publishing-preview"
         title="Preview"
@@ -726,6 +996,83 @@ export function PublishingWorkspace({
         title="Embeds"
         hint="Chromeless views for another site. They serve the published snapshot, not the draft."
       >
+        {/*
+          One configuration, applied to every snippet below. It is deliberately not stored:
+          the whole point of putting the options in the URL is that the host page owns them
+          afterwards, so an organizer can hand out two differently configured snippets from
+          the same event without this screen having to remember either.
+        */}
+        <fieldset className="publishing-embed-config">
+          <legend>Configure the snippets</legend>
+          <div className="publishing-embed-options">
+            <div className="field">
+              <label htmlFor="embed-track">Limit to one track</label>
+              <select
+                id="embed-track"
+                value={embedConfig.track}
+                onChange={(changeEvent) =>
+                  setEmbedConfig((current) => ({ ...current, track: changeEvent.target.value }))
+                }
+              >
+                <option value="">Every track</option>
+                {model.tracks.map((track) => (
+                  <option key={track} value={track}>
+                    {track}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="embed-accent">Accent colour</label>
+              <input
+                id="embed-accent"
+                type="color"
+                value={embedConfig.accent || "#6257d9"}
+                onChange={(changeEvent) =>
+                  setEmbedConfig((current) => ({ ...current, accent: changeEvent.target.value }))
+                }
+              />
+              {embedConfig.accent ? (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => setEmbedConfig((current) => ({ ...current, accent: "" }))}
+                >
+                  Use the host page's colours
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="publishing-legend">Fields on each session card</span>
+            <div className="publishing-embed-fields">
+              {EMBED_FIELDS.map((field) => (
+                <label key={field.id} className="publishing-check">
+                  <input
+                    type="checkbox"
+                    checked={embedConfig.fields.includes(field.id)}
+                    onChange={(changeEvent) =>
+                      setEmbedConfig((current) => ({
+                        ...current,
+                        fields: changeEvent.target.checked
+                          ? [...current.fields, field.id]
+                          : current.fields.filter((candidate) => candidate !== field.id),
+                      }))
+                    }
+                  />
+                  {field.label}
+                </label>
+              ))}
+            </div>
+            <p className="publishing-sub">
+              {embedConfig.fields.length === 0
+                ? "Nothing selected, so the cards print every field."
+                : `The cards print only: ${embedConfig.fields.join(", ")}.`}
+            </p>
+          </div>
+        </fieldset>
+
         <div className="publishing-embeds">
           {model.embeds.map((embed) => (
             <EmbedPanel key={embed.id} embed={embed} isLive={model.isLive} />

@@ -16,7 +16,7 @@ import type { CommunicationsService } from "../../../application/communications/
 import type { ContentService } from "../../../application/content/content-service";
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
-import type { PublicationService } from "../../../application/publishing/public";
+import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
 import type {
   BuildIdentity,
@@ -56,6 +56,7 @@ export interface HttpDependencies {
   agenda?: AgendaService | undefined;
   communications?: CommunicationsService | undefined;
   publishing?: PublicationService | undefined;
+  itineraries?: ItineraryService | undefined;
   build?: BuildIdentity | undefined;
 }
 

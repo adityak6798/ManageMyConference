@@ -660,6 +660,260 @@ describe("what the public surface says about the call for proposals", () => {
  * assertion in e2e/public-event.spec.ts — they are the rules that assertion depends on,
  * checked where a regression is cheap to catch.
  */
+/*
+ * The two surfaces the evaluator names separately from the sessions list: a directory to
+ * find a name in, and a gallery to recognise a face in. Both read one projection, so the
+ * risk is not that either renders — it is that they disagree about who is where.
+ */
+describe("speaker directory and gallery", () => {
+  const names = (root: HTMLElement) =>
+    [...root.querySelectorAll(".pub-speaker h3")].map((node) => node.textContent);
+
+  it("sorts both surfaces by surname rather than by projection order", async () => {
+    // The projection lists Chen, Bell, Ruiz. A directory is read by surname, so it is
+    // Bell, Chen, Ruiz on both — and neither surface may invent its own order.
+    const gallery = mountAt(`/events/${SLUG}/gallery`);
+    await screen.findByRole("heading", { level: 1, name: "Speaker gallery" });
+    expect(names(gallery.container)).toEqual(["Jordan Bell", "Maya Chen", "Ana Ruiz"]);
+    cleanup();
+
+    const list = mountAt(`/events/${SLUG}/speakers`);
+    await screen.findByRole("heading", { level: 1, name: "Speakers" });
+    expect(names(list.container)).toEqual(["Jordan Bell", "Maya Chen", "Ana Ruiz"]);
+  });
+
+  it("keeps the gallery photo-aware and links the same detail page as the directory", async () => {
+    const { container } = mountAt(`/events/${SLUG}/gallery`);
+    await screen.findByRole("heading", { level: 1, name: "Speaker gallery" });
+
+    expect(container.querySelector(`img[src="${PHOTO_URL}"]`)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Maya Chen" })).toHaveAttribute(
+      "href",
+      `/events/${SLUG}/speakers/maya-chen`,
+    );
+  });
+
+  it("finds a speaker by organization as well as by name", async () => {
+    mountAt(`/events/${SLUG}/speakers`);
+    await screen.findByRole("heading", { level: 1, name: "Speakers" });
+
+    fireEvent.change(screen.getByLabelText("Search speakers"), {
+      target: { value: "harbor collective" },
+    });
+
+    expect(screen.getByRole("link", { name: "Ana Ruiz" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Maya Chen" })).toBeNull();
+  });
+});
+
+/*
+ * The itinerary. The identity is a capability token: minted on the first star, kept in
+ * localStorage, and put in the request path — see src/public-event/itinerary.tsx.
+ */
+/*
+ * jsdom in this configuration exposes `window.localStorage` as a bare object with no
+ * Storage methods on it, so persistence has to be supplied here to be exercised at all.
+ * The production code survives its absence — every access is wrapped, and an attendee who
+ * cannot persist still gets an itinerary for the visit — but "survives a reload" is not a
+ * claim that can be made against a store that never stores.
+ */
+function installMemoryStorage(): () => void {
+  const entries = new Map<string, string>();
+  const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        entries.set(key, String(value));
+      },
+      removeItem: (key: string) => {
+        entries.delete(key);
+      },
+      clear: () => entries.clear(),
+      key: (index: number) => [...entries.keys()][index] ?? null,
+      get length() {
+        return entries.size;
+      },
+    },
+  });
+  return () => {
+    if (original) Object.defineProperty(window, "localStorage", original);
+  };
+}
+
+describe("attendee itinerary", () => {
+  // Deliberately low-entropy and self-describing: a random-looking fixture here trips the
+  // secret scanner in CI, which is the scanner behaving correctly. It still has to satisfy
+  // `itineraryTokenSchema` — 16-128 characters of [A-Za-z0-9_-].
+  const TOKEN = "itinerary-test-token-not-a-real-secret";
+  let saved: string[] = [];
+  let restoreStorage: (() => void) | null = null;
+
+  afterEach(() => restoreStorage?.());
+
+  beforeEach(() => {
+    saved = [];
+    restoreStorage = installMemoryStorage();
+    fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const body = init?.body
+        ? (JSON.parse(String(init.body)) as { sessionSlugs: string[] })
+        : null;
+      if (url.endsWith("/itinerary") && init?.method === "POST") {
+        saved = body?.sessionSlugs ?? [];
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              token: TOKEN,
+              itinerary: {
+                eventSlug: SLUG,
+                sessionSlugs: saved,
+                updatedAt: "2026-08-20T10:00:00.000Z",
+              },
+            }),
+            { status: 201 },
+          ),
+        );
+      }
+      if (url.includes("/api/public/itineraries/")) {
+        if (init?.method === "POST") saved = body?.sessionSlugs ?? [];
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              itinerary: {
+                eventSlug: SLUG,
+                sessionSlugs: saved,
+                updatedAt: "2026-08-20T10:00:00.000Z",
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes(`/api/public/events/${SLUG}`))
+        return Promise.resolve(new Response(JSON.stringify({ projection }), { status: 200 }));
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: { code: "not_found", message: "no" } }), {
+          status: 404,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  /** Same stub, but the mint resolves a tick late so two stars can overlap it. */
+  function stubPublishing_itinerary_delayed() {
+    const base = fetchMock as ReturnType<typeof vi.fn>;
+    const delayed = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const response = base(input, init) as Promise<Response>;
+      return String(input).endsWith("/itinerary") && init?.method === "POST"
+        ? new Promise<Response>((resolve) => setTimeout(() => resolve(response), 5))
+        : response;
+    });
+    vi.stubGlobal("fetch", delayed);
+    return delayed;
+  }
+
+  const star = async (title: string) => {
+    fireEvent.click(await screen.findByRole("button", { name: `Add ${title} to my itinerary` }));
+  };
+
+  it("mints one itinerary on the first star and reuses its token afterwards", async () => {
+    mountAt(`/events/${SLUG}/sessions`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+
+    await star("Closing notes");
+    await waitFor(() =>
+      expect(window.localStorage.getItem(`greenroom:itinerary:${projection.event.eventId}`)).toBe(
+        TOKEN,
+      ),
+    );
+    await star("Calm systems for busy event teams");
+
+    // Exactly one mint. A second POST to the collection would strand the first itinerary
+    // and lose whatever the attendee had already starred.
+    const mints = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith("/itinerary") && (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(mints).toHaveLength(1);
+    await waitFor(() => expect(saved).toEqual(["closing-notes", "calm-systems"]));
+  });
+
+  it("mints once even when two stars are fired before the first mint returns", async () => {
+    const fetchMock = stubPublishing_itinerary_delayed();
+    mountAt(`/events/${SLUG}/sessions`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+
+    // No await between them: this is the race the token-in-state guard cannot see, because
+    // `token` is still null for the second click.
+    fireEvent.click(screen.getByRole("button", { name: "Add Closing notes to my itinerary" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Accessible by default to my itinerary" }),
+    );
+
+    await waitFor(() => expect(saved).toHaveLength(2));
+    const mints = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith("/itinerary") && (init as RequestInit | undefined)?.method === "POST",
+    );
+    // Two rows would orphan one and silently move the browser onto the other.
+    expect(mints).toHaveLength(1);
+    expect(saved).toEqual(["closing-notes", "accessible-by-default"]);
+  });
+
+  it("survives a reload with exactly the chosen sessions", async () => {
+    mountAt(`/events/${SLUG}/sessions`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+    await star("Closing notes");
+    await star("Accessible by default");
+    await waitFor(() => expect(saved).toHaveLength(2));
+    cleanup();
+
+    // A fresh mount is a reload: nothing survives but localStorage and the server.
+    mountAt(`/events/${SLUG}/itinerary`);
+    await screen.findByRole("heading", { level: 1, name: "My itinerary" });
+
+    const starred = await screen.findAllByRole("link", {
+      name: /Closing notes|Accessible by default/,
+    });
+    expect(starred.map((link) => link.textContent).sort()).toEqual([
+      "Accessible by default",
+      "Closing notes",
+    ]);
+    expect(screen.queryByRole("link", { name: "Calm systems for busy event teams" })).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("2 sessions in your itinerary");
+  });
+
+  it("adopts an itinerary handed over as a link, so a second device can open it", async () => {
+    saved = ["calm-systems"];
+    mountAt(`/events/${SLUG}/itinerary?plan=${TOKEN}`);
+    await screen.findByRole("heading", { level: 1, name: "My itinerary" });
+
+    expect(
+      await screen.findByRole("link", { name: "Calm systems for busy event teams" }),
+    ).toBeVisible();
+    // Adopted into storage, so the next visit to this device needs no link.
+    expect(window.localStorage.getItem(`greenroom:itinerary:${projection.event.eventId}`)).toBe(
+      TOKEN,
+    );
+  });
+
+  it("says the itinerary is a link rather than an account", async () => {
+    mountAt(`/events/${SLUG}/itinerary`);
+    await screen.findByRole("heading", { level: 1, name: "My itinerary" });
+    expect(screen.getByText(/kept against a private link for this browser/)).toBeVisible();
+    expect(screen.getByText(/Anyone with the link can see this itinerary/)).toBeVisible();
+  });
+
+  it("offers no star inside an embed, where storage may be partitioned away", async () => {
+    mountAt(`/embed/events/${SLUG}/sessions`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+    expect(screen.queryByRole("button", { name: /to my itinerary/ })).toBeNull();
+  });
+});
+
 describe("390px safety rules in the public stylesheets", () => {
   const sheets = ["styles/public-pages.css", "public-event.css"].map((name) => ({
     name,

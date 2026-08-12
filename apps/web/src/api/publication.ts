@@ -1,10 +1,11 @@
 import {
   type ApiErrorEnvelope,
+  type PublicationSettingsInput,
   type PublicEventProjectionDto,
   publicationPreviewResponseSchema,
   publicEventResponseSchema,
 } from "@greenroom/contracts";
-import { apiFetch as fetch, decodeResponse } from "./config";
+import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class PublicApiError extends Error {}
 
@@ -60,6 +61,30 @@ export async function setPublicationState(
   return decodePublication(
     await fetcher(`/api/publishing/events/${encodeURIComponent(eventId)}/${action}`, {
       method: "POST",
+    }),
+  );
+}
+
+/**
+ * Save the public-page fields publishing owns: the summary, the venue, the two dates and
+ * the public address.
+ *
+ * A draft write. The published snapshot keeps serving visitors until the organizer
+ * publishes again, which is why this returns the same publication record the publish and
+ * unpublish calls do rather than a bare acknowledgement — the caller re-renders from it and
+ * can see the draft move ahead of the snapshot.
+ */
+// @spec PRD-PUB-001
+export async function updatePublicationSettings(
+  eventId: string,
+  settings: PublicationSettingsInput,
+  fetcher: typeof fetch = fetch,
+): Promise<PublicationDto> {
+  return decodePublication(
+    await fetcher(`/api/publishing/events/${encodeURIComponent(eventId)}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(settings),
     }),
   );
 }

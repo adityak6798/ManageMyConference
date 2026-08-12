@@ -78,6 +78,88 @@ export const publicScheduleSchema = z.object({
   sessions: z.array(publicScheduleSessionSchema),
 });
 export type PublicScheduleDto = z.infer<typeof publicScheduleSchema>;
+/*
+ * The public-page fields an organizer types, as opposed to the ones publishing composes.
+ *
+ * These five are publishing's own data and live nowhere else. `summary` and `venue` have no
+ * upstream source at all — `preview` passes them through from the stored draft, which is why
+ * they read as empty on every event the seed did not write. `startsOn`/`endsOn` do have an
+ * upstream source (agenda slot dates) but it cannot express "the conference runs Monday to
+ * Wednesday" before an agenda exists. `slug` is the event's public address.
+ *
+ * `name` and `timezone` are deliberately absent: those are events-domain data, copied into
+ * the projection at compose time, and editing them is renaming an event rather than editing
+ * its public page. That needs an events-domain command that does not exist yet.
+ *
+ * Every field is optional so the form can send one changed field; an empty string is a
+ * meaningful value that clears the field, and `undefined` means "leave it alone".
+ */
+// @spec PRD-PUB-001
+/*
+ * A real calendar day, not merely a well-shaped one.
+ *
+ * The shape alone accepts `2026-02-31` and `2026-99-99`, and neither is harmless here: the
+ * public page formats these values with `Intl.DateTimeFormat`, which throws a `RangeError`
+ * on an invalid `Date` and would take the whole client-rendered page down, while a merely
+ * overflowing day silently normalises and publishes a date nobody typed. The round-trip is
+ * the check — `Date` normalises out of range, so a value that does not come back identical
+ * was never a day.
+ */
+export const publicEventDaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a calendar date, as YYYY-MM-DD")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    // Checked before `toISOString`, which throws `RangeError` on an invalid date rather
+    // than returning something comparable — a refinement that throws fails the request
+    // with an unhandled error instead of a validation message.
+    if (Number.isNaN(parsed.getTime())) return false;
+    return parsed.toISOString().startsWith(value);
+  }, "That date does not exist");
+/** A day, or the empty string that clears it back to the agenda-derived value. */
+const editableDaySchema = z.union([publicEventDaySchema, z.literal("")]);
+export const publicationSettingsInputSchema = z
+  .object({
+    // Bounded by the `public_event_projections_slug_length` check constraint on the column
+    // it is stored in, so an over-long slug is refused by the contract rather than by SQLite.
+    slug: routeSlugSchema.max(120).optional(),
+    summary: z.string().max(2000).optional(),
+    venue: z.string().max(200).optional(),
+    startsOn: editableDaySchema.optional(),
+    endsOn: editableDaySchema.optional(),
+  })
+  // Ordering is only checked here when the caller sends both. A request that moves one end
+  // past a stored other end is caught after the merge, in the domain, where the stored value
+  // is known — see `applyPublicationSettings`.
+  .refine(
+    ({ startsOn, endsOn }) => !startsOn || !endsOn || startsOn <= endsOn,
+    "The end date cannot fall before the start date",
+  );
+export type PublicationSettingsInput = z.infer<typeof publicationSettingsInputSchema>;
+/*
+ * Attendee itineraries.
+ *
+ * Anonymous by construction, like everything else under `/api/public/*`. The token in the
+ * path *is* the identity — there is no user id here to leak, and none to attribute an
+ * itinerary to later, which is a constraint worth knowing before anything tries to.
+ */
+// @spec PRD-PUB-001
+export const itineraryTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/);
+export const itineraryTokenParamsSchema = z.object({ token: itineraryTokenSchema });
+export const itinerarySchema = z.object({
+  eventSlug: routeSlugSchema,
+  sessionSlugs: z.array(routeSlugSchema),
+  updatedAt: z.string().datetime(),
+});
+export type ItineraryDto = z.infer<typeof itinerarySchema>;
+/** The saved list replaces the stored one outright; there is no add/remove verb. */
+export const itineraryInputSchema = z.object({ sessionSlugs: z.array(routeSlugSchema).max(200) });
+export const itineraryResponseSchema = z.object({ itinerary: itinerarySchema });
+/** The mint response, and the only time the token is ever returned. */
+export const itineraryCreatedResponseSchema = z.object({
+  token: itineraryTokenSchema,
+  itinerary: itinerarySchema,
+});
 export const publicationPreviewResponseSchema = z.object({
   publication: z.object({
     eventId: z.string().uuid(),

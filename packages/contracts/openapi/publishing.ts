@@ -7,9 +7,14 @@
 import { z } from "zod";
 import {
   eventIdParamsSchema,
+  itineraryCreatedResponseSchema,
+  itineraryInputSchema,
+  itineraryResponseSchema,
+  itineraryTokenParamsSchema,
+  publicationPreviewResponseSchema,
+  publicationSettingsInputSchema,
   publicEventResponseSchema,
   publicEventSlugParamsSchema,
-  publicationPreviewResponseSchema,
   publicScheduleSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
@@ -64,5 +69,69 @@ export const publishingPaths: OpenApiFragment = {
           500: errorResponse,
         },
       });
+    /*
+     * Attendee itineraries. No security scheme, and that is the design rather than an
+     * omission: the token in the path is the whole of the authorization, because the
+     * namespace's `Access-Control-Allow-Origin: *` policy forbids credentials.
+     */
+    registry.registerPath({
+      method: "post",
+      path: "/api/public/events/{slug}/itinerary",
+      request: {
+        params: publicEventSlugParamsSchema,
+        body: { required: true, content: json(itineraryInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "A new itinerary, and the only response that carries its token",
+          content: json(itineraryCreatedResponseSchema),
+        },
+        400: errorResponse,
+        404: errorResponse,
+        429: errorResponse,
+        500: errorResponse,
+      },
+    });
+    for (const method of ["get", "post"] as const)
+      registry.registerPath({
+        method,
+        path: "/api/public/itineraries/{token}",
+        request: {
+          params: itineraryTokenParamsSchema,
+          ...(method === "post"
+            ? { body: { required: true, content: json(itineraryInputSchema) } }
+            : {}),
+        },
+        responses: {
+          200: {
+            description: method === "get" ? "The stored itinerary" : "The saved itinerary",
+            content: json(itineraryResponseSchema),
+          },
+          ...(method === "post" ? { 400: errorResponse } : {}),
+          404: errorResponse,
+          500: errorResponse,
+        },
+      });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/publishing/events/{eventId}/settings",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventIdParamsSchema,
+        body: { required: true, content: json(publicationSettingsInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "Public details saved to the draft; the published snapshot is untouched",
+          content: json(publicationPreviewResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
   },
 };

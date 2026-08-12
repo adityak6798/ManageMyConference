@@ -29,11 +29,21 @@
     "apps/web/test/public-event-pages.test.tsx",
     "apps/web/e2e/public-event.spec.ts",
     "apps/web/e2e/publishing.spec.ts",
+    "apps/web/e2e/public-itinerary.spec.ts",
     "apps/api/src/transport/http/routes/publishing.ts",
-    "apps/web/src/workspaces/publishing.tsx"
+    "apps/web/src/workspaces/publishing.tsx",
+    "apps/api/src/adapters/persistence/d1-itinerary-repository.ts",
+    "apps/api/migrations/1800_attendee_itineraries.sql",
+    "apps/api/test/itinerary.test.ts",
+    "apps/web/src/api/itinerary.ts",
+    "apps/web/src/public-event/itinerary.tsx",
+    "apps/web/test/public-itinerary.test.ts"
   ],
   "symbols": {
     "PublicationService": "apps/api/src/application/publishing/publication-service.ts",
-    "composePublicSchedule": "apps/api/src/application/publishing/public.ts"
+    "composePublicSchedule": "apps/api/src/application/publishing/public.ts",
+    "ItineraryService": "apps/api/src/application/publishing/itinerary-service.ts",
+    "reconcileItinerary": "apps/api/src/domain/publishing/itinerary.ts",
+    "applyPublicationSettings": "apps/api/src/domain/publishing/publication.ts"
   }
 }

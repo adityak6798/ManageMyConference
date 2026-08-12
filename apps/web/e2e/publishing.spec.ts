@@ -98,6 +98,24 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await expect(previewPanel.getByText("No snapshot has been taken")).toBeVisible();
   expect((await page.request.get(`/api/public/events/${slug}`)).status()).toBe(404);
 
+  /*
+   * ---- the public details an organizer types --------------------------------
+   *
+   * The criterion from issue #37: set the summary, venue and dates the public page renders
+   * without curl and without SQL. Before this form existed there was no writer for `summary`
+   * or `venue` anywhere in the product, so a self-created event could only ever publish an
+   * empty summary and a nameless venue.
+   */
+  const details = page.getByRole("region", { name: "Public details" });
+  await details.getByLabel("Summary").fill("Two days of practical conference craft.");
+  await details.getByLabel("Venue").fill("Harbor Conference Center, Oakland");
+  await details.getByLabel("First day").fill("2026-09-14");
+  await details.getByLabel("Last day").fill("2026-09-15");
+  await details.getByRole("button", { name: "Save public details" }).click();
+  await expect(details.getByRole("status")).toContainText("Public details saved");
+  // A draft write: the event is still unpublished, so nothing public has changed yet.
+  expect((await page.request.get(`/api/public/events/${slug}`)).status()).toBe(404);
+
   // ---- publish -------------------------------------------------------------
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(publicationStatus).toContainText(
@@ -132,16 +150,28 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   expect(snippet).toContain(`/embed/events/${slug}/schedule`);
   expect(snippet).toMatch(/^<iframe src="http/);
   // Both views render a live frame of the real embed once the event is live.
-  await expect(page.locator(".publishing-frame iframe")).toHaveCount(2);
+  // Four widget types since #95: schedule, sessions, speakers and the gallery.
+  await expect(page.locator(".publishing-frame iframe")).toHaveCount(4);
 
   // ---- the public routes serve it ------------------------------------------
   const published = await page.request.get(`/api/public/events/${slug}`);
   expect(published.status()).toBe(200);
-  expect((await published.json()).projection.event.name).toBe(name);
+  const publishedEvent = (await published.json()).projection.event;
+  expect(publishedEvent.name).toBe(name);
+  // The typed details reached the snapshot the public is served, which is the end of the
+  // path issue #37 said did not exist.
+  expect(publishedEvent).toMatchObject({
+    summary: "Two days of practical conference craft.",
+    venue: "Harbor Conference Center, Oakland",
+    startsOn: "2026-09-14",
+    endsOn: "2026-09-15",
+  });
 
   await page.goto(`/events/${slug}`);
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   await expect(page).toHaveTitle(name);
+  await expect(page.getByText("Two days of practical conference craft.")).toBeVisible();
+  await expect(page.getByText("Harbor Conference Center, Oakland").first()).toBeVisible();
   await page.goto(`/embed/events/${slug}/schedule`);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Event navigation" })).toHaveCount(0);

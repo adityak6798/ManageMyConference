@@ -127,32 +127,51 @@ function TimeRange({
   );
 }
 
+/**
+ * Which optional parts of a card an embed asked for.
+ *
+ * An empty set means "everything", so a snippet with no `fields=` parameter — every
+ * snippet issued before the option existed — keeps rendering exactly as it did.
+ */
+const shows = (fields: ReadonlySet<string> | undefined, field: string) =>
+  !fields || fields.size === 0 || fields.has(field);
+
 function SessionCard({
   session,
   base,
   timezone,
   speakers,
   showTime,
+  action,
+  fields,
 }: {
   session: PublicSession;
   base: string;
   timezone: string;
   speakers: PublicSpeaker[];
   showTime?: boolean;
+  /** The itinerary star, when the surface offers one. */
+  action?: ReactNode;
+  fields?: ReadonlySet<string>;
 }) {
   const length = duration(session);
   // Every meta entry is its own element so the CSS separator lands between all of
   // them; a bare text node would silently skip the first dot.
-  const showClock = Boolean(showTime && session.startsAt);
+  const showClock = Boolean(showTime && session.startsAt && shows(fields, "time"));
   // Outside the day-grouped view an unplaced session would otherwise look identical to
   // a placed one whose time simply was not rendered.
-  const showPending = Boolean(showTime && !session.startsAt);
+  const showPending = Boolean(showTime && !session.startsAt && shows(fields, "time"));
+  const showRoom = Boolean(session.room && shows(fields, "room"));
+  const showTags = shows(fields, "track") || shows(fields, "format");
   return (
     <article className="pub-session">
-      <h3>
-        <a {...linkProps(`${base}/sessions/${session.slug}`)}>{session.title}</a>
-      </h3>
-      {(showClock || showPending || length || session.room) && (
+      <div className="pub-session-head">
+        <h3>
+          <a {...linkProps(`${base}/sessions/${session.slug}`)}>{session.title}</a>
+        </h3>
+        {action}
+      </div>
+      {(showClock || showPending || length || showRoom) && (
         <p className="pub-session-meta">
           {showClock && (
             <TimeRange
@@ -163,12 +182,12 @@ function SessionCard({
             />
           )}
           {showPending && <span>Time to be announced</span>}
-          {length && <span>{length}</span>}
-          {session.room && <span>{session.room}</span>}
+          {length && shows(fields, "time") && <span>{length}</span>}
+          {showRoom && <span>{session.room}</span>}
         </p>
       )}
-      <p className="pub-session-abstract">{session.abstract}</p>
-      {speakers.length > 0 && (
+      {shows(fields, "abstract") && <p className="pub-session-abstract">{session.abstract}</p>}
+      {speakers.length > 0 && shows(fields, "speakers") && (
         <ul className="pub-session-speakers">
           {speakers.map((speaker) => (
             <li key={speaker.slug}>
@@ -178,10 +197,12 @@ function SessionCard({
           ))}
         </ul>
       )}
-      <p className="pub-tags">
-        <Pill tone="info">{session.track}</Pill>
-        <Pill>{session.format}</Pill>
-      </p>
+      {showTags && (
+        <p className="pub-tags">
+          {shows(fields, "track") && <Pill tone="info">{session.track}</Pill>}
+          {shows(fields, "format") && <Pill>{session.format}</Pill>}
+        </p>
+      )}
     </article>
   );
 }

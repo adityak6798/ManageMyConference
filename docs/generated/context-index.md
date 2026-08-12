@@ -120,14 +120,17 @@
 
 ### `ACC-PUBLIC`
 - `test` / `repository-fact`: [apps/api/test/d1-publication-repository.integration.test.ts](../../apps/api/test/d1-publication-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/itinerary.test.ts](../../apps/api/test/itinerary.test.ts)
 - `test` / `repository-fact`: [apps/api/test/publication.test.ts](../../apps/api/test/publication.test.ts)
 - `test` / `repository-fact`: [apps/api/test/seed-state.integration.test.ts](../../apps/api/test/seed-state.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/00-seed-state.spec.ts](../../apps/web/e2e/00-seed-state.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/event-scoped-loading.spec.ts](../../apps/web/e2e/event-scoped-loading.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/public-event.spec.ts](../../apps/web/e2e/public-event.spec.ts)
+- `test` / `repository-fact`: [apps/web/e2e/public-itinerary.spec.ts](../../apps/web/e2e/public-itinerary.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/publishing.spec.ts](../../apps/web/e2e/publishing.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/public-event-pages.test.tsx](../../apps/web/test/public-event-pages.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/public-itinerary.test.ts](../../apps/web/test/public-itinerary.test.ts)
 - `test` / `repository-fact`: [apps/web/test/publishing.test.tsx](../../apps/web/test/publishing.test.tsx)
 - `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
 - `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
@@ -424,19 +427,25 @@
 - `code` / `repository-fact`: [packages/contracts/src/domains/communications-integrations.ts](../../packages/contracts/src/domains/communications-integrations.ts)
 
 ### `PRD-PUB-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-itinerary-repository.ts](../../apps/api/src/adapters/persistence/d1-itinerary-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-publication-repository.ts](../../apps/api/src/adapters/persistence/d1-publication-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/publishing.ts](../../apps/api/src/adapters/persistence/schema/publishing.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/itinerary-repository.ts](../../apps/api/src/application/publishing/itinerary-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/itinerary-service.ts](../../apps/api/src/application/publishing/itinerary-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/publishing/publication-repository.ts](../../apps/api/src/application/publishing/publication-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/application/publishing/publication-service.ts](../../apps/api/src/application/publishing/publication-service.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/publishing/itinerary.ts](../../apps/api/src/domain/publishing/itinerary.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/publishing/publication.ts](../../apps/api/src/domain/publishing/publication.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/publishing.ts](../../apps/api/src/transport/http/routes/publishing.ts)
 - `code` / `repository-fact`: [apps/web/src/PublishingWorkspace.tsx](../../apps/web/src/PublishingWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/api/itinerary.ts](../../apps/web/src/api/itinerary.ts)
 - `code` / `repository-fact`: [apps/web/src/api/publication.ts](../../apps/web/src/api/publication.ts)
 - `code` / `repository-fact`: [apps/web/src/public-event/PublicEventApp.tsx](../../apps/web/src/public-event/PublicEventApp.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/publishing.tsx](../../apps/web/src/workspaces/publishing.tsx)
 - `specification` / `normative`: [docs/interfaces/README.md](../../docs/interfaces/README.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/publishing.ts](../../packages/contracts/src/domains/publishing.ts)
 
 ### `PRD-REV-001`

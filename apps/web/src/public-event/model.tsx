@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import "../public-event.css";
 import "../styles/public-pages.css";
 
-type View = "home" | "schedule" | "sessions" | "speakers" | "cfp";
+type View = "home" | "schedule" | "sessions" | "speakers" | "gallery" | "itinerary" | "cfp";
 type PublicSession = PublicEventProjectionDto["sessions"][number];
 type PublicSpeaker = PublicEventProjectionDto["speakers"][number];
 type Route = {
@@ -27,7 +27,7 @@ type Route = {
   detail: string | undefined;
 };
 
-const SECTIONS: View[] = ["schedule", "sessions", "speakers", "cfp"];
+const SECTIONS: View[] = ["schedule", "sessions", "speakers", "gallery", "itinerary", "cfp"];
 /** The views that state whether the call for proposals is taking submissions. */
 const CFP_AWARE_VIEWS = new Set<View>(["home", "cfp"]);
 
@@ -218,10 +218,82 @@ function duration(session: PublicSession) {
 
 const countLabel = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
+/* --------------------------- speaker ordering -------------------------- */
+
+/**
+ * The surname a directory sorts by.
+ *
+ * A conference programme is read as a directory, so "Ada Lovelace" belongs under L. There
+ * is no surname field in the projection and inventing one would be worse than this: the
+ * last whitespace-separated token is right for the overwhelming majority of Latin-script
+ * names, and a mononym sorts under itself rather than disappearing.
+ */
+const surname = (name: string) => {
+  const parts = name.trim().split(/\s+/);
+  return (parts.at(-1) ?? name).toLowerCase();
+};
+
+/**
+ * Surname, then the full name so two people who share one have a stable order.
+ * `localeCompare` rather than `<`, so accented names sort beside their unaccented
+ * neighbours instead of after every unaccented name.
+ */
+const bySurname = (left: { name: string }, right: { name: string }) =>
+  surname(left.name).localeCompare(surname(right.name)) || left.name.localeCompare(right.name);
+
+/* ---------------------------- embed options ---------------------------- */
+
+/**
+ * How a host page configures an embed, read from the query string.
+ *
+ * Query parameters rather than a stored per-embed record, deliberately: the organizer
+ * copies a URL into someone else's HTML, and a configuration that lives in the URL is one
+ * they can read, edit and diff without coming back here. Everything is optional and
+ * anything unrecognised is ignored, so an old snippet keeps working.
+ */
+interface EmbedOptions {
+  /** Show only this track. Matched case-insensitively against the projection's own value. */
+  readonly track: string;
+  /** Which optional fields the cards print. Empty means "all of them". */
+  readonly fields: ReadonlySet<string>;
+  /** A CSS colour the host page's brand supplies, applied to accents. */
+  readonly accent: string;
+  /** Drop the heading block, for a host page that supplies its own. */
+  readonly bare: boolean;
+}
+
+const SAFE_ACCENT = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i;
+/** The optional card fields an embed may name. Mirrors `EMBED_FIELDS` in the console. */
+const EMBED_FIELD_IDS = new Set(["time", "room", "track", "format", "abstract", "speakers"]);
+
+function parseEmbedOptions(search: string): EmbedOptions {
+  const parameters = new URLSearchParams(search);
+  /*
+   * Filtered to the identifiers the cards actually understand. Without this, `fields=times`
+   * — a plausible typo for `time` — produced a non-empty set that matched nothing, and the
+   * "empty means everything" fallback then suppressed every optional field on every card
+   * instead of being ignored as the contract says unrecognised values are.
+   */
+  const fields = (parameters.get("fields") ?? "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter((field) => EMBED_FIELD_IDS.has(field));
+  const accent = parameters.get("accent") ?? "";
+  return {
+    track: parameters.get("track") ?? "",
+    fields: new Set(fields),
+    // Only a literal hex colour is honoured. The value reaches a `style` attribute, and
+    // anything else a host page can put in a query string does not belong there.
+    accent: SAFE_ACCENT.test(accent) ? accent : "",
+    bare: parameters.get("chrome") === "none",
+  };
+}
+
 /* ------------------------------ pieces ------------------------------- */
 
-export type { PublicSession, PublicSpeaker, Route, ScheduleView, View };
+export type { EmbedOptions, PublicSession, PublicSpeaker, Route, ScheduleView, View };
 export {
+  bySurname,
   CFP_AWARE_VIEWS,
   calendarDate,
   clockTime,
@@ -234,6 +306,7 @@ export {
   formatInstant,
   fullTime,
   linkProps,
+  parseEmbedOptions,
   parseRoute,
   SCHEDULE_VIEWS,
   SECTIONS,

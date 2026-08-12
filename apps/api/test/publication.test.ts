@@ -1,30 +1,36 @@
 // @acceptance ACC-PUBLIC
-import { describe, expect, it, vi } from "vitest";
-import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
-import { EventService } from "../src/application/events/event-service";
+
 import {
-  createDemoSession,
-  resolveSeededDemoActor,
-} from "../src/application/identity/demo-session";
+  type PublicScheduleDto,
+  publicationSettingsInputSchema,
+  publicEventProjectionSchema,
+  publicScheduleSchema,
+} from "@greenroom/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
+import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
+import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
+import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
+import { AgendaService } from "../src/application/agenda/agenda-service";
+import { CfpService } from "../src/application/cfp/cfp-service";
+import { EventService } from "../src/application/events/event-service";
 import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
 } from "../src/application/identity/actor";
-import type { PublicationRepository } from "../src/application/publishing/publication-repository";
-import { PublicationService } from "../src/application/publishing/publication-service";
-import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
-import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
-import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
-import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
-import { AgendaService } from "../src/application/agenda/agenda-service";
-import { CfpService } from "../src/application/cfp/cfp-service";
-import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
-import { createHttpApp } from "../src/transport/http/app";
 import {
-  publicEventProjectionSchema,
-  publicScheduleSchema,
-  type PublicScheduleDto,
-} from "@greenroom/contracts";
+  createDemoSession,
+  resolveSeededDemoActor,
+} from "../src/application/identity/demo-session";
+import type { PublicationRepository } from "../src/application/publishing/publication-repository";
+import {
+  PublicationService,
+  PublicationSettingsError,
+  PublicationSlugTakenError,
+} from "../src/application/publishing/publication-service";
+import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
+import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
+import { createHttpApp } from "../src/transport/http/app";
 
 const safeProjection = {
   event: {
@@ -233,17 +239,38 @@ async function composedFixture() {
       slug === record.slug && record.state === "published" ? record : null,
     findByEventId: async () => record,
     publish: async (_eventId: string, publishedAt: string, published: PublicEventProjection) => {
-      record = { ...record, state: "published", publishedAt, published };
+      // `slug` follows the projection exactly as the D1 statement's `slug = excluded.slug`
+      // does. Without it the double cannot show a slug edit going live at publish time.
+      record = {
+        ...record,
+        slug: published.event.slug,
+        state: "published",
+        publishedAt,
+        published,
+      };
       return record;
     },
     unpublish: async () => {
       record = { ...record, state: "unpublished", published: null, publishedAt: null };
       return record;
     },
+    findEventIdBySlug: async (slug: string) => (slug === record.slug ? record.eventId : null),
+    // Mirrors the D1 statement: the draft is always replaced, and the row's served address
+    // only moves while nothing is published.
+    saveSettings: async (_eventId: string, slug: string, draft: PublicEventProjection) => {
+      record = { ...record, draft, ...(record.state === "published" ? {} : { slug }) };
+      return record;
+    },
     get stored() {
       return record.published;
     },
-  } satisfies PublicationRepository & { readonly stored: PublicEventProjection | null };
+    get draft() {
+      return record.draft;
+    },
+  } satisfies PublicationRepository & {
+    readonly stored: PublicEventProjection | null;
+    readonly draft: PublicEventProjection;
+  };
 
   const service = new PublicationService(
     repository,
@@ -290,6 +317,8 @@ describe("publication snapshots", () => {
         async () =>
           (record = { ...record, state: "unpublished", published: null, publishedAt: null }),
       ),
+      findEventIdBySlug: vi.fn(async () => null),
+      saveSettings: vi.fn(async () => record),
     };
     const service = new PublicationService(repository, () => new Date("2026-08-10T00:00:00.000Z"));
     expect((await service.publicBySlug("safe-event"))?.event.summary).toBe("Public");
@@ -304,6 +333,180 @@ describe("publication snapshots", () => {
     expect(await service.publicBySlug("safe-event")).toBeNull();
     await service.publish(organizer, record.eventId);
     expect((await service.publicBySlug("safe-event"))?.event.summary).toBe("PRIVATE DRAFT EDIT");
+  });
+
+  /*
+   * The organizer-editable half of the public page.
+   *
+   * `summary` and `venue` had no writer at all before this: `preview` passed them through
+   * from the stored draft and nothing ever stored one, so every event an organizer created
+   * in the product published a nameless venue and an empty summary (issue #37).
+   */
+  describe("public details an organizer edits", () => {
+    it("stores summary, venue and dates on the draft and leaves the snapshot alone", async () => {
+      const { record, service, repository } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      await service.publish(organizer, record.eventId);
+      const publishedBefore = repository.stored;
+
+      const updated = await service.updateSettings(organizer, record.eventId, {
+        summary: "Two days of practical conference craft.",
+        venue: "Harbor Conference Center, Oakland",
+      });
+
+      expect(updated?.draft.event).toMatchObject({
+        summary: "Two days of practical conference craft.",
+        venue: "Harbor Conference Center, Oakland",
+      });
+      // The published snapshot is immutable until the organizer publishes again — the same
+      // promise every other draft edit makes, and the reason this is a draft write.
+      expect(repository.stored).toEqual(publishedBefore);
+      expect(updated?.published?.event.summary).not.toBe("Two days of practical conference craft.");
+    });
+
+    it("lets typed dates win over the agenda, and clearing them hands the field back", async () => {
+      const { record, service } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      // The agenda's slots run 2026-09-01 to 2026-09-02 and used to overwrite whatever was
+      // stored, so an organizer could not say the conference opens the day before its first
+      // session.
+      const pinned = await service.updateSettings(organizer, record.eventId, {
+        startsOn: "2026-08-31",
+        endsOn: "2026-09-03",
+      });
+      expect(pinned?.draft.event).toMatchObject({ startsOn: "2026-08-31", endsOn: "2026-09-03" });
+
+      const cleared = await service.updateSettings(organizer, record.eventId, {
+        startsOn: "",
+        endsOn: "",
+      });
+      expect(cleared?.draft.event).toMatchObject({ startsOn: "2026-09-01", endsOn: "2026-09-02" });
+    });
+
+    it("does not pin the agenda-derived dates when an unrelated field is edited", async () => {
+      const { record, service, repository } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+
+      // The seeded fixture stores explicit dates, so hand them back to the agenda first —
+      // that is the state in which the pinning bug is observable at all.
+      await service.updateSettings(organizer, record.eventId, { startsOn: "", endsOn: "" });
+      await service.updateSettings(organizer, record.eventId, { venue: "Harbor Center" });
+
+      // The regression this guards: merging into the *composed* preview rather than the
+      // stored draft writes the agenda's current dates back as though the organizer had
+      // typed them, so the public page silently stops tracking the agenda after any edit.
+      expect(repository.draft.event).toMatchObject({ startsOn: "", endsOn: "" });
+      const moved = await service.updateSettings(organizer, record.eventId, { summary: "Later" });
+      expect(moved?.draft.event).toMatchObject({ startsOn: "2026-09-01", endsOn: "2026-09-02" });
+    });
+
+    it("refuses a persona without events:settings:update, and an anonymous caller", async () => {
+      const { record, service, repository } = await composedFixture();
+      await expect(
+        service.updateSettings(await resolveSeededDemoActor("reviewer"), record.eventId, {
+          summary: "Reviewers cannot write the public page.",
+        }),
+      ).rejects.toBeInstanceOf(CapabilityDeniedError);
+      await expect(
+        service.updateSettings(null, record.eventId, { summary: "Nor can anonymous callers." }),
+      ).rejects.toBeInstanceOf(AuthenticationRequiredError);
+      expect(repository.draft.event.summary).not.toMatch(/cannot write|anonymous/);
+    });
+
+    it("refuses an end date before the start, and an address another event holds", async () => {
+      const { record, service, repository } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      await expect(
+        service.updateSettings(organizer, record.eventId, {
+          startsOn: "2026-09-05",
+          endsOn: "2026-09-01",
+        }),
+      ).rejects.toBeInstanceOf(PublicationSettingsError);
+
+      // Only one end sent, so the contract cannot see the contradiction; the stored start is
+      // what makes it one.
+      await service.updateSettings(organizer, record.eventId, { startsOn: "2026-09-02" });
+      await expect(
+        service.updateSettings(organizer, record.eventId, { endsOn: "2026-09-01" }),
+      ).rejects.toBeInstanceOf(PublicationSettingsError);
+
+      vi.spyOn(repository, "findEventIdBySlug").mockResolvedValueOnce("another-event-id");
+      await expect(
+        service.updateSettings(organizer, record.eventId, { slug: "already-taken" }),
+      ).rejects.toBeInstanceOf(PublicationSlugTakenError);
+    });
+
+    it("refuses a date the calendar does not have", async () => {
+      // The shape check alone accepts these. `2026-02-31` normalises silently to March and
+      // publishes a day nobody typed; `2026-99-99` is an Invalid Date, and the public page
+      // hands it to `Intl`, which throws and takes the client-rendered page down with it.
+      for (const day of ["2026-02-31", "2026-99-99", "2026-13-01"])
+        expect(publicationSettingsInputSchema.safeParse({ startsOn: day }).success).toBe(false);
+      expect(publicationSettingsInputSchema.safeParse({ startsOn: "2026-02-28" }).success).toBe(
+        true,
+      );
+      // A leap day the year actually has.
+      expect(publicationSettingsInputSchema.safeParse({ startsOn: "2028-02-29" }).success).toBe(
+        true,
+      );
+    });
+
+    it("refuses a range the agenda would invert once one end is cleared", async () => {
+      const { record, service } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      // The agenda runs 2026-09-01 to 2026-09-02. Hand the start back to the agenda and pin
+      // the end before it: the stored pair passes every check that looks only at stored
+      // values, because one of them is empty — but the range the public page composes runs
+      // 09-01 to 08-30, backwards.
+      await expect(
+        service.updateSettings(organizer, record.eventId, {
+          startsOn: "",
+          endsOn: "2026-08-30",
+        }),
+      ).rejects.toBeInstanceOf(PublicationSettingsError);
+
+      // The stored value is untouched by the refusal, so the draft is not left half-applied.
+      const after = await service.preview(organizer, record.eventId);
+      expect(after?.draft.event.endsOn).not.toBe("2026-08-30");
+    });
+
+    it("sees a public address another event has only reserved in its draft", async () => {
+      const { record, service, repository } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      // A slug held in another event's *draft* is not in the `slug` column, which is why
+      // the repository looks in `draft_json` too. Without that, both events save happily
+      // and the second one to publish fails the unique index as a 500.
+      const reserved = vi
+        .spyOn(repository, "findEventIdBySlug")
+        .mockResolvedValueOnce("00000000-0000-4000-8000-0000000000ff");
+
+      await expect(
+        service.updateSettings(organizer, record.eventId, { slug: "reserved-elsewhere" }),
+      ).rejects.toBeInstanceOf(PublicationSlugTakenError);
+      expect(reserved).toHaveBeenCalledWith("reserved-elsewhere");
+    });
+
+    it("keeps a slug edit off the live address until it is published", async () => {
+      const { record, service } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      await service.publish(organizer, record.eventId);
+
+      const renamed = await service.updateSettings(organizer, record.eventId, {
+        slug: "harbor-summit-2026",
+      });
+
+      // The draft carries the new address and the CFP link follows it, but visitors keep
+      // reaching the event where they were told it lives.
+      expect(renamed?.draft.event.slug).toBe("harbor-summit-2026");
+      expect(renamed?.draft.cfp.submissionUrl).toBe("/events/harbor-summit-2026/cfp");
+      expect(await service.publicBySlug("harbor-summit-2026")).toBeNull();
+      expect((await service.publicBySlug("safe-event"))?.event.slug).toBe("safe-event");
+
+      await service.publish(organizer, record.eventId);
+      expect((await service.publicBySlug("harbor-summit-2026"))?.event.slug).toBe(
+        "harbor-summit-2026",
+      );
+    });
   });
 
   it("composes owning-domain public interfaces only when previewing or republishing", async () => {
@@ -444,6 +647,11 @@ describe("publication snapshots", () => {
         return stored;
       }),
       unpublish: vi.fn(async () => stored),
+      findEventIdBySlug: vi.fn(async () => null),
+      saveSettings: vi.fn(async (eventId, slug, draft) => {
+        stored = { eventId, slug, state: "draft", draft, published: null, publishedAt: null };
+        return stored;
+      }),
     };
     const service = new PublicationService(repository, {
       event: vi.fn(async () => ({ name: "Brand New Event", timezone: "UTC" })),
@@ -496,6 +704,8 @@ describe("publication snapshots", () => {
       findByEventId: vi.fn(async () => publication),
       publish: vi.fn(async () => publication),
       unpublish: vi.fn(async () => publication),
+      findEventIdBySlug: vi.fn(async () => null),
+      saveSettings: vi.fn(async () => publication),
     };
     const events = new EventService({
       repository: new MemoryEventRepository(),
@@ -574,6 +784,8 @@ describe("publication snapshots", () => {
           }),
       ),
       unpublish: vi.fn(async () => publication),
+      findEventIdBySlug: vi.fn(async () => null),
+      saveSettings: vi.fn(async () => publication),
     };
     const events = new EventService({
       repository: new MemoryEventRepository(),

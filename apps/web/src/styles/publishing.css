@@ -74,6 +74,76 @@
   gap: var(--s-3);
 }
 
+/* ------------------------ public details ------------------------- */
+
+.publishing-details {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+}
+
+/*
+ * The two dates are one fact, so they sit together — but `auto-fit` rather than two fixed
+ * columns, because a date input has a browser-drawn calendar button that does not shrink,
+ * and two of them side by side overflow a 360px viewport.
+ */
+.publishing-details-dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--s-4);
+}
+
+.publishing-field-error {
+  color: var(--danger-fg);
+  font-size: var(--text-xs);
+}
+
+/* --------------------------- embed options ---------------------------- */
+
+.publishing-embed-config {
+  display: grid;
+  gap: var(--s-4);
+  margin: 0 var(--s-5) var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+}
+.publishing-embed-config legend {
+  padding: 0 var(--s-2);
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.publishing-embed-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--s-4);
+}
+.publishing-legend {
+  display: block;
+  margin-bottom: var(--s-2);
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+/* Wraps rather than scrolls: six short checkboxes on one row overflow a phone, and a
+   horizontally scrolling row of form controls is worse than two rows of them. */
+.publishing-embed-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+}
+.publishing-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-sm);
+}
+
 /* ---------------------------- preview ---------------------------- */
 
 .publishing-tabs {
