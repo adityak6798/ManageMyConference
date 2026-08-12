@@ -4,13 +4,14 @@ import {
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
-import type {
-  Delivery,
-  DeliveryChannel,
-  MessageTemplate,
-  TriggerType,
-} from "../../domain/communications/delivery";
+import type { Delivery, MessageTemplate } from "../../domain/communications/delivery";
+import {
+  CommunicationsConflictError,
+  CommunicationsInputError,
+  CommunicationsNotFoundError,
+} from "./errors";
 import { type CommunicationsRepository, DeliveryRecoveryConflictError } from "./ports";
+import type { CommunicationsEnqueue, DeliveryRequest, EnqueuedDelivery } from "./public";
 
 export interface CommunicationsDependencies {
   repository: CommunicationsRepository;
@@ -21,9 +22,11 @@ export interface CommunicationsDependencies {
   now(): Date;
 }
 
-export class CommunicationsInputError extends Error {}
-export class CommunicationsNotFoundError extends Error {}
-export class CommunicationsConflictError extends Error {}
+export {
+  CommunicationsConflictError,
+  CommunicationsInputError,
+  CommunicationsNotFoundError,
+} from "./errors";
 
 const decodeCursor = (cursor: string) => {
   const separator = cursor.lastIndexOf("~");
@@ -32,7 +35,7 @@ const decodeCursor = (cursor: string) => {
   return { createdAt: cursor.slice(0, separator), id: cursor.slice(separator + 1) };
 };
 
-export class CommunicationsService {
+export class CommunicationsService implements CommunicationsEnqueue {
   constructor(private readonly dependencies: CommunicationsDependencies) {}
 
   private organization(actor: Actor | null, organizationId: string): Actor {
@@ -63,23 +66,47 @@ export class CommunicationsService {
     return template;
   }
 
-  async trigger(
-    actor: Actor | null,
-    input: {
-      organizationId: string;
-      eventId: string;
-      idempotencyKey: string;
-      triggerType: TriggerType;
-      channel: DeliveryChannel;
-      recipientRef: string;
-      payload: Readonly<Record<string, unknown>>;
-      templateKey?: string | undefined;
-      templateVersion?: number | undefined;
-      projectionVersion?: number | undefined;
-    },
-  ): Promise<Delivery> {
+  /**
+   * The organizer-initiated send. Authorizes, then takes the same path a lifecycle event does.
+   */
+  async trigger(actor: Actor | null, input: DeliveryRequest): Promise<Delivery> {
     const authorized = this.organization(actor, input.organizationId);
     await this.event(authorized, input.eventId, input.organizationId);
+    return this.dependencies.repository.enqueue(await this.prepare(input, { scopeChecked: true }));
+  }
+
+  /**
+   * Enqueue on behalf of a lifecycle event, which has no request actor. See `public.ts` for why
+   * this surface takes none and what still guards it.
+   */
+  async enqueue(request: DeliveryRequest): Promise<EnqueuedDelivery> {
+    const delivery = await this.dependencies.repository.enqueue(await this.prepare(request));
+    return {
+      id: delivery.id,
+      idempotencyKey: delivery.idempotencyKey,
+      state: delivery.state,
+    };
+  }
+
+  /**
+   * Resolve a delivery without writing it, for a caller committing it inside its own batch.
+   */
+  async prepareEnqueue(request: DeliveryRequest): Promise<Delivery> {
+    return this.prepare(request);
+  }
+
+  private async prepare(
+    input: DeliveryRequest,
+    options: { scopeChecked?: boolean } = {},
+  ): Promise<Delivery> {
+    if (
+      !options.scopeChecked &&
+      !(await this.dependencies.eventDirectory.belongsToOrganization(
+        input.eventId,
+        input.organizationId,
+      ))
+    )
+      throw new CommunicationsInputError("Event does not belong to that organization");
     const template = input.templateKey
       ? await this.dependencies.repository.findTemplate(
           input.organizationId,
@@ -100,7 +127,7 @@ export class CommunicationsService {
     if (input.channel !== "email" && input.projectionVersion === undefined)
       throw new CommunicationsInputError("Projection delivery requires a version");
     const now = this.dependencies.now().toISOString();
-    return this.dependencies.repository.enqueue({
+    return {
       id: this.dependencies.newId(),
       organizationId: input.organizationId,
       eventId: input.eventId,
@@ -118,7 +145,7 @@ export class CommunicationsService {
       leaseToken: null,
       createdAt: now,
       updatedAt: now,
-    });
+    };
   }
 
   async history(

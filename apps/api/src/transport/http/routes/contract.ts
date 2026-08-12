@@ -12,7 +12,7 @@
 import type { Hono } from "hono";
 import type { AgendaService } from "../../../application/agenda/public";
 import type { CfpService } from "../../../application/cfp/public";
-import type { CommunicationsService } from "../../../application/communications/communications-service";
+import type { CommunicationsService } from "../../../application/communications/public";
 import type { ContentService } from "../../../application/content/content-service";
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";

@@ -2,6 +2,7 @@ import {
   type CommunicationsRepository,
   DeliveryRecoveryConflictError,
 } from "../../application/communications/ports";
+import type { PreparedDeliveryWriter } from "../../application/communications/public";
 import type {
   Delivery,
   DeliveryAttempt,
@@ -99,6 +100,45 @@ const attemptFromRow = (row: AttemptRow): DeliveryAttempt => ({
   errorCode: row.error_code,
 });
 
+const insertDeliveryStatement = (database: Database, delivery: Delivery): Statement =>
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      delivery.id,
+      delivery.organizationId,
+      delivery.eventId,
+      delivery.idempotencyKey,
+      delivery.triggerType,
+      delivery.channel,
+      delivery.templateId,
+      delivery.templateVersion,
+      delivery.recipientRef,
+      JSON.stringify(delivery.payload),
+      delivery.projectionVersion,
+      delivery.state,
+      delivery.attemptCount,
+      delivery.nextAttemptAt,
+      delivery.leaseToken,
+      delivery.createdAt,
+      delivery.updatedAt,
+    );
+
+/**
+ * The writer another domain uses to commit a delivery inside its own batch.
+ *
+ * The composition root binds it to the database and hands the bound function to the domain that
+ * needs it, so that domain never imports this module, never names a communications column, and
+ * cannot write a row this repository would not have written. `INSERT OR IGNORE` on the
+ * organization-scoped idempotency key keeps a retried command converging on one delivery.
+ *
+ * @spec PRD-COM-001 ARC-FLOW-002
+ */
+export const preparedDeliveryWriter =
+  (database: Database): PreparedDeliveryWriter<Statement> =>
+  (prepared) => [insertDeliveryStatement(database, prepared)];
+
 export class D1CommunicationsRepository implements CommunicationsRepository {
   constructor(private readonly database: Database) {}
   private ensure(result: { success: boolean; error?: string }, operation: string) {
@@ -134,30 +174,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     return result.results?.[0] ? templateFromRow(result.results[0]) : null;
   }
   async enqueue(delivery: Delivery) {
-    const insert = await this.database
-      .prepare(
-        `INSERT OR IGNORE INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        delivery.id,
-        delivery.organizationId,
-        delivery.eventId,
-        delivery.idempotencyKey,
-        delivery.triggerType,
-        delivery.channel,
-        delivery.templateId,
-        delivery.templateVersion,
-        delivery.recipientRef,
-        JSON.stringify(delivery.payload),
-        delivery.projectionVersion,
-        delivery.state,
-        delivery.attemptCount,
-        delivery.nextAttemptAt,
-        delivery.leaseToken,
-        delivery.createdAt,
-        delivery.updatedAt,
-      )
-      .run();
+    const insert = await insertDeliveryStatement(this.database, delivery).run();
     this.ensure(insert, "enqueue delivery");
     const result = await this.database
       .prepare(

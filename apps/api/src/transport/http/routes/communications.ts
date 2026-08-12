@@ -17,7 +17,7 @@ import {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
-} from "../../../application/communications/communications-service";
+} from "../../../application/communications/public";
 import { requireCapability } from "../../../application/identity/actor";
 import { envelope, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";

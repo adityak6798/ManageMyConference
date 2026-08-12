@@ -100,6 +100,7 @@
 
 ### `ACC-INTEGRATION`
 - `test` / `repository-fact`: [apps/api/test/communications-http.test.ts](../../apps/api/test/communications-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-service.test.ts](../../apps/api/test/communications-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-communications-repository.integration.test.ts](../../apps/api/test/d1-communications-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/communications.spec.ts](../../apps/web/e2e/communications.spec.ts)
@@ -313,12 +314,16 @@
 - `code` / `repository-fact`: [packages/contracts/src/domains/review.ts](../../packages/contracts/src/domains/review.ts)
 
 ### `PRD-COM-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-communications-repository.ts](../../apps/api/src/adapters/persistence/d1-communications-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/communications-integrations.ts](../../apps/api/src/adapters/persistence/schema/communications-integrations.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/communications-service.ts](../../apps/api/src/application/communications/communications-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/errors.ts](../../apps/api/src/application/communications/errors.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -374,10 +379,13 @@
 
 ### `PRD-INT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/communications-integrations.ts](../../apps/api/src/adapters/persistence/schema/communications-integrations.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/errors.ts](../../apps/api/src/application/communications/errors.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

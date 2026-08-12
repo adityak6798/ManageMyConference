@@ -17,7 +17,7 @@ import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
-import { CommunicationsService } from "./application/communications/communications-service";
+import { CommunicationsService } from "./application/communications/public";
 import { PublicationService } from "./application/publishing/publication-service";
 import { OutboxWorker } from "./application/communications/outbox-worker";
 import { createHttpApp } from "./transport/http/app";
