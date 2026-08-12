@@ -397,7 +397,9 @@ export class ContentService {
       ...storedInput,
       bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
       embedHtml:
-        this.dependencies.sanitizeResourceEmbed?.(input.embedHtml, embedAllowedHosts) ?? "",
+        input.embedHtml === existing.embedHtml && embedAllowedHosts.length === 0
+          ? existing.embedHtml
+          : (this.dependencies.sanitizeResourceEmbed?.(input.embedHtml, embedAllowedHosts) ?? ""),
     };
     await this.dependencies.repository.updateResource(resource);
     return resource;
