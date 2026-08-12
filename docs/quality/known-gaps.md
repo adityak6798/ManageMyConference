@@ -143,7 +143,35 @@ feature-by-feature verdict.
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
   commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
   contributor can burn an afternoon on it; conversely the crash could mask a real failure behind
-  noise. Owner: platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails
-  with a diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between
-  spec files, or a Playwright global setup that fails fast when the API stops answering — and the
-  wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
+  noise.
+
+  **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
+  ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
+  its own TCP connection, and `apps/api/test/support/seeded-d1.ts` ran every migration statement
+  as its own call. Measured per database built: **264 sockets, 1460ms**. Eighty databases
+  therefore needed ~16,000 sockets against macOS's whole ephemeral range of 16,384
+  (`net.inet.ip.portrange`, 49152–65535), so `npm run gate:d1` could not complete at all — cold,
+  solo and with nothing else running it failed 35 of 79 and ended at 16,358 sockets. The failures
+  land as `fetch failed` / `Server is not running` / `EADDRNOTAVAIL` on whichever tests run last,
+  which reads as a mass regression in whatever domain that happens to be. It also broke unrelated
+  network calls on the same machine, `git push` among them. Sending the statements as one `batch`
+  costs **1 socket and 471ms** instead, and the whole suite now passes with ~1,400 sockets rather
+  than ~16,000. Two harness tests pin it against a double, so it cannot silently return.
+
+  Two notes from the diagnosis, and the first is **retired rather than advice**. While the suite
+  did not fit, it could be run in chunks small enough that it did (all 81 passed that way), and a
+  red local `gate:d1` could be told from a real defect by reproducing it on `origin/main`. Neither
+  should be needed again, and neither is a substitute for a green gate: if a run has to be chunked
+  to pass, the ceiling is back and that is the finding, not the workaround. The second note stands
+  on its own — a cold `wrangler` command with no network prints the same `fetch failed` for an
+  unrelated reason, its telemetry dispatcher, which `WRANGLER_SEND_METRICS=false` fixes and which
+  has nothing to do with the exhaustion above.
+
+  **What remains open is the original entry:** the runtime still dies rather than degrading, and
+  a suite that loses it still fails with misleading assertion errors instead of a diagnosis.
+  Ports were one way to provoke that; they were not the only one, and the browser-job crash of
+  hosted run `31498844956` had no port pressure behind it. Owner: platform. Governing ID:
+  `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a diagnosis rather than 22
+  misleading assertion errors — a `webServer` health probe between spec files, or a Playwright
+  global setup that fails fast when the API stops answering — and the wrangler crash itself is
+  reported upstream with the log from `apps/api/.wrangler/wrangler.log`.

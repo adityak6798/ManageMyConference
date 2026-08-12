@@ -137,3 +137,73 @@ describe("the shared D1 integration harness", () => {
     ).rejects.toThrow(/names a migration that does not exist/);
   });
 });
+
+/*
+ * How many round trips building a database costs.
+ *
+ * Every call on a real D1 database is an HTTP request to the workerd process over a fresh TCP
+ * connection. When the harness ran each statement on its own, one database cost ~180 sockets and
+ * a suite of eighty exhausted macOS's entire ephemeral range, so tests failed on `EADDRNOTAVAIL`
+ * with messages that read like schema faults (`GAP-017`). This is asserted against a double
+ * rather than by counting sockets, because the property that matters — the statements go in one
+ * batch — is the same on every operating system, and the socket count is not.
+ */
+describe("the cost of building a database", () => {
+  /** Records how it was called, and answers enough for the harness to proceed. */
+  function recorder(options: { batch: boolean }) {
+    const calls = { prepared: 0, ran: 0, batched: 0, batchSizes: [] as number[] };
+    const database = {
+      prepare(sql: string) {
+        calls.prepared += 1;
+        return {
+          sql,
+          run: async () => {
+            calls.ran += 1;
+          },
+        };
+      },
+      ...(options.batch
+        ? {
+            batch: async (prepared: unknown[]) => {
+              calls.batched += 1;
+              calls.batchSizes.push(prepared.length);
+            },
+          }
+        : {}),
+    };
+    return { database, calls };
+  }
+
+  it("sends every migration in one batch when the database offers one", async () => {
+    const { database, calls } = recorder({ batch: true });
+
+    const applied = await applyMigrations(database as never);
+
+    expect(applied.length).toBeGreaterThan(20);
+    // One round trip for the whole set, whatever the migration count grows to.
+    expect(calls.batched).toBe(1);
+    expect(calls.ran).toBe(0);
+    expect(calls.batchSizes[0]).toBe(calls.prepared);
+  });
+
+  it("falls back to one statement at a time when it does not", async () => {
+    // The schema drift tool applies these migrations to a synchronous `node:sqlite` handle,
+    // which has no `batch`. The harness has to keep working there.
+    const { database, calls } = recorder({ batch: false });
+
+    await applyMigrations(database as never);
+
+    expect(calls.batched).toBe(0);
+    expect(calls.ran).toBe(calls.prepared);
+    expect(calls.ran).toBeGreaterThan(100);
+  });
+
+  it("seeds in one batch too", async () => {
+    const { database, calls } = recorder({ batch: true });
+
+    await applySeedData(database as never);
+
+    expect(calls.batched).toBe(1);
+    expect(calls.ran).toBe(0);
+  });
+});
