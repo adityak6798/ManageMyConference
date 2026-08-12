@@ -11,7 +11,7 @@ Dependency direction is `domain → application → adapter/transport` when read
 | CFP | forms, fields, submissions | submitted proposal reference |
 | review | plans, assignments, scores | review outcome |
 | content | sessions, speaker profiles, tasks/assets | publishable content |
-| CRM | prospects, contacts, activity | speaker conversion command |
+| CRM | prospects, contacts, activity; the organization-wide contact directory, its enrichment, deduplication, segments and sourcing history | speaker conversion command |
 | agenda | rooms, tracks, slots, placements | published schedule projection |
 | communications-integrations | templates, outbox, attempts, provider projections | delivery status and typed provider ports |
 | publishing | public projections/embed config | public queries |

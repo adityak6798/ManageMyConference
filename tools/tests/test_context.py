@@ -110,6 +110,46 @@ class ContextRoutingTest(unittest.TestCase):
             )
         )
 
+    def test_string_literals_are_not_read_as_dependencies(self) -> None:
+        """A domain may use the word `import` as a value without importing anything.
+
+        The CRM's contact source and activity vocabularies both contain it. Read as a module
+        specifier, `"import",` reported a package named `, ` and failed the architecture gate
+        for a file with no such dependency.
+        """
+        content = "\n".join(
+            [
+                'import { z } from "zod";',
+                'import type { Actor } from "../identity/actor";',
+                'export const sources = z.enum(["manual", "import", "prospect"]);',
+                "export const kinds = z.enum([",
+                '  "note",',
+                '  "import",',
+                '  "merge",',
+                "]);",
+                'export * from "./contact";',
+            ]
+        )
+        self.assertEqual(module_specifiers(content), {"zod", "../identity/actor", "./contact"})
+
+    def test_multi_line_and_side_effect_imports_are_still_extracted(self) -> None:
+        content = "\n".join(
+            [
+                "import {",
+                "  envelope,",
+                "  type Variables,",
+                '} from "../runtime";',
+                'import "./styles/crm.css";',
+                'export type { CrmService } from "./crm-service";',
+                # Legal, if unusual: a statement boundary is a boundary wherever it falls.
+                'const ready = 1; import "node:fs";',
+            ]
+        )
+        self.assertEqual(
+            module_specifiers(content),
+            {"../runtime", "./styles/crm.css", "./crm-service", "node:fs"},
+        )
+
     def test_dynamic_and_commonjs_imports_cannot_bypass_boundaries(self) -> None:
         manifest = load_manifest()
         content = 'const one = import("hono"); const two = require("drizzle-orm/sqlite-core");'

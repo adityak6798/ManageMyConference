@@ -51,6 +51,7 @@
 - `test` / `repository-fact`: [apps/api/test/d1-crm-repository.integration.test.ts](../../apps/api/test/d1-crm-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-speaker-conversion.integration.test.ts](../../apps/api/test/d1-speaker-conversion.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/crm.spec.ts](../../apps/web/e2e/crm.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/crm-directory.test.tsx](../../apps/web/test/crm-directory.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/crm-owner-assignment.test.tsx](../../apps/web/test/crm-owner-assignment.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
@@ -182,6 +183,7 @@
 
 ### `ARC-DOM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/registry.ts](../../apps/api/src/adapters/persistence/schema/registry.ts)
+- `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/contract.ts](../../apps/api/src/transport/http/routes/contract.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/registry.ts](../../apps/api/src/transport/http/routes/registry.ts)
@@ -350,9 +352,14 @@
 ### `PRD-CRM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-crm-repository.ts](../../apps/api/src/adapters/persistence/d1-crm-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/crm.ts](../../apps/api/src/adapters/persistence/schema/crm.ts)
+- `code` / `repository-fact`: [apps/api/src/application/crm/contact-repository.ts](../../apps/api/src/application/crm/contact-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/crm-service.ts](../../apps/api/src/application/crm/crm-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/crm/contact-import.ts](../../apps/api/src/domain/crm/contact-import.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/crm/contact.ts](../../apps/api/src/domain/crm/contact.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/crm/prospect.ts](../../apps/api/src/domain/crm/prospect.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/crm.ts](../../apps/api/src/transport/http/routes/crm.ts)
+- `code` / `repository-fact`: [apps/web/src/CrmDirectoryWorkspace.tsx](../../apps/web/src/CrmDirectoryWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/CrmWorkspace.tsx](../../apps/web/src/CrmWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/crm.tsx](../../apps/web/src/workspaces/crm.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
