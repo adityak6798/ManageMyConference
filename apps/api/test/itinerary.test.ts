@@ -56,6 +56,7 @@ function fixture(state: Publication["state"] = "published") {
     publishedAt: state === "published" ? "2026-08-01T00:00:00.000Z" : null,
   };
   const rows = new Map<string, StoredItinerary>();
+  const pruneCalls: Array<{ emptyBefore: string; endedBefore: string }> = [];
   const publications: PublicationRepository = {
     findPublicBySlug: async (slug) =>
       slug === publication.slug && publication.state === "published" ? publication : null,
@@ -79,6 +80,9 @@ function fixture(state: Publication["state"] = "published") {
       rows.set(tokenHash, row);
       return row;
     },
+    prune: async (emptyBefore, endedBefore) => {
+      pruneCalls.push({ emptyBefore, endedBefore });
+    },
   };
   const service = new ItineraryService(
     itineraries,
@@ -89,6 +93,7 @@ function fixture(state: Publication["state"] = "published") {
   return {
     service,
     rows,
+    pruneCalls,
     unpublish() {
       publication = { ...publication, state: "unpublished", published: null, publishedAt: null };
     },
@@ -96,6 +101,19 @@ function fixture(state: Publication["state"] = "published") {
 }
 
 describe("attendee itineraries", () => {
+  it("prunes empty mints after one day and ended events only after a full-day grace", async () => {
+    const { service, pruneCalls } = fixture();
+
+    await service.prune();
+
+    expect(pruneCalls).toEqual([
+      {
+        emptyBefore: "2026-08-19T10:00:00.000Z",
+        endedBefore: "2026-08-19",
+      },
+    ]);
+  });
+
   it("mints a token that is never stored in the clear", async () => {
     const { service, rows } = fixture();
 

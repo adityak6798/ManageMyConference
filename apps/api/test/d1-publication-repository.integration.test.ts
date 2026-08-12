@@ -12,6 +12,7 @@ import { D1PublicationRepository } from "../src/adapters/persistence/d1-publicat
 import { D1ReviewRepository } from "../src/adapters/persistence/d1-review-repository";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
+import { D1ItineraryRepository } from "../src/adapters/persistence/d1-itinerary-repository";
 import { D1SubmittedProposalAdapter } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { R2AssetStorage, type R2BucketPort } from "../src/adapters/storage/r2-asset-storage";
 import { AgendaService } from "../src/application/agenda/agenda-service";
@@ -19,10 +20,14 @@ import { CfpService, CfpUnavailableError } from "../src/application/cfp/cfp-serv
 import { ContentService } from "../src/application/content/content-service";
 import { EventService } from "../src/application/events/event-service";
 import { ReviewService } from "../src/application/review/review-service";
-import { PublicationService } from "../src/application/publishing/publication-service";
+import {
+  PublicationService,
+  PublicationSlugTakenError,
+} from "../src/application/publishing/publication-service";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import { createHttpApp } from "../src/transport/http/app";
-import { applySeed, seededAssetBytes } from "./support/seeded-d1";
+import { publishingRoutes } from "../src/transport/http/routes/publishing";
+import { applyMigrations, applySeed, applySeedData, seededAssetBytes } from "./support/seeded-d1";
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const DEMO_SLUG = "greenroom-demo-summit";
@@ -101,12 +106,137 @@ function publishingFor(database: never) {
     },
     () => new Date("2026-08-10T20:00:00.000Z"),
   );
-  return { agenda, contentRepository, events, identities, publicationRepository, publishing };
+  return {
+    agenda,
+    contentRepository,
+    events,
+    identities,
+    publicationRepository,
+    publishing,
+  };
 }
 
 describe("D1PublicationRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
+
+  it("refuses to migrate an existing live-to-draft slug collision", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-slug-migration-audit" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applyMigrations(database, { through: "1801_itinerary_retention.sql" });
+    await applySeedData(database);
+    const otherDraft = {
+      ...safeProjection,
+      event: {
+        ...safeProjection.event,
+        eventId: "00000000-0000-4000-8000-000000000002",
+        slug: DEMO_SLUG,
+      },
+    };
+    await database
+      .prepare(
+        `INSERT INTO public_event_projections
+          (event_id, slug, state, draft_json, published_json, published_at)
+         VALUES (?, ?, 'draft', ?, NULL, NULL)`,
+      )
+      .bind(
+        "00000000-0000-4000-8000-000000000002",
+        "different-live-address",
+        JSON.stringify(otherDraft),
+      )
+      .run();
+
+    await expect(
+      applyMigrations(database, {
+        from: "1802_publication_slug_reservations.sql",
+        through: "1802_publication_slug_reservations.sql",
+      }),
+    ).rejects.toThrow(/1802_publication_slug_reservations\.sql: statement \d+ failed/);
+  });
+
+  it("reserves a draft slug for published events when two writes race without a pre-check", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-slug-race" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const repository = new D1PublicationRepository(database);
+    const projectionFor = (eventId: string, slug: string) => ({
+      ...safeProjection,
+      event: { ...safeProjection.event, eventId, slug },
+    });
+    const firstEvent = "00000000-0000-4000-8000-000000000002";
+    const secondEvent = "00000000-0000-4000-8000-000000000099";
+
+    await repository.publish(
+      firstEvent,
+      "2026-08-10T20:00:00.000Z",
+      projectionFor(firstEvent, "first-live-address"),
+    );
+    await repository.publish(
+      secondEvent,
+      "2026-08-10T20:00:00.000Z",
+      projectionFor(secondEvent, "second-live-address"),
+    );
+
+    await repository.saveSettings(
+      firstEvent,
+      "raced-address",
+      projectionFor(firstEvent, "raced-address"),
+    );
+    const racedWrite = repository.saveSettings(
+      secondEvent,
+      "raced-address",
+      projectionFor(secondEvent, "raced-address"),
+    );
+    await expect(racedWrite).rejects.toBeInstanceOf(PublicationSlugTakenError);
+    // ERROR-INTENT: the assertion below inspects the rejected domain error's transport mapping.
+    const error = await racedWrite.catch((reason: unknown) => reason);
+    expect(publishingRoutes.translateError?.(error)).toMatchObject({
+      code: "CONFLICT",
+      status: 409,
+      fields: { slug: ["That public address is already taken."] },
+    });
+  });
+
+  it("prunes stale empty itineraries and plans whose event ended beyond the grace", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-itinerary-retention" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const itineraries = new D1ItineraryRepository(database);
+    const old = "2026-08-01T00:00:00.000Z";
+    const recent = "2026-08-20T09:00:00.000Z";
+    await itineraries.create("a".repeat(64), DEMO_EVENT, [], old);
+    await itineraries.create("b".repeat(64), DEMO_EVENT, [], recent);
+    await itineraries.create(
+      "c".repeat(64),
+      "00000000-0000-4000-8000-000000000002",
+      ["saved-session"],
+      recent,
+    );
+    const ended = { ...safeProjection, event: { ...safeProjection.event, endsOn: "2026-08-18" } };
+    await new D1PublicationRepository(database).saveSettings(
+      "00000000-0000-4000-8000-000000000002",
+      "ended-event",
+      ended,
+    );
+
+    await itineraries.prune("2026-08-19T10:00:00.000Z", "2026-08-19");
+
+    await expect(itineraries.findByTokenHash("a".repeat(64))).resolves.toBeNull();
+    await expect(itineraries.findByTokenHash("b".repeat(64))).resolves.not.toBeNull();
+    await expect(itineraries.findByTokenHash("c".repeat(64))).resolves.toBeNull();
+  });
 
   it("stores only allowlisted fields when publishing a contaminated draft", async () => {
     runtime = new Miniflare({
@@ -216,6 +346,47 @@ describe("D1PublicationRepository", () => {
     await publishing.publish(organizer, DEMO_EVENT);
     const republished = await publicationRepository.findPublicBySlug(DEMO_SLUG);
     expect(republished?.published).toEqual(seeded.published);
+  });
+
+  it("recomposes an event rename into the draft and waits for publish before changing public", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-event-rename" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { events, publicationRepository, publishing } = publishingFor(database as never);
+    const organizer = await resolveSeededDemoActor("organizer");
+    const before = await publicationRepository.findPublicBySlug(DEMO_SLUG);
+
+    await events.update(organizer, DEMO_EVENT, {
+      name: "Greenroom Renamed Summit",
+      timezone: "America/New_York",
+    });
+
+    const preview = await publishing.preview(organizer, DEMO_EVENT);
+    expect(preview?.draft.event).toMatchObject({
+      name: "Greenroom Renamed Summit",
+      timezone: "America/New_York",
+      slug: DEMO_SLUG,
+    });
+    expect(
+      (await publicationRepository.findPublicBySlug(DEMO_SLUG))?.published?.event,
+    ).toMatchObject({
+      name: before?.published?.event.name,
+      timezone: before?.published?.event.timezone,
+      slug: DEMO_SLUG,
+    });
+
+    await publishing.publish(organizer, DEMO_EVENT);
+    expect(
+      (await publicationRepository.findPublicBySlug(DEMO_SLUG))?.published?.event,
+    ).toMatchObject({
+      name: "Greenroom Renamed Summit",
+      timezone: "America/New_York",
+      slug: DEMO_SLUG,
+    });
   });
 
   it("serves the seeded headshot to an anonymous reader and withdraws it on unpublish", async () => {

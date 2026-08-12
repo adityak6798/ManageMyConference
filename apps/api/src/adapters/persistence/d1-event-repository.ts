@@ -35,6 +35,24 @@ export class D1EventRepository implements EventRepository {
     }
   }
 
+  async update(eventId: string, name: string, timezone: string): Promise<Event | null> {
+    const result = await this.database
+      .prepare("UPDATE events SET name = ?, timezone = ? WHERE id = ?")
+      .bind(name, timezone, eventId)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to update event: ${result.error ?? "unknown error"}`);
+    const loaded = await this.database
+      .prepare(
+        "SELECT id, organization_id, name, timezone, created_at FROM events WHERE id = ? LIMIT 1",
+      )
+      .bind(eventId)
+      .all<EventRow>();
+    if (!loaded.success)
+      throw new Error(`D1 failed to reload updated event: ${loaded.error ?? "unknown error"}`);
+    return loaded.results?.[0] ? rowToEvent(loaded.results[0]) : null;
+  }
+
   async list(scope: {
     organizationIds: readonly string[];
     eventIds: readonly string[];

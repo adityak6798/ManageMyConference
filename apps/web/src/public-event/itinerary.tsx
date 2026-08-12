@@ -203,10 +203,7 @@ export function useItinerary(eventSlug: string, eventId: string, enabled: boolea
     has: (slug: string) => slugs.includes(slug),
     toggle,
     shareUrl: token
-      ? new URL(
-          `/events/${eventSlug}/itinerary?plan=${encodeURIComponent(token)}`,
-          window.location.origin,
-        ).toString()
+      ? new URL(`/itineraries/${encodeURIComponent(token)}`, window.location.origin).toString()
       : null,
     failure,
     ready,

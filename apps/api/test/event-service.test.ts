@@ -14,6 +14,44 @@ const organizer = {
 };
 
 describe("EventService", () => {
+  it("updates only an event carrying the settings capability", async () => {
+    const repository = new MemoryEventRepository();
+    const service = new EventService({
+      repository,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const created = await service.create(organizer, {
+      organizationId: organizer.organizations[0]?.id ?? "",
+      name: "Before",
+      timezone: "UTC",
+    });
+    const editor: Actor = {
+      ...organizer,
+      eventAccess: [
+        {
+          eventId: created.id,
+          role: "organizer",
+          capabilities: new Set(["events:read", "events:settings:update"]),
+        },
+      ],
+    };
+    await expect(
+      service.update(editor, created.id, { name: "After", timezone: "America/New_York" }),
+    ).resolves.toMatchObject({ name: "After", timezone: "America/New_York" });
+
+    const reviewer: Actor = {
+      ...editor,
+      persona: "reviewer",
+      eventAccess: [
+        { eventId: created.id, role: "reviewer", capabilities: new Set(["events:read"]) },
+      ],
+    };
+    await expect(
+      service.update(reviewer, created.id, { name: "Leaked", timezone: "UTC" }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+  });
+
   it("persists a new event through its repository port", async () => {
     const repository = new MemoryEventRepository();
     const grantOrganizer = vi.fn().mockResolvedValue(undefined);

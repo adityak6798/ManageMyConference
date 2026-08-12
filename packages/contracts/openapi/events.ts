@@ -9,6 +9,8 @@ import {
   createEventResponseSchema,
   eventIdParamsSchema,
   eventListResponseSchema,
+  updateEventInputSchema,
+  updateEventResponseSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -27,6 +29,23 @@ export const eventsPaths: OpenApiFragment = {
           content: json(eventListResponseSchema),
         },
         401: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/events/{eventId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventIdParamsSchema,
+        body: { required: true, content: json(updateEventInputSchema) },
+      },
+      responses: {
+        200: { description: "Updated event settings", content: json(updateEventResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
         500: errorResponse,
       },
     });

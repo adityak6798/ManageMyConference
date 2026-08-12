@@ -197,9 +197,11 @@ describe("events HTTP transport", () => {
 
   it("denies event mutations before persistence", async () => {
     const create = vi.fn();
+    const update = vi.fn().mockResolvedValue(null);
     const service = new EventService({
       repository: {
         create,
+        update,
         list: vi.fn().mockResolvedValue([]),
         findById: vi.fn().mockResolvedValue(null),
       },
@@ -228,6 +230,15 @@ describe("events HTTP transport", () => {
     expect((await request({})).status).toBe(401);
     expect((await request(await cookieFor("reviewer"))).status).toBe(403);
     expect(create).not.toHaveBeenCalled();
+    const patch = (headers: Record<string, string>) =>
+      app.request("/api/events/00000000-0000-4000-8000-000000000001", {
+        method: "PATCH",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ name: "Leaked rename", timezone: "UTC" }),
+      });
+    expect((await patch({})).status).toBe(401);
+    expect((await patch(await cookieFor("reviewer"))).status).toBe(403);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("authorizes event mutations before parsing their body", async () => {
@@ -407,6 +418,7 @@ describe("events HTTP transport", () => {
     const service = new EventService({
       repository: {
         create,
+        update: vi.fn().mockResolvedValue(null),
         list: vi.fn().mockResolvedValue([]),
         findById: vi.fn().mockResolvedValue(null),
       },
@@ -636,6 +648,7 @@ describe("events HTTP transport", () => {
     const service = new EventService({
       repository: {
         create: vi.fn(),
+        update: vi.fn().mockResolvedValue(null),
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
         findById: vi.fn().mockResolvedValue(null),
       },
@@ -689,6 +702,7 @@ describe("events HTTP transport", () => {
     const service = new EventService({
       repository: {
         create: vi.fn(),
+        update: vi.fn().mockResolvedValue(null),
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
         findById: vi.fn().mockResolvedValue(null),
       },

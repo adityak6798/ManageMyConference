@@ -172,6 +172,13 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
   return processed;
 }
 
+export function pruneItineraries(environment: Environment): Promise<void> {
+  return new ItineraryService(
+    new D1ItineraryRepository(environment.DB),
+    new D1PublicationRepository(environment.DB),
+  ).prune();
+}
+
 export function runtimeAuth(
   environment: Pick<
     Environment,
@@ -574,14 +581,18 @@ export default {
     return Promise.resolve(app.fetch(request));
   },
   /**
-   * The one-minute tick: decide what to send, then send what is queued.
+   * The one-minute tick.
    *
-   * Reminders run first so a reminder queued this minute goes out this minute rather than next,
-   * and their failures cannot stop the drain — `enqueueDueTaskReminders` reports rather than
-   * throws, precisely so a broken template on one task does not stall every queued delivery.
+   * Reminders run *before* the drain and are awaited, so a reminder decided this minute goes out
+   * this minute rather than next. Their failures cannot stall it: `enqueueDueTaskReminders`
+   * reports rather than throws, including when the open-task read itself fails, precisely so one
+   * broken template cannot leave every queued delivery unsent.
+   *
+   * The drain and the itinerary prune stay concurrent with each other, as they were: neither
+   * depends on the other and both are bounded.
    */
   async scheduled(_controller: unknown, environment: Environment): Promise<void> {
     await remindDueSpeakerTasks(environment);
-    await drainOutbox(environment);
+    await Promise.all([drainOutbox(environment), pruneItineraries(environment)]);
   },
 };
