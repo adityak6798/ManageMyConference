@@ -74,6 +74,7 @@ test("browses the same accessible published projection directly and embedded", a
 
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Schedule", exact: true })).toBeFocused();
   // A marker on window survives client-side navigation but not a document load.
   await page.evaluate(() => Reflect.set(window, "greenroomNavProbe", "same-document"));

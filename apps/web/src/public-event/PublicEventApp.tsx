@@ -415,6 +415,11 @@ export function PublicEventApp() {
         ? { style: { "--accent": embedOptions.accent } as React.CSSProperties }
         : {})}
     >
+      {!embedded ? (
+        <a className="pub-skip-link" href="#public-main">
+          Skip to main content
+        </a>
+      ) : null}
       <header>
         {embedded ? (
           // Inside an iframe the wordmark is the one way back to the real site, so
@@ -447,7 +452,7 @@ export function PublicEventApp() {
       </header>
 
       {/* tabIndex={-1} is a focus target for client-side navigation, not a tab stop. */}
-      <main ref={mainRef} tabIndex={-1}>
+      <main id="public-main" ref={mainRef} tabIndex={-1}>
         {section === "home" && (
           <>
             <div className="pub-hero">

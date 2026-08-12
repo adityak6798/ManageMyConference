@@ -4,6 +4,7 @@ import { resolveWorktreeEnvironment } from "../../tools/worktree-env.mjs";
 const environment = resolveWorktreeEnvironment();
 
 export default defineConfig({
+  name: "quality",
   testDir: "./e2e",
   testMatch: "lifecycle-demo.spec.ts",
   globalSetup: "./e2e/quality-global-setup.ts",

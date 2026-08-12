@@ -163,7 +163,7 @@ export function Stat({
         {icon}
       </dt>
       <dd>{value}</dd>
-      {hint ? <p className="delta">{hint}</p> : null}
+      {hint ? <dd className="delta">{hint}</dd> : null}
     </div>
   );
 }
