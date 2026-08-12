@@ -29,7 +29,7 @@ export function ContentOperations({
   function csv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const commit = data.get("mode") === "import";
+    const commit = data.get("mode") === "commit";
     void run(async () =>
       setPreview(await importSpeakerCsv(eventId, String(data.get("csv")), commit)),
     ).then((result) =>
@@ -73,7 +73,7 @@ export function ContentOperations({
             <button type="submit" name="mode" value="preview" disabled={busy}>
               Preview CSV
             </button>
-            <button type="submit" name="mode" value="import" disabled={busy || !preview}>
+            <button type="submit" name="mode" value="commit" disabled={busy || !preview}>
               Import valid rows
             </button>
           </div>
