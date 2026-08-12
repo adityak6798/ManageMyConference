@@ -1,4 +1,5 @@
 
+DELETE FROM speaker_resources;
 DELETE FROM speaker_conversion_sources;
 DELETE FROM speaker_conversion_claims;
 DELETE FROM speaker_email_claims;

@@ -24,6 +24,10 @@ import {
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
   uploadSpeakerAssetInputSchema,
+  createSpeakerResourceInputSchema,
+  updateSpeakerResourceInputSchema,
+  speakerResourceParamsSchema,
+  speakerResourceSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -40,6 +44,54 @@ export const contentPaths: OpenApiFragment = {
           description: "Organizer or speaker-scoped content workspace",
           content: json(contentWorkspaceSchema),
         },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-resources",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(createSpeakerResourceInputSchema) } },
+      responses: {
+        201: {
+          description: "Sanitized speaker resource",
+          content: json(z.object({ resource: speakerResourceSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/speaker-resources/{resourceId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: speakerResourceParamsSchema,
+        body: { required: true, content: json(updateSpeakerResourceInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "Updated sanitized speaker resource",
+          content: json(z.object({ resource: speakerResourceSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/speaker-resources/{resourceId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: speakerResourceParamsSchema },
+      responses: {
+        204: { description: "Resource deleted" },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,

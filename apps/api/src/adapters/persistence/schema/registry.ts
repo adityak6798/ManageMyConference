@@ -99,6 +99,7 @@ export const {
   speakerEmailClaims,
   speakerMessages,
   speakerProfiles,
+  speakerResources,
   speakerTasks,
   users,
 } = schema;

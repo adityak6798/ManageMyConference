@@ -13,6 +13,7 @@ import type {
   SpeakerAsset,
   SpeakerProfile,
   SpeakerTask,
+  SpeakerResource,
 } from "../../domain/content/content";
 
 const by =
@@ -28,6 +29,7 @@ export class MemoryContentRepository
   private tasks: ContentWorkspace["tasks"] = [];
   private assets: ContentWorkspace["assets"] = [];
   private messages: ContentWorkspace["messages"] = [];
+  private resources: NonNullable<ContentWorkspace["resources"]> = [];
 
   constructor(seed?: ContentWorkspace) {
     if (seed)
@@ -38,6 +40,7 @@ export class MemoryContentRepository
         assets: this.assets,
         messages: this.messages,
       } = seed);
+    if (seed) this.resources = seed.resources ?? [];
   }
   async findSessionByProposal(eventId: string, proposalId: string) {
     return (
@@ -83,6 +86,12 @@ export class MemoryContentRepository
       messages: this.messages
         .filter((item) => profileIds.has(item.speakerProfileId))
         .toSorted(by((item) => item.sentAt)),
+      resources: this.resources
+        .filter((item) => item.eventId === eventId && (!userId || item.visibility === "visible"))
+        .toSorted(
+          (left, right) =>
+            left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
+        ),
     };
   }
 
@@ -183,6 +192,18 @@ export class MemoryContentRepository
         (profile) => profile.eventId === eventId && profile.sourcePersonId === sourcePersonId,
       ) ?? null
     );
+  }
+  async addResource(resource: SpeakerResource) {
+    this.resources = [...this.resources, resource];
+  }
+  async updateResource(resource: SpeakerResource) {
+    this.resources = this.resources.map((item) => (item.id === resource.id ? resource : item));
+  }
+  async deleteResource(resourceId: string) {
+    this.resources = this.resources.filter(({ id }) => id !== resourceId);
+  }
+  async findResource(resourceId: string) {
+    return this.resources.find(({ id }) => id === resourceId) ?? null;
   }
 }
 

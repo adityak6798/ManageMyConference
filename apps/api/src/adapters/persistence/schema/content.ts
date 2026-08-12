@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   primaryKey,
   sqliteTable,
   text,
@@ -124,6 +125,26 @@ export function defineContentSchema(references: {
     },
     (table) => [index("speaker_messages_profile_idx").on(table.speakerProfileId)],
   );
+  const speakerResources = sqliteTable(
+    "speaker_resources",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      title: text("title").notNull(),
+      slug: text("slug").notNull(),
+      bodyHtml: text("body_html").notNull(),
+      embedHtml: text("embed_html").notNull(),
+      visibility: text("visibility").notNull(),
+      sortOrder: integer("sort_order").notNull(),
+    },
+    (table) => [
+      unique("speaker_resources_event_slug_unique").on(table.eventId, table.slug),
+      check("speaker_resources_visibility", sql`${table.visibility} IN ('hidden','visible')`),
+      index("speaker_resources_event_order_idx").on(table.eventId, table.sortOrder),
+    ],
+  );
   const speakerConversionSources = sqliteTable(
     "speaker_conversion_sources",
     {
@@ -171,6 +192,7 @@ export function defineContentSchema(references: {
     speakerTasks,
     speakerAssets,
     speakerMessages,
+    speakerResources,
     speakerConversionSources,
     speakerConversionClaims,
     speakerEmailClaims,

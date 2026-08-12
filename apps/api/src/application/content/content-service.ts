@@ -5,6 +5,7 @@ import {
   type SpeakerAsset,
   type SpeakerProfile,
   type SpeakerTask,
+  type SpeakerResource,
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import {
@@ -54,6 +55,7 @@ export class SpeakerPhotoInvalidError extends Error {
     super("This file cannot be used as a profile photo");
   }
 }
+export class ResourceEmbedDeniedError extends Error {}
 
 /**
  * A session as content projects it: the stored session plus where the agenda puts it.
@@ -107,6 +109,10 @@ export interface ContentServiceDependencies {
   eventPublication?: EventPublicationQuery;
   newId: () => string;
   now: () => Date;
+  /** Hosts organizers may embed into portal resources. Deployment configuration may narrow this. */
+  resourceEmbedHosts?: readonly string[];
+  sanitizeResourceHtml?: (input: string) => string;
+  sanitizeResourceEmbed?: (input: string, allowedHosts: readonly string[]) => string;
 }
 
 function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
@@ -188,6 +194,60 @@ function calendarDateTime(value: string) {
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export class ContentService {
   constructor(private readonly dependencies: ContentServiceDependencies) {}
+
+  async createResource(
+    actor: Actor | null,
+    input: Omit<SpeakerResource, "id" | "bodyHtml" | "embedHtml"> & {
+      bodyHtml: string;
+      embedHtml: string;
+    },
+  ) {
+    requireEventCapability(actor, input.eventId, "content:manage");
+    const resource: SpeakerResource = {
+      ...input,
+      id: this.dependencies.newId(),
+      bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
+      embedHtml:
+        this.dependencies.sanitizeResourceEmbed?.(
+          input.embedHtml,
+          this.dependencies.resourceEmbedHosts ?? [],
+        ) ?? "",
+    };
+    await this.dependencies.repository.addResource(resource);
+    return resource;
+  }
+
+  async updateResource(
+    actor: Actor | null,
+    resourceId: string,
+    input: Omit<SpeakerResource, "id" | "eventId" | "bodyHtml" | "embedHtml"> & {
+      bodyHtml: string;
+      embedHtml: string;
+    },
+  ) {
+    const existing = await this.dependencies.repository.findResource(resourceId);
+    if (!existing) throw new CapabilityDeniedError();
+    requireEventCapability(actor, existing.eventId, "content:manage");
+    const resource: SpeakerResource = {
+      ...existing,
+      ...input,
+      bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
+      embedHtml:
+        this.dependencies.sanitizeResourceEmbed?.(
+          input.embedHtml,
+          this.dependencies.resourceEmbedHosts ?? [],
+        ) ?? "",
+    };
+    await this.dependencies.repository.updateResource(resource);
+    return resource;
+  }
+
+  async deleteResource(actor: Actor | null, resourceId: string) {
+    const existing = await this.dependencies.repository.findResource(resourceId);
+    if (!existing) throw new CapabilityDeniedError();
+    requireEventCapability(actor, existing.eventId, "content:manage");
+    await this.dependencies.repository.deleteResource(resourceId);
+  }
 
   /**
    * Turn an accepted proposal into program content.

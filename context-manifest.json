@@ -227,7 +227,8 @@
       "application": [],
       "adapters": [
         "drizzle-orm",
-        "drizzle-orm/sqlite-core"
+        "drizzle-orm/sqlite-core",
+        "sanitize-html"
       ],
       "transport": [
         "@greenroom/contracts",
@@ -534,6 +535,7 @@
         "apps/api/src/domain/content",
         "apps/api/src/application/content",
         "apps/api/src/adapters/content/d1-speaker-conversion.ts",
+        "apps/api/src/adapters/content/sanitize-resource-html.ts",
         "apps/api/migrations/0016_crm_speaker_conversion.sql",
         "apps/api/test/d1-speaker-conversion.integration.test.ts",
         "apps/api/src/adapters/persistence/d1-content-repository.ts",
@@ -541,6 +543,8 @@
         "apps/api/src/adapters/storage",
         "apps/api/migrations/0014_content_speaker_portal.sql",
         "apps/api/migrations/0022_content_session_schedule_from_agenda.sql",
+        "apps/api/migrations/1400_content_resources.sql",
+        "apps/api/test/content-resource-sanitizer.test.ts",
         "apps/api/test/content-service.test.ts",
         "apps/api/test/content-calendar-publication.test.ts",
         "apps/api/test/content-http.test.ts",
@@ -548,6 +552,7 @@
         "apps/web/src/ContentWorkspace.tsx",
         "apps/web/src/content/ContentWorkspace.tsx",
         "apps/web/src/content/OrganizerContent.tsx",
+        "apps/web/src/content/ResourceEditor.tsx",
         "apps/web/src/content/SpeakerOutreach.tsx",
         "apps/web/src/content/SessionEditor.tsx",
         "apps/web/src/content/SpeakerContent.tsx",

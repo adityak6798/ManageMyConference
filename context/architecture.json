@@ -195,7 +195,7 @@
     "externalPackagesByLayer": {
       "domain": [],
       "application": [],
-      "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core"],
+      "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core", "sanitize-html"],
       "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
       "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
       "contracts": ["zod"]

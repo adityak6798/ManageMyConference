@@ -204,6 +204,29 @@ export function SpeakerView({
 
   return (
     <div className="content-workspace">
+      {(workspace.resources ?? []).length > 0 ? (
+        <section aria-labelledby="speaker-resources-heading">
+          <h2 id="speaker-resources-heading">Speaker resources</h2>
+          <div className="grid-auto">
+            {(workspace.resources ?? []).map((resource) => (
+              <Card key={resource.id} title={resource.title}>
+                <div
+                  className="resource-body"
+                  dangerouslySetInnerHTML={{ __html: resource.bodyHtml }}
+                />
+                {resource.embedHtml ? (
+                  <iframe
+                    title={`${resource.title} embedded reference`}
+                    sandbox=""
+                    referrerPolicy="no-referrer"
+                    srcDoc={resource.embedHtml}
+                  />
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <dl className="grid-auto">
         <Stat
           label="Tasks to complete"

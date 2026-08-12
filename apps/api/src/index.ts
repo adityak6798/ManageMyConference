@@ -6,6 +6,10 @@ import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository"
 import { AgendaService } from "./application/agenda/agenda-service";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
+import {
+  sanitizeResourceEmbed,
+  sanitizeResourceHtml,
+} from "./adapters/content/sanitize-resource-html";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
 import { ContentService } from "./application/content/content-service";
@@ -157,6 +161,9 @@ export default {
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
+      resourceEmbedHosts: ["docs.google.com", "player.vimeo.com", "www.youtube.com"],
+      sanitizeResourceHtml,
+      sanitizeResourceEmbed,
     });
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),

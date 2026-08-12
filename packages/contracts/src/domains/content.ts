@@ -71,12 +71,23 @@ export const speakerMessageSchema = z.object({
   subject: z.string(),
   sentAt: z.string().datetime(),
 });
+export const speakerResourceSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  title: z.string(),
+  slug: z.string(),
+  bodyHtml: z.string(),
+  embedHtml: z.string(),
+  visibility: z.enum(["hidden", "visible"]),
+  sortOrder: z.number().int(),
+});
 export const contentWorkspaceSchema = z.object({
   sessions: z.array(contentSessionSchema),
   speakers: z.array(speakerProfileSchema),
   tasks: z.array(speakerTaskSchema),
   assets: z.array(speakerAssetSchema),
   messages: z.array(speakerMessageSchema),
+  resources: z.array(speakerResourceSchema).optional(),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 /**
@@ -147,3 +158,21 @@ export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),
   subject: z.string().trim().min(1).max(200),
 });
+
+export const createSpeakerResourceInputSchema = z.object({
+  eventId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+  slug: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .max(120),
+  bodyHtml: z.string().max(100_000),
+  embedHtml: z.string().max(20_000).default(""),
+  visibility: z.enum(["hidden", "visible"]),
+  sortOrder: z.number().int().min(0).max(10_000),
+});
+export const updateSpeakerResourceInputSchema = createSpeakerResourceInputSchema.omit({
+  eventId: true,
+});
+export const speakerResourceParamsSchema = z.object({ resourceId: z.string().uuid() });

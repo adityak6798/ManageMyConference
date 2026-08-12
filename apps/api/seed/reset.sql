@@ -8,6 +8,7 @@ DELETE FROM agenda_drafts;
 DELETE FROM crm_activities;
 DELETE FROM crm_contacts;
 DELETE FROM crm_prospects;
+DELETE FROM speaker_resources;
 DELETE FROM speaker_conversion_sources;
 DELETE FROM speaker_conversion_claims;
 DELETE FROM speaker_email_claims;
@@ -16,6 +17,7 @@ DELETE FROM speaker_assets;
 DELETE FROM speaker_tasks;
 DELETE FROM content_sessions;
 DELETE FROM speaker_profiles;
+
 DELETE FROM review_events;
 DELETE FROM review_decisions;
 DELETE FROM review_outcomes;
@@ -155,6 +157,9 @@ INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,co
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
 INSERT INTO speaker_messages (id,event_id,speaker_profile_id,subject,sent_at) VALUES
 ('40000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Welcome to Greenroom Demo Summit','2026-08-10T16:00:00.000Z');
+INSERT INTO speaker_resources (id,event_id,title,slug,body_html,embed_html,visibility,sort_order) VALUES
+('41000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','Speaker handbook','speaker-handbook','<h2>Welcome to Greenroom</h2><p>Use this portal to finish your tasks and share deliverables.</p>','','visible',0);
+
 -- Every submission stores the snapshot of the form it was filled in against, so the organizer
 -- projection derives the submitter from real field types rather than a heuristic, and every one
 -- answers the required contact-email field the published form asks for.

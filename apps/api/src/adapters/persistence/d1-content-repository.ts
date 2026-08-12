@@ -10,6 +10,7 @@ import type {
   SpeakerMessage,
   SpeakerProfile,
   SpeakerTask,
+  SpeakerResource,
 } from "../../domain/content/content";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 interface D1Statement {
@@ -205,7 +206,7 @@ export class D1ContentRepository
     );
     const speakers = profileRows.map((row) => this.profile(row));
     if (userId && speakers.length === 0)
-      return { sessions: [], speakers: [], tasks: [], assets: [], messages: [] };
+      return { sessions: [], speakers: [], tasks: [], assets: [], messages: [], resources: [] };
     const scoped = <T>(table: string, order: string, map: (row: Row) => T) =>
       this.rows(
         `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND profile.user_id = ? ORDER BY ${order}`,
@@ -245,7 +246,13 @@ export class D1ContentRepository
             eventId,
           )
         ).map((row) => this.message(row));
-    return { sessions, speakers, tasks, assets, messages };
+    const resources = (
+      await this.rows(
+        `SELECT * FROM speaker_resources WHERE event_id = ?${userId ? " AND visibility = 'visible'" : ""} ORDER BY sort_order,title`,
+        eventId,
+      )
+    ).map((row) => this.resource(row));
+    return { sessions, speakers, tasks, assets, messages, resources };
   }
   async updateProfile(profile: SpeakerProfile) {
     await this.run(
@@ -349,6 +356,40 @@ export class D1ContentRepository
     )[0];
     return row ? this.profile(row) : null;
   }
+  async addResource(resource: SpeakerResource) {
+    await this.run(
+      "INSERT INTO speaker_resources (id,event_id,title,slug,body_html,embed_html,visibility,sort_order) VALUES (?,?,?,?,?,?,?,?)",
+      resource.id,
+      resource.eventId,
+      resource.title,
+      resource.slug,
+      resource.bodyHtml,
+      resource.embedHtml,
+      resource.visibility,
+      resource.sortOrder,
+    );
+  }
+  async updateResource(resource: SpeakerResource) {
+    await this.run(
+      "UPDATE speaker_resources SET title=?,slug=?,body_html=?,embed_html=?,visibility=?,sort_order=? WHERE id=?",
+      resource.title,
+      resource.slug,
+      resource.bodyHtml,
+      resource.embedHtml,
+      resource.visibility,
+      resource.sortOrder,
+      resource.id,
+    );
+  }
+  async deleteResource(resourceId: string) {
+    await this.run("DELETE FROM speaker_resources WHERE id=?", resourceId);
+  }
+  async findResource(resourceId: string) {
+    const row = (
+      await this.rows("SELECT * FROM speaker_resources WHERE id=? LIMIT 1", resourceId)
+    )[0];
+    return row ? this.resource(row) : null;
+  }
   private session(row: Row): ContentSession {
     return {
       id: row.id ?? "",
@@ -407,6 +448,18 @@ export class D1ContentRepository
       speakerProfileId: row.speaker_profile_id ?? "",
       subject: row.subject ?? "",
       sentAt: row.sent_at ?? "",
+    };
+  }
+  private resource(row: Row): SpeakerResource {
+    return {
+      id: String(row.id ?? ""),
+      eventId: String(row.event_id ?? ""),
+      title: String(row.title ?? ""),
+      slug: String(row.slug ?? ""),
+      bodyHtml: String(row.body_html ?? ""),
+      embedHtml: String(row.embed_html ?? ""),
+      visibility: String(row.visibility ?? "hidden") as SpeakerResource["visibility"],
+      sortOrder: Number(row.sort_order ?? 0),
     };
   }
 }

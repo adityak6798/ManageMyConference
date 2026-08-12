@@ -181,6 +181,49 @@ export async function withdrawContentSession(
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
 
+export async function saveSpeakerResource(
+  input: {
+    id?: string;
+    eventId: string;
+    title: string;
+    slug: string;
+    bodyHtml: string;
+    embedHtml: string;
+    visibility: "hidden" | "visible";
+    sortOrder: number;
+  },
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(
+    input.id ? `/api/speaker-resources/${input.id}` : "/api/speaker-resources",
+    {
+      method: input.id ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        input.id
+          ? {
+              title: input.title,
+              slug: input.slug,
+              bodyHtml: input.bodyHtml,
+              embedHtml: input.embedHtml,
+              visibility: input.visibility,
+              sortOrder: input.sortOrder,
+            }
+          : input,
+      ),
+    },
+  );
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+export async function deleteSpeakerResource(
+  resourceId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/speaker-resources/${resourceId}`, { method: "DELETE" });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
 export async function publishSpeakerAsset(
   assetId: string,
   fetcher: typeof fetch = fetch,

@@ -17,9 +17,11 @@
     "@greenroom/contracts": "*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.7.0",
+    "sanitize-html": "^2.17.6",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/sanitize-html": "^2.16.1",
     "miniflare": "5.20260801.1-alpha",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0",

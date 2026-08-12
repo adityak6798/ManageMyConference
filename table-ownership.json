@@ -23,6 +23,7 @@
     "speaker_tasks": "content",
     "speaker_assets": "content",
     "speaker_messages": "content",
+    "speaker_resources": "content",
     "cfp_forms": "cfp",
     "cfp_submissions": "cfp",
     "cfp_statuses": "cfp",

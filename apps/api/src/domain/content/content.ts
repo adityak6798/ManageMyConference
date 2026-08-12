@@ -1,6 +1,7 @@
 export type PublicationState = "draft" | "ready" | "published";
 export type TaskStatus = "open" | "complete";
 export type AssetVisibility = "private" | "publishable";
+export type ResourceVisibility = "hidden" | "visible";
 
 /**
  * A session content owns.
@@ -79,10 +80,22 @@ export interface SpeakerMessage {
   readonly sentAt: string;
 }
 
+export interface SpeakerResource {
+  readonly id: string;
+  readonly eventId: string;
+  readonly title: string;
+  readonly slug: string;
+  readonly bodyHtml: string;
+  readonly embedHtml: string;
+  readonly visibility: ResourceVisibility;
+  readonly sortOrder: number;
+}
+
 export interface ContentWorkspace {
   readonly sessions: readonly ContentSession[];
   readonly speakers: readonly SpeakerProfile[];
   readonly tasks: readonly SpeakerTask[];
   readonly assets: readonly SpeakerAsset[];
   readonly messages: readonly SpeakerMessage[];
+  readonly resources?: readonly SpeakerResource[];
 }

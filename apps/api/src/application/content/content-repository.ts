@@ -5,6 +5,7 @@ import type {
   SpeakerMessage,
   SpeakerProfile,
   SpeakerTask,
+  SpeakerResource,
 } from "../../domain/content/content";
 
 export interface AcceptedContent {
@@ -32,6 +33,10 @@ export interface ContentRepository {
   findSession(sessionId: string): Promise<ContentSession | null>;
   findAsset(assetId: string): Promise<SpeakerAsset | null>;
   findProfileBySource(eventId: string, sourcePersonId: string): Promise<SpeakerProfile | null>;
+  addResource(resource: SpeakerResource): Promise<void>;
+  updateResource(resource: SpeakerResource): Promise<void>;
+  deleteResource(resourceId: string): Promise<void>;
+  findResource(resourceId: string): Promise<SpeakerResource | null>;
 }
 
 export class ContentConflictError extends Error {}
