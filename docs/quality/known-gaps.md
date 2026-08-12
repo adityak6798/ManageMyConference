@@ -98,14 +98,19 @@ feature-by-feature verdict.
   Owner: cfp. Governing ID: `PRD-CFP-001`, `PRD-CFP-002`, `ACC-CFP`.
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.
-- `GAP-010` **Brief feature 3 is incomplete**: no lifecycle event enqueues a communication,
-  organizer "communications" in the content workspace are log rows rather than sends, and the
-  speaker calendar is a download rather than an invite delivered to Gmail/Outlook/iCal. An
-  organizer *can* now write a template and send it to the event's speakers from the console, and
-  those deliveries carry a message rendered from the template version, so message content is no
-  longer purely decorative — but nothing the product does on its own enqueues anything, and the
-  seeded outbox rows remain placeholder data. Provider selection is credential-gated with live
-  adapters behind it (`fixture` remains the default and no live adapter has met a real API).
+- `GAP-010` **Brief feature 3 is incomplete**: organizer "communications" in the content workspace
+  are still log rows rather than sends, and the speaker calendar is a download rather than an
+  invite delivered to Gmail/Outlook/iCal (issue #56). An organizer can write a template and send
+  it to the event's speakers from the console, and **the product now enqueues on its own**:
+  accepting a proposal welcomes the speaker and announces each onboarding task, requesting a task
+  tells them, assigning or distributing review work tells the reviewer once per round, and an
+  accept/decline decision reaches the submitter (issue #66). A published schedule commits an
+  `EVT-SCHEDULE-PUBLISHED` record whose drain fans out one confirmation per speaker. What that
+  confirmation carries is a **link** to the existing `.ics`, not an attached invitation — the
+  delivery model has no attachment concept, so nothing yet arrives in a calendar client.
+  `ContentService.recordMessage` still writes a `speaker_messages` row and touches no outbox.
+  Provider selection is credential-gated with live adapters behind it (`fixture` remains the
+  default and no live adapter has met a real API).
   Owner: communications-integrations.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #56 (calendar delivery), #23 (production

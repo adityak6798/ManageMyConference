@@ -42,13 +42,14 @@ it("resumes a claimed row after profile enrichment fails and validates JSON befo
     messages: [],
   });
   let failEnrichment = true;
-  const updateProfile = repository.updateProfile.bind(repository);
-  repository.updateProfile = async (profile) => {
+  // The write the import actually makes: the three columns it owns, not the whole profile row.
+  const updateProfileWorkflow = repository.updateProfileWorkflow.bind(repository);
+  repository.updateProfileWorkflow = async (enriched, fields) => {
     if (failEnrichment) {
       failEnrichment = false;
       throw new Error("transient");
     }
-    await updateProfile(profile);
+    await updateProfileWorkflow(enriched, fields);
   };
   let conversions = 0;
   const service = new ContentService({

@@ -20,6 +20,7 @@ import {
   ContentConflictError,
   type ContentRepository,
   type EventPublicationQuery,
+  type SpeakerWorkflowFields,
 } from "./content-repository";
 import type { SpeakerConversionPort } from "./speaker-conversion";
 
@@ -88,8 +89,53 @@ export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions">
   readonly sessions: readonly ScheduledContentSession[];
 }
 
+/**
+ * How content asks for a speaker to be told something.
+ *
+ * Content owns this interface and holds no import of the delivering domain — the same inversion
+ * `SpeakerConversionPort` and the CRM's `OutreachDispatchPort` already use, bound in the
+ * composition root. Content states the lifecycle fact ("this speaker was accepted"); which
+ * template renders it, which trigger it carries and how it is deduplicated are the delivering
+ * domain's decisions, not content's.
+ *
+ * **Implementations must not throw.** Every method here is called after the change that caused
+ * it is already durable. Failing the request at that point would report a failure for work that
+ * succeeded, and `requestTasks` mints its task ids per call, so an organizer retrying it would
+ * create a second set of tasks — the message would be sent at the cost of duplicating the thing
+ * it was announcing. An implementation that cannot queue the message reports it through its own
+ * telemetry instead; see the binding in `apps/api/src/index.ts`.
+ *
+ * @spec PRD-SPK-002 PRD-COM-001 ARC-DOM-001
+ */
+export interface SpeakerNotificationPort {
+  /** An accepted proposal became this speaker's session. */
+  speakerAccepted(fact: {
+    readonly eventId: string;
+    readonly profileId: string;
+    readonly speakerName: string;
+    readonly speakerEmail: string;
+    readonly sessionTitle: string;
+  }): Promise<void>;
+  /** Work was assigned to this speaker. Keyed on `taskId`, which is unique per assignment. */
+  taskAssigned(fact: {
+    readonly eventId: string;
+    readonly profileId: string;
+    readonly taskId: string;
+    readonly speakerName: string;
+    readonly speakerEmail: string;
+    readonly taskTitle: string;
+    readonly dueAt: string;
+  }): Promise<void>;
+}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
+  /**
+   * Tells speakers about things that happened to them. Optional: a composition exercising only
+   * the workspace has nobody to tell, and content works unchanged without it — the speaker
+   * simply is not written to, which is what the product did before issue #66.
+   */
+  speakerNotifications?: SpeakerNotificationPort;
   assetStorage: AssetStoragePort;
   /** The review domain's answer to "may this proposal become content?". */
   proposals: AcceptedProposalQuery;
@@ -282,13 +328,15 @@ export class ContentService {
           if (profile) {
             const parseFields = (value?: string) =>
               value ? (JSON.parse(value) as Record<string, string>) : {};
-            await this.dependencies.repository.updateProfile({
-              ...profile,
+            // The three columns the import owns, and only those. Writing the whole row would
+            // carry a name, bio and headshot from the read above, so a long import could
+            // quietly revert an organizer editing the same speaker while it ran.
+            await this.dependencies.repository.updateProfileWorkflow(profile.id, {
               workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
                 row.workflowStatus ?? "",
               )
                 ? row.workflowStatus
-                : "onboarding") as SpeakerProfile["workflowStatus"],
+                : "onboarding") as SpeakerWorkflowFields["workflowStatus"],
               logistics: parseFields(row.logistics),
               customFields: parseFields(row.customFields),
             });
@@ -320,9 +368,12 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
-    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
-    const updated = { ...profile, ...input };
-    await this.dependencies.repository.updateProfile(updated);
+    const updated = await this.dependencies.repository.reviseProfile(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      (current) => ({ ...current, ...input }),
+    );
+    if (!updated) throw new CapabilityDeniedError();
     return updated;
   }
 
@@ -365,6 +416,23 @@ export class ContentService {
       tasks.push(task);
     }
     await this.dependencies.repository.addTasks(tasks);
+    // One message per task rather than one per speaker: a speaker given three deliverables has
+    // three things to do by three dates, and a single "you have work" message is the kind that
+    // gets read once and never acted on. `taskId` keys each one, so a repeated request that
+    // somehow reuses an id converges rather than sending twice.
+    for (const task of tasks) {
+      const profile = profiles.find((candidate) => candidate?.id === task.speakerProfileId);
+      if (!profile) continue;
+      await this.dependencies.speakerNotifications?.taskAssigned({
+        eventId,
+        profileId: profile.id,
+        taskId: task.id,
+        speakerName: profile.name,
+        speakerEmail: profile.email,
+        taskTitle: task.title,
+        dueAt: task.dueAt,
+      });
+    }
     return tasks;
   }
 
@@ -490,6 +558,27 @@ export class ContentService {
           return this.accept(actor, command, correlationId, conflictRetries - 1);
         throw error;
       }
+      // Told after the session is durable, so nobody is welcomed to a session that failed to
+      // commit. Inside the `!existing` branch because a re-accept of the same proposal is the
+      // same acceptance — the delivering domain deduplicates too, but not announcing it twice
+      // is cheaper than deduplicating it twice.
+      await this.dependencies.speakerNotifications?.speakerAccepted({
+        eventId: command.eventId,
+        profileId: speaker.id,
+        speakerName: speaker.name,
+        speakerEmail: speaker.email,
+        sessionTitle: session.title,
+      });
+      for (const task of tasks)
+        await this.dependencies.speakerNotifications?.taskAssigned({
+          eventId: command.eventId,
+          profileId: speaker.id,
+          taskId: task.id,
+          speakerName: speaker.name,
+          speakerEmail: speaker.email,
+          taskTitle: task.title,
+          dueAt: task.dueAt,
+        });
     }
     return this.projected(command.eventId);
   }
@@ -572,9 +661,12 @@ export class ContentService {
       profile.userId !== authorized.id
     )
       throw new CapabilityDeniedError("Speaker profile access denied");
-    const updated = { ...profile, ...input };
-    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
-    await this.dependencies.repository.updateProfile(updated);
+    const updated = await this.dependencies.repository.reviseProfile(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      (current) => ({ ...current, ...input }),
+    );
+    if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
     return updated;
   }
 
@@ -615,9 +707,16 @@ export class ContentService {
       throw new SpeakerPhotoInvalidError({
         assetId: [`“${asset.name}” is not an image. A profile photo must be a PNG or JPEG.`],
       });
-    const updated: SpeakerProfile = { ...profile, photoAssetId: asset.id };
-    await this.dependencies.repository.updateProfile(updated);
-    return updated;
+    await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id);
+    // Answered from the store rather than from the copy read a moment ago. Now that this writes
+    // one column, an organizer's edit landing alongside it survives — and a response assembled
+    // from the earlier read would report the bio it replaced as though it were still there.
+    return (
+      (await this.dependencies.repository.findProfile(profile.id)) ?? {
+        ...profile,
+        photoAssetId: asset.id,
+      }
+    );
   }
 
   /**
@@ -630,8 +729,8 @@ export class ContentService {
   async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
     const profile = await this.requireProfileSteward(actor, profileId);
     const { photoAssetId: _removed, ...withoutPhoto } = profile;
-    await this.dependencies.repository.updateProfile(withoutPhoto);
-    return withoutPhoto;
+    await this.dependencies.repository.updateProfilePhoto(profile.id, null);
+    return (await this.dependencies.repository.findProfile(profile.id)) ?? withoutPhoto;
   }
 
   /** The speaker whose profile it is, or an organizer of the event that profile belongs to. */
@@ -685,6 +784,15 @@ export class ContentService {
       status: "open",
     };
     await this.dependencies.repository.addTask(task);
+    await this.dependencies.speakerNotifications?.taskAssigned({
+      eventId: profile.eventId,
+      profileId: profile.id,
+      taskId: task.id,
+      speakerName: profile.name,
+      speakerEmail: profile.email,
+      taskTitle: task.title,
+      dueAt: task.dueAt,
+    });
     return task;
   }
 
@@ -719,9 +827,12 @@ export class ContentService {
     );
     if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
       throw new CapabilityDeniedError("Session speaker access denied");
-    const updated = { ...session, ...input };
-    await this.recordRevision(authorized, "session", session.id, session.eventId, session);
-    await this.dependencies.repository.updateSession(updated);
+    const updated = await this.dependencies.repository.reviseSession(
+      session.id,
+      this.draftRevision(authorized, session.eventId),
+      (current) => ({ ...current, ...input }),
+    );
+    if (!updated) throw new CapabilityDeniedError("Organizer session access denied");
     return updated;
   }
 
@@ -865,10 +976,8 @@ export class ContentService {
     );
     if (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker asset access denied");
-    if (profile?.photoAssetId === asset.id) {
-      const { photoAssetId: _removed, ...withoutPhoto } = profile;
-      await this.dependencies.repository.updateProfile(withoutPhoto);
-    }
+    if (profile?.photoAssetId === asset.id)
+      await this.dependencies.repository.updateProfilePhoto(profile.id, null);
     await this.dependencies.assetStorage.delete(asset.storageKey);
     await this.dependencies.repository.deleteAsset(asset.id);
   }
@@ -962,35 +1071,23 @@ export class ContentService {
     return asset;
   }
 
-  private async recordRevision(
-    actor: Actor,
-    entityType: "profile" | "session",
-    entityId: string,
-    eventId: string,
-    snapshot: unknown,
-    restoredFromRevisionId?: string,
-  ) {
-    const workspace = await this.dependencies.repository.workspace(eventId);
-    const revisionNumber =
-      Math.max(
-        0,
-        ...(workspace.revisions ?? [])
-          .filter(
-            (revision) => revision.entityType === entityType && revision.entityId === entityId,
-          )
-          .map(({ revisionNumber }) => revisionNumber),
-      ) + 1;
-    await this.dependencies.repository.addRevision({
+  /**
+   * The revision half of an attributed edit: who is editing, when, and on whose behalf.
+   *
+   * The store fills in everything else. Numbering a revision here would mean reading the
+   * highest number and adding one, which two organizers editing the same speaker do
+   * identically and one of them then loses; snapshotting here would mean recording a state
+   * this service read before the write rather than the state the row held when it happened.
+   * Both belong to the operation that writes them (`ContentRevisionDraft`).
+   */
+  private draftRevision(actor: Actor, eventId: string, restoredFromRevisionId?: string) {
+    return {
       id: this.dependencies.newId(),
       eventId,
-      entityType,
-      entityId,
-      revisionNumber,
-      snapshotJson: JSON.stringify(snapshot),
       actorId: actor.id,
       createdAt: this.dependencies.now().toISOString(),
       ...(restoredFromRevisionId ? { restoredFromRevisionId } : {}),
-    });
+    };
   }
 
   async addAssetComment(actor: Actor | null, assetId: string, body: string) {
@@ -1049,41 +1146,53 @@ export class ContentService {
     const revision = await this.dependencies.repository.findRevision(revisionId);
     if (!revision) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, revision.eventId, "content:manage");
+    // A restore is an edit like any other, and takes the same indivisible path: the state it
+    // replaces is recorded by whatever writes the replacement, or neither happens.
+    //
+    // It restores the fields an edit can change and nothing else, named one by one rather than
+    // spread from the snapshot. Identity — which event a session belongs to, which user a
+    // profile is — is never restorable, so a revision cannot move an entity between events or
+    // hand it to somebody else. Nor are the fields no edit writes: `email` and `sourcePersonId`
+    // come from speaker conversion, and a snapshot carrying an older one must not appear to put
+    // it back when no repository would have stored it.
+    const draft = this.draftRevision(authorized, revision.eventId, revision.id);
     if (revision.entityType === "profile") {
-      const current = await this.dependencies.repository.findProfile(revision.entityId);
-      if (!current) throw new CapabilityDeniedError();
-      await this.recordRevision(
-        authorized,
-        "profile",
-        current.id,
-        current.eventId,
-        current,
-        revision.id,
-      );
       const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
-      await this.dependencies.repository.updateProfile({
-        ...snapshot,
-        id: current.id,
-        eventId: current.eventId,
-        userId: current.userId,
-      });
-    } else {
-      const current = await this.dependencies.repository.findSession(revision.entityId);
-      if (!current) throw new CapabilityDeniedError();
-      await this.recordRevision(
-        authorized,
-        "session",
-        current.id,
-        current.eventId,
-        current,
-        revision.id,
+      const restored = await this.dependencies.repository.reviseProfile(
+        revision.entityId,
+        draft,
+        ({ photoAssetId: _replaced, ...current }) => ({
+          ...current,
+          name: snapshot.name,
+          bio: snapshot.bio,
+          pronouns: snapshot.pronouns,
+          organization: snapshot.organization,
+          // Restored exactly as the snapshot held it, absence included: a revision taken before
+          // the speaker chose a headshot puts the profile back to having none.
+          ...(snapshot.photoAssetId ? { photoAssetId: snapshot.photoAssetId } : {}),
+          workflowStatus: snapshot.workflowStatus,
+          logistics: snapshot.logistics,
+          customFields: snapshot.customFields,
+        }),
       );
+      if (!restored) throw new CapabilityDeniedError();
+    } else {
       const snapshot = JSON.parse(revision.snapshotJson) as ContentSession;
-      await this.dependencies.repository.updateSession({
-        ...snapshot,
-        id: current.id,
-        eventId: current.eventId,
-      });
+      const restored = await this.dependencies.repository.reviseSession(
+        revision.entityId,
+        draft,
+        (current) => ({
+          ...current,
+          title: snapshot.title,
+          abstract: snapshot.abstract,
+          format: snapshot.format,
+          speakerProfileIds: snapshot.speakerProfileIds,
+          tags: snapshot.tags,
+          tracks: snapshot.tracks,
+          publicationState: snapshot.publicationState,
+        }),
+      );
+      if (!restored) throw new CapabilityDeniedError();
     }
     return this.projected(revision.eventId);
   }

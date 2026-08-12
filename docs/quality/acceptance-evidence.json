@@ -128,6 +128,7 @@
       "suites": ["test-build", "d1", "e2e"],
       "specs": [
         "apps/api/test/communications-service.test.ts",
+        "apps/api/test/communications-lifecycle.test.ts",
         "apps/api/test/communications-http.test.ts",
         "apps/api/test/d1-communications-repository.integration.test.ts",
         "apps/web/test/communications.test.tsx",
