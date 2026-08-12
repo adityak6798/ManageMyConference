@@ -3,8 +3,13 @@
 -- The placeholder is {{speakerName}} because that is the one value a send to the event speakers
 -- fills in per recipient. A demo template naming anything else would refuse to send, which is
 -- correct behaviour and a poor first impression.
+-- The covering note an invitation travels with. The invitation itself is not this text: it is the
+-- `text/calendar; method=REQUEST` part the email adapter attaches, which is what a mail client
+-- turns into an Accept/Decline card. This message is what the speaker reads if their client shows
+-- the body, so it names the session and the event rather than repeating the calendar entry.
 INSERT INTO message_templates (id, organization_id, template_key, version, channel, subject, body, created_at) VALUES
-  ('template-speaker-v1', '00000000-0000-4000-8000-000000000010', 'speaker-invite', 1, 'email', 'Welcome to Greenroom', 'Hello {{speakerName}}, your session is confirmed. Please complete your speaker profile before the event.', '2026-08-10T12:00:00.000Z');
+  ('template-speaker-v1', '00000000-0000-4000-8000-000000000010', 'speaker-invite', 1, 'email', 'Welcome to Greenroom', 'Hello {{speakerName}}, your session is confirmed. Please complete your speaker profile before the event.', '2026-08-10T12:00:00.000Z'),
+  ('template-calendar-invite-v1', '00000000-0000-4000-8000-000000000010', 'speaker-calendar-invite', 1, 'email', 'Your session at {{eventName}}', 'Hello {{speakerName}}, here is the calendar invitation for {{sessionTitle}} at {{eventName}}. Accept it to add the session to your calendar; if the time changes we will send an update that replaces this entry.', '2026-08-10T12:00:00.000Z');
 
 INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES
   ('delivery-queued', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'seed:queued', 'speaker.invited', 'email', 'template-speaker-v1', 1, 'speaker:queued', '{"speaker":"Queued Speaker"}', NULL, 'queued', 0, '2026-08-10T12:00:00.000Z', NULL, '2026-08-10T12:00:00.000Z', '2026-08-10T12:00:00.000Z'),

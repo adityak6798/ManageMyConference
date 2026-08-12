@@ -59,6 +59,11 @@
         "reason": "Content's declared read interface. Agenda and publishing compose session content through it rather than reading content's tables."
       },
       {
+        "path": "apps/api/src/application/content/speaker-calendar-invites.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "Content's calendar-invitation command, composed by the transport alongside content-service.ts. It is its own entry point rather than a method on that service because it is the one content surface that reaches another domain: it builds the invitation from content's own session and speaker data and hands delivery to communications' declared enqueue interface. Keeping it separate is what lets the boundary be read off the imports \u2014 content generates the calendar payload, communications never does."
+      },
+      {
         "path": "apps/api/src/application/cfp/submitted-proposal-interface.ts",
         "governing": "ARC-FLOW-001",
         "reason": "The reference review uses to reach a submitted proposal without reading cfp_submissions."
@@ -575,7 +580,11 @@
         "apps/web/test/session-withdrawal.test.tsx",
         "apps/web/e2e/speaker-portal.spec.ts",
         "apps/api/src/transport/http/routes/content.ts",
-        "apps/web/src/workspaces/content.tsx"
+        "apps/web/src/workspaces/content.tsx",
+        "apps/api/test/calendar-invite.test.ts",
+        "apps/api/test/speaker-calendar-invites.test.ts",
+        "apps/web/src/content/calendar-links.ts",
+        "apps/web/test/calendar-links.test.ts"
       ]
     },
     {
@@ -775,7 +784,9 @@
     "PublishingContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
+    "SpeakerCalendarInviteService": "apps/api/src/application/content/speaker-calendar-invites.ts",
     "applyPublicationSettings": "apps/api/src/domain/publishing/publication.ts",
+    "buildSpeakerInvite": "apps/api/src/application/content/calendar-invite.ts",
     "composePublicSchedule": "apps/api/src/application/publishing/public.ts",
     "createHttpApp": "apps/api/src/transport/http/app.ts",
     "reconcileItinerary": "apps/api/src/domain/publishing/itinerary.ts"

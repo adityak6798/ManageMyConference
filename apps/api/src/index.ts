@@ -27,6 +27,7 @@ import {
   CommunicationsService,
 } from "./application/communications/public";
 import { ContentService } from "./application/content/content-service";
+import { SpeakerCalendarInviteService } from "./application/content/speaker-calendar-invites";
 import { CrmService } from "./application/crm/crm-service";
 import { OutreachRejectedError } from "./application/crm/public";
 import type { OutreachMessage } from "./application/crm/public";
@@ -206,6 +207,18 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    // Sending a speaker the iTIP invitation for their own session (#56). Composes content's
+    // session and speaker data with communications' outbox, and carries the sender address that
+    // becomes every invitation's ORGANIZER. Deliberately not defaulted: a calendar client refuses
+    // an invitation whose organizer is not the sender, so a fabricated address would produce one
+    // that looks delivered and does nothing. Unconfigured, the send route refuses and says so.
+    const speakerCalendarInvites = new SpeakerCalendarInviteService({
+      content,
+      communications,
+      events: service,
+      organizerEmail: environment.EMAIL_SENDER,
+      now: () => new Date(),
+    });
     /**
      * Binds the CRM's outreach port to communications' published enqueue interface.
      *
@@ -347,6 +360,7 @@ export default {
         ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
         : undefined,
       itineraries,
+      speakerCalendarInvites,
     );
     return Promise.resolve(app.fetch(request));
   },

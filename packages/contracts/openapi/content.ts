@@ -25,6 +25,7 @@ import {
   speakerAssetSchema,
   speakerCsvImportInputSchema,
   speakerCsvImportResultSchema,
+  speakerCalendarInviteResultSchema,
   speakerMessageSchema,
   speakerProfileSchema,
   speakerResourceParamsSchema,
@@ -466,6 +467,24 @@ export const contentPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/speaker-calendar-invites",
+      description:
+        "Send every speaker of every scheduled session the iTIP invitation for it. One delivery per speaker per session per schedule: re-running on an unchanged agenda writes nothing, and a moved session produces one new invitation carrying a higher SEQUENCE, which replaces the entry rather than adding a second. Answers 500 when EMAIL_SENDER is unconfigured, because that address becomes the ORGANIZER and a calendar client refuses an invitation whose organizer is not the sender.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventContentParamsSchema },
+      responses: {
+        202: {
+          description: "Invitations queued on the outbox",
+          content: json(speakerCalendarInviteResultSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
         500: errorResponse,
       },
     });

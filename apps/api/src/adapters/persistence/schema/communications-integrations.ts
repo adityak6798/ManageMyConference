@@ -71,13 +71,16 @@ export function defineCommunicationsIntegrationsSchema(references: {
     },
     (table) => [
       unique().on(table.organizationId, table.idempotencyKey),
+      // The union both wave-3 communications branches agreed on, so a rebuild in either does not
+      // drop the other's values. Five triggers and the `event` channel have no producer here yet;
+      // migration 1750's header says why they are permitted anyway.
       check(
         "communication_deliveries_trigger_type",
-        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested')`,
+        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded')`,
       ),
       check(
         "communication_deliveries_channel",
-        sql`${table.channel} IN ('email', 'airtable', 'accelevents')`,
+        sql`${table.channel} IN ('email', 'airtable', 'accelevents', 'event')`,
       ),
       check("communication_deliveries_payload_json", sql`json_valid(${table.payloadJson})`),
       check(

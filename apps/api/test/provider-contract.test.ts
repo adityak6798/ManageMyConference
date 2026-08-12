@@ -309,4 +309,73 @@ describe("provider request shapes", () => {
       eventRef: "event-1",
     });
   });
+
+  /*
+   * The calendar part, which is what makes an email an invitation.
+   *
+   * A mail client shows Accept/Decline for a `text/calendar; method=REQUEST` part and not for a
+   * link or a plain attachment, so the adapter has to carry the method through to the provider.
+   */
+  const email = (fetch: (url: string, init: RequestInit) => Promise<Response>) =>
+    new HttpEmailProvider(
+      { endpoint: "https://mail.test/send", token: TOKEN, sender: "events@greenroom.test" },
+      fetch,
+    );
+  const invite = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n";
+
+  it("sends an invitation as a calendar part carrying its method", async () => {
+    const { fetch, recorded } = stub(200, { id: "msg-1" });
+
+    const result = await email(fetch).deliver(
+      delivery({
+        triggerType: "speaker.calendar_invite",
+        payload: {
+          speakerName: "Ada",
+          calendarInvite: { method: "REQUEST", filename: "invite.ics", content: invite },
+        },
+      }),
+    );
+
+    expect(result).toEqual({ kind: "success", providerReference: "email:msg-1" });
+    expect(JSON.parse(String(recorded[0]?.init.body))).toMatchObject({
+      to: "ada@example.test",
+      subject: "You're speaking",
+      text: "Hello Ada",
+      calendar: { method: "REQUEST", filename: "invite.ics", content: invite },
+    });
+  });
+
+  it("sends an ordinary email exactly as it did before invitations existed", async () => {
+    const withoutInvite = stub(200, { id: "msg-2" });
+    await email(withoutInvite.fetch).deliver(delivery());
+    const body = JSON.parse(String(withoutInvite.recorded[0]?.init.body));
+
+    // Absent, not null: an existing delivery's request is unchanged by this feature, which is the
+    // property that lets the field be added without touching any other trigger's behaviour.
+    expect("calendar" in body).toBe(false);
+    expect(body).toEqual({
+      from: "events@greenroom.test",
+      to: "ada@example.test",
+      subject: "You're speaking",
+      text: "Hello Ada",
+    });
+  });
+
+  it("refuses a malformed invitation rather than sending the covering note alone", async () => {
+    // A speaker who receives "here is your invitation" and no invitation has been told a meeting
+    // exists and given no way to accept it. No retry can repair a payload already stored.
+    for (const calendarInvite of [
+      { method: "REQUEST" },
+      { method: "SHOUT", content: invite },
+      { content: invite },
+      "not an object",
+    ]) {
+      const { fetch, recorded } = stub(200, { id: "msg-3" });
+      expect(await email(fetch).deliver(delivery({ payload: { calendarInvite } }))).toEqual({
+        kind: "terminal",
+        code: "CALENDAR_INVITE_MALFORMED",
+      });
+      expect(recorded).toHaveLength(0);
+    }
+  });
 });

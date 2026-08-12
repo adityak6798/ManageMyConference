@@ -8,6 +8,7 @@ export const triggerTypeSchema = z.enum([
   "reviewer.assigned",
   "organizer.digest",
   "projection.requested",
+  "speaker.calendar_invite",
 ]);
 export const createTemplateInputSchema = z.object({
   organizationId: z.string().uuid(),

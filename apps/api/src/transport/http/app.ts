@@ -20,6 +20,7 @@ import type { AgendaService } from "../../application/agenda/public";
 import type { CfpService } from "../../application/cfp/public";
 import type { CommunicationsService } from "../../application/communications/public";
 import type { ContentService } from "../../application/content/content-service";
+import type { SpeakerCalendarInviteService } from "../../application/content/speaker-calendar-invites";
 import type { CrmService } from "../../application/crm/public";
 import type { EventService } from "../../application/events/event-service";
 import {
@@ -281,6 +282,7 @@ export function createHttpApp(
   publishingArgument?: PublicationService,
   buildIdentity?: BuildIdentity,
   itineraries?: ItineraryService,
+  speakerCalendarInvites?: SpeakerCalendarInviteService,
 ) {
   const review =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -312,6 +314,7 @@ export function createHttpApp(
     communications,
     publishing,
     itineraries,
+    speakerCalendarInvites,
     build: buildIdentity,
   });
 }

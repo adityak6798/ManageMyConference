@@ -5,7 +5,9 @@ export type TriggerType =
   | "speaker.invited"
   | "reviewer.assigned"
   | "organizer.digest"
-  | "projection.requested";
+  | "projection.requested"
+  /** An organizer sending a speaker the iTIP invitation for one of their sessions. */
+  | "speaker.calendar_invite";
 
 export interface MessageTemplate {
   readonly id: string;

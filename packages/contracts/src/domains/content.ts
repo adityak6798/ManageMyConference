@@ -257,3 +257,17 @@ export const updateSpeakerResourceInputSchema = createSpeakerResourceInputSchema
   eventId: true,
 });
 export const speakerResourceParamsSchema = z.object({ resourceId: z.string().uuid() });
+
+/**
+ * What sending an event's calendar invitations did.
+ *
+ * `unreachable` names the sessions and the reason rather than counting them: a send that quietly
+ * reaches fewer speakers than the organizer believes is the failure worth designing against, and
+ * a number gives them nothing to chase.
+ */
+export const speakerCalendarInviteResultSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  alreadySent: z.number().int().nonnegative(),
+  unreachable: z.array(z.object({ session: z.string(), reason: z.string() })),
+});
+export type SpeakerCalendarInviteResultDto = z.infer<typeof speakerCalendarInviteResultSchema>;

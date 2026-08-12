@@ -52,6 +52,7 @@
     "agenda_drafts": "agenda",
     "agenda_publications": "agenda",
     "public_event_projections": "publishing",
-    "attendee_itineraries": "publishing"
+    "attendee_itineraries": "publishing",
+    "communication_deliveries_next": "communications-integrations"
   }
 }

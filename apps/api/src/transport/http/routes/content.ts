@@ -56,6 +56,7 @@ const routes = [
   "DELETE /api/speaker-assets/:assetId",
   "POST /api/speaker-assets",
   "GET /api/events/:eventId/speaker-calendar.ics",
+  "POST /api/events/:eventId/speaker-calendar-invites",
   "POST /api/speaker-resources",
   "PATCH /api/speaker-resources/:resourceId",
   "DELETE /api/speaker-resources/:resourceId",
@@ -71,7 +72,7 @@ export const contentRoutes: RouteModule = {
   domain: "content",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
-    const { content } = dependencies;
+    const { content, speakerCalendarInvites } = dependencies;
     app.get("/api/events/:eventId/content", async (context) => {
       const parsed = eventContentParamsSchema.safeParse(context.req.param());
       if (!parsed.success)
@@ -443,6 +444,19 @@ export const contentRoutes: RouteModule = {
         "content-type": "text/calendar; charset=utf-8",
         "content-disposition": 'attachment; filename="greenroom-sessions.ics"',
       });
+    });
+    app.post("/api/events/:eventId/speaker-calendar-invites", async (context) => {
+      const parsed = eventContentParamsSchema.safeParse(context.req.param());
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!speakerCalendarInvites) throw new Error("Calendar invitations are unavailable");
+      return context.json(
+        await speakerCalendarInvites.send(context.get("actor"), parsed.data.eventId),
+        202,
+      );
     });
     app.post("/api/speaker-imports", async (context) => {
       const parsed = speakerCsvImportInputSchema.safeParse(await readJson(context.req));

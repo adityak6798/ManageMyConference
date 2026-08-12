@@ -98,6 +98,7 @@ history means one thing across all three:
 | `MALFORMED_PROVIDER_RESPONSE` | terminal | 2xx we cannot parse, or with no reference | inspect the provider's own logs; the effect may have happened |
 | `RECIPIENT_NOT_ADDRESSABLE` | terminal | `recipient_ref` is not a mail address | correct the recipient reference at the source |
 | `MESSAGE_NOT_RENDERED` | terminal | an email delivery carrying no rendered body | a bug: the delivery was written outside the service |
+| `CALENDAR_INVITE_MALFORMED` | terminal | `payload.calendarInvite` is present but unusable | a bug: the invitation was built outside `buildSpeakerInvite`. Sending the covering note without the invitation would tell a speaker a meeting exists and give them no way to accept it, so nothing is sent |
 | `RETRY_EXHAUSTED:<code>` | terminal | three retryable attempts | the underlying code names the cause |
 
 Two more codes appear in the history that no adapter produces — the outbox writes them itself:
