@@ -1,8 +1,15 @@
 import {
   type ApiErrorEnvelope,
+  type BroadcastResultDto,
   type CommunicationsHistoryDto,
+  type CreateTemplateInput,
+  type MessageTemplateDto,
+  broadcastRecipientsResponseSchema,
+  broadcastResponseSchema,
   communicationsHistoryResponseSchema,
   deliveryResponseSchema,
+  templateListResponseSchema,
+  templateResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
 import { apiFetch as fetch, decodeResponse } from "./config";
@@ -27,6 +34,50 @@ export async function getCommunicationsHistory(
   if (cursor) query.set("cursor", cursor);
   const response = await fetcher(`/api/communications/history?${query}`);
   return decode(response, communicationsHistoryResponseSchema);
+}
+
+export async function getTemplates(
+  organizationId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<MessageTemplateDto[]> {
+  const query = new URLSearchParams({ organizationId });
+  const response = await fetcher(`/api/communications/templates?${query}`);
+  return (await decode(response, templateListResponseSchema)).templates;
+}
+
+export async function createTemplate(
+  input: CreateTemplateInput,
+  fetcher: typeof fetch = fetch,
+): Promise<MessageTemplateDto> {
+  const response = await fetcher("/api/communications/templates", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return (await decode(response, templateResponseSchema)).template;
+}
+
+/** Who a send would reach, so the organizer confirms against a count rather than a promise. */
+export async function getRecipients(
+  organizationId: string,
+  eventId: string,
+  fetcher: typeof fetch = fetch,
+) {
+  const query = new URLSearchParams({ organizationId, eventId });
+  const response = await fetcher(`/api/communications/recipients?${query}`);
+  return (await decode(response, broadcastRecipientsResponseSchema)).recipients;
+}
+
+export async function sendToSpeakers(
+  input: { organizationId: string; eventId: string; templateKey: string; templateVersion: number },
+  fetcher: typeof fetch = fetch,
+): Promise<BroadcastResultDto> {
+  const response = await fetcher("/api/communications/broadcasts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return decode(response, broadcastResponseSchema);
 }
 
 export async function retryDelivery(

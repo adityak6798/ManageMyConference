@@ -19,6 +19,7 @@ import {
   getCommunicationsHistory,
   retryDelivery,
 } from "./api/communications";
+import { ComposePanel } from "./communications/ComposePanel";
 import "./styles/communications.css";
 import { IconCheck, IconClock, IconInbox, IconSend, IconWarning } from "./ui/icons";
 import { Card, EmptyState, Notice, Tabs, useActionFeedback } from "./ui/primitives";
@@ -178,6 +179,14 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
 
   return (
     <div className="comms" id="communications">
+      <ComposePanel
+        organizationId={event.organizationId}
+        eventId={event.id}
+        onSent={() => {
+          // ERROR-INTENT: handlers cannot await; load renders or announces its own failure.
+          void load();
+        }}
+      />
       <Card
         labelledBy="communications-title"
         title="Delivery history"
@@ -368,6 +377,20 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                         {open ? (
                           <tr className="comms-attempts-row">
                             <td colSpan={7}>
+                              {/* The message as sent, not the template it came from: a
+                                  delivery pins its rendered text, so this is what the
+                                  recipient read even after the template moves on. */}
+                              {delivery.renderedBody ? (
+                                <article
+                                  className="comms-sent-message"
+                                  aria-label={`Message sent to ${delivery.recipientRef}`}
+                                >
+                                  <p className="comms-preview-subject">
+                                    {delivery.renderedSubject ?? "(no subject)"}
+                                  </p>
+                                  <pre className="comms-preview-body">{delivery.renderedBody}</pre>
+                                </article>
+                              ) : null}
                               <ol className="attempt-history" id={`attempts-${delivery.id}`}>
                                 {attempts.map((attempt) => (
                                   <li key={attempt.id}>

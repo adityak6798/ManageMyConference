@@ -7,23 +7,29 @@
  * @spec PRD-COM-001 PRD-INT-001
  */
 import {
+  broadcastInputSchema,
+  broadcastRecipientsParamsSchema,
   communicationsHistoryParamsSchema,
   createTemplateInputSchema,
   deliveryIdParamsSchema,
   retryDeliveryInputSchema,
+  templateListParamsSchema,
   triggerDeliveryInputSchema,
 } from "@greenroom/contracts";
 import {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
-} from "../../../application/communications/communications-service";
+} from "../../../application/communications/public";
 import { requireCapability } from "../../../application/identity/actor";
 import { envelope, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
   "POST /api/communications/templates",
+  "GET /api/communications/templates",
+  "GET /api/communications/recipients",
+  "POST /api/communications/broadcasts",
   "POST /api/communications/deliveries",
   "GET /api/communications/history",
   "POST /api/communications/deliveries/:deliveryId/retry",
@@ -52,6 +58,63 @@ export const communicationsRoutes: RouteModule = {
         { template: await communications.createTemplate(context.get("actor"), parsed.data) },
         201,
       );
+    });
+    app.get("/api/communications/templates", async (context) => {
+      requireCapability(context.get("actor"), "communications:manage");
+      if (!communications) throw new Error("Communications service is not configured");
+      const parsed = templateListParamsSchema.safeParse(context.req.query());
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "An organization ID is required.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        templates: await communications.templates(context.get("actor"), parsed.data.organizationId),
+      });
+    });
+    app.get("/api/communications/recipients", async (context) => {
+      requireCapability(context.get("actor"), "communications:manage");
+      if (!communications) throw new Error("Communications service is not configured");
+      const parsed = broadcastRecipientsParamsSchema.safeParse(context.req.query());
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Organization and event IDs are required.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        recipients: await communications.recipients(
+          context.get("actor"),
+          parsed.data.organizationId,
+          parsed.data.eventId,
+        ),
+      });
+    });
+    app.post("/api/communications/broadcasts", async (context) => {
+      requireCapability(context.get("actor"), "communications:manage");
+      if (!communications) throw new Error("Communications service is not configured");
+      const parsed = broadcastInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The send is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      // 202: the deliveries are durable, but nothing has been sent until the outbox drains them.
+      return context.json(await communications.broadcast(context.get("actor"), parsed.data), 202);
     });
     app.post("/api/communications/deliveries", async (context) => {
       requireCapability(context.get("actor"), "communications:manage");

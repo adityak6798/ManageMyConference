@@ -16,6 +16,48 @@ describe("D1CommunicationsRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
 
+  it("enqueues an audience larger than D1's bound-parameter limit in one go", async () => {
+    const migrated = await createMigratedDatabase({ label: "communications-batch", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1CommunicationsRepository(migrated.database);
+    // 150 crosses the 100-parameter ceiling on the reload that follows the insert batch. The
+    // batch has already committed by then, so getting this wrong queued every delivery and then
+    // answered the organizer with an error.
+    const audience = Array.from({ length: 150 }, (_, index) => ({
+      id: `delivery-${index}`,
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      eventId: "00000000-0000-4000-8000-000000000001",
+      idempotencyKey: `broadcast:welcome:v1:event:user-${index}`,
+      triggerType: "speaker.invited" as const,
+      channel: "email" as const,
+      templateId: "template-speaker-v1",
+      templateVersion: 1,
+      recipientRef: `speaker${index}@example.test`,
+      payload: { speakerName: `Speaker ${index}` },
+      renderedSubject: "Welcome",
+      renderedBody: `Hello Speaker ${index}`,
+      projectionVersion: null,
+      state: "queued" as const,
+      attemptCount: 0,
+      nextAttemptAt: "2026-08-10T12:00:00.000Z",
+      leaseToken: null,
+      createdAt: "2026-08-10T12:00:00.000Z",
+      updatedAt: "2026-08-10T12:00:00.000Z",
+    }));
+
+    const stored = await repository.enqueueMany(audience);
+
+    expect(stored).toHaveLength(150);
+    // Request order is preserved, so a caller can pair each stored row with what it prepared.
+    expect(stored.map(({ id }) => id)).toEqual(audience.map(({ id }) => id));
+
+    // And re-sending returns the original rows rather than writing a second set.
+    const repeated = await repository.enqueueMany(
+      audience.map((delivery) => ({ ...delivery, id: `${delivery.id}-second` })),
+    );
+    expect(repeated.map(({ id }) => id)).toEqual(audience.map(({ id }) => id));
+  });
+
   it("persists idempotent deliveries and atomically records attempts with projection state", async () => {
     const migrated = await createMigratedDatabase({ label: "communications", seed: true });
     runtime = migrated.runtime;
@@ -32,6 +74,8 @@ describe("D1CommunicationsRepository", () => {
       templateVersion: null,
       recipientRef: "session:99",
       payload: { title: "D1 Session" },
+      renderedSubject: null,
+      renderedBody: null,
       projectionVersion: 2,
       state: "queued" as const,
       attemptCount: 0,

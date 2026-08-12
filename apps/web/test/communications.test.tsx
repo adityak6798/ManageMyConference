@@ -7,6 +7,21 @@ const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "00000000-0000-4000-8000-000000000001";
 const secondEventId = "00000000-0000-4000-8000-000000000002";
 
+/**
+ * The compose panel's two reads, which every test in this file mounts but none is about.
+ *
+ * Answered rather than left to 404 on purpose: a failed read there renders its own error and a
+ * second "Try again" control, which would make these outbox assertions ambiguous about which
+ * failure they are looking at.
+ */
+const composeFixture = (url: string): Promise<Response> | null => {
+  if (url.includes("/api/communications/templates"))
+    return Promise.resolve(new Response(JSON.stringify({ templates: [] })));
+  if (url.includes("/api/communications/recipients"))
+    return Promise.resolve(new Response(JSON.stringify({ recipients: [] })));
+  return null;
+};
+
 describe("communications history", () => {
   beforeEach(() => {
     // The outbox is its own route now and loads its history on mount.
@@ -23,6 +38,8 @@ describe("communications history", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
+        const compose = composeFixture(url);
+        if (compose) return compose;
         if (url.endsWith("/api/session"))
           return Promise.resolve(
             new Response(
@@ -78,6 +95,8 @@ describe("communications history", () => {
                       templateVersion: null,
                       recipientRef: "session:42",
                       payload: {},
+                      renderedSubject: null,
+                      renderedBody: null,
                       projectionVersion: 1,
                       state: "terminal",
                       attemptCount: 1,
@@ -147,6 +166,8 @@ describe("communications history", () => {
         "fetch",
         vi.fn((input: RequestInfo | URL) => {
           const url = String(input);
+          const compose = composeFixture(url);
+          if (compose) return compose;
           if (url.endsWith("/api/session"))
             return Promise.resolve(
               new Response(
@@ -228,6 +249,8 @@ describe("communications history", () => {
                     templateVersion: null,
                     recipientRef: "session:stale",
                     payload: {},
+                    renderedSubject: null,
+                    renderedBody: null,
                     projectionVersion: 1,
                     state: "terminal",
                     attemptCount: 1,
@@ -261,6 +284,8 @@ describe("communications history", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
+        const compose = composeFixture(url);
+        if (compose) return compose;
         if (url.endsWith("/api/session"))
           return Promise.resolve(
             new Response(
@@ -317,6 +342,8 @@ describe("communications history", () => {
                       templateVersion: null,
                       recipientRef: "session:retry",
                       payload: {},
+                      renderedSubject: null,
+                      renderedBody: null,
                       projectionVersion: 1,
                       state: "terminal",
                       attemptCount: 1,

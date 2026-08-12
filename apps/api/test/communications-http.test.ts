@@ -26,6 +26,12 @@ async function setup() {
       belongsToOrganization: async (candidateEventId, candidateOrganizationId) =>
         candidateEventId === eventId && candidateOrganizationId === organizationId,
     },
+    speakerDirectory: {
+      listSpeakersForEvent: async () => [
+        { id: "user-ada", name: "Ada Lovelace", email: "ada@example.test" },
+        { id: "user-unlinked", name: "Alan Turing", email: null },
+      ],
+    },
     newId: () => `comm-${++id}`,
     now,
   });
@@ -177,5 +183,64 @@ describe("communications HTTP acceptance", () => {
       { method: "POST", headers },
     );
     expect(missingDelivery.status).toBe(404);
+  });
+
+  it("sends a template to the event's speakers and says who it could not reach", async () => {
+    const { app, headers } = await setup();
+    await app.request("/api/communications/templates", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        organizationId,
+        key: "speaker-welcome",
+        version: 1,
+        channel: "email",
+        subject: "You're speaking",
+        body: "Hello {{speakerName}}",
+      }),
+    });
+
+    const recipients = await app.request(
+      `/api/communications/recipients?organizationId=${organizationId}&eventId=${eventId}`,
+      { headers },
+    );
+    expect(recipients.status).toBe(200);
+    await expect(recipients.json()).resolves.toMatchObject({ recipients: expect.any(Array) });
+
+    const sent = await app.request("/api/communications/broadcasts", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ organizationId, eventId, templateKey: "speaker-welcome" }),
+    });
+
+    // 202: durable, but nothing has been sent until the outbox drains it.
+    expect(sent.status).toBe(202);
+    await expect(sent.json()).resolves.toMatchObject({
+      enqueued: 1,
+      unreachable: [{ name: "Alan Turing", address: null }],
+      deliveries: [{ recipientRef: "ada@example.test", renderedBody: "Hello Ada Lovelace" }],
+    });
+
+    const templates = await app.request(
+      `/api/communications/templates?organizationId=${organizationId}`,
+      { headers },
+    );
+    expect(templates.status).toBe(200);
+    await expect(templates.json()).resolves.toMatchObject({
+      templates: [{ key: "speaker-welcome", version: 1 }],
+    });
+  });
+
+  it("refuses a send from someone without communications:manage", async () => {
+    const { app } = await setup();
+    const speakerToken = await createDemoSession("speaker", secret, 2_000);
+
+    const refused = await app.request("/api/communications/broadcasts", {
+      method: "POST",
+      headers: { cookie: `greenroom_session=${speakerToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ organizationId, eventId, templateKey: "speaker-welcome" }),
+    });
+
+    expect(refused.status).toBe(403);
   });
 });

@@ -63,6 +63,11 @@ describe("where a failed load is explained", () => {
         const url = String(input);
         if (url.endsWith("/api/session")) return json(session);
         if (url.endsWith("/api/events/assigned")) return json({ events });
+        // The compose panel above the outbox reads its own templates and recipients. They
+        // succeed here so that exactly one read on this page has failed, which is what makes
+        // "one alert" the right assertion below.
+        if (url.includes("/api/communications/templates")) return json({ templates: [] });
+        if (url.includes("/api/communications/recipients")) return json({ recipients: [] });
         if (url.includes("/api/communications/history"))
           return outboxFails
             ? refusal("comms-trace", "The outbox could not be read.")

@@ -94,11 +94,24 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    event switcher, and publish it from `/publishing`: the slug is server-assigned and the panel
    shows the reserved address before the first publish.
 7. **Speaker CRM** (`/speakers`) and **Communications** (`/communications`) — the outreach pipeline
-   and the delivery outbox. From a clean reset the outbox carries one delivery in each of the
-   queued, retrying, succeeded, and terminal states, with attempt history and an explicit retry on
-   the terminal one; recovering it consumes that state until the next reset. Nothing here was sent:
-   the seeded history is placeholder data, no lifecycle event enqueues a delivery, and the only
-   provider is a deterministic fake (`GAP-010`).
+   and the delivery outbox.
+
+   The **Send to speakers** card at the top of `/communications` is the part to demonstrate. It
+   reports "1 of 2 speakers can be reached by email" — the count comes from the server resolving
+   the event's speakers, and it names Jordan Bell, who has no address on their identity, rather
+   than quietly sending to fewer people than you asked for. Press **New template**, write one
+   using `{{speakerName}}`, save it, then send: the confirmation names the version and the count
+   before anything is written, and the delivery appears in the history below within a second.
+   Expand its attempt row and you can read the message that was rendered for that speaker,
+   substituted, not the template it came from. Send the same version again and it says nothing
+   new was queued, because it was not.
+
+   Below it, from a clean reset, the outbox carries one delivery in each of the queued, retrying,
+   succeeded, and terminal states, with attempt history and an explicit retry on the terminal one;
+   recovering it consumes that state until the next reset. Be straight about those four: they are
+   seeded placeholder data, and no lifecycle event enqueues a delivery — accepting a proposal or
+   publishing an agenda still sends nothing (`GAP-010`). The provider behind every send here is a
+   deterministic fake; live adapters exist but are credential-gated off and unverified.
 8. Switch to **reviewer** — only `/reviews` is reachable. Score the seeded assignment against the
    evaluation plan; unscored criteria are refused rather than silently scored at the minimum.
 9. Switch to **speaker** — only `/portal` is reachable. Complete a task, edit the profile, upload a
