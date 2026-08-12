@@ -81,4 +81,47 @@ describe("D1IdentityDirectory", () => {
       capabilities: new Set(),
     });
   });
+
+  it("enforces attempt, expiry, and one-time challenge semantics in migrated D1", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-challenges", seed: true });
+    runtime = migrated.runtime;
+    const directory = new D1IdentityDirectory(migrated.database as IdentityDatabasePort);
+
+    await directory.saveLoginChallenge({
+      id: "wrong-attempts",
+      email: "organizer@greenroom.test",
+      codeProof: "correct-proof",
+      expiresAt: 2_000,
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1)
+      await expect(
+        directory.consumeLoginChallenge("wrong-attempts", "wrong-proof", 1_000),
+      ).resolves.toBeNull();
+    await expect(
+      directory.consumeLoginChallenge("wrong-attempts", "correct-proof", 1_000),
+    ).resolves.toBeNull();
+
+    await directory.saveLoginChallenge({
+      id: "single-use",
+      email: "organizer@greenroom.test",
+      codeProof: "correct-proof",
+      expiresAt: 2_000,
+    });
+    await expect(
+      directory.consumeLoginChallenge("single-use", "correct-proof", 1_000),
+    ).resolves.toBe("organizer@greenroom.test");
+    await expect(
+      directory.consumeLoginChallenge("single-use", "correct-proof", 1_000),
+    ).resolves.toBeNull();
+
+    await directory.saveLoginChallenge({
+      id: "expired",
+      email: "organizer@greenroom.test",
+      codeProof: "correct-proof",
+      expiresAt: 2_000,
+    });
+    await expect(
+      directory.consumeLoginChallenge("expired", "correct-proof", 2_000),
+    ).resolves.toBeNull();
+  });
 });

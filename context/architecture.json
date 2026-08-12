@@ -206,7 +206,7 @@
         "names": ["D1"],
         "state": "configured",
         "evidence": "apps/api/wrangler.toml",
-        "note": "Bound as DB; 23 migrations apply against it locally and in the D1 suite."
+        "note": "Bound as DB; 24 migrations apply against it locally and in the D1 suite."
       },
       {
         "id": "r2",

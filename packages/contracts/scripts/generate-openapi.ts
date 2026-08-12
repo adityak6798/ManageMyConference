@@ -64,18 +64,6 @@ const document = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: "3.0.3",
   info: { title: "Project Greenroom API", version: "0.1.0" },
 });
-for (const [pathName, path] of Object.entries(document.paths))
-  for (const operation of Object.values(path ?? {})) {
-    if (!operation || typeof operation !== "object" || !("security" in operation)) continue;
-    const secured = operation as { security?: Array<Record<string, string[]>> };
-    const bearerApplicable =
-      pathName.includes("{eventId}") ||
-      pathName === "/api/session" ||
-      pathName === "/api/events" ||
-      pathName === "/api/events/assigned";
-    if (bearerApplicable && secured.security?.some((entry) => "sessionCookie" in entry))
-      secured.security.push({ eventBearer: [] });
-  }
 const patchOperation = document.paths["/api/events/{eventId}/prospects/{prospectId}"]?.patch as
   | { requestBody?: { content?: Record<string, { schema?: { minProperties?: number } }> } }
   | undefined;

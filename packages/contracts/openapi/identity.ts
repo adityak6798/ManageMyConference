@@ -75,7 +75,7 @@ export const identityPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/session",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       responses: {
         200: {
           description: "Current identity and capabilities",

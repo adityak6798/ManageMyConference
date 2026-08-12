@@ -137,7 +137,40 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Reference: trace-123");
+    expect(
+      screen.getByRole("heading", { name: "Demo mode: choose a workspace role" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue as organizer" })).toBeEnabled();
+  });
+
+  it("lets an expired production challenge return to code issuance", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/config")) return jsonResponse({ demoMode: false });
+        if (url.endsWith("/api/auth/code"))
+          return jsonResponse({ challenge: "signed-challenge" }, 202);
+        return jsonResponse(
+          {
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Sign in to continue.",
+              correlationId: "trace-production",
+            },
+          },
+          401,
+        );
+      }),
+    );
+    render(<App />);
+
+    const email = await screen.findByLabelText("Email address");
+    fireEvent.change(email, { target: { value: "organizer@greenroom.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Email me a code" }));
+    expect(await screen.findByLabelText("Six-digit code")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Request a new code" }));
+    expect(await screen.findByLabelText("Email address")).toHaveValue("organizer@greenroom.test");
   });
 
   it("switches identities and renders role-limited navigation", async () => {

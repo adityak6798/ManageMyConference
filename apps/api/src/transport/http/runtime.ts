@@ -19,7 +19,12 @@ export interface StructuredLogger {
   error(fields: Record<string, unknown>, message: string): void;
 }
 
-export type Variables = { correlationId: string; actor: Actor | null; operation: string };
+export type Variables = {
+  correlationId: string;
+  actor: Actor | null;
+  authentication: "none" | "session" | "bearer" | "demo";
+  operation: string;
+};
 
 /** The Hono context every route handler in this transport receives. */
 export type HttpContext = Context<{ Variables: Variables }>;

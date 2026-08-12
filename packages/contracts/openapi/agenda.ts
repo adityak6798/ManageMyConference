@@ -20,7 +20,7 @@ export const agendaPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/agenda",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: agendaIdParamsSchema },
       responses: {
         200: {
@@ -37,7 +37,7 @@ export const agendaPaths: OpenApiFragment = {
     registry.registerPath({
       method: "put",
       path: "/api/events/{eventId}/agenda/resources",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: agendaIdParamsSchema,
         body: { required: true, content: json(agendaResourcesSchema) },
@@ -57,7 +57,7 @@ export const agendaPaths: OpenApiFragment = {
     registry.registerPath({
       method: "put",
       path: "/api/events/{eventId}/agenda/placements/{placementId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: agendaIdParamsSchema.extend({ placementId: z.string() }),
         body: { required: true, content: json(agendaPlacementSchema) },
@@ -77,7 +77,7 @@ export const agendaPaths: OpenApiFragment = {
     registry.registerPath({
       method: "delete",
       path: "/api/events/{eventId}/agenda/placements/{placementId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: agendaIdParamsSchema.extend({ placementId: z.string() }) },
       responses: {
         204: { description: "Placement removed" },
@@ -91,7 +91,7 @@ export const agendaPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/agenda/publications",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: agendaIdParamsSchema },
       responses: {
         201: {

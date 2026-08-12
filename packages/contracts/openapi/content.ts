@@ -33,7 +33,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/content",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventContentParamsSchema },
       responses: {
         200: {
@@ -51,7 +51,7 @@ export const contentPaths: OpenApiFragment = {
       path: "/api/events/{eventId}/content/accept",
       description:
         "Turns a proposal that carries an accepted review decision into a session. Title, abstract, format and speaker identity are resolved server-side; unknown proposals answer 404 and undecided ones 409.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: eventContentParamsSchema,
         body: { required: true, content: json(acceptContentInputSchema) },
@@ -72,7 +72,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "patch",
       path: "/api/speaker-profiles/{profileId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: profileParamsSchema,
         body: { required: true, content: json(updateSpeakerProfileInputSchema) },
@@ -93,7 +93,7 @@ export const contentPaths: OpenApiFragment = {
       path: "/api/speaker-profiles/{profileId}/photo",
       description:
         "Records which of this speaker's own uploads is their headshot. The owning speaker or an organizer of the event may set it; anybody else is refused exactly like a profile that does not exist. It changes no asset visibility: a private upload stays private and the public page shows initials until an organizer marks that asset publishable. A file belonging to another profile, or one that is not an image, answers 400 naming `assetId`.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: profileParamsSchema,
         body: { required: true, content: json(setSpeakerPhotoInputSchema) },
@@ -114,7 +114,7 @@ export const contentPaths: OpenApiFragment = {
       path: "/api/speaker-profiles/{profileId}/photo",
       description:
         "Removes the headshot choice and leaves the uploaded file in place. Same authority as setting it.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: profileParamsSchema },
       responses: {
         200: {
@@ -130,7 +130,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/tasks/{taskId}/complete",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventContentParamsSchema.merge(taskParamsSchema) },
       responses: {
         200: { description: "Completed speaker task", content: json(contentWorkspaceSchema) },
@@ -143,7 +143,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/speaker-assets",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { body: { required: true, content: json(uploadSpeakerAssetInputSchema) } },
       responses: {
         201: {
@@ -180,7 +180,7 @@ export const contentPaths: OpenApiFragment = {
       path: "/api/speaker-assets/{assetId}",
       // The uploading speaker or an organizer of the event. An unknown id and an asset on
       // another event are refused identically, so neither can be told from the other.
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: speakerAssetParamsSchema },
       responses: {
         204: { description: "Asset row and stored object removed" },
@@ -193,7 +193,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/speaker-assets/{assetId}/publish",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: speakerAssetParamsSchema },
       responses: {
         200: {
@@ -209,7 +209,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/speaker-assets/{assetId}/unpublish",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: speakerAssetParamsSchema },
       responses: {
         200: {
@@ -225,7 +225,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "patch",
       path: "/api/content-sessions/{sessionId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: contentSessionParamsSchema,
         body: { required: true, content: json(updateContentSessionInputSchema) },
@@ -246,7 +246,7 @@ export const contentPaths: OpenApiFragment = {
       path: "/api/content-sessions/{sessionId}",
       description:
         "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone, and the withdrawn session leaves the public page at the next publish because published snapshots are immutable. Answers the refreshed content workspace.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: contentSessionParamsSchema },
       responses: {
         200: {
@@ -262,7 +262,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/speaker-tasks",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { body: { required: true, content: json(requestSpeakerTaskInputSchema) } },
       responses: {
         201: {
@@ -278,7 +278,7 @@ export const contentPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/speaker-messages",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { body: { required: true, content: json(recordSpeakerMessageInputSchema) } },
       responses: {
         201: {
@@ -296,7 +296,7 @@ export const contentPaths: OpenApiFragment = {
       path: "/api/events/{eventId}/speaker-calendar.ics",
       description:
         "RFC 5545 stream of the speaker's scheduled sessions. Answers 404 when none is scheduled, because section 3.4 requires a VCALENDAR to carry at least one component.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventContentParamsSchema },
       responses: {
         200: {

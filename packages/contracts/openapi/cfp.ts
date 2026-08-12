@@ -20,7 +20,7 @@ export const cfpPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/cfp",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventIdParamsSchema },
       responses: {
         200: { description: "Editable CFP and published state", content: json(cfpResponseSchema) },
@@ -34,7 +34,7 @@ export const cfpPaths: OpenApiFragment = {
     registry.registerPath({
       method: "put",
       path: "/api/events/{eventId}/cfp",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: eventIdParamsSchema,
         body: { required: true, content: json(saveCfpInputSchema) },
@@ -50,7 +50,7 @@ export const cfpPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/cfp/state",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: eventIdParamsSchema,
         body: { required: true, content: json(cfpStateInputSchema) },

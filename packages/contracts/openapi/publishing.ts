@@ -50,7 +50,7 @@ export const publishingPaths: OpenApiFragment = {
       registry.registerPath({
         method: action === "preview" ? "get" : "post",
         path: `/api/publishing/events/{eventId}/${action}`,
-        security: [{ sessionCookie: [] }],
+        security: [{ sessionCookie: [] }, { eventBearer: [] }],
         request: { params: eventIdParamsSchema },
         responses: {
           200: {

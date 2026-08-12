@@ -18,21 +18,32 @@ const resolveActor = async (userId: string) =>
 describe("production authentication tokens", () => {
   it("exchanges an emailed code without exposing the code in the challenge", async () => {
     const issued = await createLoginChallenge("organizer@greenroom.test", secret, 2_000);
+    const consumer = () => {
+      let consumed = false;
+      return async (_id: string, proof: string, now: number) => {
+        if (consumed || now >= 2_000 || proof !== issued.codeProof) return null;
+        consumed = true;
+        return issued.email;
+      };
+    };
+    expect(issued.challenge).not.toContain(issued.code);
+    await expect(
+      exchangeLoginChallenge(issued.challenge, "000000", secret, 1_000, consumer()),
+    ).resolves.toBeNull();
+    await expect(
+      exchangeLoginChallenge(issued.challenge, issued.code, secret, 2_000, consumer()),
+    ).resolves.toBeNull();
     let consumed = false;
     const consume = async (_id: string, proof: string, now: number) => {
       if (consumed || now >= 2_000 || proof !== issued.codeProof) return null;
       consumed = true;
       return issued.email;
     };
-    expect(issued.challenge).not.toContain(issued.code);
     await expect(
       exchangeLoginChallenge(issued.challenge, issued.code, secret, 1_000, consume),
     ).resolves.toBe(issued.email);
     await expect(
-      exchangeLoginChallenge(issued.challenge, "000000", secret, 1_000, consume),
-    ).resolves.toBeNull();
-    await expect(
-      exchangeLoginChallenge(issued.challenge, issued.code, secret, 2_000, consume),
+      exchangeLoginChallenge(issued.challenge, issued.code, secret, 1_000, consume),
     ).resolves.toBeNull();
   });
 

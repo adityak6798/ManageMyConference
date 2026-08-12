@@ -145,6 +145,8 @@ export const identityRoutes: RouteModule = {
           ),
           404,
         );
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to create a token");
       const parsed = eventTokenRequestSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(

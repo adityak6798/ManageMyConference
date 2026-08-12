@@ -20,7 +20,7 @@ export const eventsPaths: OpenApiFragment = {
       path: "/api/events/assigned",
       // Requires a session and answers 401 without one, which is why it is not under
       // `/api/public`: nothing in that namespace may demand a session.
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       responses: {
         200: {
           description: "Events the session holds any role on",
@@ -33,7 +33,7 @@ export const eventsPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventIdParamsSchema },
       responses: {
         200: {
@@ -50,7 +50,7 @@ export const eventsPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       responses: {
         200: { description: "Events", content: json(eventListResponseSchema) },
         401: errorResponse,

@@ -58,7 +58,10 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
 }
 
 export function runtimeAuth(
-  environment: Pick<Environment, "DEMO_MODE" | "SESSION_SECRET" | "ENVIRONMENT">,
+  environment: Pick<
+    Environment,
+    "DEMO_MODE" | "SESSION_SECRET" | "ENVIRONMENT" | "AUTH_EMAIL_ENDPOINT" | "AUTH_EMAIL_TOKEN"
+  >,
 ) {
   const demoMode = environment.DEMO_MODE === "true";
   if (demoMode && environment.ENVIRONMENT !== "development")
@@ -67,6 +70,10 @@ export function runtimeAuth(
     throw new Error("Authentication requires a non-default SESSION_SECRET binding");
   if (demoMode)
     return { demoMode: true as const, sessionSecret: environment.SESSION_SECRET as string };
+  if (!environment.AUTH_EMAIL_ENDPOINT || !environment.AUTH_EMAIL_TOKEN)
+    throw new Error(
+      "Production authentication requires AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN bindings",
+    );
   return { demoMode: false as const, sessionSecret: environment.SESSION_SECRET };
 }
 

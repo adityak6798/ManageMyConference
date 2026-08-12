@@ -22,7 +22,7 @@ export const communicationsPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/communications/templates",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { body: { required: true, content: json(createTemplateInputSchema) } },
       responses: {
         201: { description: "Immutable template version", content: json(templateResponseSchema) },
@@ -35,7 +35,7 @@ export const communicationsPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/communications/deliveries",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { body: { required: true, content: json(triggerDeliveryInputSchema) } },
       responses: {
         202: { description: "Queued or existing delivery", content: json(deliveryResponseSchema) },
@@ -49,7 +49,7 @@ export const communicationsPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/communications/history",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { query: communicationsHistoryParamsSchema },
       responses: {
         200: {
@@ -65,7 +65,7 @@ export const communicationsPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/communications/deliveries/{deliveryId}/retry",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: deliveryIdParamsSchema,
         query: retryDeliveryInputSchema,

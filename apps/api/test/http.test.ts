@@ -9,6 +9,7 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
+import { createEventToken } from "../src/application/identity/real-auth";
 import type { Actor, Capability } from "../src/application/identity/actor";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import { createHttpApp, type StructuredLogger } from "../src/transport/http/app";
@@ -472,6 +473,31 @@ describe("events HTTP transport", () => {
     expect(verified.status).toBe(200);
     const cookie = verified.headers.get("set-cookie")?.split(";")[0] ?? "";
     expect((await app.request("/api/session", { headers: { cookie } })).status).toBe(200);
+    const tokenRequest = JSON.stringify({ eventId: "00000000-0000-4000-8000-000000000001" });
+    expect(
+      (
+        await app.request("/api/auth/tokens", {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: tokenRequest,
+        })
+      ).status,
+    ).toBe(201);
+    const bearer = await createEventToken(
+      actor.id,
+      "00000000-0000-4000-8000-000000000001",
+      secret,
+      2_000,
+    );
+    expect(
+      (
+        await app.request("/api/auth/tokens", {
+          method: "POST",
+          headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
+          body: tokenRequest,
+        })
+      ).status,
+    ).toBe(401);
   });
 
   it("returns the standard envelope for unknown routes", async () => {

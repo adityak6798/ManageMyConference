@@ -894,6 +894,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "requestBody": {
@@ -1371,6 +1374,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -1844,6 +1850,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -2302,6 +2311,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "requestBody": {
@@ -2646,6 +2658,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -3043,6 +3058,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -4000,9 +4018,6 @@
         "security": [
           {
             "sessionCookie": []
-          },
-          {
-            "eventBearer": []
           }
         ],
         "requestBody": {
@@ -20976,6 +20991,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "requestBody": {
@@ -21490,6 +21508,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -21727,6 +21748,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -22023,6 +22047,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -22319,6 +22346,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "requestBody": {
@@ -22613,6 +22643,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -22948,6 +22981,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -23265,6 +23301,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "parameters": [
@@ -23564,6 +23603,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "eventBearer": []
           }
         ],
         "requestBody": {

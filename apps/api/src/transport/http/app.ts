@@ -68,6 +68,10 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
     const authorization = context.req.header("authorization");
     const bearer = authorization?.match(/^Bearer (\S+)$/i)?.[1];
     context.set(
+      "authentication",
+      auth.demoMode ? "demo" : authorization ? (bearer ? "bearer" : "none") : "session",
+    );
+    context.set(
       "actor",
       auth.demoMode
         ? await resolveDemoSession(
@@ -94,6 +98,7 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
                 auth.resolveActor,
               ),
     );
+    if (!context.get("actor")) context.set("authentication", "none");
     context.set("operation", `${context.req.method} ${context.req.path}`);
     context.header("x-correlation-id", correlationId);
     const startedAt = Date.now();

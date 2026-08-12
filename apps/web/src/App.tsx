@@ -323,7 +323,7 @@ export function App() {
       <main className="page-body" style={{ maxWidth: 560, margin: "12vh auto" }}>
         <PageHeader
           eyebrow="Project Greenroom"
-          title={demoMode ? "Choose a workspace role" : "Sign in to Greenroom"}
+          title={demoMode ? "Demo mode: choose a workspace role" : "Sign in to Greenroom"}
           subtitle={
             demoMode
               ? "Each seeded identity sees exactly the access its role grants."
@@ -368,6 +368,19 @@ export function App() {
               <button type="submit" disabled={busy}>
                 {challenge ? "Sign in" : "Email me a code"}
               </button>
+              {challenge ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setChallenge("");
+                    setCode("");
+                    setError(null);
+                  }}
+                >
+                  Request a new code
+                </button>
+              ) : null}
             </form>
           )}
           {error ? (

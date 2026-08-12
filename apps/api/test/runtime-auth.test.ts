@@ -6,7 +6,22 @@ import { clientAddress, FixedWindowThrottle } from "../src/transport/http/thrott
 describe("runtimeAuth", () => {
   it("requires explicit safe demo configuration", () => {
     expect(() => runtimeAuth({})).toThrow("non-default SESSION_SECRET");
-    expect(runtimeAuth({ SESSION_SECRET: "safe-unique-key" })).toEqual({
+    expect(() => runtimeAuth({ SESSION_SECRET: "safe-unique-key" })).toThrow(
+      "AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN",
+    );
+    expect(() =>
+      runtimeAuth({
+        SESSION_SECRET: "safe-unique-key",
+        AUTH_EMAIL_ENDPOINT: "https://email.example.test/send",
+      }),
+    ).toThrow("AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN");
+    expect(
+      runtimeAuth({
+        SESSION_SECRET: "safe-unique-key",
+        AUTH_EMAIL_ENDPOINT: "https://email.example.test/send",
+        AUTH_EMAIL_TOKEN: "provider-token",
+      }),
+    ).toEqual({
       demoMode: false,
       sessionSecret: "safe-unique-key",
     });
