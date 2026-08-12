@@ -99,6 +99,7 @@ export const {
   outboundProjectionState,
   publicEventProjections,
   reviewAssignments,
+  reviewAssignmentCaps,
   reviewConflicts,
   reviewDecisions,
   reviewEvaluations,

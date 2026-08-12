@@ -1,9 +1,12 @@
 import {
+  advanceReviewRoundInputSchema,
+  advanceReviewRoundResponseSchema,
   type ApiErrorEnvelope,
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
+  distributeReviewersInputSchema,
   evaluationResponseSchema,
   type OrganizerReviewWorkspaceDto,
   organizerReviewWorkspaceSchema,
@@ -77,6 +80,30 @@ export async function assignReviewer(
       json(assignReviewersInputSchema.parse(input)),
     ),
     reviewAssignmentsResponseSchema,
+  );
+}
+export async function distributeReviewers(
+  eventId: string,
+  input: z.input<typeof distributeReviewersInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/assignments/distribute`,
+      json(distributeReviewersInputSchema.parse(input)),
+    ),
+    reviewAssignmentsResponseSchema,
+  );
+}
+export async function advanceReviewRound(
+  eventId: string,
+  input: z.input<typeof advanceReviewRoundInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/rounds`,
+      json(advanceReviewRoundInputSchema.parse(input)),
+    ),
+    advanceReviewRoundResponseSchema,
   );
 }
 /**

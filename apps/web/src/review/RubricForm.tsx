@@ -21,9 +21,17 @@ const NEW_CRITERION = () => ({
   id: `c_${crypto.randomUUID().replaceAll("-", "")}`,
   name: "",
   description: "",
+  type: "numeric" as const,
+  weight: 1,
   minScore: 1,
   maxScore: 5,
 });
+type Criterion = NonNullable<OrganizerReviewWorkspaceDto["plan"]>["criteria"][number];
+const editableCriterion = (criterion: Criterion): Criterion => {
+  if (criterion.type === "dropdown") return { ...criterion, weight: criterion.weight ?? 1 };
+  if (criterion.type === "text") return { ...criterion, weight: criterion.weight ?? 1 };
+  return { ...criterion, type: "numeric", weight: criterion.weight ?? 1 };
+};
 
 export function RubricForm({
   eventId,
@@ -35,12 +43,14 @@ export function RubricForm({
   onSaved: () => Promise<void>;
 }) {
   const planCriteria = data.plan?.criteria;
-  const [criteria, setCriteria] = useState(
-    planCriteria?.map((criterion) => ({ ...criterion })) ?? [
+  const [criteria, setCriteria] = useState<Criterion[]>(
+    planCriteria?.map(editableCriterion) ?? [
       {
         id: "primary",
         name: "Audience fit",
         description: "Overall strength for this event",
+        type: "numeric" as const,
+        weight: 1,
         minScore: 1,
         maxScore: 5,
       },
@@ -56,17 +66,19 @@ export function RubricForm({
 
   const reset = useCallback(() => {
     edited.current = false;
-    if (planCriteria) setCriteria(planCriteria.map((criterion) => ({ ...criterion })));
+    if (planCriteria) setCriteria(planCriteria.map(editableCriterion));
   }, [planCriteria]);
 
   useEffect(() => {
     if (!edited.current) reset();
   }, [reset]);
 
-  function update(index: number, patch: Partial<(typeof criteria)[number]>) {
+  function update(index: number, patch: Partial<Criterion>) {
     edited.current = true;
     setCriteria((current) =>
-      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+      current.map((item, itemIndex) =>
+        itemIndex === index ? ({ ...item, ...patch } as Criterion) : item,
+      ),
     );
   }
 
@@ -130,7 +142,12 @@ export function RubricForm({
               <dd>
                 {criterion.description}
                 <span className="sub">
-                  Scores {criterion.minScore} to {criterion.maxScore}
+                  {!criterion.type || criterion.type === "numeric"
+                    ? `Scores ${criterion.minScore} to ${criterion.maxScore}`
+                    : criterion.type === "dropdown"
+                      ? `Options: ${criterion.options.join(", ")}`
+                      : `Free text, up to ${"maxLength" in criterion ? criterion.maxLength : 1000} characters`}{" "}
+                  · Weight {criterion.weight ?? 1}
                 </span>
               </dd>
             </div>
@@ -179,27 +196,100 @@ export function RubricForm({
             />
           </div>
           <div className="field">
-            <label htmlFor={`criterion-${index}-min`}>Minimum score</label>
-            <input
-              id={`criterion-${index}-min`}
-              type="number"
-              min={0}
-              max={10}
-              value={criterion.minScore}
-              onChange={(event) => update(index, { minScore: Number(event.target.value) })}
-            />
+            <label htmlFor={`criterion-${index}-type`}>Field type</label>
+            <select
+              id={`criterion-${index}-type`}
+              value={criterion.type}
+              onChange={(event) => {
+                const common = {
+                  id: criterion.id,
+                  name: criterion.name,
+                  description: criterion.description,
+                  weight: criterion.weight,
+                };
+                const next =
+                  event.target.value === "dropdown"
+                    ? { ...common, type: "dropdown" as const, options: ["Yes", "No"] }
+                    : event.target.value === "text"
+                      ? { ...common, type: "text" as const, maxLength: 1000 }
+                      : { ...common, type: "numeric" as const, minScore: 1, maxScore: 5 };
+                edited.current = true;
+                setCriteria((current) =>
+                  current.map((item, itemIndex) => (itemIndex === index ? next : item)),
+                );
+              }}
+            >
+              <option value="numeric">Numeric rating</option>
+              <option value="dropdown">Dropdown</option>
+              <option value="text">Free text</option>
+            </select>
           </div>
           <div className="field">
-            <label htmlFor={`criterion-${index}-max`}>Maximum score</label>
+            <label htmlFor={`criterion-${index}-weight`}>Weight</label>
             <input
-              id={`criterion-${index}-max`}
+              id={`criterion-${index}-weight`}
               type="number"
-              min={1}
-              max={10}
-              value={criterion.maxScore}
-              onChange={(event) => update(index, { maxScore: Number(event.target.value) })}
+              min={0.1}
+              max={100}
+              step={0.1}
+              value={criterion.weight}
+              onChange={(event) => update(index, { weight: Number(event.target.value) })}
             />
           </div>
+          {!criterion.type || criterion.type === "numeric" ? (
+            <>
+              <div className="field">
+                <label htmlFor={`criterion-${index}-min`}>Minimum score</label>
+                <input
+                  id={`criterion-${index}-min`}
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={criterion.minScore}
+                  onChange={(event) => update(index, { minScore: Number(event.target.value) })}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor={`criterion-${index}-max`}>Maximum score</label>
+                <input
+                  id={`criterion-${index}-max`}
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={criterion.maxScore}
+                  onChange={(event) => update(index, { maxScore: Number(event.target.value) })}
+                />
+              </div>
+            </>
+          ) : criterion.type === "dropdown" ? (
+            <div className="field">
+              <label htmlFor={`criterion-${index}-options`}>Options (one per line)</label>
+              <textarea
+                id={`criterion-${index}-options`}
+                value={criterion.options.join("\n")}
+                onChange={(event) =>
+                  update(index, {
+                    options: event.target.value
+                      .split("\n")
+                      .map((value) => value.trim())
+                      .filter(Boolean),
+                  })
+                }
+              />
+            </div>
+          ) : (
+            <div className="field">
+              <label htmlFor={`criterion-${index}-length`}>Maximum characters</label>
+              <input
+                id={`criterion-${index}-length`}
+                type="number"
+                min={1}
+                max={5000}
+                value={"maxLength" in criterion ? criterion.maxLength : 1000}
+                onChange={(event) => update(index, { maxLength: Number(event.target.value) })}
+              />
+            </div>
+          )}
           <div className="rubric-row-actions">
             <button
               type="button"

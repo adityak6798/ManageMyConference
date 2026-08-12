@@ -70,6 +70,26 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
   submitter: null,
 });
 
+const withCoAuthors = (proposal: SubmittedProposal) => {
+  const answer = proposal.answers.find(({ fieldId }) => fieldId === "coauthors")?.value;
+  if (!answer) return { ...proposal, coAuthors: [] };
+  try {
+    const parsed: unknown = JSON.parse(answer);
+    if (!Array.isArray(parsed)) return { ...proposal, coAuthors: [] };
+    return {
+      ...proposal,
+      coAuthors: parsed.flatMap((item) =>
+        item && typeof item === "object" && "name" in item && "role" in item
+          ? [{ name: String(item.name), role: String(item.role) }]
+          : [],
+      ),
+    };
+  } catch {
+    // ERROR-INTENT: malformed optional authorship is shown as absent; the proposal remains readable.
+    return { ...proposal, coAuthors: [] };
+  }
+};
+
 /**
  * Why an assignment cannot be removed once it has been scored. Named here so the service and
  * the storage race path answer with the same sentence.
@@ -155,16 +175,33 @@ export class ReviewService implements AcceptedProposalQuery {
         this.reviewerLists(authorized, eventId),
         this.dependencies.repository.listDecisions(eventId),
       ]);
+    const evaluations = await this.dependencies.repository.listEvaluations(eventId);
+    const progress = reviewers.directory.map(({ id: reviewerId }) => {
+      const owned = assignments.filter((assignment) => assignment.reviewerId === reviewerId);
+      const completed = owned.filter(
+        (assignment) =>
+          evaluations.find((evaluation) => evaluation.assignmentId === assignment.id)?.state ===
+          "completed",
+      ).length;
+      return {
+        reviewerId,
+        assigned: owned.length,
+        completed,
+        outstanding: owned.length - completed,
+      };
+    });
     return {
-      proposals,
+      proposals: proposals.map(withCoAuthors),
       plan,
       assignments,
       outcomes,
+      evaluations,
       audit,
       statuses,
       reviewers: reviewers.assignable,
       reviewerDirectory: reviewers.directory,
       decisions,
+      progress,
     };
   }
 
@@ -205,6 +242,10 @@ export class ReviewService implements AcceptedProposalQuery {
     this.organizer(actor, eventId);
     if (!criteria.length)
       throw new ReviewValidationError({ criteria: ["At least one criterion is required"] });
+    if (!criteria.some((criterion) => !criterion.type || criterion.type === "numeric"))
+      throw new ReviewValidationError({
+        criteria: ["At least one numeric criterion is required for the aggregate"],
+      });
     const ids = new Set(criteria.map(({ id }) => id));
     if (ids.size !== criteria.length)
       throw new ReviewValidationError({ criteria: ["Criterion IDs must be unique"] });
@@ -236,6 +277,7 @@ export class ReviewService implements AcceptedProposalQuery {
     eventId: string,
     proposalIds: readonly string[],
     reviewerId: string,
+    round = 1,
   ): Promise<readonly ReviewAssignment[]> {
     const authorized = this.organizer(actor, eventId);
     // The organizer console has no reviewer queue, so an organizer who assigns an abstract to
@@ -259,7 +301,9 @@ export class ReviewService implements AcceptedProposalQuery {
         (proposalId) =>
           !existing.some(
             (assignment) =>
-              assignment.proposalId === proposalId && assignment.reviewerId === reviewerId,
+              assignment.proposalId === proposalId &&
+              assignment.reviewerId === reviewerId &&
+              (assignment.round ?? 1) === round,
           ),
       )
       .map((proposalId) => ({
@@ -267,6 +311,7 @@ export class ReviewService implements AcceptedProposalQuery {
         eventId,
         proposalId,
         reviewerId,
+        round,
         createdAt: now,
       }));
     try {
@@ -276,6 +321,128 @@ export class ReviewService implements AcceptedProposalQuery {
         throw new ReviewValidationError({ plan: [error.message] });
       throw error;
     }
+  }
+
+  async distribute(
+    actor: Actor | null,
+    eventId: string,
+    proposalIds: readonly string[],
+    reviewerIds: readonly string[],
+    maxAssignmentsPerReviewer: number,
+    round?: number,
+  ) {
+    const authorized = this.organizer(actor, eventId);
+    const uniqueReviewers = [...new Set(reviewerIds)].sort();
+    if (uniqueReviewers.includes(authorized.id))
+      throw new ReviewValidationError({
+        reviewerIds: ["Distribution cannot assign the organizer to their own event"],
+      });
+    for (const reviewerId of uniqueReviewers)
+      if (!(await this.dependencies.identities.isReviewerForEvent(reviewerId, eventId)))
+        throw new ReviewValidationError({
+          reviewerIds: ["Every reviewer must belong to this event"],
+        });
+    const proposals = [...new Set(proposalIds)].sort();
+    const found = await this.dependencies.proposals.findMany(eventId, proposals);
+    if (found.length !== proposals.length) throw new ReviewNotFoundError("Proposal not found");
+    const existing = await this.dependencies.repository.listAssignments(eventId);
+    const targetRound = round ?? Math.max(1, ...existing.map((item) => item.round ?? 1));
+    const counts = new Map(
+      uniqueReviewers.map((reviewerId) => [
+        reviewerId,
+        existing.filter(
+          (item) => item.reviewerId === reviewerId && (item.round ?? 1) === targetRound,
+        ).length,
+      ]),
+    );
+    const created = [];
+    const available = [...counts.values()].reduce(
+      (total, count) => total + Math.max(0, maxAssignmentsPerReviewer - count),
+      0,
+    );
+    if (available < proposals.length)
+      throw new ReviewValidationError({
+        proposalIds: ["Reviewer capacity is too small for every selected proposal"],
+      });
+    for (const proposalId of proposals) {
+      const reviewerId = uniqueReviewers
+        .filter(
+          (candidate) =>
+            (counts.get(candidate) ?? 0) < maxAssignmentsPerReviewer &&
+            !existing.some(
+              (item) =>
+                item.proposalId === proposalId &&
+                item.reviewerId === candidate &&
+                (item.round ?? 1) === targetRound,
+            ),
+        )
+        .sort(
+          (left, right) =>
+            (counts.get(left) ?? 0) - (counts.get(right) ?? 0) || left.localeCompare(right),
+        )[0];
+      if (!reviewerId)
+        throw new ReviewValidationError({ proposalIds: ["No reviewer capacity remains"] });
+      created.push({
+        id: this.dependencies.newId(),
+        eventId,
+        proposalId,
+        reviewerId,
+        round: targetRound,
+        createdAt: this.dependencies.now().toISOString(),
+      });
+      counts.set(reviewerId, (counts.get(reviewerId) ?? 0) + 1);
+    }
+    try {
+      return await this.dependencies.repository.createCappedAssignments(
+        created,
+        new Map(uniqueReviewers.map((reviewerId) => [reviewerId, maxAssignmentsPerReviewer])),
+      );
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ reviewerIds: [error.message] });
+      throw error;
+    }
+  }
+
+  async advanceRound(
+    actor: Actor | null,
+    eventId: string,
+    fromStatus: ProposalStatus,
+    reviewerIds: readonly string[],
+    maxAssignmentsPerReviewer: number,
+    currentRound: number,
+  ) {
+    this.organizer(actor, eventId);
+    const [proposals, existing] = await Promise.all([
+      this.dependencies.proposals.list(eventId, fromStatus),
+      this.dependencies.repository.listAssignments(eventId),
+    ]);
+    const round = currentRound + 1;
+    const alreadyAdvanced = existing.filter(
+      (item) =>
+        (item.round ?? 1) === round &&
+        proposals.some(({ id }) => id === item.proposalId) &&
+        reviewerIds.includes(item.reviewerId),
+    );
+    if (
+      proposals.length > 0 &&
+      new Set(alreadyAdvanced.map(({ proposalId }) => proposalId)).size === proposals.length
+    )
+      return { round, assignments: alreadyAdvanced };
+    const actualRound = Math.max(0, ...existing.map((item) => item.round ?? 1));
+    if (actualRound !== currentRound)
+      throw new ReviewValidationError({
+        currentRound: ["Review assignments changed; reload before starting another round"],
+      });
+    const assignments = await this.distribute(
+      actor,
+      eventId,
+      proposals.map(({ id }) => id),
+      reviewerIds,
+      maxAssignmentsPerReviewer,
+      round,
+    );
+    return { round, assignments };
   }
 
   /**
@@ -507,10 +674,21 @@ export class ReviewService implements AcceptedProposalQuery {
     const plan = await this.dependencies.repository.getPlan(eventId);
     if (!plan)
       throw new ReviewValidationError({ plan: ["The organizer has not configured a plan"] });
-    const scoreMap = new Map(input.scores.map((score) => [score.criterionId, score.score]));
+    const scoreMap = new Map(
+      input.scores.map((score) => [score.criterionId, score.value ?? score.score]),
+    );
     const invalid = plan.criteria.filter((criterion) => {
-      const score = scoreMap.get(criterion.id);
-      return score === undefined || score < criterion.minScore || score > criterion.maxScore;
+      const value = scoreMap.get(criterion.id);
+      if (value === undefined) return true;
+      if (!criterion.type || criterion.type === "numeric")
+        return (
+          typeof value !== "number" || value < criterion.minScore || value > criterion.maxScore
+        );
+      if (criterion.type === "dropdown")
+        return typeof value !== "string" || !criterion.options.includes(value);
+      if (criterion.type === "text")
+        return typeof value !== "string" || !value.trim() || value.length > criterion.maxLength;
+      return true;
     });
     if (
       invalid.length ||
@@ -532,10 +710,10 @@ export class ReviewService implements AcceptedProposalQuery {
     const requestedEvaluation: Evaluation = {
       assignmentId,
       reviewerId: authorized.id,
-      scores: plan.criteria.map(({ id }) => ({
-        criterionId: id,
-        score: scoreMap.get(id) as number,
-      })),
+      scores: plan.criteria.map(({ id }) => {
+        const value = scoreMap.get(id) as number | string;
+        return { criterionId: id, value, ...(typeof value === "number" ? { score: value } : {}) };
+      }),
       notes: input.notes,
       state: input.complete ? "completed" : "draft",
       updatedAt: timestamp,

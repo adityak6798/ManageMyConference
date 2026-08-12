@@ -37,6 +37,7 @@ export const proposalSchema = z.object({
    * types. `null` in the reviewer queue (blind review) and for a form that collected no email.
    */
   submitter: proposalSubmitterSchema.nullable(),
+  coAuthors: z.array(z.object({ name: z.string(), role: z.string() })).optional(),
   /** Never carries an `email`-typed answer; contact details live only in `submitter`. */
   answers: z.array(
     z.object({
@@ -85,16 +86,20 @@ export const proposalAcceptanceSchema = z.object({
   fieldErrors: z.record(z.array(z.string())),
 });
 export type ProposalAcceptanceDto = z.infer<typeof proposalAcceptanceSchema>;
-export const reviewCriterionSchema = z
-  .object({
-    id: z
-      .string()
-      .trim()
-      .min(1)
-      .max(40)
-      .regex(/^[a-z0-9_-]+$/),
-    name: z.string().trim().min(1).max(80),
-    description: z.string().trim().max(300),
+const reviewCriterionBaseSchema = z.object({
+  id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z0-9_-]+$/),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(300),
+  weight: z.number().positive().max(100).optional(),
+});
+const numericReviewCriterionSchema = reviewCriterionBaseSchema
+  .extend({
+    type: z.literal("numeric").optional(),
     minScore: z.number().int().min(0).max(10),
     maxScore: z.number().int().min(1).max(10),
   })
@@ -102,24 +107,56 @@ export const reviewCriterionSchema = z
     message: "Maximum score must exceed minimum score",
     path: ["maxScore"],
   });
+const dropdownReviewCriterionSchema = reviewCriterionBaseSchema.extend({
+  type: z.literal("dropdown"),
+  options: z.array(z.string().trim().min(1).max(80)).min(2).max(20),
+});
+const textReviewCriterionSchema = reviewCriterionBaseSchema.extend({
+  type: z.literal("text"),
+  maxLength: z.number().int().min(1).max(5000),
+});
+export const reviewCriterionSchema = z.union([
+  numericReviewCriterionSchema,
+  dropdownReviewCriterionSchema,
+  textReviewCriterionSchema,
+]);
 export const reviewPlanSchema = z.object({
   eventId: z.string().uuid(),
   criteria: z.array(reviewCriterionSchema),
   updatedAt: z.string().datetime(),
 });
 export const configureReviewPlanInputSchema = z.object({
-  criteria: z.array(reviewCriterionSchema).min(1).max(12),
+  criteria: z
+    .array(reviewCriterionSchema)
+    .min(1)
+    .max(12)
+    .refine((criteria) => criteria.some(({ type }) => !type || type === "numeric"), {
+      message: "At least one numeric criterion is required for the aggregate",
+    }),
 });
 export const reviewAssignmentSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
   proposalId: z.string().uuid(),
   reviewerId: z.string(),
+  round: z.number().int().positive(),
   createdAt: z.string().datetime(),
 });
 export const assignReviewersInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
   reviewerId: z.string().trim().min(1),
+});
+export const distributeReviewersInputSchema = z.object({
+  proposalIds: z.array(z.string().uuid()).min(1).max(100),
+  reviewerIds: z.array(z.string().trim().min(1)).min(1).max(100),
+  maxAssignmentsPerReviewer: z.number().int().positive().max(100),
+  round: z.number().int().positive().optional(),
+});
+export const advanceReviewRoundInputSchema = z.object({
+  fromStatus: proposalStatusSchema,
+  reviewerIds: z.array(z.string().trim().min(1)).min(1).max(100),
+  maxAssignmentsPerReviewer: z.number().int().positive().max(100),
+  currentRound: z.number().int().nonnegative(),
 });
 export const bulkProposalTransitionInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
@@ -137,9 +174,34 @@ export const proposalAuditSchema = z.object({
 export const reviewOutcomeSchema = z.object({
   eventId: z.string().uuid(),
   proposalId: z.string().uuid(),
+  round: z.number().int().positive(),
   completedEvaluationCount: z.number().int().nonnegative(),
   averageScore: z.number(),
   updatedAt: z.string().datetime(),
+});
+export const reviewProgressSchema = z.object({
+  reviewerId: z.string(),
+  assigned: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  outstanding: z.number().int().nonnegative(),
+});
+export const evaluationScoreSchema = z
+  .object({
+    criterionId: z.string(),
+    value: z.union([z.number(), z.string()]).optional(),
+    score: z.number().optional(),
+  })
+  .refine((item) => item.value !== undefined || item.score !== undefined, {
+    message: "A criterion value is required",
+  });
+export const evaluationSchema = z.object({
+  assignmentId: z.string().uuid(),
+  reviewerId: z.string(),
+  scores: z.array(evaluationScoreSchema),
+  notes: z.string(),
+  state: z.enum(["draft", "completed"]),
+  updatedAt: z.string().datetime(),
+  completedAt: z.string().datetime().optional(),
 });
 export const reviewerOptionSchema = z.object({ id: z.string(), name: z.string() });
 export const organizerReviewWorkspaceSchema = z.object({
@@ -147,6 +209,7 @@ export const organizerReviewWorkspaceSchema = z.object({
   plan: reviewPlanSchema.nullable(),
   assignments: z.array(reviewAssignmentSchema),
   outcomes: z.array(reviewOutcomeSchema),
+  evaluations: z.array(evaluationSchema).optional(),
   audit: z.array(proposalAuditSchema),
   statuses: z.array(proposalStatusDefinitionSchema),
   /**
@@ -166,6 +229,7 @@ export const organizerReviewWorkspaceSchema = z.object({
   // Optional so a client written against the pre-decision shape still parses this response;
   // the server always sends it.
   decisions: z.array(proposalDecisionSchema).optional(),
+  progress: z.array(reviewProgressSchema).optional(),
 });
 export const reviewConflictSchema = z.object({
   assignmentId: z.string().uuid(),
@@ -174,16 +238,6 @@ export const reviewConflictSchema = z.object({
   declaredAt: z.string().datetime(),
 });
 export const declareConflictInputSchema = z.object({ reason: z.string().trim().min(3).max(500) });
-export const evaluationScoreSchema = z.object({ criterionId: z.string(), score: z.number().int() });
-export const evaluationSchema = z.object({
-  assignmentId: z.string().uuid(),
-  reviewerId: z.string(),
-  scores: z.array(evaluationScoreSchema),
-  notes: z.string(),
-  state: z.enum(["draft", "completed"]),
-  updatedAt: z.string().datetime(),
-  completedAt: z.string().datetime().optional(),
-});
 export const saveEvaluationInputSchema = z.object({
   scores: z.array(evaluationScoreSchema),
   notes: z.string().max(5000).default(""),
@@ -199,6 +253,10 @@ export const reviewerQueueItemSchema = z.object({
 export const reviewerQueueSchema = z.object({ assignments: z.array(reviewerQueueItemSchema) });
 export const reviewPlanResponseSchema = z.object({ plan: reviewPlanSchema });
 export const reviewAssignmentsResponseSchema = z.object({
+  assignments: z.array(reviewAssignmentSchema),
+});
+export const advanceReviewRoundResponseSchema = z.object({
+  round: z.number().int().positive(),
   assignments: z.array(reviewAssignmentSchema),
 });
 /**

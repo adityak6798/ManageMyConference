@@ -14610,6 +14610,24 @@
                                           "email"
                                         ]
                                       },
+                                      "coAuthors": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "role": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "role"
+                                          ]
+                                        }
+                                      },
                                       "answers": {
                                         "type": "array",
                                         "items": {
@@ -14671,40 +14689,149 @@
                                     "criteria": {
                                       "type": "array",
                                       "items": {
-                                        "type": "object",
-                                        "properties": {
-                                          "id": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 40,
-                                            "pattern": "^[a-z0-9_-]+$"
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 40,
+                                                "pattern": "^[a-z0-9_-]+$"
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 80
+                                              },
+                                              "description": {
+                                                "type": "string",
+                                                "maxLength": 300
+                                              },
+                                              "weight": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "exclusiveMinimum": true,
+                                                "maximum": 100
+                                              },
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "numeric"
+                                                ]
+                                              },
+                                              "minScore": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 10
+                                              },
+                                              "maxScore": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 10
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "description",
+                                              "minScore",
+                                              "maxScore"
+                                            ]
                                           },
-                                          "name": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 80
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 40,
+                                                "pattern": "^[a-z0-9_-]+$"
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 80
+                                              },
+                                              "description": {
+                                                "type": "string",
+                                                "maxLength": 300
+                                              },
+                                              "weight": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "exclusiveMinimum": true,
+                                                "maximum": 100
+                                              },
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "dropdown"
+                                                ]
+                                              },
+                                              "options": {
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 80
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 20
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "description",
+                                              "type",
+                                              "options"
+                                            ]
                                           },
-                                          "description": {
-                                            "type": "string",
-                                            "maxLength": 300
-                                          },
-                                          "minScore": {
-                                            "type": "integer",
-                                            "minimum": 0,
-                                            "maximum": 10
-                                          },
-                                          "maxScore": {
-                                            "type": "integer",
-                                            "minimum": 1,
-                                            "maximum": 10
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 40,
+                                                "pattern": "^[a-z0-9_-]+$"
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 80
+                                              },
+                                              "description": {
+                                                "type": "string",
+                                                "maxLength": 300
+                                              },
+                                              "weight": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "exclusiveMinimum": true,
+                                                "maximum": 100
+                                              },
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "text"
+                                                ]
+                                              },
+                                              "maxLength": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 5000
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "description",
+                                              "type",
+                                              "maxLength"
+                                            ]
                                           }
-                                        },
-                                        "required": [
-                                          "id",
-                                          "name",
-                                          "description",
-                                          "minScore",
-                                          "maxScore"
                                         ]
                                       }
                                     },
@@ -14739,6 +14866,11 @@
                                       "reviewerId": {
                                         "type": "string"
                                       },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
+                                      },
                                       "createdAt": {
                                         "type": "string",
                                         "format": "date-time"
@@ -14749,6 +14881,7 @@
                                       "eventId",
                                       "proposalId",
                                       "reviewerId",
+                                      "round",
                                       "createdAt"
                                     ]
                                   }
@@ -14766,6 +14899,11 @@
                                         "type": "string",
                                         "format": "uuid"
                                       },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
+                                      },
                                       "completedEvaluationCount": {
                                         "type": "integer",
                                         "minimum": 0
@@ -14781,8 +14919,77 @@
                                     "required": [
                                       "eventId",
                                       "proposalId",
+                                      "round",
                                       "completedEvaluationCount",
                                       "averageScore",
+                                      "updatedAt"
+                                    ]
+                                  }
+                                },
+                                "evaluations": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "assignmentId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "reviewerId": {
+                                        "type": "string"
+                                      },
+                                      "scores": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "criterionId": {
+                                              "type": "string"
+                                            },
+                                            "value": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "number"
+                                                },
+                                                {
+                                                  "type": "string"
+                                                }
+                                              ]
+                                            },
+                                            "score": {
+                                              "type": "number"
+                                            }
+                                          },
+                                          "required": [
+                                            "criterionId"
+                                          ]
+                                        }
+                                      },
+                                      "notes": {
+                                        "type": "string"
+                                      },
+                                      "state": {
+                                        "type": "string",
+                                        "enum": [
+                                          "draft",
+                                          "completed"
+                                        ]
+                                      },
+                                      "updatedAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "completedAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      }
+                                    },
+                                    "required": [
+                                      "assignmentId",
+                                      "reviewerId",
+                                      "scores",
+                                      "notes",
+                                      "state",
                                       "updatedAt"
                                     ]
                                   }
@@ -14937,6 +15144,35 @@
                                       "decidedBy",
                                       "decidedAt",
                                       "note"
+                                    ]
+                                  }
+                                },
+                                "progress": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "reviewerId": {
+                                        "type": "string"
+                                      },
+                                      "assigned": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      },
+                                      "completed": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      },
+                                      "outstanding": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "reviewerId",
+                                      "assigned",
+                                      "completed",
+                                      "outstanding"
                                     ]
                                   }
                                 }
@@ -18712,6 +18948,11 @@
                           "reviewerId": {
                             "type": "string"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -18722,6 +18963,7 @@
                           "eventId",
                           "proposalId",
                           "reviewerId",
+                          "round",
                           "createdAt"
                         ]
                       }
@@ -19053,6 +19295,11 @@
                               "reviewerId": {
                                 "type": "string"
                               },
+                              "round": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "exclusiveMinimum": true
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -19063,6 +19310,7 @@
                               "eventId",
                               "proposalId",
                               "reviewerId",
+                              "round",
                               "createdAt"
                             ]
                           },
@@ -19102,6 +19350,24 @@
                                   "name",
                                   "email"
                                 ]
+                              },
+                              "coAuthors": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "role": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "role"
+                                  ]
+                                }
                               },
                               "answers": {
                                 "type": "array",
@@ -19163,40 +19429,149 @@
                               "criteria": {
                                 "type": "array",
                                 "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 40,
-                                      "pattern": "^[a-z0-9_-]+$"
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 40,
+                                          "pattern": "^[a-z0-9_-]+$"
+                                        },
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 80
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "maxLength": 300
+                                        },
+                                        "weight": {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "exclusiveMinimum": true,
+                                          "maximum": 100
+                                        },
+                                        "type": {
+                                          "type": "string",
+                                          "enum": [
+                                            "numeric"
+                                          ]
+                                        },
+                                        "minScore": {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 10
+                                        },
+                                        "maxScore": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 10
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "name",
+                                        "description",
+                                        "minScore",
+                                        "maxScore"
+                                      ]
                                     },
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 80
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 40,
+                                          "pattern": "^[a-z0-9_-]+$"
+                                        },
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 80
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "maxLength": 300
+                                        },
+                                        "weight": {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "exclusiveMinimum": true,
+                                          "maximum": 100
+                                        },
+                                        "type": {
+                                          "type": "string",
+                                          "enum": [
+                                            "dropdown"
+                                          ]
+                                        },
+                                        "options": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 80
+                                          },
+                                          "minItems": 2,
+                                          "maxItems": 20
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "name",
+                                        "description",
+                                        "type",
+                                        "options"
+                                      ]
                                     },
-                                    "description": {
-                                      "type": "string",
-                                      "maxLength": 300
-                                    },
-                                    "minScore": {
-                                      "type": "integer",
-                                      "minimum": 0,
-                                      "maximum": 10
-                                    },
-                                    "maxScore": {
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 10
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 40,
+                                          "pattern": "^[a-z0-9_-]+$"
+                                        },
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 80
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "maxLength": 300
+                                        },
+                                        "weight": {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "exclusiveMinimum": true,
+                                          "maximum": 100
+                                        },
+                                        "type": {
+                                          "type": "string",
+                                          "enum": [
+                                            "text"
+                                          ]
+                                        },
+                                        "maxLength": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 5000
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "name",
+                                        "description",
+                                        "type",
+                                        "maxLength"
+                                      ]
                                     }
-                                  },
-                                  "required": [
-                                    "id",
-                                    "name",
-                                    "description",
-                                    "minScore",
-                                    "maxScore"
                                   ]
                                 }
                               },
@@ -19256,13 +19631,22 @@
                                     "criterionId": {
                                       "type": "string"
                                     },
+                                    "value": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
                                     "score": {
-                                      "type": "integer"
+                                      "type": "number"
                                     }
                                   },
                                   "required": [
-                                    "criterionId",
-                                    "score"
+                                    "criterionId"
                                   ]
                                 }
                               },
@@ -19527,6 +19911,398 @@
         }
       }
     },
+    "/api/events/{eventId}/review/assignments/distribute": {
+      "post": {
+        "description": "Deterministically balances proposals across reviewers up to a per-reviewer cap.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "proposalIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "reviewerIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "maxAssignmentsPerReviewer": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 100
+                  },
+                  "round": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true
+                  }
+                },
+                "required": [
+                  "proposalIds",
+                  "reviewerIds",
+                  "maxAssignmentsPerReviewer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Distributed assignments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "assignments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "reviewerId": {
+                            "type": "string"
+                          },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "proposalId",
+                          "reviewerId",
+                          "round",
+                          "createdAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "assignments"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/events/{eventId}/review/assignments/{assignmentId}": {
       "delete": {
         "description": "Removes a review assignment, together with any draft evaluation or declared conflict hanging off it. This is how a mis-assignment is corrected and how the evaluation rubric — locked while any assignment exists — is unlocked again. Refused with 400 once that reviewer has completed their evaluation, because the score is already counted in the abstract's aggregate.",
@@ -19584,6 +20360,11 @@
                         "reviewerId": {
                           "type": "string"
                         },
+                        "round": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true
+                        },
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
@@ -19594,6 +20375,7 @@
                         "eventId",
                         "proposalId",
                         "reviewerId",
+                        "round",
                         "createdAt"
                       ]
                     }
@@ -20224,13 +21006,22 @@
                         "criterionId": {
                           "type": "string"
                         },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
                         "score": {
-                          "type": "integer"
+                          "type": "number"
                         }
                       },
                       "required": [
-                        "criterionId",
-                        "score"
+                        "criterionId"
                       ]
                     }
                   },
@@ -20277,13 +21068,22 @@
                               "criterionId": {
                                 "type": "string"
                               },
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
                               "score": {
-                                "type": "integer"
+                                "type": "number"
                               }
                             },
                             "required": [
-                              "criterionId",
-                              "score"
+                              "criterionId"
                             ]
                           }
                         },
@@ -20696,6 +21496,24 @@
                               "name",
                               "email"
                             ]
+                          },
+                          "coAuthors": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "role"
+                              ]
+                            }
                           },
                           "answers": {
                             "type": "array",
@@ -21188,6 +22006,24 @@
                               "email"
                             ]
                           },
+                          "coAuthors": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "role"
+                              ]
+                            }
+                          },
                           "answers": {
                             "type": "array",
                             "items": {
@@ -21249,40 +22085,149 @@
                         "criteria": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 40,
-                                "pattern": "^[a-z0-9_-]+$"
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[a-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  "weight": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "exclusiveMinimum": true,
+                                    "maximum": 100
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "numeric"
+                                    ]
+                                  },
+                                  "minScore": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10
+                                  },
+                                  "maxScore": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 10
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "description",
+                                  "minScore",
+                                  "maxScore"
+                                ]
                               },
-                              "name": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 80
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[a-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  "weight": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "exclusiveMinimum": true,
+                                    "maximum": 100
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "dropdown"
+                                    ]
+                                  },
+                                  "options": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 80
+                                    },
+                                    "minItems": 2,
+                                    "maxItems": 20
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "description",
+                                  "type",
+                                  "options"
+                                ]
                               },
-                              "description": {
-                                "type": "string",
-                                "maxLength": 300
-                              },
-                              "minScore": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 10
-                              },
-                              "maxScore": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "maximum": 10
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[a-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  "weight": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "exclusiveMinimum": true,
+                                    "maximum": 100
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "text"
+                                    ]
+                                  },
+                                  "maxLength": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 5000
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "description",
+                                  "type",
+                                  "maxLength"
+                                ]
                               }
-                            },
-                            "required": [
-                              "id",
-                              "name",
-                              "description",
-                              "minScore",
-                              "maxScore"
                             ]
                           }
                         },
@@ -21317,6 +22262,11 @@
                           "reviewerId": {
                             "type": "string"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -21327,6 +22277,7 @@
                           "eventId",
                           "proposalId",
                           "reviewerId",
+                          "round",
                           "createdAt"
                         ]
                       }
@@ -21344,6 +22295,11 @@
                             "type": "string",
                             "format": "uuid"
                           },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
                           "completedEvaluationCount": {
                             "type": "integer",
                             "minimum": 0
@@ -21359,8 +22315,77 @@
                         "required": [
                           "eventId",
                           "proposalId",
+                          "round",
                           "completedEvaluationCount",
                           "averageScore",
+                          "updatedAt"
+                        ]
+                      }
+                    },
+                    "evaluations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "assignmentId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "reviewerId": {
+                            "type": "string"
+                          },
+                          "scores": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "criterionId": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                "score": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "criterionId"
+                              ]
+                            }
+                          },
+                          "notes": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "draft",
+                              "completed"
+                            ]
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "completedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "assignmentId",
+                          "reviewerId",
+                          "scores",
+                          "notes",
+                          "state",
                           "updatedAt"
                         ]
                       }
@@ -21515,6 +22540,35 @@
                           "decidedBy",
                           "decidedAt",
                           "note"
+                        ]
+                      }
+                    },
+                    "progress": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "reviewerId": {
+                            "type": "string"
+                          },
+                          "assigned": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "completed": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "outstanding": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "reviewerId",
+                          "assigned",
+                          "completed",
+                          "outstanding"
                         ]
                       }
                     }
@@ -21778,40 +22832,149 @@
                   "criteria": {
                     "type": "array",
                     "items": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 40,
-                          "pattern": "^[a-z0-9_-]+$"
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 40,
+                              "pattern": "^[a-z0-9_-]+$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "weight": {
+                              "type": "number",
+                              "minimum": 0,
+                              "exclusiveMinimum": true,
+                              "maximum": 100
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "numeric"
+                              ]
+                            },
+                            "minScore": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10
+                            },
+                            "maxScore": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "description",
+                            "minScore",
+                            "maxScore"
+                          ]
                         },
-                        "name": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 80
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 40,
+                              "pattern": "^[a-z0-9_-]+$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "weight": {
+                              "type": "number",
+                              "minimum": 0,
+                              "exclusiveMinimum": true,
+                              "maximum": 100
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "dropdown"
+                              ]
+                            },
+                            "options": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "minItems": 2,
+                              "maxItems": 20
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "description",
+                            "type",
+                            "options"
+                          ]
                         },
-                        "description": {
-                          "type": "string",
-                          "maxLength": 300
-                        },
-                        "minScore": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 10
-                        },
-                        "maxScore": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 10
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 40,
+                              "pattern": "^[a-z0-9_-]+$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "weight": {
+                              "type": "number",
+                              "minimum": 0,
+                              "exclusiveMinimum": true,
+                              "maximum": 100
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            },
+                            "maxLength": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 5000
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "description",
+                            "type",
+                            "maxLength"
+                          ]
                         }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "description",
-                        "minScore",
-                        "maxScore"
                       ]
                     },
                     "minItems": 1,
@@ -21843,40 +23006,149 @@
                         "criteria": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 40,
-                                "pattern": "^[a-z0-9_-]+$"
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[a-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  "weight": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "exclusiveMinimum": true,
+                                    "maximum": 100
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "numeric"
+                                    ]
+                                  },
+                                  "minScore": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10
+                                  },
+                                  "maxScore": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 10
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "description",
+                                  "minScore",
+                                  "maxScore"
+                                ]
                               },
-                              "name": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 80
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[a-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  "weight": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "exclusiveMinimum": true,
+                                    "maximum": 100
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "dropdown"
+                                    ]
+                                  },
+                                  "options": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 80
+                                    },
+                                    "minItems": 2,
+                                    "maxItems": 20
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "description",
+                                  "type",
+                                  "options"
+                                ]
                               },
-                              "description": {
-                                "type": "string",
-                                "maxLength": 300
-                              },
-                              "minScore": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 10
-                              },
-                              "maxScore": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "maximum": 10
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[a-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  "weight": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "exclusiveMinimum": true,
+                                    "maximum": 100
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "text"
+                                    ]
+                                  },
+                                  "maxLength": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 5000
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "description",
+                                  "type",
+                                  "maxLength"
+                                ]
                               }
-                            },
-                            "required": [
-                              "id",
-                              "name",
-                              "description",
-                              "minScore",
-                              "maxScore"
                             ]
                           }
                         },
@@ -22006,6 +23278,401 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/review/rounds": {
+      "post": {
+        "description": "Advances proposals in one status into the next review round without replacing prior work.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fromStatus": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[a-z0-9_-]+$"
+                  },
+                  "reviewerIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "maxAssignmentsPerReviewer": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 100
+                  },
+                  "currentRound": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "fromStatus",
+                  "reviewerIds",
+                  "maxAssignmentsPerReviewer",
+                  "currentRound"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created next-round assignments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "round": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "exclusiveMinimum": true
+                    },
+                    "assignments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "reviewerId": {
+                            "type": "string"
+                          },
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "proposalId",
+                          "reviewerId",
+                          "round",
+                          "createdAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "round",
+                    "assignments"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {
@@ -22538,6 +24205,24 @@
                               "name",
                               "email"
                             ]
+                          },
+                          "coAuthors": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "role"
+                              ]
+                            }
                           },
                           "answers": {
                             "type": "array",
