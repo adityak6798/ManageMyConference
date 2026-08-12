@@ -479,6 +479,66 @@ describe("D1 CRM organization directory", () => {
     expect((await repository.findContact(organizationId, adaId))?.activities).toHaveLength(2);
   });
 
+  it("will not fold a duplicate from another organization into a primary in this one", async () => {
+    const migrated = await migratedRuntime("crm-merge-foreign-duplicate");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * The case the test above does *not* cover: the organization and the primary agree, and
+     * only the duplicate is foreign. Scoping the statements by the primary alone let this move
+     * another organization's private history onto a contact here and leave the foreign record
+     * live with its timeline emptied — a cross-tenant read and a data loss in one statement.
+     */
+    const foreignId = "51000000-0000-4000-8000-0000000000e1";
+    await repository.createContact(
+      contactAt(foreignId, {
+        organizationId: otherOrganizationId,
+        name: "Priya Raman",
+        email: "priya@outside.test",
+        company: "Eastwind Studio",
+        tags: ["confidential"],
+        activities: [
+          {
+            id: "71000000-0000-4000-8000-0000000000e1",
+            kind: "note",
+            summary: "Another organization's private note",
+            private: true,
+            occurredAt: "2026-08-11T12:00:00.000Z",
+            actorId: "seed-organizer",
+          },
+        ],
+      }),
+    );
+
+    await repository.mergeContacts({
+      organizationId,
+      primaryId: priyaId,
+      duplicateIds: [foreignId],
+      aliases: [],
+      activity: {
+        id: "71000000-0000-4000-8000-0000000000e2",
+        kind: "merge",
+        summary: "Merged a foreign id",
+        private: false,
+        occurredAt: "2026-08-11T12:00:00.000Z",
+        actorId: "seed-organizer",
+      },
+    });
+
+    // The primary gained only its own merge entry, and none of the foreign record's history.
+    const primary = await repository.findContact(organizationId, priyaId);
+    expect(primary?.activities.map(({ summary }) => summary)).not.toContain(
+      "Another organization's private note",
+    );
+    expect(primary?.tags).not.toContain("confidential");
+    // And the foreign record is untouched: still live, still holding its own timeline.
+    const foreign = await repository.findContact(otherOrganizationId, foreignId);
+    expect(foreign?.mergedIntoId).toBeNull();
+    expect(foreign?.activities).toHaveLength(1);
+    expect(foreign?.tags).toEqual(["confidential"]);
+  });
+
   it("writes the prospect, its contact and the directory link in one durable operation", async () => {
     const migrated = await migratedRuntime("crm-link");
     runtime = migrated.runtime;
@@ -613,5 +673,38 @@ describe("D1 CRM organization directory", () => {
         createdBy: "seed-organizer",
       }),
     ).rejects.toThrow();
+  });
+
+  it("degrades an unreadable saved definition to no criteria instead of failing the directory", async () => {
+    const migrated = await migratedRuntime("crm-segment-definitions");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * A row can predate the current shape, and nothing between the row and the SQL re-validates
+     * it. Throwing out of `listSegments` was an untranslated 500 — and because the workspace
+     * loads contacts, segments, metrics and owners together, one bad row took the whole
+     * directory page down rather than just the saved-views control.
+     */
+    const insert = (id: string, name: string, definition: string) =>
+      database
+        .prepare(
+          "INSERT INTO crm_contact_segments (id,organization_id,name,definition_json,created_at,created_by) VALUES (?,?,?,?,?,?)",
+        )
+        .bind(id, organizationId, name, definition, "2026-08-11T12:00:00.000Z", "seed-organizer")
+        .run();
+    await insert("52000000-0000-4000-8000-0000000000f1", "Corrupt", "not json at all");
+    await insert("52000000-0000-4000-8000-0000000000f2", "Older shape", '{"search":5,"tags":"x"}');
+
+    const segments = await repository.listSegments(organizationId);
+    const byName = new Map(segments.map((segment) => [segment.name, segment.filters]));
+    expect(byName.get("Corrupt")).toEqual({});
+    // A criterion of the wrong type is dropped rather than handed to `String.prototype.trim`.
+    expect(byName.get("Older shape")).toEqual({});
+    expect(byName.get("Design shortlist")).toEqual({ tags: ["design"] });
+    // And a segment that cannot be read still opens, showing everybody rather than nothing.
+    await expect(
+      repository.listContacts(organizationId, byName.get("Corrupt") ?? {}),
+    ).resolves.toHaveLength(4);
   });
 });

@@ -343,9 +343,12 @@ describe("the organization-wide speaker directory", () => {
       if (url.includes("/crm/contacts"))
         return jsonResponse(
           {
+            // The message the transport actually sends. Capability denials are redacted at
+            // `app.ts` — the reason reaches the log, never the client — so a fixture quoting
+            // the internal reason would be evidence for a response the product cannot produce.
             error: {
               code: "FORBIDDEN",
-              message: "Actor lacks crm:manage inside this organization.",
+              message: "Your account cannot perform this action.",
               correlationId: "correlation-1",
             },
           },
@@ -360,7 +363,9 @@ describe("the organization-wide speaker directory", () => {
     expect(
       await screen.findByRole("heading", { name: "The speaker directory could not be loaded" }),
     ).toBeTruthy();
-    expect(screen.getByText(/Actor lacks crm:manage inside this organization/)).toBeTruthy();
+    // The refusal and its correlation id, so a user can quote something the log can be found by.
+    expect(screen.getByText(/Your account cannot perform this action/)).toBeTruthy();
+    expect(screen.getByText(/correlation-1/)).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 });

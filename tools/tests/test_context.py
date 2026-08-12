@@ -141,11 +141,13 @@ class ContextRoutingTest(unittest.TestCase):
                 '} from "../runtime";',
                 'import "./styles/crm.css";',
                 'export type { CrmService } from "./crm-service";',
+                # Legal, if unusual: a statement boundary is a boundary wherever it falls.
+                'const ready = 1; import "node:fs";',
             ]
         )
         self.assertEqual(
             module_specifiers(content),
-            {"../runtime", "./styles/crm.css", "./crm-service"},
+            {"../runtime", "./styles/crm.css", "./crm-service", "node:fs"},
         )
 
     def test_dynamic_and_commonjs_imports_cannot_bypass_boundaries(self) -> None:

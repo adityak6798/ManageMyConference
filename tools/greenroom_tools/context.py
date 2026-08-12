@@ -286,16 +286,24 @@ def production_layer_problems(relative_path: str, manifest: dict[str, Any]) -> l
     return []
 
 
-# A static `import`/`export … from` statement, anchored to the start of a line because that is
-# the only place one can legally appear. The anchor is what keeps an ordinary string literal
-# from being read as a dependency: a domain whose vocabulary contains the word — `"import"` as a
-# CRM contact source, say — used to be reported as importing a package named `, `, because the
-# previous pattern accepted the keyword anywhere, including inside quotes. The clause between
-# the keyword and `from` may span lines but never a quote, a semicolon or a parenthesis, none of
-# which occur in an import clause and all of which mean the match has run past the statement.
+# A static `import`/`export … from` statement.
+#
+# The keyword must begin a statement — start of a line, or straight after a `;`. That is what
+# keeps an ordinary string literal from being read as a dependency: a domain whose vocabulary
+# contains the word (`"import"` as a CRM contact source, say) was reported as importing a
+# package named `, `, because the previous pattern accepted the keyword anywhere, quotes
+# included. The clause between the keyword and `from` may span lines but never a quote, a
+# semicolon or a parenthesis, none of which occur in an import clause and all of which mean the
+# match has run past the statement.
+#
+# This is a heuristic about *position*, not a rule about what is legal: `const a = 1; import
+# "node:fs";` compiles, which is why `;` is accepted as a statement boundary too. A hostile
+# formatting — an import after a `}` on one line — would still slip past, and formatting is not
+# a boundary control. The check is here to catch the imports people actually write.
 STATIC_IMPORT = re.compile(
     r"""(?mx)
-    ^[^\S\n]*(?:import|export)\b
+    (?: ^ | ; ) [^\S\n]*
+    (?:import|export)\b
     (?: [^'";()]*? \bfrom[^\S\n]* | [^\S\n]* )
     ["']([^"']+)["']
     """

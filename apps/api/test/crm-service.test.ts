@@ -1,4 +1,5 @@
 // @acceptance ACC-CRM
+import { contactListResponseSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
 import { CrmService } from "../src/application/crm/crm-service";
@@ -625,6 +626,56 @@ describe("ACC-CRM organization directory", () => {
     expect(after.activities.map(({ kind }) => kind)).toContain("import");
     // Re-importing the same file updates rather than duplicating.
     expect((await service.listContacts(organizer, organizationId)).contacts).toHaveLength(2);
+  });
+
+  it("refuses an imported row that breaks a contract bound, and keeps the response decodable", async () => {
+    const { service } = setup();
+    /*
+     * The read contract reuses the same limits the create path enforces, so a value the import
+     * let through made every later directory response fail the client's decode — and the
+     * workspace offers no way to delete the row that did it. The file still imports; the row
+     * that broke a bound is refused by name.
+     */
+    const overlong = [
+      "name,email,company,field:topic",
+      `Fine Person,fine@example.test,Northwind,${"x".repeat(300)}`,
+      `Long Field,long@example.test,Northwind,${"x".repeat(301)}`,
+      `Long Company,company@example.test,${"y".repeat(161)},ok`,
+    ].join("\n");
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "overlong.csv",
+      csv: overlong,
+    });
+    expect(preview.summary).toEqual({ create: 1, update: 0, skip: 2 });
+    expect(preview.rows[1]?.errors).toEqual([
+      'The value for "topic" is longer than 300 characters.',
+    ]);
+    expect(preview.rows[2]?.errors).toEqual(["The company is longer than 160 characters."]);
+
+    await service.importContacts(organizer, organizationId, {
+      filename: "overlong.csv",
+      csv: overlong,
+    });
+    const { contacts } = await service.listContacts(organizer, organizationId);
+    expect(contacts.map(({ email }) => email)).toEqual(["fine@example.test"]);
+    // The stored row satisfies the published read schema, which is the property that broke.
+    expect(() => contactListResponseSchema.parse({ contacts, filters: {} })).not.toThrow();
+  });
+
+  it("names the earlier row when one file imports an address twice", async () => {
+    const { service } = setup();
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "twice.csv",
+      csv: [
+        "name,email",
+        "First,dup@example.test",
+        "Other,other@example.test",
+        "Second,dup@example.test",
+      ].join("\n"),
+    });
+    // Line 4 conflicts with line 2, not with itself.
+    expect(preview.rows[2]?.errors).toEqual(["Line 2 already imports dup@example.test."]);
+    expect(preview.summary).toEqual({ create: 2, update: 0, skip: 1 });
   });
 
   it("detects near duplicates and merges them into an explicit primary, keeping history", async () => {

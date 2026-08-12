@@ -50,6 +50,15 @@ export class ContactImportInvalidError extends Error {
   }
 }
 
+/**
+ * Two sourcings of one contact into one event raced, and this is the loser.
+ *
+ * The service checks for an existing link first, but that check and the write are not one
+ * operation, so a double-submitted "Add to event" reaches the primary key. A conflict the
+ * caller can understand — and retrying reads the link the winner wrote — rather than a fault.
+ */
+export class ContactAlreadySourcedError extends Error {}
+
 /** Outreach that would send to nobody: an empty segment, or ids that match no live contact. */
 export class OutreachRecipientsEmptyError extends Error {}
 

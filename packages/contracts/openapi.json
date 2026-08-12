@@ -23588,10 +23588,36 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "notes": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
                               "type": "string"
+                            }
+                          },
+                          "fields": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 60
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "value"
+                              ]
                             }
                           },
                           "action": {
@@ -23615,7 +23641,9 @@
                           "email",
                           "company",
                           "title",
+                          "notes",
                           "tags",
+                          "fields",
                           "action",
                           "errors"
                         ]
@@ -23928,10 +23956,36 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "notes": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
                               "type": "string"
+                            }
+                          },
+                          "fields": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 60
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "value"
+                              ]
                             }
                           },
                           "action": {
@@ -23955,7 +24009,9 @@
                           "email",
                           "company",
                           "title",
+                          "notes",
                           "tags",
+                          "fields",
                           "action",
                           "errors"
                         ]

@@ -12,7 +12,11 @@
 import { normalizeEmail } from "./contact";
 
 export interface ParsedContactRow {
-  /** 1-based line number in the file, header included, so an error names the line a person sees. */
+  /**
+   * 1-based *record* number, header included — which is the physical line number for every
+   * ordinary file, and drifts from it only where an earlier quoted field contained a newline.
+   * A row number is what an error should name, and a record is what a row is.
+   */
   readonly line: number;
   readonly name: string;
   readonly email: string;
@@ -113,9 +117,46 @@ export function parseContactCsv(text: string): ParsedContactCsv {
     const name = cell("name");
     const email = normalizeEmail(cell("email"));
     if (!name) errors.push("A name is required.");
-    if (name.length > 160) errors.push("The name is longer than 160 characters.");
     if (!EMAIL.test(email)) errors.push(`"${cell("email")}" is not an email address.`);
     const optional = (column: string) => cell(column) || null;
+    const tags = [
+      ...new Set(
+        // Semicolons, because a comma inside a tag list is what quoting exists for and every
+        // spreadsheet gets it subtly wrong.
+        cell("tags")
+          .split(";")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      ),
+    ];
+    const fields = header
+      .map((column, index) => ({ column, value: (values[index] ?? "").trim() }))
+      .filter(({ column, value }) => column.startsWith("field:") && value.length > 0)
+      .map(({ column, value }) => ({ key: column.slice("field:".length), value }));
+    /*
+     * The same bounds the hand-typed create path enforces through `createContactInputSchema`.
+     *
+     * They are checked here rather than only there because a spreadsheet is the one way a value
+     * reaches storage without passing that schema, and the *read* contract reuses the same
+     * limits: one over-long custom field committed by an import made every later directory
+     * response fail the client's decode, with no way back through the UI. A row that breaks a
+     * bound is refused by name and the rest of the file still imports.
+     */
+    for (const [label, value, limit] of [
+      ["name", name, 160],
+      ["company", cell("company"), 160],
+      ["title", cell("title"), 160],
+      ["notes", cell("notes"), 4000],
+    ] as const)
+      if (value.length > limit) errors.push(`The ${label} is longer than ${limit} characters.`);
+    for (const tag of tags)
+      if (tag.length > 40) errors.push(`The tag "${tag}" is longer than 40 characters.`);
+    for (const field of fields) {
+      if (field.key.length > 60)
+        errors.push(`The column "field:${field.key}" names a field longer than 60 characters.`);
+      if (field.value.length > 300)
+        errors.push(`The value for "${field.key}" is longer than 300 characters.`);
+    }
     rows.push({
       line,
       name,
@@ -123,20 +164,8 @@ export function parseContactCsv(text: string): ParsedContactCsv {
       company: optional("company"),
       title: optional("title"),
       notes: optional("notes"),
-      // Semicolons, because a comma inside a tag list is what quoting exists for and every
-      // spreadsheet gets it subtly wrong.
-      tags: [
-        ...new Set(
-          cell("tags")
-            .split(";")
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        ),
-      ],
-      fields: header
-        .map((column, index) => ({ column, value: (values[index] ?? "").trim() }))
-        .filter(({ column, value }) => column.startsWith("field:") && value.length > 0)
-        .map(({ column, value }) => ({ key: column.slice("field:".length), value })),
+      tags,
+      fields,
       errors,
     });
   }

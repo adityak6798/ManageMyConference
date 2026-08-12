@@ -2,6 +2,7 @@ export { CrmService } from "./crm-service";
 export type { EventOrganizationDirectory } from "./crm-service";
 export type { OutreachDispatchPort, OutreachMessage } from "./outreach-dispatch";
 export {
+  ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactImportInvalidError,
   ContactMergeInvalidError,

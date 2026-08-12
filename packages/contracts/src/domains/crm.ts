@@ -273,13 +273,21 @@ export const createSegmentInputSchema = z.object({
 export const segmentResponseSchema = z.object({ segment: contactSegmentSchema });
 export const segmentListResponseSchema = z.object({ segments: z.array(contactSegmentSchema) });
 
+/**
+ * One row as the parser read it. Every field the preview resolves is declared, `notes` and
+ * `fields` included: the client decodes non-strictly, so a field missing here is silently
+ * dropped on the way to the screen, and an organizer would have approved a preview that did not
+ * mention the notes and custom columns the commit was about to write.
+ */
 export const contactImportRowSchema = z.object({
   line: z.number().int().positive(),
   name: z.string(),
   email: z.string(),
   company: z.string().nullable(),
   title: z.string().nullable(),
+  notes: z.string().nullable(),
   tags: z.array(z.string()),
+  fields: z.array(contactCustomFieldSchema),
   /** What committing this file would do with this row, decided against the live directory. */
   action: z.enum(["create", "update", "skip"]),
   errors: z.array(z.string()),

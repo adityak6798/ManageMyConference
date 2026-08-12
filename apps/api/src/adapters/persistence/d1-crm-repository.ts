@@ -1,5 +1,10 @@
 import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
-import { ContactNotFoundError, ProspectAlreadyConvertedError } from "../../application/crm/errors";
+import {
+  ContactAlreadySourcedError,
+  ContactEmailTakenError,
+  ContactNotFoundError,
+  ProspectAlreadyConvertedError,
+} from "../../application/crm/errors";
 import type {
   ContactActivity,
   ContactAlias,
@@ -620,14 +625,33 @@ export class D1CrmRepository implements CrmRepository {
       );
   }
 
-  private async runBatch(statements: D1Statement[], what: string) {
+  /**
+   * Run a batch, and translate the two uniqueness violations that are races rather than faults.
+   *
+   * A service-level check followed by an insert is not atomic: two organizers submitting the
+   * same address, or one double-clicking "Add to event", both pass the read and the second
+   * write meets the index. That is a caller-visible conflict the domain already has words for,
+   * so it must not surface as the redacted 500 an unhandled adapter error becomes — the whole
+   * reason `ContactEmailTakenError` exists is that this failure should name the field.
+   */
+  private async runBatch(statements: D1Statement[], what: string, conflict?: () => Error) {
     const results = await this.database.batch(statements);
     const failed = results.find((result) => !result.success);
-    if (failed) throw new Error(`D1 failed to ${what}: ${failed.error ?? "unknown error"}`);
+    if (!failed) return;
+    const reason = failed.error ?? "unknown error";
+    if (conflict && /unique|constraint failed/i.test(reason)) throw conflict();
+    throw new Error(`D1 failed to ${what}: ${reason}`);
   }
 
   async createContact(contact: OrganizationContact) {
-    await this.runBatch(this.insertContactStatements(contact), "create contact atomically");
+    await this.runBatch(
+      this.insertContactStatements(contact),
+      "create contact atomically",
+      () =>
+        new ContactEmailTakenError({
+          email: ["Another contact already holds this address. Merge the records instead."],
+        }),
+    );
   }
 
   private updateContactStatements(
@@ -717,9 +741,18 @@ export class D1CrmRepository implements CrmRepository {
     activity: ContactActivity;
   }) {
     const { organizationId, primaryId, duplicateIds } = input;
+    /*
+     * Both sides of the merge are scoped to the organization, not just the primary.
+     *
+     * `losers` resolves the duplicate ids *through* `crm_organization_contacts` filtered by
+     * organization, so an id belonging to somebody else selects nothing and moves nothing. That
+     * matters even though `CrmService.mergeContacts` already resolves every duplicate through
+     * the organization-scoped `findContact`: scoping only the primary made this statement's
+     * defence a claim rather than a fact, and a caller reaching the adapter directly could move
+     * another organization's private history onto a contact here.
+     */
     const list = duplicateIds.map(() => "?").join(",");
-    // Every statement is additionally scoped to the organization through a subquery, so an id
-    // from elsewhere folds nothing away even if it reached this far.
+    const losers = `SELECT id FROM crm_organization_contacts WHERE id IN (${list}) AND organization_id = ?`;
     const owned = `AND EXISTS (SELECT 1 FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?)`;
     await this.runBatch(
       [
@@ -741,27 +774,27 @@ export class D1CrmRepository implements CrmRepository {
         ),
         this.database
           .prepare(
-            `UPDATE crm_contact_activities SET contact_id = ? WHERE contact_id IN (${list}) ${owned}`,
+            `UPDATE crm_contact_activities SET contact_id = ? WHERE contact_id IN (${losers}) ${owned}`,
           )
-          .bind(primaryId, ...duplicateIds, primaryId, organizationId),
+          .bind(primaryId, ...duplicateIds, organizationId, primaryId, organizationId),
         // `OR IGNORE`: when both records were sourced into the same event, the primary already
         // holds that link and the loser's stays on the merged-away row rather than being
         // dropped. Nothing is deleted either way.
         this.database
           .prepare(
-            `UPDATE OR IGNORE crm_contact_events SET contact_id = ? WHERE contact_id IN (${list}) ${owned}`,
+            `UPDATE OR IGNORE crm_contact_events SET contact_id = ? WHERE contact_id IN (${losers}) ${owned}`,
           )
-          .bind(primaryId, ...duplicateIds, primaryId, organizationId),
+          .bind(primaryId, ...duplicateIds, organizationId, primaryId, organizationId),
         this.database
           .prepare(
-            `INSERT OR IGNORE INTO crm_contact_tags (contact_id,tag) SELECT ?, tag FROM crm_contact_tags WHERE contact_id IN (${list}) ${owned}`,
+            `INSERT OR IGNORE INTO crm_contact_tags (contact_id,tag) SELECT ?, tag FROM crm_contact_tags WHERE contact_id IN (${losers}) ${owned}`,
           )
-          .bind(primaryId, ...duplicateIds, primaryId, organizationId),
+          .bind(primaryId, ...duplicateIds, organizationId, primaryId, organizationId),
         this.database
           .prepare(
-            `INSERT OR IGNORE INTO crm_contact_fields (contact_id,field_key,field_value) SELECT ?, field_key, field_value FROM crm_contact_fields WHERE contact_id IN (${list}) ${owned}`,
+            `INSERT OR IGNORE INTO crm_contact_fields (contact_id,field_key,field_value) SELECT ?, field_key, field_value FROM crm_contact_fields WHERE contact_id IN (${losers}) ${owned}`,
           )
-          .bind(primaryId, ...duplicateIds, primaryId, organizationId),
+          .bind(primaryId, ...duplicateIds, organizationId, primaryId, organizationId),
         this.database
           .prepare(
             `UPDATE crm_organization_contacts SET merged_into_id = ?, updated_at = ? WHERE id IN (${list}) AND organization_id = ? AND merged_into_id IS NULL`,
@@ -913,8 +946,47 @@ export class D1CrmRepository implements CrmRepository {
         this.contactActivityStatement(contact.id, input.activity),
       ],
       "source the contact into the event atomically",
+      // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
+      // event_id)`. Reported as the conflict it is rather than as a server fault.
+      () => new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
     );
   }
+}
+
+/**
+ * A stored filter definition, narrowed to the criteria this version understands.
+ *
+ * Every value is checked rather than asserted, because a row can predate the current shape and
+ * nothing between here and the SQL re-validates it: an unreadable definition used to throw out
+ * of `listSegments` as an untranslated 500, and since the workspace loads contacts, segments,
+ * metrics and owners together, that took the whole directory page down over one bad row. A
+ * definition that cannot be read now degrades to "no criteria" — the segment still opens, and
+ * shows everybody rather than nothing, which is the safe direction for a saved view.
+ */
+function toFilters(definition: string): ContactSegment["filters"] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(definition);
+  } catch {
+    // ERROR-INTENT: an unreadable stored definition degrades to no criteria rather than failing the directory.
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const source = parsed as Record<string, unknown>;
+  const text = (key: string) =>
+    typeof source[key] === "string" ? (source[key] as string) : undefined;
+  const tags = Array.isArray(source.tags)
+    ? source.tags.filter((tag): tag is string => typeof tag === "string")
+    : undefined;
+  return {
+    ...(text("search") ? { search: text("search") } : {}),
+    ...(text("company") ? { company: text("company") } : {}),
+    ...(text("title") ? { title: text("title") } : {}),
+    ...(tags?.length ? { tags } : {}),
+    ...(text("fieldKey") ? { fieldKey: text("fieldKey") } : {}),
+    ...(text("fieldValue") ? { fieldValue: text("fieldValue") } : {}),
+    ...(text("eventId") ? { eventId: text("eventId") } : {}),
+  };
 }
 
 function toSegment(row: SegmentRow): ContactSegment {
@@ -922,9 +994,7 @@ function toSegment(row: SegmentRow): ContactSegment {
     id: row.id,
     organizationId: row.organization_id,
     name: row.name,
-    // Stored as the definition the organizer saved. Parsed rather than trusted as a shape:
-    // the transport re-validates it against `contactFiltersSchema` before it reaches a query.
-    filters: JSON.parse(row.definition_json) as ContactSegment["filters"],
+    filters: toFilters(row.definition_json),
     createdAt: row.created_at,
     createdBy: row.created_by,
   };

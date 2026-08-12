@@ -464,11 +464,14 @@ export class CrmService {
     const seen = new Map<string, number>();
     const rows: (ParsedContactRow & { action: "create" | "update" | "skip" })[] = [];
     for (const row of parsed) {
-      const duplicateOfEarlierRow = seen.has(row.email);
-      seen.set(row.email, row.line);
-      const errors = duplicateOfEarlierRow
-        ? [...row.errors, `Line ${seen.get(row.email)} already imports ${row.email}.`]
-        : row.errors;
+      // Read before overwriting: the useful half of this message is the *earlier* row that
+      // already claimed the address, and setting first made it name the offending row itself.
+      const claimedBy = seen.get(row.email);
+      seen.set(row.email, claimedBy ?? row.line);
+      const errors =
+        claimedBy === undefined
+          ? row.errors
+          : [...row.errors, `Line ${claimedBy} already imports ${row.email}.`];
       const existing = errors.length
         ? null
         : await this.dependencies.repository.findContactByEmail(organizationId, row.email);
@@ -492,6 +495,20 @@ export class CrmService {
     input: { filename: string; csv: string },
   ): Promise<ImportPreview> {
     await this.requireOrganization(actor, organizationId);
+    return this.buildPreview(organizationId, input);
+  }
+
+  /**
+   * The preview itself, for a caller that has already been authorized.
+   *
+   * `importContacts` needs the same answer and used to get it by calling `previewImport`, which
+   * re-ran the organization check — and that check costs a database round trip per event the
+   * actor can reach, so the import paid the whole fan-out twice.
+   */
+  private async buildPreview(
+    organizationId: string,
+    input: { filename: string; csv: string },
+  ): Promise<ImportPreview> {
     const parsed = parseContactCsv(input.csv);
     if (parsed.rows.length === 0 && parsed.errors.length > 0)
       throw new ContactImportInvalidError({ csv: [...parsed.errors] });
@@ -518,7 +535,7 @@ export class CrmService {
     rejected: ImportPreview["rows"];
   }> {
     const authorized = await this.requireOrganization(actor, organizationId);
-    const preview = await this.previewImport(authorized, organizationId, input);
+    const preview = await this.buildPreview(organizationId, input);
     const now = this.dependencies.now().toISOString();
     const activity = (summary: string): ContactActivity => ({
       id: this.dependencies.newId(),
