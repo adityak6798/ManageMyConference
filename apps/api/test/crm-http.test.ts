@@ -65,6 +65,10 @@ const setup = () => {
     events: {
       belongsToOrganization: async (event, organization) =>
         organization === organizationId && [eventId, otherEventId].includes(event),
+      listEventIdsInOrganization: async (organization, candidates) =>
+        organization === organizationId
+          ? candidates.filter((event) => [eventId, otherEventId].includes(event))
+          : [],
     },
     outreach: { prepare, send },
     newId: () => ids.shift() ?? crypto.randomUUID(),

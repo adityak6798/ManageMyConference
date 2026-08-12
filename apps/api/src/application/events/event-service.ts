@@ -75,4 +75,12 @@ export class EventService {
       })) !== null
     );
   }
+
+  /** Public application query for domains that must validate several event candidates at once. */
+  listEventIdsInOrganization(
+    organizationId: string,
+    candidateEventIds: readonly string[],
+  ): Promise<readonly string[]> {
+    return this.dependencies.repository.listIdsInOrganization(organizationId, candidateEventIds);
+  }
 }

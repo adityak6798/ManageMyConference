@@ -32,7 +32,10 @@ const testCrm = () =>
     // These harness cases never assign an owner; the CRM's own suites cover eligibility.
     identities: { listAssignableOwnersForEvent: async () => [] },
     // Nor do they reach the organization directory, whose own suites cover both.
-    events: { belongsToOrganization: async () => false },
+    events: {
+      belongsToOrganization: async () => false,
+      listEventIdsInOrganization: async () => [],
+    },
     outreach: {
       prepare: async () => undefined,
       send: async () => ({ deliveryId: "unused", created: true }),
@@ -202,6 +205,7 @@ describe("events HTTP transport", () => {
         create,
         list: vi.fn().mockResolvedValue([]),
         findById: vi.fn().mockResolvedValue(null),
+        listIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -409,6 +413,7 @@ describe("events HTTP transport", () => {
         create,
         list: vi.fn().mockResolvedValue([]),
         findById: vi.fn().mockResolvedValue(null),
+        listIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -638,6 +643,7 @@ describe("events HTTP transport", () => {
         create: vi.fn(),
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
         findById: vi.fn().mockResolvedValue(null),
+        listIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -691,6 +697,7 @@ describe("events HTTP transport", () => {
         create: vi.fn(),
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
         findById: vi.fn().mockResolvedValue(null),
+        listIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),

@@ -78,6 +78,45 @@ describe("EventService", () => {
     await expect(service.list(organizer)).resolves.toEqual([]);
   });
 
+  it("answers a bulk organization intersection through its public application query", async () => {
+    const repository = new MemoryEventRepository();
+    const service = new EventService({
+      repository,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const inOrganization = {
+      id: "123e4567-e89b-12d3-a456-426614174010",
+      organizationId: organizer.organizations[0]?.id ?? "",
+      name: "In organization",
+      timezone: "UTC",
+      createdAt: "2026-08-09T12:00:00.000Z",
+    };
+    const elsewhere = {
+      ...inOrganization,
+      id: "123e4567-e89b-12d3-a456-426614174020",
+      organizationId: "00000000-0000-4000-8000-000000000020",
+      name: "Elsewhere",
+    };
+    const alphabeticallyFirst = {
+      ...inOrganization,
+      id: "023e4567-e89b-12d3-a456-426614174010",
+      name: "Also in organization",
+    };
+    await repository.create(inOrganization);
+    await repository.create(elsewhere);
+    await repository.create(alphabeticallyFirst);
+
+    await expect(
+      service.listEventIdsInOrganization(inOrganization.organizationId, [
+        elsewhere.id,
+        "missing",
+        inOrganization.id,
+        alphabeticallyFirst.id,
+      ]),
+    ).resolves.toEqual([alphabeticallyFirst.id, inOrganization.id]);
+  });
+
   it("never exposes an event outside the actor's organization or event assignment", async () => {
     const repository = new MemoryEventRepository();
     const service = new EventService({

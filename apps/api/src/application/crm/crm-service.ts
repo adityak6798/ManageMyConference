@@ -172,6 +172,10 @@ export interface ImportPreview {
 /** How the CRM asks the events domain what it may not answer itself. */
 export interface EventOrganizationDirectory {
   belongsToOrganization(eventId: string, organizationId: string): Promise<boolean>;
+  listEventIdsInOrganization(
+    organizationId: string,
+    candidateEventIds: readonly string[],
+  ): Promise<readonly string[]>;
 }
 
 // @spec PRD-CRM-001 PRD-IAM-002 ARC-FLOW-003
@@ -215,12 +219,14 @@ export class CrmService {
     const authorized = requireCapability(actor, "crm:manage");
     if (!authorized.organizations.some(({ id }) => id === organizationId))
       throw new CapabilityDeniedError("Organization access denied");
-    for (const access of authorized.eventAccess)
-      if (
-        access.capabilities.has("crm:manage") &&
-        (await this.dependencies.events.belongsToOrganization(access.eventId, organizationId))
-      )
-        return authorized;
+    const candidateEventIds = authorized.eventAccess
+      .filter(({ capabilities }) => capabilities.has("crm:manage"))
+      .map(({ eventId }) => eventId);
+    if (
+      (await this.dependencies.events.listEventIdsInOrganization(organizationId, candidateEventIds))
+        .length > 0
+    )
+      return authorized;
     throw new CapabilityDeniedError("Actor lacks crm:manage inside this organization");
   }
 

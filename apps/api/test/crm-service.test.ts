@@ -117,18 +117,32 @@ const setup = () => {
     created: true,
   }));
   const prepare = vi.fn(async (_message: OutreachMessage) => undefined);
+  const belongsToOrganization = vi.fn(
+    async (event: string, organization: string) => eventOrg[event] === organization,
+  );
+  const listEventIdsInOrganization = vi.fn(
+    async (organization: string, candidateEventIds: readonly string[]) =>
+      candidateEventIds.filter((event) => eventOrg[event] === organization),
+  );
   const service = new CrmService({
     repository,
     speakerConversion: { createOrLink },
     identities: { listAssignableOwnersForEvent },
-    events: {
-      belongsToOrganization: async (event, organization) => eventOrg[event] === organization,
-    },
+    events: { belongsToOrganization, listEventIdsInOrganization },
     outreach: { prepare, send },
     newId: () => ids.shift() ?? crypto.randomUUID(),
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });
-  return { repository, service, createOrLink, listAssignableOwnersForEvent, send, prepare };
+  return {
+    repository,
+    service,
+    createOrLink,
+    listAssignableOwnersForEvent,
+    belongsToOrganization,
+    listEventIdsInOrganization,
+    send,
+    prepare,
+  };
 };
 
 describe("ACC-CRM prospect lifecycle", () => {
@@ -403,6 +417,27 @@ const contactOf = (
 ) => service.createContact(organizer, organizationId, input);
 
 describe("ACC-CRM organization directory authorization", () => {
+  it("authorizes a large event grant with one organization query", async () => {
+    const { service, belongsToOrganization, listEventIdsInOrganization } = setup();
+    const eventAccess = Array.from({ length: 40 }, (_, index) => ({
+      eventId: `bulk-event-${index}`,
+      role: "organizer" as const,
+      capabilities: new Set(["crm:manage" as const]),
+    }));
+    listEventIdsInOrganization.mockImplementation(async (organization, candidates) =>
+      organization === organizationId && candidates.includes("bulk-event-39")
+        ? ["bulk-event-39"]
+        : [],
+    );
+    await service.listContacts({ ...organizer, eventAccess }, organizationId);
+    expect(listEventIdsInOrganization).toHaveBeenCalledTimes(1);
+    expect(listEventIdsInOrganization).toHaveBeenCalledWith(
+      organizationId,
+      eventAccess.map(({ eventId: id }) => id),
+    );
+    expect(belongsToOrganization).not.toHaveBeenCalled();
+  });
+
   it("admits an organizer of this organization and refuses every neighbouring identity", async () => {
     const { service } = setup();
     await expect(service.listContacts(organizer, organizationId)).resolves.toEqual({

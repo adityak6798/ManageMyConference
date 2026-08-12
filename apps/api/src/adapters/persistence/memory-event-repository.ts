@@ -31,6 +31,14 @@ export class MemoryEventRepository implements EventRepository {
       : null;
   }
 
+  async listIdsInOrganization(organizationId: string, candidateEventIds: readonly string[]) {
+    const candidates = new Set(candidateEventIds);
+    return [...this.events.values()]
+      .filter((event) => event.organizationId === organizationId && candidates.has(event.id))
+      .map(({ id }) => id)
+      .sort((left, right) => left.localeCompare(right));
+  }
+
   reset(): void {
     this.events.clear();
   }

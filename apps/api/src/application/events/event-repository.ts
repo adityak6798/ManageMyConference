@@ -11,4 +11,9 @@ export interface EventRepository {
     eventId: string,
     scope: { organizationIds: readonly string[]; eventIds: readonly string[] },
   ): Promise<Event | null>;
+  /** Return only candidate events owned by the named organization, in one repository read. */
+  listIdsInOrganization(
+    organizationId: string,
+    candidateEventIds: readonly string[],
+  ): Promise<readonly string[]>;
 }
