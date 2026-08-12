@@ -26,9 +26,10 @@ export function ContentOperations({
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof importSpeakerCsv>> | null>(null);
   const toggle = (values: string[], id: string, set: (next: string[]) => void) =>
     set(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
-  function csv(event: FormEvent<HTMLFormElement>, commit: boolean) {
+  function csv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const commit = data.get("mode") === "import";
     void run(async () =>
       setPreview(await importSpeakerCsv(eventId, String(data.get("csv")), commit)),
     ).then((result) =>
@@ -63,29 +64,16 @@ export function ContentOperations({
         hint="Validate first; duplicates and invalid rows are never silently imported."
       >
         {feedback.node}
-        <form className="form-stack" onSubmit={(event) => csv(event, false)}>
+        <form className="form-stack" onSubmit={csv}>
           <label>
             CSV
             <textarea name="csv" rows={5} placeholder="name,email,workflowStatus" required />
           </label>
           <div className="row-actions">
-            <button type="submit" disabled={busy}>
+            <button type="submit" name="mode" value="preview" disabled={busy}>
               Preview CSV
             </button>
-            <button
-              type="button"
-              disabled={busy || !preview}
-              onClick={(event) =>
-                csv(
-                  {
-                    ...event,
-                    preventDefault() {},
-                    currentTarget: event.currentTarget.closest("form"),
-                  } as unknown as FormEvent<HTMLFormElement>,
-                  true,
-                )
-              }
-            >
+            <button type="submit" name="mode" value="import" disabled={busy || !preview}>
               Import valid rows
             </button>
           </div>

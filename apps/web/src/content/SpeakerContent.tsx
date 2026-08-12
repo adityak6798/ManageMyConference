@@ -10,15 +10,17 @@
  * that caused it instead of at the bottom of the page.
  */
 
+// biome-ignore-all lint/security/noDangerouslySetInnerHtml: the content API returns parser-sanitized markup and hostile-input tests guard this rendering boundary.
+
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import {
+  addContentComment,
   clearSpeakerProfilePhoto,
   completeSpeakerTask,
   contentFieldErrors,
   setSpeakerProfilePhoto,
   updateSpeakerProfile,
   uploadSpeakerAsset,
-  addContentComment,
 } from "../api/content";
 import "../styles/content.css";
 import {
