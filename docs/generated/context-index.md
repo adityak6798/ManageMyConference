@@ -308,6 +308,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/cfp.ts](../../packages/contracts/src/domains/cfp.ts)
 
 ### `PRD-CNT-001`

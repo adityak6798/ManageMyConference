@@ -1,6 +1,7 @@
 import {
   type CfpFormDto,
   cfpResponseSchema,
+  cfpRoutingStatusesResponseSchema,
   cfpStateInputSchema,
   proposalConfirmationResponseSchema,
   type SaveCfpInput,
@@ -41,6 +42,14 @@ export async function saveCfp(
       cfpResponseSchema,
     )
   ).cfp as CfpFormDto;
+}
+export async function loadCfpRoutingStatuses(eventId: string, fetcher: typeof fetch = fetch) {
+  return (
+    await decode(
+      await fetcher(`/api/events/${eventId}/cfp/routing-statuses`),
+      cfpRoutingStatusesResponseSchema,
+    )
+  ).statuses;
 }
 export async function changeCfpState(
   eventId: string,

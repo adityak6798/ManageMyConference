@@ -11,14 +11,18 @@ export class MemoryCfpRepository implements CfpRepository {
   findPublished(eventId: string) {
     return Promise.resolve(this.published.get(eventId) ?? null);
   }
-  saveForm(form: CfpForm) {
+  saveForm(form: CfpForm, expectedVersion: number) {
+    if ((this.forms.get(form.eventId)?.version ?? 0) !== expectedVersion)
+      return Promise.resolve(false);
     this.forms.set(form.eventId, structuredClone(form));
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
-  savePublished(form: CfpForm, updateEditable: boolean) {
+  savePublished(form: CfpForm, updateEditable: boolean, expectedVersion: number) {
+    if ((this.forms.get(form.eventId)?.version ?? 0) !== expectedVersion)
+      return Promise.resolve(false);
     this.published.set(form.eventId, structuredClone(form));
     if (updateEditable) this.forms.set(form.eventId, structuredClone(form));
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
   findSubmission(eventId: string, key: string) {
     return Promise.resolve(this.submissions.get(`${eventId}:${key}`) ?? null);

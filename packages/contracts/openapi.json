@@ -8962,6 +8962,37 @@
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 10000
+                              },
+                              "visibleWhen": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
                               }
                             },
                             "required": [
@@ -8972,6 +9003,70 @@
                           },
                           "minItems": 1,
                           "maxItems": 40
+                        },
+                        "routing": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "when": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
+                              },
+                              "routeTo": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  }
+                                },
+                                "required": [
+                                  "status"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "when",
+                              "routeTo"
+                            ]
+                          },
+                          "maxItems": 20,
+                          "default": []
                         },
                         "eventId": {
                           "type": "string",
@@ -9373,6 +9468,37 @@
                           "type": "integer",
                           "minimum": 1,
                           "maximum": 10000
+                        },
+                        "visibleWhen": {
+                          "type": "object",
+                          "properties": {
+                            "fieldId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "operator": {
+                              "type": "string",
+                              "enum": [
+                                "equals",
+                                "in",
+                                "notEmpty"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 120
+                              },
+                              "maxItems": 30,
+                              "default": []
+                            }
+                          },
+                          "required": [
+                            "fieldId",
+                            "operator"
+                          ]
                         }
                       },
                       "required": [
@@ -9383,11 +9509,80 @@
                     },
                     "minItems": 1,
                     "maxItems": 40
+                  },
+                  "routing": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "when": {
+                          "type": "object",
+                          "properties": {
+                            "fieldId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "operator": {
+                              "type": "string",
+                              "enum": [
+                                "equals",
+                                "in",
+                                "notEmpty"
+                              ]
+                            },
+                            "values": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 120
+                              },
+                              "maxItems": 30,
+                              "default": []
+                            }
+                          },
+                          "required": [
+                            "fieldId",
+                            "operator"
+                          ]
+                        },
+                        "routeTo": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            }
+                          },
+                          "required": [
+                            "status"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "when",
+                        "routeTo"
+                      ]
+                    },
+                    "maxItems": 20,
+                    "default": []
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "required": [
                   "title",
-                  "fields"
+                  "fields",
+                  "expectedVersion"
                 ]
               }
             }
@@ -9461,6 +9656,37 @@
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 10000
+                              },
+                              "visibleWhen": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
                               }
                             },
                             "required": [
@@ -9471,6 +9697,70 @@
                           },
                           "minItems": 1,
                           "maxItems": 40
+                        },
+                        "routing": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "when": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
+                              },
+                              "routeTo": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  }
+                                },
+                                "required": [
+                                  "status"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "when",
+                              "routeTo"
+                            ]
+                          },
+                          "maxItems": 20,
+                          "default": []
                         },
                         "eventId": {
                           "type": "string",
@@ -9516,6 +9806,329 @@
                   },
                   "required": [
                     "cfp"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/cfp/routing-statuses": {
+      "get": {
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configured CFP triage routing destinations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "statuses"
                   ]
                 }
               }
@@ -9848,6 +10461,37 @@
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 10000
+                              },
+                              "visibleWhen": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
                               }
                             },
                             "required": [
@@ -9858,6 +10502,70 @@
                           },
                           "minItems": 1,
                           "maxItems": 40
+                        },
+                        "routing": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "when": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
+                              },
+                              "routeTo": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  }
+                                },
+                                "required": [
+                                  "status"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "when",
+                              "routeTo"
+                            ]
+                          },
+                          "maxItems": 20,
+                          "default": []
                         },
                         "eventId": {
                           "type": "string",
@@ -21104,6 +21812,37 @@
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 10000
+                              },
+                              "visibleWhen": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
                               }
                             },
                             "required": [
@@ -21114,6 +21853,70 @@
                           },
                           "minItems": 1,
                           "maxItems": 40
+                        },
+                        "routing": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "when": {
+                                "type": "object",
+                                "properties": {
+                                  "fieldId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "operator": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "in",
+                                      "notEmpty"
+                                    ]
+                                  },
+                                  "values": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "maxItems": 30,
+                                    "default": []
+                                  }
+                                },
+                                "required": [
+                                  "fieldId",
+                                  "operator"
+                                ]
+                              },
+                              "routeTo": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  }
+                                },
+                                "required": [
+                                  "status"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "when",
+                              "routeTo"
+                            ]
+                          },
+                          "maxItems": 20,
+                          "default": []
                         },
                         "eventId": {
                           "type": "string",

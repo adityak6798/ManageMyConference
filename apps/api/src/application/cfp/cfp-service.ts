@@ -1,6 +1,8 @@
 import {
   type CfpField,
   type CfpForm,
+  type CfpCondition,
+  type CfpRoutingRule,
   cfpFieldMaxLength,
   type ProposalSubmission,
 } from "../../domain/cfp/cfp";
@@ -8,9 +10,12 @@ import type { Actor } from "../identity/actor";
 import { CapabilityDeniedError, requireEventCapability } from "../identity/actor";
 import type { CfpRepository } from "./cfp-repository";
 import type { SubmittedProposalReference } from "./public";
+import type { SubmittedProposalQuery } from "./submitted-proposal-interface";
 
 export class CfpUnavailableError extends Error {}
 export class CfpStateError extends Error {}
+export class CfpRoutingConfigurationError extends Error {}
+export class CfpDraftConflictError extends Error {}
 export class CfpValidationError extends Error {
   constructor(readonly fieldErrors: Record<string, string[]>) {
     super("Proposal validation failed");
@@ -32,7 +37,12 @@ export class CfpService {
     private readonly repository: CfpRepository,
     private readonly newId: () => string,
     private readonly now: () => Date,
+    private readonly proposals?: Pick<SubmittedProposalQuery, "listStatuses">,
   ) {}
+  async routingStatuses(actor: Actor | null, eventId: string) {
+    organizerFor(actor, eventId);
+    return this.proposals?.listStatuses(eventId) ?? [];
+  }
   async getForOrganizer(actor: Actor | null, eventId: string) {
     organizerFor(actor, eventId);
     const [form, published] = await Promise.all([
@@ -51,22 +61,39 @@ export class CfpService {
   }
   async save(
     actor: Actor | null,
-    input: Omit<CfpForm, "status" | "version" | "publishedAt" | "publishedStatus">,
+    input: Omit<CfpForm, "status" | "version" | "publishedAt" | "publishedStatus"> & {
+      expectedVersion: number;
+    },
   ): Promise<CfpForm> {
     organizerFor(actor, input.eventId);
-    const [prior, published] = await Promise.all([
-      this.repository.findForm(input.eventId),
-      this.repository.findPublished(input.eventId),
-    ]);
+    const published = await this.repository.findPublished(input.eventId);
+    const { expectedVersion, ...editable } = input;
+    if (editable.routing?.length) {
+      const configured = new Set(
+        (await this.routingStatuses(actor, input.eventId)).map(({ key }) => key),
+      );
+      const invalid = editable.routing.find(({ routeTo }) => !configured.has(routeTo.status));
+      if (invalid)
+        throw new CfpRoutingConfigurationError(
+          `Choose a configured proposal status for routing rule ${invalid.id}`,
+        );
+    }
     const form: CfpForm = {
-      ...input,
+      ...editable,
       status: "draft",
-      version: (prior?.version ?? 0) + 1,
+      version: expectedVersion + 1,
       publishedAt: null,
       publishedStatus:
         published?.status === "open" || published?.status === "closed" ? published.status : null,
     };
-    await this.repository.saveForm(form);
+    try {
+      if (!(await this.repository.saveForm(form, expectedVersion)))
+        throw new CfpDraftConflictError("This CFP draft changed in another editor");
+    } catch (error) {
+      if (String(error).includes("CFP_ROUTE_STATUS_NOT_CONFIGURED"))
+        throw new CfpRoutingConfigurationError("Choose a configured proposal status");
+      throw error;
+    }
     return form;
   }
   async changeState(
@@ -101,7 +128,14 @@ export class CfpService {
       publishedAt: source.publishedAt ?? this.now().toISOString(),
       publishedStatus: status,
     };
-    await this.repository.savePublished(form, state === "publish" || draft.status !== "draft");
+    if (
+      !(await this.repository.savePublished(
+        form,
+        state === "publish" || draft.status !== "draft",
+        draft.version,
+      ))
+    )
+      throw new CfpDraftConflictError("This CFP draft changed in another editor");
     return (await this.getForOrganizer(actor, eventId)) ?? form;
   }
   async getPublished(eventId: string): Promise<CfpForm> {
@@ -120,6 +154,7 @@ export class CfpService {
     if (form.status !== "open") throw new CfpUnavailableError("The CFP is closed");
     const fieldErrors = validateAnswers(form.fields, answers);
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
+    const resolvedRoute = resolveRoute(form.routing ?? [], answers);
     const created = await this.repository.createSubmission({
       id: this.newId(),
       eventId,
@@ -127,6 +162,7 @@ export class CfpService {
       idempotencyKey,
       answers,
       fields: form.fields,
+      resolvedRoute,
       submittedAt: this.now().toISOString(),
     });
     if (!created) throw new CfpStateError("The CFP changed before this proposal was saved");
@@ -142,12 +178,36 @@ export class CfpService {
       : null;
   }
 }
+export function conditionMatches(
+  condition: CfpCondition | undefined,
+  answers: Readonly<Record<string, string>>,
+) {
+  if (!condition) return true;
+  const value = answers[condition.fieldId]?.trim() ?? "";
+  if (condition.operator === "notEmpty") return Boolean(value);
+  if (condition.operator === "equals") return value === (condition.values[0] ?? "");
+  return condition.values.includes(value);
+}
+
+function resolveRoute(
+  routing: readonly CfpRoutingRule[],
+  answers: Readonly<Record<string, string>>,
+) {
+  const rule = routing.find(({ when }) => conditionMatches(when, answers));
+  return rule ? { ruleId: rule.id, status: rule.routeTo.status } : null;
+}
 function validateAnswers(fields: readonly CfpField[], answers: Record<string, string>) {
   const errors: Record<string, string[]> = {};
   const ids = new Set(fields.map(({ id }) => id));
   for (const key of Object.keys(answers))
     if (!ids.has(key)) errors[`answers.${key}`] = ["This field is not part of the published form."];
   for (const field of fields) {
+    const visible = conditionMatches(field.visibleWhen, answers);
+    if (!visible && Object.hasOwn(answers, field.id)) {
+      errors[`answers.${field.id}`] = ["This field is hidden for the answers you selected."];
+      continue;
+    }
+    if (!visible) continue;
     const value = answers[field.id]?.trim() ?? "";
     const limit = cfpFieldMaxLength(field);
     if (field.required && !value) errors[`answers.${field.id}`] = ["This field is required."];
