@@ -24,6 +24,7 @@ import {
   speakerAssetParamsSchema,
   speakerAssetSchema,
   speakerCsvImportInputSchema,
+  speakerCsvImportResultSchema,
   speakerMessageSchema,
   speakerProfileSchema,
   speakerResourceParamsSchema,
@@ -79,7 +80,10 @@ export const contentPaths: OpenApiFragment = {
       security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { body: { required: true, content: json(speakerCsvImportInputSchema) } },
       responses: {
-        200: { description: "Speaker import preview or result" },
+        200: {
+          description: "Speaker import preview or result",
+          content: json(speakerCsvImportResultSchema),
+        },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
@@ -110,7 +114,7 @@ export const contentPaths: OpenApiFragment = {
       responses: {
         200: {
           description: "Deterministic ZIP containing exactly the latest selected deliverables",
-          content: { "application/zip": { schema: z.string() } },
+          content: { "application/zip": { schema: { type: "string", format: "binary" } } },
         },
         400: errorResponse,
         401: errorResponse,

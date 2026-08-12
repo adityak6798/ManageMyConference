@@ -86,6 +86,56 @@ export function placedSessionTimes(agenda: AgendaDraft): ReadonlyMap<string, Pla
   return placed;
 }
 
+/**
+ * What the agenda tells the rest of the system when a schedule becomes public.
+ *
+ * The agenda owns this payload, not whoever eventually delivers it: the facts it carries —
+ * which event, which immutable publication, when, and how much of a programme it froze — are
+ * only knowable here, and a consumer that had to re-derive them would be reading
+ * `agenda_publications` behind this domain's back.
+ *
+ * `version` is the *event contract's* version and is 1; `publicationVersion` is the numbered
+ * snapshot the publication allocated. Keeping the two apart is what lets the payload's shape
+ * change one day without a consumer mistaking a v2 event for a second publication.
+ *
+ * `id` is derived from the publication rather than random, because the outbox record must be
+ * idempotent under a retried command: two attempts at the same publication are the same event,
+ * and a consumer that sees it twice must be able to tell.
+ */
+export interface SchedulePublishedEvent {
+  readonly type: "EVT-SCHEDULE-PUBLISHED";
+  readonly version: 1;
+  readonly id: string;
+  readonly eventId: string;
+  readonly publicationVersion: number;
+  readonly publishedAt: string;
+  readonly placementCount: number;
+}
+
+/**
+ * The event a committed publication emits.
+ *
+ * Derived wholly from the publication, so the same publication always produces the same event —
+ * including its `id`. That determinism is the idempotency contract: a retried publish command
+ * that lands on the same version emits a record a consumer can recognise as one it has seen.
+ */
+export function schedulePublishedEvent(publication: {
+  readonly eventId: string;
+  readonly version: number;
+  readonly publishedAt: string;
+  readonly agenda: AgendaDraft;
+}): SchedulePublishedEvent {
+  return {
+    type: "EVT-SCHEDULE-PUBLISHED",
+    version: 1,
+    id: `EVT-SCHEDULE-PUBLISHED:${publication.eventId}:${publication.version}`,
+    eventId: publication.eventId,
+    publicationVersion: publication.version,
+    publishedAt: publication.publishedAt,
+    placementCount: publication.agenda.placements.length,
+  };
+}
+
 const overlaps = (left: AgendaSlot, right: AgendaSlot) =>
   Date.parse(left.startsAt) < Date.parse(right.endsAt) &&
   Date.parse(right.startsAt) < Date.parse(left.endsAt);

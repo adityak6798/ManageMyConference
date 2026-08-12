@@ -1,6 +1,7 @@
 // @acceptance ACC-SPEAKER
-import { describe, expect, it } from "vitest";
+
 import { unzipSync } from "fflate";
+import { describe, expect, it } from "vitest";
 import { createDeliverablesZip } from "../src/adapters/content/create-deliverables-zip";
 import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
@@ -95,7 +96,6 @@ describe("versioned and discussable deliverables", () => {
       name: "slides-v2.pdf",
       contentType: "application/pdf",
       bytes: new Uint8Array([2]),
-      taskId: "30000000-0000-4000-8000-000000000001",
       versionGroupId: first.versionGroupId,
     });
     const assets = (await repository.workspace(eventId)).assets;
@@ -105,9 +105,12 @@ describe("versioned and discussable deliverables", () => {
     ]);
     expect(await service.readAsset(speaker, first.id)).not.toBeNull();
     expect(second.versionGroupId).toBe(first.versionGroupId);
+    expect(second.taskId).toBe(first.taskId);
     const archive = await service.bulkDownload(organizer, eventId, [second.id]);
     expect(Object.keys(unzipSync(archive))).toEqual(["slides-v2.pdf"]);
     await expect(service.bulkDownload(organizer, eventId, [first.id])).rejects.toThrow();
+    await service.deleteAsset(speaker, second.id);
+    expect(await repository.findAsset(first.id)).toMatchObject({ isLatest: true });
   });
 
   it("round-trips attributed comments and restores an attributed profile revision", async () => {
@@ -130,5 +133,12 @@ describe("versioned and discussable deliverables", () => {
     expect(revision?.actorId).toBe(speaker.id);
     await service.restoreRevision(organizer, revision?.id ?? "");
     expect((await repository.findProfile(profileId))?.bio).toBe("old");
+    await service.updateSpeakerWorkflow(organizer, profileId, {
+      workflowStatus: "ready",
+      logistics: { hotel: "confirmed" },
+      customFields: { shirt: "M" },
+    });
+    const workflowRevision = (await repository.workspace(eventId)).revisions?.at(-1);
+    expect(workflowRevision?.snapshotJson).toContain('"bio":"old"');
   });
 });

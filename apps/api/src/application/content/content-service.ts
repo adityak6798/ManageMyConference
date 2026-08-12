@@ -217,12 +217,21 @@ export class ContentService {
     };
     const existing = await this.dependencies.repository.workspace(input.eventId);
     const known = new Set(existing.speakers.map(({ email }) => email.toLowerCase()));
+    const parserErrors = new Map<number, string[]>();
+    for (const error of parsed.errors)
+      parserErrors.set(error.row, [...(parserErrors.get(error.row) ?? []), error.message]);
     const seen = new Set<string>();
     const rows = parsed.rows.map((row, index) => {
       const normalizedEmail = row.email.trim().toLowerCase();
-      const errors: string[] = [];
+      const rowNumber = index + 2;
+      const errors = [...(parserErrors.get(rowNumber) ?? [])];
       if (!row.name) errors.push("Name is required");
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errors.push("Valid email is required");
+      if (
+        row.workflowStatus &&
+        !["invited", "onboarding", "ready", "blocked"].includes(row.workflowStatus)
+      )
+        errors.push("Workflow status is invalid");
       for (const [label, value] of [
         ["Logistics", row.logistics],
         ["Custom fields", row.customFields],
@@ -232,6 +241,8 @@ export class ContentService {
           const parsedFields = JSON.parse(value);
           if (!parsedFields || Array.isArray(parsedFields) || typeof parsedFields !== "object")
             errors.push(`${label} must be a JSON object`);
+          else if (Object.values(parsedFields).some((field) => typeof field !== "string"))
+            errors.push(`${label} values must be strings`);
         } catch {
           // ERROR-INTENT: malformed optional JSON is a row validation disposition, not an exception that aborts preview.
           errors.push(`${label} must be valid JSON`);
@@ -240,10 +251,8 @@ export class ContentService {
       const duplicate = known.has(normalizedEmail) || seen.has(normalizedEmail);
       if (duplicate) errors.push("Duplicate email");
       seen.add(normalizedEmail);
-      return { row: index + 2, ...row, email: normalizedEmail, duplicate, errors };
+      return { row: rowNumber, ...row, email: normalizedEmail, duplicate, errors };
     });
-    for (const error of parsed.errors)
-      rows.push({ row: error.row, name: "", email: "", duplicate: false, errors: [error.message] });
     let imported = 0;
     if (input.commit)
       for (const row of rows) {
@@ -310,7 +319,8 @@ export class ContentService {
   ) {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError();
-    requireEventCapability(actor, profile.eventId, "content:manage");
+    const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
+    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
     const updated = { ...profile, ...input };
     await this.dependencies.repository.updateProfile(updated);
     return updated;
@@ -368,12 +378,13 @@ export class ContentService {
   ) {
     requireEventCapability(actor, input.eventId, "content:manage");
     const { embedAllowedHosts, ...storedInput } = input;
+    if (!this.dependencies.sanitizeResourceHtml || !this.dependencies.sanitizeResourceEmbed)
+      throw new Error("Resource sanitizer is unavailable");
     const resource: SpeakerResource = {
       ...storedInput,
       id: this.dependencies.newId(),
-      bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
-      embedHtml:
-        this.dependencies.sanitizeResourceEmbed?.(input.embedHtml, embedAllowedHosts) ?? "",
+      bodyHtml: this.dependencies.sanitizeResourceHtml(input.bodyHtml),
+      embedHtml: this.dependencies.sanitizeResourceEmbed(input.embedHtml, embedAllowedHosts),
     };
     await this.dependencies.repository.addResource(resource);
     return resource;
@@ -391,15 +402,17 @@ export class ContentService {
     const existing = await this.dependencies.repository.findResource(resourceId);
     if (!existing) throw new CapabilityDeniedError();
     requireEventCapability(actor, existing.eventId, "content:manage");
+    if (!this.dependencies.sanitizeResourceHtml || !this.dependencies.sanitizeResourceEmbed)
+      throw new Error("Resource sanitizer is unavailable");
     const { embedAllowedHosts, ...storedInput } = input;
     const resource: SpeakerResource = {
       ...existing,
       ...storedInput,
-      bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
+      bodyHtml: this.dependencies.sanitizeResourceHtml(input.bodyHtml),
       embedHtml:
         input.embedHtml === existing.embedHtml && embedAllowedHosts.length === 0
           ? existing.embedHtml
-          : (this.dependencies.sanitizeResourceEmbed?.(input.embedHtml, embedAllowedHosts) ?? ""),
+          : this.dependencies.sanitizeResourceEmbed(input.embedHtml, embedAllowedHosts),
     };
     await this.dependencies.repository.updateResource(resource);
     return resource;
@@ -925,8 +938,10 @@ export class ContentService {
       storageKey: stored.key,
       visibility: "private",
       uploadedAt: this.dependencies.now().toISOString(),
-      ...(input.taskId ? { taskId: input.taskId } : {}),
-      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.taskId || previous?.taskId ? { taskId: input.taskId ?? previous?.taskId } : {}),
+      ...(input.sessionId || previous?.sessionId
+        ? { sessionId: input.sessionId ?? previous?.sessionId }
+        : {}),
       versionGroupId: previous?.versionGroupId ?? previous?.id ?? input.versionGroupId ?? id,
       versionNumber: (previous?.versionNumber ?? 0) + 1,
       isLatest: true,
@@ -1004,10 +1019,15 @@ export class ContentService {
     if (selected.length !== new Set(assetIds).size)
       throw new CapabilityDeniedError("Deliverable selection is unavailable");
     const files: { name: string; bytes: Uint8Array }[] = [];
+    const maximumArchiveBytes = 50 * 1024 * 1024;
+    let totalBytes = 0;
     const used = new Set<string>();
     for (const asset of selected.toSorted((a, b) => a.id.localeCompare(b.id))) {
       const stored = await this.dependencies.assetStorage.get(asset.storageKey);
       if (!stored) throw new CapabilityDeniedError("Deliverable selection is unavailable");
+      totalBytes += stored.bytes.byteLength;
+      if (totalBytes > maximumArchiveBytes)
+        throw new ContentConflictError("Selected deliverables exceed the 50 MB ZIP limit");
       const safe =
         asset.name.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "") || "deliverable";
       let name = safe;

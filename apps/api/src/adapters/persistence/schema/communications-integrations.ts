@@ -63,6 +63,11 @@ export function defineCommunicationsIntegrationsSchema(references: {
       leaseToken: text("lease_token"),
       createdAt: text("created_at").notNull(),
       updatedAt: text("updated_at").notNull(),
+      // The message as sent, rendered from the pinned template version at enqueue. Null for
+      // projection channels, which carry a payload rather than a message, and for any delivery
+      // enqueued before migration 1700.
+      renderedSubject: text("rendered_subject"),
+      renderedBody: text("rendered_body"),
     },
     (table) => [
       unique().on(table.organizationId, table.idempotencyKey),

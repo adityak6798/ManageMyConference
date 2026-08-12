@@ -5,12 +5,18 @@
  * fragment, and the aggregate `openapi.json` is still generated from all of them together.
  */
 import {
+  broadcastInputSchema,
+  broadcastRecipientsParamsSchema,
+  broadcastRecipientsResponseSchema,
+  broadcastResponseSchema,
   communicationsHistoryParamsSchema,
   communicationsHistoryResponseSchema,
   createTemplateInputSchema,
   deliveryIdParamsSchema,
   deliveryResponseSchema,
   retryDeliveryInputSchema,
+  templateListParamsSchema,
+  templateListResponseSchema,
   templateResponseSchema,
   triggerDeliveryInputSchema,
 } from "../src/index";
@@ -29,6 +35,55 @@ export const communicationsPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/communications/templates",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { query: templateListParamsSchema },
+      responses: {
+        200: {
+          description: "Every immutable template version in the organization",
+          content: json(templateListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/communications/recipients",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { query: broadcastRecipientsParamsSchema },
+      responses: {
+        200: {
+          description: "The event's speakers, with the address each can be reached at",
+          content: json(broadcastRecipientsResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/communications/broadcasts",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(broadcastInputSchema) } },
+      responses: {
+        202: {
+          description: "One queued delivery per reachable speaker, plus who could not be reached",
+          content: json(broadcastResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
         500: errorResponse,
       },
     });

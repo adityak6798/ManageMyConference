@@ -41,6 +41,17 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     );
   }
 
+  async listTemplates(organizationId: string) {
+    return this.templates
+      .filter((template) => template.organizationId === organizationId)
+      .sort(
+        (left, right) =>
+          left.key.localeCompare(right.key) ||
+          right.version - left.version ||
+          left.id.localeCompare(right.id),
+      );
+  }
+
   async enqueue(delivery: Delivery): Promise<Delivery> {
     const existing = [...this.deliveries.values()].find(
       (item) =>
@@ -50,6 +61,20 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     if (existing) return existing;
     this.deliveries.set(delivery.id, delivery);
     return delivery;
+  }
+
+  async findByIdempotencyKey(organizationId: string, idempotencyKey: string) {
+    return (
+      [...this.deliveries.values()].find(
+        (item) => item.organizationId === organizationId && item.idempotencyKey === idempotencyKey,
+      ) ?? null
+    );
+  }
+
+  async enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]> {
+    const stored: Delivery[] = [];
+    for (const delivery of deliveries) stored.push(await this.enqueue(delivery));
+    return stored;
   }
 
   async list(organizationId: string, eventId: string) {

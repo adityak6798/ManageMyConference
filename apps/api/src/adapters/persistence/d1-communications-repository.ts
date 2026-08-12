@@ -2,6 +2,7 @@ import {
   type CommunicationsRepository,
   DeliveryRecoveryConflictError,
 } from "../../application/communications/ports";
+import type { PreparedDeliveryWriter } from "../../application/communications/public";
 import type {
   Delivery,
   DeliveryAttempt,
@@ -38,6 +39,8 @@ type DeliveryRow = {
   template_version: number | null;
   recipient_ref: string;
   payload_json: string;
+  rendered_subject: string | null;
+  rendered_body: string | null;
   projection_version: number | null;
   state: Delivery["state"];
   attempt_count: number;
@@ -58,7 +61,7 @@ type AttemptRow = {
 };
 
 const deliveryColumns =
-  "id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at";
+  "id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at";
 const deliveryFromRow = (row: DeliveryRow): Delivery => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -70,6 +73,8 @@ const deliveryFromRow = (row: DeliveryRow): Delivery => ({
   templateVersion: row.template_version,
   recipientRef: row.recipient_ref,
   payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+  renderedSubject: row.rendered_subject,
+  renderedBody: row.rendered_body,
   projectionVersion: row.projection_version,
   state: row.state,
   attemptCount: row.attempt_count,
@@ -98,6 +103,59 @@ const attemptFromRow = (row: AttemptRow): DeliveryAttempt => ({
   providerReference: row.provider_reference,
   errorCode: row.error_code,
 });
+
+/**
+ * `ON CONFLICT (organization_id, idempotency_key) DO NOTHING`, deliberately, rather than
+ * `INSERT OR IGNORE`.
+ *
+ * The two behave identically on the duplicate this table exists to absorb, and differently on
+ * everything else: `OR IGNORE` also swallows `CHECK`, `NOT NULL` and foreign-key violations, so
+ * a malformed delivery would vanish and the insert would still report success. That matters most
+ * for `preparedDeliveryWriter`, where the statement is committed inside another domain's batch
+ * and nothing reloads the row afterwards — a swallowed violation there is a published schedule
+ * with no delivery to announce it, which is the exact failure this API exists to prevent.
+ */
+const insertDeliveryStatement = (database: Database, delivery: Delivery): Statement =>
+  database
+    .prepare(
+      `INSERT INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
+    )
+    .bind(
+      delivery.id,
+      delivery.organizationId,
+      delivery.eventId,
+      delivery.idempotencyKey,
+      delivery.triggerType,
+      delivery.channel,
+      delivery.templateId,
+      delivery.templateVersion,
+      delivery.recipientRef,
+      JSON.stringify(delivery.payload),
+      delivery.renderedSubject,
+      delivery.renderedBody,
+      delivery.projectionVersion,
+      delivery.state,
+      delivery.attemptCount,
+      delivery.nextAttemptAt,
+      delivery.leaseToken,
+      delivery.createdAt,
+      delivery.updatedAt,
+    );
+
+/**
+ * The writer another domain uses to commit a delivery inside its own batch.
+ *
+ * The composition root binds it to the database and hands the bound function to the domain that
+ * needs it, so that domain never imports this module, never names a communications column, and
+ * cannot write a row this repository would not have written. The conflict clause on the
+ * organization-scoped idempotency key keeps a retried command converging on one delivery, while
+ * any other constraint failure still fails the caller's batch rather than vanishing from it.
+ *
+ * @spec PRD-COM-001 ARC-FLOW-002
+ */
+export const preparedDeliveryWriter =
+  (database: Database): PreparedDeliveryWriter<Statement> =>
+  (prepared) => [insertDeliveryStatement(database, prepared)];
 
 export class D1CommunicationsRepository implements CommunicationsRepository {
   constructor(private readonly database: Database) {}
@@ -133,31 +191,75 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     this.ensure(result, "find template");
     return result.results?.[0] ? templateFromRow(result.results[0]) : null;
   }
-  async enqueue(delivery: Delivery) {
-    const insert = await this.database
+  /**
+   * D1 binds at most 100 parameters per statement, and the organization consumes one of them.
+   *
+   * Worth stating because of *when* it would have bitten: the reload runs after the insert batch
+   * has committed, so a send to a hundred speakers would have queued every delivery and then
+   * answered the organizer with an error. Chunking keeps the read within the limit.
+   */
+  private static readonly RELOAD_CHUNK = 99;
+
+  private async byKeys(organizationId: string, keys: readonly string[]) {
+    const found = new Map<string, Delivery>();
+    for (let start = 0; start < keys.length; start += D1CommunicationsRepository.RELOAD_CHUNK) {
+      const chunk = keys.slice(start, start + D1CommunicationsRepository.RELOAD_CHUNK);
+      const result = await this.database
+        .prepare(
+          `SELECT ${deliveryColumns} FROM communication_deliveries WHERE organization_id = ? AND idempotency_key IN (${chunk.map(() => "?").join(", ")})`,
+        )
+        .bind(organizationId, ...chunk)
+        .all<DeliveryRow>();
+      this.ensure(result, "reload enqueued deliveries");
+      for (const row of result.results ?? []) found.set(row.idempotency_key, deliveryFromRow(row));
+    }
+    return found;
+  }
+
+  async findByIdempotencyKey(organizationId: string, idempotencyKey: string) {
+    return (await this.byKeys(organizationId, [idempotencyKey])).get(idempotencyKey) ?? null;
+  }
+
+  /**
+   * One batch, then one read, whatever the audience size.
+   *
+   * Two statements per recipient would spend a Worker invocation's subrequest budget partway
+   * through a large event, leaving half the speakers durably queued and the organizer told the
+   * send failed. The reload is keyed by idempotency key rather than id so the row a previous
+   * send already wrote comes back as itself — that is what lets the caller count what it
+   * actually created.
+   */
+  async enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]> {
+    if (deliveries.length === 0) return [];
+    const organizationId = deliveries[0]?.organizationId as string;
+    const results = await this.database.batch(
+      deliveries.map((delivery) => insertDeliveryStatement(this.database, delivery)),
+    );
+    for (const result of results) this.ensure(result, "enqueue deliveries");
+    const stored = await this.byKeys(
+      organizationId,
+      deliveries.map((delivery) => delivery.idempotencyKey),
+    );
+    return deliveries.map((delivery) => {
+      const row = stored.get(delivery.idempotencyKey);
+      if (!row) throw new Error("D1 did not return an enqueued delivery");
+      return row;
+    });
+  }
+
+  async listTemplates(organizationId: string) {
+    const result = await this.database
       .prepare(
-        `INSERT OR IGNORE INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "SELECT id, organization_id, template_key, version, channel, subject, body, created_at FROM message_templates WHERE organization_id = ? ORDER BY template_key, version DESC",
       )
-      .bind(
-        delivery.id,
-        delivery.organizationId,
-        delivery.eventId,
-        delivery.idempotencyKey,
-        delivery.triggerType,
-        delivery.channel,
-        delivery.templateId,
-        delivery.templateVersion,
-        delivery.recipientRef,
-        JSON.stringify(delivery.payload),
-        delivery.projectionVersion,
-        delivery.state,
-        delivery.attemptCount,
-        delivery.nextAttemptAt,
-        delivery.leaseToken,
-        delivery.createdAt,
-        delivery.updatedAt,
-      )
-      .run();
+      .bind(organizationId)
+      .all<TemplateRow>();
+    this.ensure(result, "list templates");
+    return (result.results ?? []).map(templateFromRow);
+  }
+
+  async enqueue(delivery: Delivery) {
+    const insert = await insertDeliveryStatement(this.database, delivery).run();
     this.ensure(insert, "enqueue delivery");
     const result = await this.database
       .prepare(

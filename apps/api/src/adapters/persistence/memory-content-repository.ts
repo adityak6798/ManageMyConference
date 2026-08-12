@@ -205,7 +205,17 @@ export class MemoryContentRepository
     this.assets = [...this.assets, asset];
   }
   async deleteAsset(assetId: string) {
+    const deleted = this.assets.find(({ id }) => id === assetId);
     this.assets = this.assets.filter(({ id }) => id !== assetId);
+    if (deleted && deleted.isLatest !== false && deleted.versionGroupId) {
+      const previous = this.assets
+        .filter(({ versionGroupId }) => versionGroupId === deleted.versionGroupId)
+        .toSorted((left, right) => (right.versionNumber ?? 1) - (left.versionNumber ?? 1))[0];
+      if (previous)
+        this.assets = this.assets.map((asset) =>
+          asset.id === previous.id ? { ...asset, isLatest: true } : asset,
+        );
+    }
     this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
   async addTask(task: SpeakerTask) {

@@ -203,6 +203,23 @@ export const speakerCsvImportInputSchema = z.object({
   csv: z.string().min(1).max(2_000_000),
   commit: z.boolean().default(false),
 });
+export const speakerCsvImportResultSchema = z.object({
+  preview: z.boolean(),
+  total: z.number().int().nonnegative(),
+  valid: z.number().int().nonnegative(),
+  imported: z.number().int().nonnegative(),
+  invalid: z.number().int().nonnegative(),
+  duplicates: z.number().int().nonnegative(),
+  rows: z.array(
+    z.object({
+      row: z.number().int().positive(),
+      name: z.string(),
+      email: z.string(),
+      duplicate: z.boolean(),
+      errors: z.array(z.string()),
+    }),
+  ),
+});
 export const updateSpeakerWorkflowInputSchema = z.object({
   workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]),
   logistics: z.record(z.string().max(1000)),
@@ -215,7 +232,7 @@ export const addContentCommentInputSchema = z.object({
 export const restoreContentRevisionInputSchema = z.object({ revisionId: z.string().uuid() });
 export const bulkDownloadDeliverablesInputSchema = z.object({
   eventId: z.string().uuid(),
-  assetIds: z.array(z.string().uuid()).min(1).max(500),
+  assetIds: z.array(z.string().uuid()).min(1).max(100),
 });
 export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),

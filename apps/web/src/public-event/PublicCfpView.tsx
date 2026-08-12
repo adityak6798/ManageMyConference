@@ -1,3 +1,4 @@
+import { cfpConditionMatches } from "@greenroom/contracts";
 import { type FormEvent, useState } from "react";
 import { CfpApiError, type CfpFormDto, submitProposal } from "../api/cfp";
 import { Pill } from "./cards";
@@ -76,47 +77,55 @@ export function PublicCfpView({
       ) : null}
       {liveCfp?.status === "open" ? (
         <form className="pub-form" onSubmit={submit}>
-          {liveCfp.fields.map((field) => {
-            const errors = fieldErrors[`answers.${field.id}`] ?? [];
-            const errorId = `public-cfp-${field.id}-error`;
-            const shared = {
-              id: `public-cfp-${field.id}`,
-              required: field.required,
-              "aria-invalid": errors.length > 0,
-              "aria-describedby": errors.length ? errorId : undefined,
-              value: answers[field.id] ?? "",
-              onChange: (event: { target: { value: string } }) =>
-                setAnswers((current) => ({ ...current, [field.id]: event.target.value })),
-            };
-            return (
-              <div className="pub-cfp-field" key={field.id}>
-                <label htmlFor={shared.id}>
-                  {field.label}
-                  {field.required ? " *" : ""}
-                </label>
-                {field.guidance ? <small>{field.guidance}</small> : null}
-                {field.type === "long_text" ? (
-                  <textarea {...shared} />
-                ) : field.type === "select" ? (
-                  <select {...shared}>
-                    <option value="">Choose an option</option>
-                    {field.options.map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input {...shared} type={field.type === "email" ? "email" : "text"} />
-                )}
-                {errors.length ? (
-                  <ul id={errorId} className="pub-field-errors">
-                    {errors.map((message) => (
-                      <li key={message}>{message}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            );
-          })}
+          {liveCfp.fields
+            .filter((field) => cfpConditionMatches(field.visibleWhen, answers))
+            .map((field) => {
+              const errors = fieldErrors[`answers.${field.id}`] ?? [];
+              const errorId = `public-cfp-${field.id}-error`;
+              const shared = {
+                id: `public-cfp-${field.id}`,
+                required: field.required,
+                "aria-invalid": errors.length > 0,
+                "aria-describedby": errors.length ? errorId : undefined,
+                value: answers[field.id] ?? "",
+                onChange: (event: { target: { value: string } }) =>
+                  setAnswers((current) => {
+                    const updated = { ...current, [field.id]: event.target.value };
+                    for (const candidate of liveCfp.fields)
+                      if (!cfpConditionMatches(candidate.visibleWhen, updated))
+                        delete updated[candidate.id];
+                    return updated;
+                  }),
+              };
+              return (
+                <div className="pub-cfp-field" key={field.id}>
+                  <label htmlFor={shared.id}>
+                    {field.label}
+                    {field.required ? " *" : ""}
+                  </label>
+                  {field.guidance ? <small>{field.guidance}</small> : null}
+                  {field.type === "long_text" ? (
+                    <textarea {...shared} />
+                  ) : field.type === "select" ? (
+                    <select {...shared}>
+                      <option value="">Choose an option</option>
+                      {field.options.map((option) => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input {...shared} type={field.type === "email" ? "email" : "text"} />
+                  )}
+                  {errors.length ? (
+                    <ul id={errorId} className="pub-field-errors">
+                      {errors.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              );
+            })}
           <button className="primary" type="submit" disabled={submitting}>
             {submitting ? "Submitting…" : "Submit proposal"}
           </button>

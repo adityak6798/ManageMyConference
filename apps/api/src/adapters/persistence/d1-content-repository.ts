@@ -413,8 +413,22 @@ export class D1ContentRepository
       throw new Error("Content asset version batch failed");
   }
   async deleteAsset(assetId: string) {
-    await this.run("DELETE FROM content_asset_comments WHERE asset_id=?", assetId);
-    await this.run("DELETE FROM speaker_assets WHERE id=?", assetId);
+    const asset = await this.findAsset(assetId);
+    const statements = [
+      this.database.prepare("DELETE FROM content_asset_comments WHERE asset_id=?").bind(assetId),
+      this.database.prepare("DELETE FROM speaker_assets WHERE id=?").bind(assetId),
+    ];
+    if (asset?.isLatest !== false && asset?.versionGroupId)
+      statements.push(
+        this.database
+          .prepare(
+            "UPDATE speaker_assets SET is_latest=1 WHERE id=(SELECT id FROM speaker_assets WHERE version_group_id=? AND id<>? ORDER BY version_number DESC LIMIT 1)",
+          )
+          .bind(asset.versionGroupId, assetId),
+      );
+    const results = await this.database.batch(statements);
+    if (results.some((result) => !result.success))
+      throw new Error("Content asset deletion batch failed");
   }
   async addTask(task: SpeakerTask) {
     await this.run(

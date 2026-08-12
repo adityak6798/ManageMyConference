@@ -25,6 +25,7 @@ export function defineCfpSchema(references: { eventsId: AnySQLiteColumn }) {
       version: integer("version").notNull(),
       publishedAt: text("published_at"),
       publishedJson: text("published_json"),
+      routingJson: text("routing_json").notNull().default("[]"),
     },
     (table) => [
       check("cfp_forms_title_length", sql`length(${table.title}) BETWEEN 1 AND 120`),
@@ -47,6 +48,7 @@ export function defineCfpSchema(references: { eventsId: AnySQLiteColumn }) {
       // 0006 added both columns with defaults; D1CfpRepository.createSubmission relies on them.
       status: text("status").notNull().default("submitted"),
       formFieldsJson: text("form_fields_json").notNull().default("[]"),
+      resolvedRouteJson: text("resolved_route_json"),
     },
     (table) => [
       unique("cfp_submissions_event_id_idempotency_key_unique").on(

@@ -15,7 +15,12 @@
  *    states, in words, which one applicants can see.
  */
 
-import { type CfpField, publicationPreviewResponseSchema } from "@greenroom/contracts";
+import {
+  type CfpField,
+  type CfpRoutingRule,
+  cfpConditionMatches,
+  publicationPreviewResponseSchema,
+} from "@greenroom/contracts";
 import { CfpApiError } from "../api/cfp";
 import "../styles/cfp.css";
 
@@ -46,6 +51,7 @@ type FormShape = {
   title: string;
   description: string;
   fields: readonly CfpField[];
+  routing?: readonly CfpRoutingRule[];
 };
 
 /**
@@ -64,7 +70,9 @@ function shape(input: FormShape): string {
       guidance: field.guidance.trim(),
       required: field.required,
       options: field.options.map((option) => option.trim()),
+      visibleWhen: field.visibleWhen,
     })),
+    routing: input.routing ?? [],
   });
 }
 
@@ -123,6 +131,7 @@ async function loadPublicSubmissionUrl(eventId: string): Promise<string | null> 
 export type { FormShape };
 export {
   DEFAULT_TITLE,
+  cfpConditionMatches as conditionMatches,
   describe,
   FIELD_TYPES,
   formatDate,

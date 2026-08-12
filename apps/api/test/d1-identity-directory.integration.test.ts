@@ -82,6 +82,28 @@ describe("D1IdentityDirectory", () => {
     });
   });
 
+  it("lists an event's speakers with the address each can be reached at", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-speakers", seed: true });
+    runtime = migrated.runtime;
+    const directory = new D1IdentityDirectory(migrated.database as IdentityDatabasePort);
+
+    const speakers = await directory.listSpeakersForEvent("00000000-0000-4000-8000-000000000001");
+
+    // A speaker whose identity has no linked address is still a speaker and still listed, with
+    // `email: null`. Omitting them would let a caller send to fewer people than it reported.
+    expect(speakers).toEqual([
+      { id: "speaker-jordan-bell", name: "Jordan Bell", email: null },
+      { id: "seed-speaker", name: "Sam Speaker", email: "speaker@greenroom.test" },
+    ]);
+    // Event-scoped: the organizer, the reviewer and the public persona hold roles on this event
+    // and none of them is a speaker.
+    expect(speakers.map(({ id }) => id)).not.toContain("seed-organizer");
+    // And a role held on one event never leaks into another's list.
+    await expect(
+      directory.listSpeakersForEvent("00000000-0000-4000-8000-000000000002"),
+    ).resolves.toEqual([]);
+  });
+
   it("enforces attempt, expiry, and one-time challenge semantics in migrated D1", async () => {
     const migrated = await createMigratedDatabase({ label: "identity-challenges", seed: true });
     runtime = migrated.runtime;

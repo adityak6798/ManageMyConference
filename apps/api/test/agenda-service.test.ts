@@ -1,9 +1,14 @@
 // @acceptance ACC-AGENDA
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
-import { AgendaConflictError, AgendaService } from "../src/application/agenda/agenda-service";
+import {
+  AgendaConflictError,
+  AgendaPublicationConflictError,
+  AgendaService,
+} from "../src/application/agenda/agenda-service";
 import type { Actor } from "../src/application/identity/actor";
 import { conflictsFor, type AgendaDraft } from "../src/domain/agenda/agenda";
+import { planAssistedPlacements } from "../src/domain/agenda/assisted-placement";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -48,6 +53,184 @@ const organizer: Actor = {
   eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["agenda:manage"]) }],
 };
 const content = new FixtureSchedulableContentQuery(new Map([[eventId, draft.sessions]]));
+
+/**
+ * A board with room for four sessions and four to seat, two of which share a speaker. The
+ * shared speaker is the point: a pass that only avoided double-booking rooms would seat them
+ * in the same hour and produce a draft the organizer cannot publish.
+ */
+const emptyBoard: AgendaDraft = {
+  eventId,
+  rooms: [
+    { id: "room-main", name: "Main stage" },
+    { id: "room-lab", name: "Lab" },
+  ],
+  tracks: [
+    { id: "track-web", name: "Web", color: "#5b5bd6" },
+    { id: "track-ops", name: "Ops", color: "#16866b" },
+  ],
+  slots: [
+    { id: "slot-9", startsAt: "2026-09-01T16:00:00.000Z", endsAt: "2026-09-01T17:00:00.000Z" },
+    { id: "slot-10", startsAt: "2026-09-01T17:00:00.000Z", endsAt: "2026-09-01T18:00:00.000Z" },
+  ],
+  sessions: [
+    { id: "session-1", title: "One", speakerIds: ["speaker-1"] },
+    { id: "session-2", title: "Two", speakerIds: ["speaker-1"] },
+    { id: "session-3", title: "Three", speakerIds: ["speaker-2"] },
+    { id: "session-4", title: "Four", speakerIds: ["speaker-3"] },
+  ],
+  placements: [],
+};
+
+describe("assisted agenda placement", () => {
+  const boardContent = () =>
+    new FixtureSchedulableContentQuery(new Map([[eventId, emptyBoard.sessions]]));
+
+  it("seats every unscheduled session in one draft read, one content read, and one write", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const getDraft = vi.spyOn(repository, "getDraft");
+    const savePlacements = vi.spyOn(repository, "savePlacements");
+    const savePlacement = vi.spyOn(repository, "savePlacement");
+    const schedulable = boardContent();
+    const listSessions = vi.spyOn(schedulable, "listSchedulableSessions");
+    const service = new AgendaService(repository, () => new Date(), schedulable);
+
+    const result = await service.autoPlace(organizer, eventId);
+
+    // Four sessions cost exactly what one drag costs. Looping `place` would have made this
+    // four reads and four writes, which is the per-placement cost issue #69 removed.
+    expect(getDraft).toHaveBeenCalledTimes(1);
+    expect(listSessions).toHaveBeenCalledTimes(1);
+    expect(savePlacements).toHaveBeenCalledTimes(1);
+    expect(savePlacement).not.toHaveBeenCalled();
+    expect(result.placements).toHaveLength(4);
+    expect(result.unplaced).toEqual([]);
+  });
+
+  it("produces a conflict-free board, keeping a shared speaker out of one hour", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const service = new AgendaService(repository, () => new Date(), boardContent());
+
+    const result = await service.autoPlace(organizer, eventId);
+
+    // The board's own conflict rule is the judge, not a second one written for this test.
+    expect(result.conflicts).toEqual([]);
+    const slotOf = (sessionId: string) =>
+      result.placements.find((placement) => placement.sessionId === sessionId)?.slotId;
+    expect(slotOf("session-1")).not.toEqual(slotOf("session-2"));
+  });
+
+  it("gives the same board every time for the same inputs", async () => {
+    const run = async () => {
+      const service = new AgendaService(
+        new MemoryAgendaRepository([emptyBoard]),
+        () => new Date(),
+        boardContent(),
+      );
+      const { placements } = await service.autoPlace(organizer, eventId);
+      return placements.map(({ sessionId, roomId, slotId, trackId }) => ({
+        sessionId,
+        roomId,
+        slotId,
+        trackId,
+      }));
+    };
+
+    expect(await run()).toEqual(await run());
+  });
+
+  it("orders sessions itself, so a tie in the content query cannot change the board", async () => {
+    // Two sessions share a title, which is what the content query orders by — SQLite is then
+    // free to return them either way round. The plan must not depend on which way it did.
+    const tied = [
+      { id: "session-b", title: "Same name", speakerIds: [] },
+      { id: "session-a", title: "Same name", speakerIds: [] },
+      { id: "session-c", title: "Another", speakerIds: [] },
+    ];
+    const planFor = (sessions: typeof tied) =>
+      planAssistedPlacements({ ...emptyBoard, sessions }).placements.map(
+        ({ sessionId, roomId, slotId }) => ({ sessionId, roomId, slotId }),
+      );
+
+    expect(planFor(tied)).toEqual(planFor([...tied].reverse()));
+    // And the tie breaks on id, so the board is predictable rather than merely stable.
+    expect(planFor(tied)[0]?.sessionId).toBe("session-c");
+  });
+
+  it("leaves what it cannot seat unscheduled, and says why", async () => {
+    // One room, one slot, two sessions: the second has nowhere to go.
+    const cramped: AgendaDraft = {
+      ...emptyBoard,
+      rooms: [{ id: "room-main", name: "Main stage" }],
+      slots: [emptyBoard.slots[0] as AgendaDraft["slots"][number]],
+      sessions: emptyBoard.sessions.slice(0, 2),
+    };
+    const service = new AgendaService(
+      new MemoryAgendaRepository([cramped]),
+      () => new Date(),
+      new FixtureSchedulableContentQuery(new Map([[eventId, cramped.sessions]])),
+    );
+
+    const result = await service.autoPlace(organizer, eventId);
+
+    expect(result.placements).toHaveLength(1);
+    expect(result.unplaced).toEqual([
+      {
+        sessionId: "session-2",
+        title: "Two",
+        reason: "Every room and time slot is already taken.",
+      },
+    ]);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it("never moves a session the organizer placed by hand", async () => {
+    const held: AgendaDraft = {
+      ...emptyBoard,
+      placements: [
+        {
+          id: "manual",
+          sessionId: "session-1",
+          roomId: "room-lab",
+          trackId: "track-ops",
+          slotId: "slot-10",
+        },
+      ],
+    };
+    const service = new AgendaService(
+      new MemoryAgendaRepository([held]),
+      () => new Date(),
+      boardContent(),
+    );
+
+    const result = await service.autoPlace(organizer, eventId);
+
+    expect(result.placements).toContainEqual(expect.objectContaining({ id: "manual" }));
+    expect(result.placements.filter(({ sessionId }) => sessionId === "session-1")).toHaveLength(1);
+  });
+
+  it("generates draft state only, publishing nothing", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const service = new AgendaService(repository, () => new Date(), boardContent());
+
+    await service.autoPlace(organizer, eventId);
+
+    expect(await service.published(eventId)).toBeNull();
+  });
+
+  it("re-running converges instead of duplicating placements", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const service = new AgendaService(repository, () => new Date(), boardContent());
+
+    await service.autoPlace(organizer, eventId);
+    const second = await service.autoPlace(organizer, eventId);
+
+    // Everything is seated after the first pass, so the second has nothing to do and the
+    // board still holds one placement per session.
+    expect(second.placements).toHaveLength(4);
+    expect(second.conflicts).toEqual([]);
+  });
+});
 
 describe("agenda conflicts and publication", () => {
   it("places with one draft read, one schedulable-content read, and one write", async () => {
@@ -199,6 +382,88 @@ describe("agenda conflicts and publication", () => {
     expect(publicSchedule?.agenda.placements).toHaveLength(1);
     expect(publicSchedule).not.toHaveProperty("publishedBy");
     expect((await service.draft(organizer, eventId)).placements).toHaveLength(2);
+  });
+  it("emits exactly one event per committed publication, naming that publication", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      content,
+    );
+    await service.remove(organizer, eventId, "place-b");
+
+    const first = await service.publish(organizer, eventId);
+    const second = await service.publish(organizer, eventId);
+
+    // Republishing allocates the next version rather than reusing or overwriting one, and each
+    // committed publication carries one event that identifies it.
+    expect([first.version, second.version]).toEqual([1, 2]);
+    expect(repository.publishedEvents()).toEqual([
+      expect.objectContaining({
+        type: "EVT-SCHEDULE-PUBLISHED",
+        version: 1,
+        id: `EVT-SCHEDULE-PUBLISHED:${eventId}:1`,
+        publicationVersion: 1,
+      }),
+      expect.objectContaining({
+        id: `EVT-SCHEDULE-PUBLISHED:${eventId}:2`,
+        publicationVersion: 2,
+      }),
+    ]);
+  });
+  it("answers a retried publish command with the publication it already made", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      content,
+    );
+    await service.remove(organizer, eventId, "place-b");
+
+    const first = await service.publish(organizer, eventId, "command-1");
+    const retried = await service.publish(organizer, eventId, "command-1");
+
+    // One intent, one immutable version, one event — however many times the client asked.
+    expect(retried).toEqual(first);
+    expect(repository.publishedEvents()).toHaveLength(1);
+
+    // A *different* command is a new intent and still gets its own version.
+    const deliberate = await service.publish(organizer, eventId, "command-2");
+    expect(deliberate.version).toBe(2);
+    expect(repository.publishedEvents()).toHaveLength(2);
+  });
+
+  it("replays a retried command even after the board has moved into conflict", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      content,
+    );
+    await service.remove(organizer, eventId, "place-b");
+    const first = await service.publish(organizer, eventId, "command-1");
+
+    // Put the board into conflict after the publication this command already committed.
+    const second = draft.placements[1];
+    if (!second) throw new Error("Fixture placement is required");
+    await service.place(organizer, eventId, { ...second, slotId: "slot-9" });
+
+    // The retry describes work that already succeeded, so it must not be refused for a
+    // conflict introduced afterwards.
+    expect(await service.publish(organizer, eventId, "command-1")).toEqual(first);
+  });
+
+  it("gives up rather than looping when versions keep being taken", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    // A repository that never commits stands in for sustained concurrent publication: the
+    // allocation loop must end and say so, not spin until the request times out.
+    vi.spyOn(repository, "publish").mockResolvedValue("version-taken");
+    const service = new AgendaService(repository, () => new Date(), content);
+    await service.remove(organizer, eventId, "place-b");
+
+    await expect(service.publish(organizer, eventId)).rejects.toBeInstanceOf(
+      AgendaPublicationConflictError,
+    );
   });
   it("requires a freshly created event role before agenda initialization", async () => {
     const organizationOwner = { ...organizer, eventAccess: [] };

@@ -74,7 +74,13 @@ export function ContentOperations({
         <form className="form-stack" onSubmit={csv}>
           <label>
             CSV
-            <textarea name="csv" rows={5} placeholder="name,email,workflowStatus" required />
+            <textarea
+              name="csv"
+              rows={5}
+              placeholder="name,email,workflowStatus"
+              required
+              onChange={() => setPreview(null)}
+            />
           </label>
           <div className="row-actions">
             <button type="submit" name="mode" value="preview" disabled={busy}>

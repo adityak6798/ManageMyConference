@@ -24,7 +24,21 @@ export interface CommunicationsRepository {
     key: string,
     version?: number,
   ): Promise<MessageTemplate | null>;
+  /** Every version in the organization, by key, newest version first. None is hidden. */
+  listTemplates(organizationId: string): Promise<readonly MessageTemplate[]>;
+  /** The delivery already holding this key, if a previous enqueue wrote one. */
+  findByIdempotencyKey(organizationId: string, idempotencyKey: string): Promise<Delivery | null>;
   enqueue(delivery: Delivery): Promise<Delivery>;
+  /**
+   * Enqueue many in one durable round trip, returning each stored row in request order.
+   *
+   * A send to an event's speakers is one action, not N; issuing two statements per recipient
+   * costs a Worker invocation its subrequest budget partway through a large event and leaves
+   * half the audience durably queued with nothing reported. The returned row is the *stored*
+   * one, so a caller can tell a delivery it created from one an earlier send already made by
+   * comparing identity.
+   */
+  enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]>;
   list(organizationId: string, eventId: string): Promise<readonly Delivery[]>;
   historyPage(
     organizationId: string,

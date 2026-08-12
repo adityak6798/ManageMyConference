@@ -183,6 +183,19 @@
   font-size: var(--text-xs);
 }
 
+/*
+ * Why an assisted pass left this session alone.
+ *
+ * Warning-coloured rather than error-coloured: nothing failed, the board simply had nowhere
+ * this session could go, and the organizer's next move is to make room rather than to retry.
+ */
+.agenda .sched-unplaced {
+  color: var(--warn-fg);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  text-wrap: pretty;
+}
+
 /* The track colour is decorative; the track name always travels with it. */
 .agenda .track-dot {
   width: 8px;

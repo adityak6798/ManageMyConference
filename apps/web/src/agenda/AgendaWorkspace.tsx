@@ -32,6 +32,7 @@ import type { EventDto } from "@greenroom/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AgendaApiError,
+  autoPlaceSessions,
   getAgenda,
   publishAgenda,
   removePlacement,
@@ -103,6 +104,14 @@ export function AgendaWorkspace({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [trackForNew, setTrackForNew] = useState<string | null>(null);
+  /**
+   * Why the last assisted pass left certain sessions alone, keyed by session.
+   *
+   * Held here rather than derived, because it is a fact about an action the organizer took and
+   * not about the board: once they move something by hand the explanation is stale, so any
+   * later placement of that session clears its entry.
+   */
+  const [unplaced, setUnplaced] = useState<ReadonlyMap<string, string>>(new Map());
   const [carry, setCarryState] = useState<Carry | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null);
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
@@ -215,6 +224,17 @@ export function AgendaWorkspace({
 
   const placedSessionIds = new Set(draft.placements.map(({ sessionId }) => sessionId));
   const needle = query.trim().toLowerCase();
+  /*
+   * Everything without a slot, before the search box narrows it.
+   *
+   * The assisted pass places every unscheduled session, not the ones currently matching a
+   * search, so the control that starts it has to be enabled from this count. Reading the
+   * filtered list instead made a search for something else disable a button that had plenty
+   * to do, and a search matching one of ten enable a button that then placed all ten.
+   */
+  const unscheduledCount = draft.sessions.filter(
+    (session) => !placedSessionIds.has(session.id),
+  ).length;
   const unscheduled = draft.sessions.filter(
     (session) =>
       !placedSessionIds.has(session.id) &&
@@ -300,7 +320,20 @@ export function AgendaWorkspace({
   async function act(
     action: () => Promise<Draft>,
     describe: (updated: Draft) => string,
-    { focusId, row }: { focusId?: string | undefined; row?: string | undefined } = {},
+    {
+      focusId,
+      row,
+      explanations,
+    }: {
+      focusId?: string | undefined;
+      row?: string | undefined;
+      /**
+       * Assisted-placement reasons this action produced; anything else clears them.
+       *
+       * Read after the action resolves, because the reasons arrive with its response.
+       */
+      explanations?: (() => ReadonlyMap<string, string>) | undefined;
+    } = {},
   ) {
     setBusy(true);
     try {
@@ -308,6 +341,15 @@ export function AgendaWorkspace({
       if (!mounted.current) return;
       setMissing(false);
       setAgenda(updated);
+      /*
+       * Every explanation is dropped on any board change, and only the assisted pass puts them
+       * back. "Every room and time slot is already taken" stops being true the moment another
+       * card is unscheduled, and a note about a room clash stops being true when the rooms
+       * change — so keeping the ones whose session is still unplaced was not enough. These are
+       * the verdict of one pass over one board; when the board moves, the verdict is stale
+       * whether or not the session it names has moved with it.
+       */
+      setUnplaced((current) => explanations?.() ?? (current.size ? new Map() : current));
       if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
       if (focusId) setPendingFocus(focusId);
@@ -319,6 +361,37 @@ export function AgendaWorkspace({
     } finally {
       if (mounted.current) setBusy(false);
     }
+  }
+
+  /**
+   * Fill the board in one pass, then say what is left and why.
+   *
+   * One request for the whole pass, so the board never shows a half-generated draft and the
+   * cost does not grow with the number of sessions. What comes back is an ordinary draft:
+   * every card it produced can be dragged, removed, or moved exactly as a hand-placed one,
+   * the conflict panel judges it by the same rules, and nothing is public until the organizer
+   * presses Publish.
+   */
+  function generateDraft() {
+    const before = draft.placements.length;
+    let couldNotPlace: readonly { sessionId: string; reason: string }[] = [];
+    return act(
+      async () => {
+        const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, undefined);
+        couldNotPlace = reported;
+        return board;
+      },
+      (updated) => {
+        const placed = updated.placements.length - before;
+        const seated = placed === 1 ? "Placed 1 session." : `Placed ${placed} sessions.`;
+        if (!couldNotPlace.length) return `${seated} Review the board, then publish when ready.`;
+        return `${seated} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
+      },
+      {
+        explanations: () =>
+          new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason])),
+      },
+    );
   }
 
   const saveResources = (
@@ -1201,6 +1274,21 @@ export function AgendaWorkspace({
         <span className="agenda-count">
           {placedSessionIds.size} of {draft.sessions.length} scheduled
         </span>
+        {/* Sits before Publish because that is the order the work happens in: fill the board,
+            look at it, then commit it. Disabled with nothing to place so the control never
+            promises an action that would do nothing. */}
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !unscheduledCount}
+          onClick={() => {
+            // ERROR-INTENT: React event handlers cannot await; `act` reports both outcomes.
+            void generateDraft();
+          }}
+        >
+          <IconCalendar size={15} />
+          Generate draft
+        </button>
         <button
           type="button"
           disabled={busy || draft.conflicts.length > 0}
@@ -1331,6 +1419,7 @@ export function AgendaWorkspace({
                 <div className="agenda-rail-list">
                   {unscheduled.map((session) => {
                     const held = carry?.placementId === null && carry.sessionId === session.id;
+                    const reason = unplaced.get(session.id);
                     const source: Carry = {
                       sessionId: session.id,
                       title: session.title,
@@ -1347,7 +1436,9 @@ export function AgendaWorkspace({
                         draggable={!busy}
                         disabled={busy || !newTrackId}
                         data-carrying={held ? "true" : undefined}
-                        aria-label={`${session.title}. Not scheduled. ${
+                        // `aria-label` replaces the content rather than adding to it, so the
+                        // reason has to be repeated here or a screen reader never hears it.
+                        aria-label={`${session.title}. Not scheduled. ${reason ? `${reason} ` : ""}${
                           held ? "Press Enter to cancel." : "Press Enter to pick this session up."
                         }`}
                         onDragStart={(event) => startDrag(event, { ...source, viaKeyboard: false })}
@@ -1359,6 +1450,7 @@ export function AgendaWorkspace({
                         onClick={() => (held ? cancelCarry() : pickUp(source))}
                       >
                         <span className="sched-title">{session.title}</span>
+                        {reason ? <span className="sched-unplaced">{reason}</span> : null}
                         <span className="sched-meta">
                           <IconGrip size={12} />
                           Drag, or press Enter to place

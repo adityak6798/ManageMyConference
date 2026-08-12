@@ -44,9 +44,9 @@
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
       },
       {
-        "path": "apps/api/src/application/communications/communications-service.ts",
+        "path": "apps/api/src/application/communications/public.ts",
         "governing": "PRD-COM-001",
-        "reason": "Communications' command surface and its three typed errors, composed by the transport."
+        "reason": "Communications' declared export surface: the enqueue interface a lifecycle event uses when there is no request actor, the prepared-delivery writer a caller commits in its own batch, the service type the transport composes, and the three typed errors both translate. Narrowed from communications-service.ts, which #92 recorded as the one entry naming a service instead of an export surface."
       },
       {
         "path": "apps/api/src/application/content/content-service.ts",
@@ -444,6 +444,7 @@
         "apps/api/migrations/0003_cfp.sql",
         "apps/api/migrations/0004_cfp_published_snapshot.sql",
         "apps/api/migrations/0005_cfp_snapshot_status.sql",
+        "apps/api/migrations/1200_cfp_conditional_routing.sql",
         "apps/api/test/cfp-service.test.ts",
         "apps/api/test/cfp-http.test.ts",
         "apps/api/test/d1-cfp-repository.integration.test.ts",
@@ -637,6 +638,7 @@
         "apps/api/migrations/0017_agenda.sql",
         "apps/api/migrations/0018_agenda_draft_revision.sql",
         "apps/api/test/agenda-service.test.ts",
+        "apps/api/test/agenda-http.test.ts",
         "apps/api/test/d1-agenda-repository.integration.test.ts",
         "apps/web/src/AgendaWorkspace.tsx",
         "apps/web/src/agenda/AgendaWorkspace.tsx",
@@ -645,6 +647,7 @@
         "apps/web/test/agenda-timezone.test.tsx",
         "apps/web/test/agenda-timeslots.test.tsx",
         "apps/web/test/agenda-failure-feedback.test.tsx",
+        "apps/web/test/agenda-assisted-placement.test.tsx",
         "apps/web/e2e/agenda.spec.ts",
         "apps/api/src/transport/http/routes/agenda.ts",
         "apps/web/src/workspaces/agenda.tsx"
@@ -676,12 +679,21 @@
         "apps/api/src/adapters/persistence/d1-communications-repository.ts",
         "apps/api/src/adapters/persistence/memory-communications-repository.ts",
         "apps/api/test/communications-http.test.ts",
+        "apps/api/test/communications-public.test.ts",
+        "apps/api/test/communications-template.test.ts",
+        "apps/api/test/provider-contract.test.ts",
+        "apps/api/test/deterministic-provider.test.ts",
+        "apps/api/test/provider-configuration.test.ts",
+        "docs/engineering/communications-providers.md",
         "apps/api/test/communications-service.test.ts",
         "apps/api/test/d1-communications-repository.integration.test.ts",
         "apps/api/migrations/0019_communications_outbox.sql",
+        "apps/api/migrations/1700_delivery_rendered_message.sql",
         "apps/web/src/api/communications.ts",
         "apps/web/src/CommunicationsWorkspace.tsx",
+        "apps/web/src/communications",
         "apps/web/test/communications.test.tsx",
+        "apps/web/test/communications-compose.test.tsx",
         "apps/web/e2e/communications.spec.ts",
         "apps/api/src/transport/http/routes/communications.ts",
         "apps/web/src/workspaces/communications.tsx"
@@ -735,8 +747,9 @@
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
     "App": "apps/web/src/App.tsx",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
+    "CommunicationsEnqueue": "apps/api/src/application/communications/public.ts",
     "CommunicationsRepository": "apps/api/src/application/communications/ports.ts",
-    "CommunicationsService": "apps/api/src/application/communications/communications-service.ts",
+    "CommunicationsService": "apps/api/src/application/communications/public.ts",
     "ContentAgendaInterface": "apps/api/src/application/agenda/public.ts",
     "ContentService": "apps/api/src/application/content/content-service.ts",
     "CrmContentQuery": "apps/api/src/application/content/public.ts",

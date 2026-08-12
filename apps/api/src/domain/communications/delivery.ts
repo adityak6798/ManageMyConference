@@ -29,6 +29,14 @@ export interface Delivery {
   readonly templateVersion: number | null;
   readonly recipientRef: string;
   readonly payload: Readonly<Record<string, unknown>>;
+  /**
+   * The message as sent, rendered from `templateVersion` against `payload` at enqueue and never
+   * re-rendered — a retry three days later sends the text that was composed, not the text the
+   * template says today. Null on projection channels, which carry a payload rather than a
+   * message, and on any delivery enqueued before migration 1700.
+   */
+  readonly renderedSubject: string | null;
+  readonly renderedBody: string | null;
   readonly projectionVersion: number | null;
   readonly state: DeliveryState;
   readonly attemptCount: number;

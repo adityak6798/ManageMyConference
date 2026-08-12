@@ -15,12 +15,12 @@ import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-director
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
-import { DeterministicProvider } from "./adapters/providers/deterministic-provider";
+import { resolveProviders } from "./adapters/providers/configuration";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { AgendaService } from "./application/agenda/agenda-service";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
-import { CommunicationsService } from "./application/communications/communications-service";
 import { OutboxWorker } from "./application/communications/outbox-worker";
+import { CommunicationsService } from "./application/communications/public";
 import { ContentService } from "./application/content/content-service";
 import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
@@ -39,6 +39,24 @@ export interface Environment {
   INITIAL_ORGANIZER_EMAIL?: string;
   ENVIRONMENT?: string;
   /**
+   * `fixture` (the default) or `live`.
+   *
+   * `live` requires everything below except `AIRTABLE_REFERENCE_FIELD`, which defaults. The three
+   * `*_TOKEN` bindings are credentials and must be Worker **secrets**; the endpoints, sender
+   * address and Airtable identifiers are non-secret configuration and belong in vars. See
+   * docs/engineering/communications-providers.md.
+   */
+  COMMUNICATIONS_PROVIDERS?: string;
+  EMAIL_API_ENDPOINT?: string;
+  EMAIL_API_TOKEN?: string;
+  EMAIL_SENDER?: string;
+  AIRTABLE_BASE_ID?: string;
+  AIRTABLE_TABLE_ID?: string;
+  AIRTABLE_TOKEN?: string;
+  AIRTABLE_REFERENCE_FIELD?: string;
+  ACCELEVENTS_API_ENDPOINT?: string;
+  ACCELEVENTS_TOKEN?: string;
+  /**
    * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
    * can say which checkout and commit it belongs to. Absent in a deployment.
    */
@@ -52,11 +70,21 @@ const communicationsRepository = (environment: Environment) =>
   );
 
 export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
-  const provider = new DeterministicProvider();
   const worker = new OutboxWorker(
     communicationsRepository(environment),
-    { email: provider, airtable: provider, accelevents: provider },
+    // Throws rather than falling back if `live` is half-configured, so a scheduled drain that
+    // believes it is sending mail cannot quietly be appending to an in-memory array.
+    resolveProviders(environment),
     { newId: () => crypto.randomUUID(), now: () => new Date() },
+    {
+      // What the provider did, per attempt: enough to correlate a delivery with a provider's own
+      // logs and to see rate limiting as it happens. Never the recipient, the message, the
+      // payload or any credential — this line is emitted to a shared log sink.
+      attempt(record) {
+        // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+        console.info(JSON.stringify({ level: "info", message: "delivery.attempt", ...record }));
+      },
+    },
   );
   let processed = 0;
   while (processed < limit && (await worker.runOne())) processed += 1;
@@ -105,6 +133,7 @@ export default {
       new D1CfpRepository(environment.DB),
       () => crypto.randomUUID(),
       () => new Date(),
+      new D1SubmittedProposalAdapter(environment.DB),
     );
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
@@ -171,6 +200,8 @@ export default {
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),
       eventDirectory: service,
+      // Who an event's speakers are is identity's answer, not a read of content's profiles.
+      speakerDirectory: identityDirectory,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });

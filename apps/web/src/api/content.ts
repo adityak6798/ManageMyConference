@@ -4,6 +4,7 @@ import {
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
   setSpeakerPhotoInputSchema,
+  speakerCsvImportResultSchema,
   type UpdateContentSessionInput,
   type UpdateSpeakerProfileInput,
   updateContentSessionInputSchema,
@@ -250,15 +251,7 @@ export async function importSpeakerCsv(
   fetcher: typeof fetch = fetch,
 ) {
   const response = await contentMutation("/api/speaker-imports", { eventId, csv, commit }, fetcher);
-  return response.json() as Promise<{
-    preview: boolean;
-    total: number;
-    valid: number;
-    imported: number;
-    invalid: number;
-    duplicates: number;
-    rows: { row: number; name: string; email: string; errors: string[] }[];
-  }>;
+  return speakerCsvImportResultSchema.parse(await response.json());
 }
 export async function updateSpeakerWorkflow(
   profileId: string,

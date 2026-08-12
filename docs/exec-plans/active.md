@@ -17,8 +17,8 @@ single run and hands the fixture back. What remains before this plan can close:
 
 - hosted CI on this branch, and branch protection that makes those jobs required (`GAP-003`);
 - the two still-open deferred items of issue #10 — `DEBT-004` and `DEBT-005`;
-- the missing brief features that no lifecycle test can substitute for: `GAP-009` (CFP conditional
-  logic and routing), `GAP-010` (lifecycle-triggered communications and calendar delivery),
+- the missing brief features that no lifecycle test can substitute for: `GAP-010`
+  (lifecycle-triggered communications and calendar delivery),
   `GAP-011` (multi-round and AI-assisted review), and `GAP-012` (Accelevents). Portal resource
   and wiki pages shipped with issue #54.
 

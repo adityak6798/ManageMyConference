@@ -115,4 +115,26 @@ Sam,SAM@example.test,ready,"{""hotel"":""yes""}"`;
     "correlation",
   );
   expect(invalid.rows[0]?.errors).toContain("Logistics must be valid JSON");
+  const semanticInvalid = await service.importSpeakers(
+    organizer,
+    {
+      eventId,
+      csv: 'name,email,workflowStatus,customFields\nAlex,alex@example.test,unknown,"{""hotel"":true}"',
+      commit: false,
+    },
+    "correlation",
+  );
+  expect(semanticInvalid.rows[0]?.errors).toEqual([
+    "Workflow status is invalid",
+    "Custom fields values must be strings",
+  ]);
+  const structuralInvalid = await service.importSpeakers(
+    organizer,
+    { eventId, csv: "name,email\nAlex,alex@example.test,extra", commit: true },
+    "correlation",
+  );
+  expect(structuralInvalid.imported).toBe(0);
+  expect(structuralInvalid.rows[0]?.errors).toContain(
+    "Too many fields: expected 2 fields but parsed 3",
+  );
 });
