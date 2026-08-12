@@ -32,6 +32,8 @@ describe("D1CommunicationsRepository", () => {
       templateVersion: null,
       recipientRef: "session:99",
       payload: { title: "D1 Session" },
+      renderedSubject: null,
+      renderedBody: null,
       projectionVersion: 2,
       state: "queued" as const,
       attemptCount: 0,

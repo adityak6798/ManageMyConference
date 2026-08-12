@@ -39,6 +39,8 @@ type DeliveryRow = {
   template_version: number | null;
   recipient_ref: string;
   payload_json: string;
+  rendered_subject: string | null;
+  rendered_body: string | null;
   projection_version: number | null;
   state: Delivery["state"];
   attempt_count: number;
@@ -59,7 +61,7 @@ type AttemptRow = {
 };
 
 const deliveryColumns =
-  "id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at";
+  "id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at";
 const deliveryFromRow = (row: DeliveryRow): Delivery => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -71,6 +73,8 @@ const deliveryFromRow = (row: DeliveryRow): Delivery => ({
   templateVersion: row.template_version,
   recipientRef: row.recipient_ref,
   payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+  renderedSubject: row.rendered_subject,
+  renderedBody: row.rendered_body,
   projectionVersion: row.projection_version,
   state: row.state,
   attemptCount: row.attempt_count,
@@ -103,7 +107,7 @@ const attemptFromRow = (row: AttemptRow): DeliveryAttempt => ({
 const insertDeliveryStatement = (database: Database, delivery: Delivery): Statement =>
   database
     .prepare(
-      `INSERT OR IGNORE INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       delivery.id,
@@ -116,6 +120,8 @@ const insertDeliveryStatement = (database: Database, delivery: Delivery): Statem
       delivery.templateVersion,
       delivery.recipientRef,
       JSON.stringify(delivery.payload),
+      delivery.renderedSubject,
+      delivery.renderedBody,
       delivery.projectionVersion,
       delivery.state,
       delivery.attemptCount,

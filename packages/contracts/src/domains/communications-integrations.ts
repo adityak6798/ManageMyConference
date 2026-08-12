@@ -79,6 +79,9 @@ export const deliverySchema = z.object({
   templateVersion: z.number().int().positive().nullable(),
   recipientRef: z.string(),
   payload: z.record(z.unknown()),
+  /** The message as sent. Null on projection channels, which carry a payload, not a message. */
+  renderedSubject: z.string().nullable(),
+  renderedBody: z.string().nullable(),
   projectionVersion: z.number().int().positive().nullable(),
   state: deliveryStateSchema,
   attemptCount: z.number().int().nonnegative(),

@@ -80,6 +80,8 @@ describe("communications outbox", () => {
   it("enqueues a typed trigger exactly once and preserves its template version", async () => {
     const test = harness();
     const first = await templateAndTrigger(test);
+    // A second request under the same key returns the first delivery, and the message that was
+    // composed then is the message that stands: the later payload does not rewrite it.
     const duplicate = await test.service.trigger(organizer, {
       organizationId,
       eventId,
@@ -87,11 +89,38 @@ describe("communications outbox", () => {
       triggerType: "speaker.invited",
       channel: "email",
       recipientRef: "speaker:42",
-      payload: {},
+      payload: { speaker: "Someone else" },
       templateKey: "speaker-invite",
     });
     expect(duplicate.id).toBe(first.id);
+    expect(duplicate.renderedBody).toBe("Hello Ada");
     expect(first).toMatchObject({ state: "queued", templateVersion: 1 });
+  });
+
+  it("refuses a trigger whose payload cannot fill the template it names", async () => {
+    const test = harness();
+    await test.service.createTemplate(organizer, {
+      organizationId,
+      key: "speaker-invite",
+      version: 1,
+      channel: "email",
+      subject: "You're invited",
+      body: "Hello {{speaker}}",
+    });
+
+    // Half a message reaching a speaker is worse than a delivery that refuses to enqueue.
+    await expect(
+      test.service.trigger(organizer, {
+        organizationId,
+        eventId,
+        idempotencyKey: "speaker:42:invite:v1",
+        triggerType: "speaker.invited",
+        channel: "email",
+        recipientRef: "speaker:42",
+        payload: {},
+        templateKey: "speaker-invite",
+      }),
+    ).rejects.toThrow("{{speaker}}");
   });
 
   it.each(["success", "malformed", "terminal"] as const)(
@@ -341,6 +370,8 @@ describe("communications outbox", () => {
       templateVersion: null,
       recipientRef: "session:storage",
       payload: {},
+      renderedSubject: null,
+      renderedBody: null,
       projectionVersion: 1,
       state: "terminal",
       attemptCount: 1,

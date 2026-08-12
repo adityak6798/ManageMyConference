@@ -6,6 +6,11 @@ import {
 } from "../identity/actor";
 import type { Delivery, MessageTemplate } from "../../domain/communications/delivery";
 import {
+  TemplatePlaceholderError,
+  TemplateValueError,
+  renderTemplate,
+} from "../../domain/communications/template";
+import {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
@@ -126,6 +131,21 @@ export class CommunicationsService implements CommunicationsEnqueue {
       throw new CommunicationsInputError("Projection providers require a projection trigger");
     if (input.channel !== "email" && input.projectionVersion === undefined)
       throw new CommunicationsInputError("Projection delivery requires a version");
+    // Render once, here, so the delivery carries the message rather than the instructions for
+    // reconstructing it. A projection has no template and therefore no message.
+    let rendered: { subject: string | null; body: string } | null = null;
+    if (template) {
+      try {
+        rendered = renderTemplate(template, input.payload);
+      } catch (error) {
+        // ERROR-INTENT: an unfilled placeholder is a caller mistake, not a server fault; it is
+        // re-thrown as the domain's own input error so the transport answers 400 with the
+        // offending key rather than 500.
+        if (error instanceof TemplatePlaceholderError || error instanceof TemplateValueError)
+          throw new CommunicationsInputError(error.message);
+        throw error;
+      }
+    }
     const now = this.dependencies.now().toISOString();
     return {
       id: this.dependencies.newId(),
@@ -138,6 +158,8 @@ export class CommunicationsService implements CommunicationsEnqueue {
       templateVersion: template?.version ?? null,
       recipientRef: input.recipientRef,
       payload: input.payload,
+      renderedSubject: rendered?.subject ?? null,
+      renderedBody: rendered?.body ?? null,
       projectionVersion: input.projectionVersion ?? null,
       state: "queued",
       attemptCount: 0,
