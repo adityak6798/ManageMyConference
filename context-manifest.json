@@ -550,6 +550,7 @@
         "apps/api/migrations/1400_content_resources.sql",
         "apps/api/migrations/1401_content_workflow_scale.sql",
         "apps/api/migrations/1402_content_deliverable_history.sql",
+        "apps/api/migrations/1403_content_asset_version_guards.sql",
         "apps/api/test/content-resource-sanitizer.test.ts",
         "apps/api/test/content-csv-import.test.ts",
         "apps/api/test/content-deliverables.test.ts",

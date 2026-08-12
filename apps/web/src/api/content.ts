@@ -10,7 +10,7 @@ import {
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch, decodeResponse } from "./config";
+import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ContentApiError extends Error {
   constructor(readonly envelope: import("@greenroom/contracts").ApiErrorEnvelope) {
@@ -192,6 +192,7 @@ export async function saveSpeakerResource(
     slug: string;
     bodyHtml: string;
     embedHtml: string;
+    embedAllowedHosts: string[];
     visibility: "hidden" | "visible";
     sortOrder: number;
   },
@@ -209,6 +210,7 @@ export async function saveSpeakerResource(
               slug: input.slug,
               bodyHtml: input.bodyHtml,
               embedHtml: input.embedHtml,
+              embedAllowedHosts: input.embedAllowedHosts,
               visibility: input.visibility,
               sortOrder: input.sortOrder,
             }
@@ -257,6 +259,22 @@ export async function importSpeakerCsv(
     duplicates: number;
     rows: { row: number; name: string; email: string; errors: string[] }[];
   }>;
+}
+export async function updateSpeakerWorkflow(
+  profileId: string,
+  input: {
+    workflowStatus: "invited" | "onboarding" | "ready" | "blocked";
+    logistics: Record<string, string>;
+    customFields: Record<string, string>;
+  },
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/workflow`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
 export async function bulkRequestSpeakerTasks(
   input: {

@@ -5,6 +5,7 @@ import {
   downloadDeliverables,
   importSpeakerCsv,
   restoreContentRevision,
+  updateSpeakerWorkflow,
 } from "../api/content";
 import { Card, EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import type { Run, Workspace } from "./shared";
@@ -24,6 +25,7 @@ export function ContentOperations({
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof importSpeakerCsv>> | null>(null);
+  const [workflowFilter, setWorkflowFilter] = useState("all");
   const toggle = (values: string[], id: string, set: (next: string[]) => void) =>
     set(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
   function csv(event: FormEvent<HTMLFormElement>) {
@@ -59,6 +61,9 @@ export function ContentOperations({
     );
   }
   const latest = workspace.assets.filter((asset) => asset.isLatest !== false);
+  const filteredSpeakers = workspace.speakers.filter(
+    (speaker) => workflowFilter === "all" || speaker.workflowStatus === workflowFilter,
+  );
   return (
     <div className="grid-auto">
       <Card
@@ -81,10 +86,96 @@ export function ContentOperations({
           </div>
         </form>
         {preview ? (
-          <Notice tone={preview.invalid ? "warn" : "success"}>
-            {preview.valid} valid · {preview.duplicates} duplicate · {preview.invalid} invalid
-          </Notice>
+          <>
+            <Notice tone={preview.invalid ? "warn" : "success"}>
+              {preview.valid} valid · {preview.duplicates} duplicate · {preview.invalid} invalid
+            </Notice>
+            <ul>
+              {preview.rows.map((row) => (
+                <li key={`${row.row}-${row.email}`}>
+                  Row {row.row}: {row.name || "Unnamed"} · {row.email || "No email"} ·{" "}
+                  {row.errors.length ? row.errors.join("; ") : "Valid row"}
+                </li>
+              ))}
+            </ul>
+          </>
         ) : null}
+      </Card>
+      <Card title="Speaker workflow" hint="Filter progress and maintain logistics per speaker.">
+        <label>
+          Progress filter
+          <select
+            value={workflowFilter}
+            onChange={(event) => setWorkflowFilter(event.target.value)}
+          >
+            <option value="all">All speakers</option>
+            <option value="invited">Invited</option>
+            <option value="onboarding">Onboarding</option>
+            <option value="ready">Ready</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </label>
+        {filteredSpeakers.map((speaker) => (
+          <form
+            key={speaker.id}
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const entries = (name: string) =>
+                Object.fromEntries(
+                  String(data.get(name))
+                    .split("\n")
+                    .map((line) => line.split("=", 2).map((part) => part.trim()))
+                    .filter(([key, value]) => key && value),
+                );
+              // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+              void run(() =>
+                updateSpeakerWorkflow(speaker.id, {
+                  workflowStatus: String(data.get("workflowStatus")) as
+                    | "invited"
+                    | "onboarding"
+                    | "ready"
+                    | "blocked",
+                  logistics: entries("logistics"),
+                  customFields: entries("customFields"),
+                }),
+              );
+            }}
+          >
+            <strong>{speaker.name}</strong>
+            <label>
+              Status
+              <select name="workflowStatus" defaultValue={speaker.workflowStatus ?? "onboarding"}>
+                <option value="invited">Invited</option>
+                <option value="onboarding">Onboarding</option>
+                <option value="ready">Ready</option>
+                <option value="blocked">Blocked</option>
+              </select>
+            </label>
+            <label>
+              Logistics (one key=value per line)
+              <textarea
+                name="logistics"
+                defaultValue={Object.entries(speaker.logistics ?? {})
+                  .map(([key, value]) => `${key}=${value}`)
+                  .join("\n")}
+              />
+            </label>
+            <label>
+              Custom fields (one key=value per line)
+              <textarea
+                name="customFields"
+                defaultValue={Object.entries(speaker.customFields ?? {})
+                  .map(([key, value]) => `${key}=${value}`)
+                  .join("\n")}
+              />
+            </label>
+            <button type="submit" disabled={busy}>
+              Save workflow
+            </button>
+          </form>
+        ))}
       </Card>
       <Card
         title="Bulk assignments"

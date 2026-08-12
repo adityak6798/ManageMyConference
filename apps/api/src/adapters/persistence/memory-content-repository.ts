@@ -1,7 +1,7 @@
 import {
-  type ContentRepository,
   type AcceptedContent,
   ContentConflictError,
+  type ContentRepository,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -9,13 +9,13 @@ import type {
   SpeakerConversionPort,
 } from "../../application/content/speaker-conversion";
 import type {
+  ContentComment,
+  ContentRevision,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerProfile,
-  SpeakerTask,
   SpeakerResource,
-  ContentComment,
-  ContentRevision,
+  SpeakerTask,
 } from "../../domain/content/content";
 
 const by =
@@ -63,6 +63,16 @@ export class MemoryContentRepository
     this.speakers = [...this.speakers, ...content.speakers];
     this.tasks = [...this.tasks, ...content.tasks];
     this.messages = [...this.messages, ...content.messages];
+  }
+  async addTasks(tasks: readonly SpeakerTask[]) {
+    this.tasks = [...this.tasks, ...tasks];
+  }
+  async replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset) {
+    if (previous)
+      this.assets = this.assets.map((item) =>
+        item.id === previous.id ? { ...item, isLatest: false } : item,
+      );
+    this.assets = [...this.assets, asset];
   }
   /** Out-of-band profile creation, the way `SpeakerConversionPort` writes one in D1. */
   async addProfile(profile: SpeakerProfile) {

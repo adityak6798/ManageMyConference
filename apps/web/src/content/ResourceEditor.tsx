@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { deleteSpeakerResource, saveSpeakerResource } from "../api/content";
+import { ContentApiError, deleteSpeakerResource, saveSpeakerResource } from "../api/content";
 import { Card, EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import type { Run, Workspace } from "./shared";
 
@@ -16,24 +16,32 @@ export function ResourceEditor({
 }) {
   const feedback = useActionFeedback();
   const resources = workspace.resources ?? [];
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>, id?: string) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(() =>
       saveSpeakerResource({
+        ...(id ? { id } : {}),
         eventId,
         title: String(data.get("title")),
         slug: String(data.get("slug")),
         bodyHtml: String(data.get("bodyHtml")),
         embedHtml: String(data.get("embedHtml")),
+        embedAllowedHosts: String(data.get("embedAllowedHosts"))
+          .split(/[\s,]+/)
+          .filter(Boolean),
         visibility: data.get("visible") ? "visible" : "hidden",
         sortOrder: Number(data.get("sortOrder")),
       }),
     ).then((result) =>
       feedback.announce(
         result.ok ? "success" : "error",
-        result.ok ? "Resource saved." : "Resource could not be saved.",
+        result.ok
+          ? "Resource saved."
+          : result.error instanceof ContentApiError
+            ? result.error.message
+            : "Resource could not be saved.",
       ),
     );
   }
@@ -61,6 +69,10 @@ export function ResourceEditor({
           <textarea name="embedHtml" rows={3} placeholder="Allowlisted HTTPS iframe only" />
         </label>
         <label>
+          Allowed embed hosts
+          <input name="embedAllowedHosts" placeholder="docs.example.org, video.example.org" />
+        </label>
+        <label>
           Order
           <input name="sortOrder" type="number" min={0} defaultValue={resources.length} />
         </label>
@@ -72,24 +84,64 @@ export function ResourceEditor({
         </button>
       </form>
       {resources.length ? (
-        <ul>
+        <div className="grid-auto">
           {resources.map((resource) => (
-            <li key={resource.id}>
-              {resource.title} · {resource.visibility}{" "}
-              <button
-                type="button"
-                className="ghost small"
-                disabled={busy}
-                onClick={() => {
-                  // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                  void run(() => deleteSpeakerResource(resource.id));
-                }}
-              >
-                Delete
-              </button>
-            </li>
+            <form
+              key={resource.id}
+              className="form-stack"
+              onSubmit={(event) => submit(event, resource.id)}
+            >
+              <label>
+                Title
+                <input name="title" required maxLength={160} defaultValue={resource.title} />
+              </label>
+              <label>
+                Slug
+                <input name="slug" required defaultValue={resource.slug} />
+              </label>
+              <label>
+                Page HTML
+                <textarea name="bodyHtml" rows={4} defaultValue={resource.bodyHtml} />
+              </label>
+              <label>
+                Embed HTML
+                <textarea name="embedHtml" rows={2} defaultValue={resource.embedHtml} />
+              </label>
+              <label>
+                Allowed embed hosts
+                <input name="embedAllowedHosts" placeholder="Host used by this embed" />
+              </label>
+              <label>
+                Order
+                <input name="sortOrder" type="number" min={0} defaultValue={resource.sortOrder} />
+              </label>
+              <label>
+                <input
+                  name="visible"
+                  type="checkbox"
+                  defaultChecked={resource.visibility === "visible"}
+                />{" "}
+                Visible to speakers
+              </label>
+              <div className="row-actions">
+                <button type="submit" disabled={busy}>
+                  Save changes
+                </button>
+                <button
+                  type="button"
+                  className="ghost small"
+                  disabled={busy}
+                  onClick={() => {
+                    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+                    void run(() => deleteSpeakerResource(resource.id));
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </form>
           ))}
-        </ul>
+        </div>
       ) : (
         <EmptyState title="No resources yet">Create the first portal guide above.</EmptyState>
       )}

@@ -1,13 +1,13 @@
 import type {
+  ContentComment,
+  ContentRevision,
   ContentSession,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerMessage,
   SpeakerProfile,
-  SpeakerTask,
   SpeakerResource,
-  ContentComment,
-  ContentRevision,
+  SpeakerTask,
 } from "../../domain/content/content";
 
 export interface AcceptedContent {
@@ -28,8 +28,10 @@ export interface ContentRepository {
   deleteSession(sessionId: string): Promise<void>;
   updateAsset(asset: SpeakerAsset): Promise<void>;
   addAsset(asset: SpeakerAsset): Promise<void>;
+  replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset): Promise<void>;
   deleteAsset(assetId: string): Promise<void>;
   addTask(task: SpeakerTask): Promise<void>;
+  addTasks(tasks: readonly SpeakerTask[]): Promise<void>;
   addMessage(message: SpeakerMessage): Promise<void>;
   findProfile(profileId: string): Promise<SpeakerProfile | null>;
   findSession(sessionId: string): Promise<ContentSession | null>;

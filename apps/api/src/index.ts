@@ -1,31 +1,31 @@
-import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
-import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
-import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
-import { DeterministicProvider } from "./adapters/providers/deterministic-provider";
-import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
-import { AgendaService } from "./application/agenda/agenda-service";
-import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
+import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
-import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
 import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
 } from "./adapters/content/sanitize-resource-html";
+import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
+import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
+import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
-import { type R2BucketPort, R2AssetStorage } from "./adapters/storage/r2-asset-storage";
-import { ContentService } from "./application/content/content-service";
+import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
+import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
+import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
-import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
-import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
+import { DeterministicProvider } from "./adapters/providers/deterministic-provider";
+import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
+import { AgendaService } from "./application/agenda/agenda-service";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
+import { CommunicationsService } from "./application/communications/communications-service";
+import { OutboxWorker } from "./application/communications/outbox-worker";
+import { ContentService } from "./application/content/content-service";
 import { CrmService } from "./application/crm/crm-service";
 import { EventService } from "./application/events/event-service";
-import { ReviewService } from "./application/review/review-service";
-import { CommunicationsService } from "./application/communications/communications-service";
 import { PublicationService } from "./application/publishing/publication-service";
-import { OutboxWorker } from "./application/communications/outbox-worker";
+import { ReviewService } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
 
 export interface Environment {
@@ -163,7 +163,6 @@ export default {
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
-      resourceEmbedHosts: ["docs.google.com", "player.vimeo.com", "www.youtube.com"],
       sanitizeResourceHtml,
       sanitizeResourceEmbed,
       parseSpeakerCsv,

@@ -110,7 +110,6 @@ export interface ContentServiceDependencies {
   newId: () => string;
   now: () => Date;
   /** Hosts organizers may embed into portal resources. Deployment configuration may narrow this. */
-  resourceEmbedHosts?: readonly string[];
   sanitizeResourceHtml?: (input: string) => string;
   sanitizeResourceEmbed?: (input: string, allowedHosts: readonly string[]) => string;
   parseSpeakerCsv?: (csv: string) => {
@@ -220,13 +219,14 @@ export class ContentService {
     const known = new Set(existing.speakers.map(({ email }) => email.toLowerCase()));
     const seen = new Set<string>();
     const rows = parsed.rows.map((row, index) => {
+      const normalizedEmail = row.email.trim().toLowerCase();
       const errors: string[] = [];
       if (!row.name) errors.push("Name is required");
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errors.push("Valid email is required");
-      const duplicate = known.has(row.email) || seen.has(row.email);
+      const duplicate = known.has(normalizedEmail) || seen.has(normalizedEmail);
       if (duplicate) errors.push("Duplicate email");
-      seen.add(row.email);
-      return { row: index + 2, ...row, duplicate, errors };
+      seen.add(normalizedEmail);
+      return { row: index + 2, ...row, email: normalizedEmail, duplicate, errors };
     });
     for (const error of parsed.errors)
       rows.push({ row: error.row, name: "", email: "", duplicate: false, errors: [error.message] });
@@ -234,40 +234,47 @@ export class ContentService {
     if (input.commit)
       for (const row of rows) {
         if (row.errors.length) continue;
-        const { speakerId } = await this.dependencies.speakerConversion.createOrLink({
-          eventId: input.eventId,
-          source: { kind: "csv", id: row.email },
-          name: row.name,
-          email: row.email,
-          actorId: authorized.id,
-          occurredAt: this.dependencies.now().toISOString(),
-          correlationId,
-          idempotencyKey: `content-csv:${input.eventId}:${row.email}`,
-        });
-        const profile = await this.dependencies.repository.findProfile(speakerId);
-        if (profile) {
-          const parseFields = (value?: string) => {
-            if (!value) return {};
-            try {
-              const result = JSON.parse(value);
-              return typeof result === "object" && result ? (result as Record<string, string>) : {};
-            } catch {
-              // ERROR-INTENT: malformed optional custom-field JSON imports as an empty field set; row-level required data was already validated.
-              return {};
-            }
-          };
-          await this.dependencies.repository.updateProfile({
-            ...profile,
-            workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
-              row.workflowStatus ?? "",
-            )
-              ? row.workflowStatus
-              : "onboarding") as SpeakerProfile["workflowStatus"],
-            logistics: parseFields(row.logistics),
-            customFields: parseFields(row.customFields),
+        try {
+          const { speakerId } = await this.dependencies.speakerConversion.createOrLink({
+            eventId: input.eventId,
+            source: { kind: "csv", id: row.email },
+            name: row.name,
+            email: row.email,
+            actorId: authorized.id,
+            occurredAt: this.dependencies.now().toISOString(),
+            correlationId,
+            idempotencyKey: `content-csv:${input.eventId}:${row.email}`,
           });
+          const profile = await this.dependencies.repository.findProfile(speakerId);
+          if (profile) {
+            const parseFields = (value?: string) => {
+              if (!value) return {};
+              try {
+                const result = JSON.parse(value);
+                return typeof result === "object" && result
+                  ? (result as Record<string, string>)
+                  : {};
+              } catch {
+                // ERROR-INTENT: malformed optional custom-field JSON imports as an empty field set; row-level required data was already validated.
+                return {};
+              }
+            };
+            await this.dependencies.repository.updateProfile({
+              ...profile,
+              workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
+                row.workflowStatus ?? "",
+              )
+                ? row.workflowStatus
+                : "onboarding") as SpeakerProfile["workflowStatus"],
+              logistics: parseFields(row.logistics),
+              customFields: parseFields(row.customFields),
+            });
+          }
+          imported += 1;
+        } catch {
+          // ERROR-INTENT: imports are idempotent per normalized email; expose the failed row so a retry is explicit and safe.
+          row.errors.push("Import failed; retry this row safely");
         }
-        imported += 1;
       }
     return {
       preview: !input.commit,
@@ -312,6 +319,10 @@ export class ContentService {
     const eventId = profiles[0]?.eventId ?? "";
     if (profiles.some((profile) => profile?.eventId !== eventId)) throw new CapabilityDeniedError();
     requireEventCapability(actor, eventId, "content:manage");
+    if (input.sessionId) {
+      const session = await this.dependencies.repository.findSession(input.sessionId);
+      if (!session || session.eventId !== eventId) throw new CapabilityDeniedError();
+    }
     const tasks: SpeakerTask[] = [];
     for (const profile of profiles) {
       if (!profile) continue;
@@ -326,9 +337,9 @@ export class ContentService {
         instructions: input.instructions,
         ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       };
-      await this.dependencies.repository.addTask(task);
       tasks.push(task);
     }
+    await this.dependencies.repository.addTasks(tasks);
     return tasks;
   }
 
@@ -337,18 +348,17 @@ export class ContentService {
     input: Omit<SpeakerResource, "id" | "bodyHtml" | "embedHtml"> & {
       bodyHtml: string;
       embedHtml: string;
+      embedAllowedHosts: string[];
     },
   ) {
     requireEventCapability(actor, input.eventId, "content:manage");
+    const { embedAllowedHosts, ...storedInput } = input;
     const resource: SpeakerResource = {
-      ...input,
+      ...storedInput,
       id: this.dependencies.newId(),
       bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
       embedHtml:
-        this.dependencies.sanitizeResourceEmbed?.(
-          input.embedHtml,
-          this.dependencies.resourceEmbedHosts ?? [],
-        ) ?? "",
+        this.dependencies.sanitizeResourceEmbed?.(input.embedHtml, embedAllowedHosts) ?? "",
     };
     await this.dependencies.repository.addResource(resource);
     return resource;
@@ -360,20 +370,19 @@ export class ContentService {
     input: Omit<SpeakerResource, "id" | "eventId" | "bodyHtml" | "embedHtml"> & {
       bodyHtml: string;
       embedHtml: string;
+      embedAllowedHosts: string[];
     },
   ) {
     const existing = await this.dependencies.repository.findResource(resourceId);
     if (!existing) throw new CapabilityDeniedError();
     requireEventCapability(actor, existing.eventId, "content:manage");
+    const { embedAllowedHosts, ...storedInput } = input;
     const resource: SpeakerResource = {
       ...existing,
-      ...input,
+      ...storedInput,
       bodyHtml: this.dependencies.sanitizeResourceHtml?.(input.bodyHtml) ?? "",
       embedHtml:
-        this.dependencies.sanitizeResourceEmbed?.(
-          input.embedHtml,
-          this.dependencies.resourceEmbedHosts ?? [],
-        ) ?? "",
+        this.dependencies.sanitizeResourceEmbed?.(input.embedHtml, embedAllowedHosts) ?? "",
     };
     await this.dependencies.repository.updateResource(resource);
     return resource;
@@ -851,13 +860,6 @@ export class ContentService {
     const authorized = requireEventCapability(actor, profile.eventId, "content:read");
     if (!hasEventRole(authorized, profile.eventId, "speaker") || profile.userId !== authorized.id)
       throw new CapabilityDeniedError("Speaker asset access denied");
-    const id = this.dependencies.newId();
-    const key = `${profile.eventId}/${profile.id}/${id}`;
-    const stored = await this.dependencies.assetStorage.put({
-      key,
-      contentType: input.contentType,
-      bytes: input.bytes,
-    });
     const workspace = await this.dependencies.repository.workspace(profile.eventId);
     const previous = input.versionGroupId
       ? workspace.assets
@@ -882,7 +884,21 @@ export class ContentService {
       )
     )
       throw new CapabilityDeniedError("Speaker asset access denied");
-    if (previous) await this.dependencies.repository.updateAsset({ ...previous, isLatest: false });
+    if (
+      input.sessionId &&
+      !workspace.sessions.some(
+        (session) =>
+          session.id === input.sessionId && session.speakerProfileIds.includes(profile.id),
+      )
+    )
+      throw new CapabilityDeniedError("Speaker asset access denied");
+    const id = this.dependencies.newId();
+    const key = `${profile.eventId}/${profile.id}/${id}`;
+    const stored = await this.dependencies.assetStorage.put({
+      key,
+      contentType: input.contentType,
+      bytes: input.bytes,
+    });
     const asset: SpeakerAsset = {
       id,
       eventId: profile.eventId,
@@ -899,7 +915,7 @@ export class ContentService {
       isLatest: true,
     };
     try {
-      await this.dependencies.repository.addAsset(asset);
+      await this.dependencies.repository.replaceLatestAsset(asset, previous);
     } catch (metadataError) {
       try {
         await this.dependencies.assetStorage.delete(stored.key);
@@ -977,7 +993,15 @@ export class ContentService {
       if (!stored) throw new CapabilityDeniedError("Deliverable selection is unavailable");
       const safe =
         asset.name.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "") || "deliverable";
-      const name = used.has(safe) ? `${asset.speakerProfileId}-${safe}` : safe;
+      let name = safe;
+      let suffix = 1;
+      while (used.has(name)) {
+        const dot = safe.lastIndexOf(".");
+        const stem = dot > 0 ? safe.slice(0, dot) : safe;
+        const extension = dot > 0 ? safe.slice(dot) : "";
+        name = `${stem}-${asset.speakerProfileId}-${suffix}${extension}`;
+        suffix += 1;
+      }
       used.add(name);
       files.push({ name, bytes: stored.bytes });
     }

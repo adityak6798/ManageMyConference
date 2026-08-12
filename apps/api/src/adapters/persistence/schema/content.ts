@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   check,
   index,
   integer,
@@ -7,7 +8,7 @@ import {
   sqliteTable,
   text,
   unique,
-  type AnySQLiteColumn,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export function defineContentSchema(references: {
@@ -124,6 +125,12 @@ export function defineContentSchema(references: {
     (table) => [
       check("speaker_assets_visibility", sql`${table.visibility} IN ('private','publishable')`),
       index("speaker_assets_profile_idx").on(table.speakerProfileId),
+      uniqueIndex("speaker_assets_version_unique")
+        .on(table.versionGroupId, table.versionNumber)
+        .where(sql`${table.versionGroupId} IS NOT NULL`),
+      uniqueIndex("speaker_assets_latest_unique")
+        .on(table.versionGroupId)
+        .where(sql`${table.versionGroupId} IS NOT NULL AND ${table.isLatest}=1`),
     ],
   );
   const speakerMessages = sqliteTable(

@@ -238,6 +238,7 @@ describe("D1ContentRepository", () => {
       name: "slides.pdf",
       contentType: "application/pdf",
       storageKey: "event/profile/slides",
+      versionGroupId: "80000000-0000-4000-8000-000000000002",
     };
     await repository.addAsset(slides);
     await expect(

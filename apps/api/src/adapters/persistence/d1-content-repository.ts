@@ -3,18 +3,19 @@ import {
   ContentConflictError,
   type ContentRepository,
 } from "../../application/content/content-repository";
+import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
+  ContentComment,
+  ContentRevision,
   ContentSession,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerMessage,
   SpeakerProfile,
-  SpeakerTask,
   SpeakerResource,
-  ContentComment,
-  ContentRevision,
+  SpeakerTask,
 } from "../../domain/content/content";
-import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
+
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   run<T = unknown>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
@@ -356,6 +357,37 @@ export class D1ContentRepository
       asset.isLatest === false ? 0 : 1,
     );
   }
+  async replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset) {
+    const statements: D1Statement[] = [];
+    if (previous)
+      statements.push(
+        this.database.prepare("UPDATE speaker_assets SET is_latest=0 WHERE id=?").bind(previous.id),
+      );
+    statements.push(
+      this.database
+        .prepare(
+          "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,task_id,session_id,version_group_id,version_number,is_latest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        )
+        .bind(
+          asset.id,
+          asset.eventId,
+          asset.speakerProfileId,
+          asset.name,
+          asset.contentType,
+          asset.storageKey,
+          asset.visibility,
+          asset.uploadedAt,
+          asset.taskId ?? null,
+          asset.sessionId ?? null,
+          asset.versionGroupId ?? asset.id,
+          asset.versionNumber ?? 1,
+          1,
+        ),
+    );
+    const results = await this.database.batch(statements);
+    if (results.some((result) => !result.success))
+      throw new Error("Content asset version batch failed");
+  }
   async deleteAsset(assetId: string) {
     await this.run("DELETE FROM content_asset_comments WHERE asset_id=?", assetId);
     await this.run("DELETE FROM speaker_assets WHERE id=?", assetId);
@@ -374,6 +406,29 @@ export class D1ContentRepository
       task.instructions ?? "",
       task.sessionId ?? null,
     );
+  }
+  async addTasks(tasks: readonly SpeakerTask[]) {
+    const results = await this.database.batch(
+      tasks.map((task) =>
+        this.database
+          .prepare(
+            "INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at,task_type,instructions,session_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          )
+          .bind(
+            task.id,
+            task.eventId,
+            task.speakerProfileId,
+            task.title,
+            task.dueAt,
+            task.status,
+            task.completedAt ?? null,
+            task.type ?? "general",
+            task.instructions ?? "",
+            task.sessionId ?? null,
+          ),
+      ),
+    );
+    if (results.some((result) => !result.success)) throw new Error("Content task batch failed");
   }
   async addMessage(message: SpeakerMessage) {
     await this.run(

@@ -232,6 +232,7 @@ export const createSpeakerResourceInputSchema = z.object({
     .max(120),
   bodyHtml: z.string().max(100_000),
   embedHtml: z.string().max(20_000).default(""),
+  embedAllowedHosts: z.array(z.string().trim().min(1).max(253)).max(20).default([]),
   visibility: z.enum(["hidden", "visible"]),
   sortOrder: z.number().int().min(0).max(10_000),
 });

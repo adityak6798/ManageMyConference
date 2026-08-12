@@ -28455,6 +28455,16 @@
                     "maxLength": 20000,
                     "default": ""
                   },
+                  "embedAllowedHosts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    },
+                    "maxItems": 20,
+                    "default": []
+                  },
                   "visibility": {
                     "type": "string",
                     "enum": [
@@ -28802,6 +28812,16 @@
                     "type": "string",
                     "maxLength": 20000,
                     "default": ""
+                  },
+                  "embedAllowedHosts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    },
+                    "maxItems": 20,
+                    "default": []
                   },
                   "visibility": {
                     "type": "string",
