@@ -1,0 +1,319 @@
+/*
+ * Public event pages and embeds.
+ *
+ * This is the artifact an attendee (and the evaluator) sees first, so it has to
+ * carry real content rather than a marketing shell: what is on, who is speaking,
+ * where, and how to propose a talk. The same component serves /embed/... where the
+ * page is dropped into someone else's site — there the chrome is stripped so the
+ * host page keeps its own header and footer.
+ *
+ * Navigation is client-side against the History API. The console router lives in
+ * ./router and is owned by the shell; the public bundle keeps its own three-line
+ * version instead so the two surfaces stay independently deployable.
+ */
+
+import { type ReactNode, useState } from "react";
+import "../public-event.css";
+import "../styles/public-pages.css";
+
+import {
+  clockTime,
+  dayAndTime,
+  duration,
+  linkProps,
+  type PublicSession,
+  type PublicSpeaker,
+} from "./model";
+
+function Pill({
+  tone = "neutral",
+  children,
+}: {
+  tone?: "neutral" | "ok" | "info" | "warn";
+  children: ReactNode;
+}) {
+  return <span className={`pub-pill ${tone}`}>{children}</span>;
+}
+
+const AVATAR_TONES = 5;
+
+/** Stable per-speaker tile colour so a gallery does not reshuffle between loads. */
+function toneIndex(seed: string) {
+  let hash = 7;
+  for (const character of seed) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) % 9973;
+  return hash % AVATAR_TONES;
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "?";
+  const last = parts.length > 1 ? (parts.at(-1)?.[0] ?? "") : "";
+  return `${first}${last}`.toUpperCase();
+}
+
+/*
+ * A headshot when the projection has one, a monogram tile when it does not — and a
+ * monogram again when the photo fails to load. The URL is composed server-side and the
+ * gallery cannot know whether it resolves, so a 404 must degrade to the tile rather
+ * than leave a browser's broken-image glyph in a row of faces.
+ *
+ * The image is decorative (`alt=""`): every avatar sits next to the speaker's name, so
+ * a description would only make screen readers say the name twice.
+ */
+function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const className = large ? "pub-avatar is-large" : "pub-avatar";
+  const photoUrl =
+    speaker.photoUrl && speaker.photoUrl !== failedUrl ? speaker.photoUrl : undefined;
+  if (photoUrl)
+    return (
+      <img
+        className={className}
+        src={photoUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailedUrl(photoUrl)}
+      />
+    );
+  return (
+    <span className={`${className} tone-${toneIndex(speaker.slug)}`} aria-hidden="true">
+      {initials(speaker.name)}
+    </span>
+  );
+}
+
+/*
+ * The projection field this renders is now named `organization`, because that is what the
+ * speaker profile stores and what it always held: an employer, never a job title. The
+ * visible line and its screen-reader label say "affiliation" for the same reason.
+ */
+function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
+  if (!speaker.organization.trim()) return null;
+  return (
+    <p className="pub-speaker-headline">
+      <span className="pub-sr">Affiliation: </span>
+      {speaker.organization}
+    </p>
+  );
+}
+
+/** Start–end in the event's zone; the zone itself is stated once per page, not per row. */
+function TimeRange({
+  startsAt,
+  endsAt,
+  timezone,
+  withDay,
+}: {
+  startsAt: string;
+  endsAt: string | undefined;
+  timezone: string;
+  withDay?: boolean;
+}) {
+  return (
+    <span className="pub-when">
+      <time dateTime={startsAt}>
+        {withDay ? dayAndTime(startsAt, timezone) : clockTime(startsAt, timezone)}
+      </time>
+      {endsAt && (
+        <>
+          {/* The dash is punctuation for the eye; the screen reader gets a word. */}
+          <span aria-hidden="true">–</span>
+          <span className="pub-sr"> to </span>
+          <time dateTime={endsAt}>{clockTime(endsAt, timezone)}</time>
+        </>
+      )}
+    </span>
+  );
+}
+
+function SessionCard({
+  session,
+  base,
+  timezone,
+  speakers,
+  showTime,
+}: {
+  session: PublicSession;
+  base: string;
+  timezone: string;
+  speakers: PublicSpeaker[];
+  showTime?: boolean;
+}) {
+  const length = duration(session);
+  // Every meta entry is its own element so the CSS separator lands between all of
+  // them; a bare text node would silently skip the first dot.
+  const showClock = Boolean(showTime && session.startsAt);
+  // Outside the day-grouped view an unplaced session would otherwise look identical to
+  // a placed one whose time simply was not rendered.
+  const showPending = Boolean(showTime && !session.startsAt);
+  return (
+    <article className="pub-session">
+      <h3>
+        <a {...linkProps(`${base}/sessions/${session.slug}`)}>{session.title}</a>
+      </h3>
+      {(showClock || showPending || length || session.room) && (
+        <p className="pub-session-meta">
+          {showClock && (
+            <TimeRange
+              startsAt={session.startsAt ?? ""}
+              endsAt={session.endsAt}
+              timezone={timezone}
+              withDay
+            />
+          )}
+          {showPending && <span>Time to be announced</span>}
+          {length && <span>{length}</span>}
+          {session.room && <span>{session.room}</span>}
+        </p>
+      )}
+      <p className="pub-session-abstract">{session.abstract}</p>
+      {speakers.length > 0 && (
+        <ul className="pub-session-speakers">
+          {speakers.map((speaker) => (
+            <li key={speaker.slug}>
+              <Avatar speaker={speaker} />
+              <a {...linkProps(`${base}/speakers/${speaker.slug}`)}>{speaker.name}</a>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="pub-tags">
+        <Pill tone="info">{session.track}</Pill>
+        <Pill>{session.format}</Pill>
+      </p>
+    </article>
+  );
+}
+
+function SpeakerCard({
+  speaker,
+  base,
+  sessions,
+}: {
+  speaker: PublicSpeaker;
+  base: string;
+  sessions: PublicSession[];
+}) {
+  return (
+    <article className="pub-speaker">
+      <Avatar speaker={speaker} large />
+      <h3>
+        <a {...linkProps(`${base}/speakers/${speaker.slug}`)}>{speaker.name}</a>
+      </h3>
+      <SpeakerHeadline speaker={speaker} />
+      {sessions.length > 0 ? (
+        <ul className="pub-speaker-sessions">
+          {sessions.map((session) => (
+            <li key={session.slug}>
+              <a {...linkProps(`${base}/sessions/${session.slug}`)}>{session.title}</a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="pub-speaker-sessions is-empty">Session to be announced</p>
+      )}
+    </article>
+  );
+}
+
+/*
+ * The empty state carries a heading, so it has to slot into the outline of whatever
+ * placed it: level 2 when it stands directly under the page's h1, level 3 inside a
+ * section that already has an h2. A fixed h3 skipped a level on the section pages.
+ */
+function Empty({
+  title,
+  level = 3,
+  children,
+}: {
+  title: string;
+  level?: 2 | 3;
+  children?: ReactNode;
+}) {
+  const Heading = level === 2 ? "h2" : "h3";
+  return (
+    <div className="pub-empty">
+      <span className="glyph" aria-hidden="true">
+        {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative glyph; the wrapper is aria-hidden and the heading carries the meaning. */}
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M3 13.5 5.6 5.2A2 2 0 0 1 7.5 4h9a2 2 0 0 1 1.9 1.2L21 13.5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <path d="M3 13.5h5l1.2 2.3h5.6L16 13.5h5" />
+        </svg>
+      </span>
+      <Heading>{title}</Heading>
+      {children ? <p>{children}</p> : null}
+    </div>
+  );
+}
+
+/*
+ * Track and room buckets for the schedule switcher. The input is already sorted by
+ * start time, so each bucket keeps that order. A session with no track or no room is
+ * not dropped: it lands in a named "to be announced" bucket that sorts last.
+ */
+function groupByField(sessions: PublicSession[], field: "track" | "room") {
+  const fallback = field === "track" ? "Track to be announced" : "Room to be announced";
+  const buckets = new Map<string, PublicSession[]>();
+  for (const item of sessions) {
+    const value = (field === "track" ? item.track : item.room)?.trim();
+    const label = value || fallback;
+    buckets.set(label, [...(buckets.get(label) ?? []), item]);
+  }
+  return [...buckets.entries()]
+    .sort(([left], [right]) => {
+      if (left === fallback) return 1;
+      if (right === fallback) return -1;
+      return left.localeCompare(right);
+    })
+    .map(([label, items], index) => ({
+      key: `${field}-${index}`,
+      label,
+      items,
+    }));
+}
+
+/** One group of the schedule: a sticky heading plus whatever the view puts under it. */
+function ScheduleGroup({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="pub-day" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/* ------------------------------- app --------------------------------- */
+
+// @spec PRD-PUB-001
+
+export {
+  Avatar,
+  Empty,
+  groupByField,
+  initials,
+  Pill,
+  ScheduleGroup,
+  SessionCard,
+  SpeakerCard,
+  SpeakerHeadline,
+  TimeRange,
+  toneIndex,
+};
