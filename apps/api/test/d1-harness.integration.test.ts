@@ -253,6 +253,12 @@ describe("the cost of building a database", () => {
       batchRejects: new Error("fetch failed", { cause: new Error("connect EADDRNOTAVAIL") }),
     });
 
+    // It says the connection failed and that no statement is at fault, and still carries the
+    // driver's own words — a reader meeting `fetch failed` mid-migration should not have to know
+    // that it means the transport, since messages of that shape are what `GAP-017` is about.
+    await expect(applyMigrations(database as never)).rejects.toThrow(
+      /connection failed .* no statement is at fault/,
+    );
     await expect(applyMigrations(database as never)).rejects.toThrow(/fetch failed/);
     // Not one further round trip: the replay is what turned a port exhaustion into a cascade.
     expect(calls.ran).toBe(0);

@@ -192,7 +192,17 @@ async function applyFiles(database: RunnableDatabase, files: SqlFile[]): Promise
    * failed, because it spends the resource that just ran out. So a transport failure is reported
    * as itself rather than investigated.
    */
-  if (isTransportFailure(batchFailure)) throw batchFailure;
+  if (isTransportFailure(batchFailure))
+    // Named rather than rethrown bare. The original is kept as the cause, so nothing is lost,
+    // but a reader who meets `TypeError: fetch failed` in the middle of a migration run should
+    // not have to know that it means the connection: this entry exists because messages of that
+    // shape got read as schema faults.
+    throw new Error(
+      "the database connection failed while applying migrations, so nothing was applied and no " +
+        `statement is at fault — locally this is usually the machine running out of ephemeral ` +
+        `ports (\`GAP-017\`): ${causeChain(batchFailure)}`,
+      { cause: batchFailure },
+    );
 
   try {
     for (const file of files) await runFileSequentially(database, file);
