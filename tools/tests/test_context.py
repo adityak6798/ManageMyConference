@@ -20,6 +20,7 @@ from greenroom_tools.context import (
     documentation_semantics_problems,
     domain_for,
     domain_fragments,
+    drizzle_schema,
     duplicate_registration_problems,
     layer_for,
     load_manifest,
@@ -124,6 +125,11 @@ class ContextRoutingTest(unittest.TestCase):
             first.write_text("CREATE TABLE events (id TEXT PRIMARY KEY);", encoding="utf-8")
             second.write_text("ALTER TABLE events ADD COLUMN name TEXT;", encoding="utf-8")
             self.assertEqual(migration_schema([first, second]), {"events": {"id", "name"}})
+
+    def test_an_empty_schema_fragment_set_is_not_mistaken_for_a_valid_schema(self) -> None:
+        self.assertEqual(drizzle_schema([]), {})
+        problems = check_repository()
+        self.assertFalse(any("No Drizzle tables discovered" in problem for problem in problems))
 
     def test_mjs_and_python_tests_are_context_backlinks(self) -> None:
         locations = context_locations()["ACC-HARNESS"]

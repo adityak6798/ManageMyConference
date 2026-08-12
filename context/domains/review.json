@@ -7,6 +7,9 @@
   "acceptance": ["ACC-REVIEW"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/review.ts",
+    "apps/api/src/adapters/persistence/schema/review.ts",
+    "apps/api/seed/domains/review",
     "apps/api/src/domain/review",
     "apps/api/src/application/review",
     "apps/api/src/adapters/persistence/d1-review-repository.ts",

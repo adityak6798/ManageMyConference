@@ -7,6 +7,9 @@
   "acceptance": [],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/identity-access.ts",
+    "apps/api/src/adapters/persistence/schema/identity-access.ts",
+    "apps/api/seed/domains/identity-access",
     "apps/api/src/application/identity",
     "apps/api/src/transport/http/routes/identity.ts",
     "apps/api/src/adapters/persistence/d1-identity-directory.ts",

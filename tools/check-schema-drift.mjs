@@ -1,6 +1,6 @@
 // @spec ARC-003 TST-002
 //
-// Keeps `apps/api/src/adapters/persistence/schema.ts` (declared storage intent) honest against
+// Keeps the domain declarations under `apps/api/src/adapters/persistence/schema/` honest against
 // `apps/api/migrations/*.sql` (deployed history).
 //
 // How it works
@@ -41,7 +41,7 @@ import { SQLiteSyncDialect, SQLiteTable, getTableConfig } from "drizzle-orm/sqli
 
 const root = new URL("../", import.meta.url);
 const migrationsDirectory = new URL("apps/api/migrations/", root);
-const schemaModule = new URL("apps/api/src/adapters/persistence/schema.ts", root);
+const schemaRegistry = new URL("apps/api/src/adapters/persistence/schema/registry.ts", root);
 
 /** Objects the migrations create that a Drizzle schema cannot declare. */
 export const UNMODELLED_OBJECTS = [
@@ -149,8 +149,13 @@ export function generateDdl(schema) {
   return [...configs.map(tableDdl), ...configs.flatMap(indexDdl)];
 }
 
+export async function loadDeclaredSchema() {
+  const { schemaFragments } = await import(schemaRegistry.href);
+  return Object.assign({}, ...schemaFragments);
+}
+
 export async function loadDeclaredDdl() {
-  return generateDdl(await import(schemaModule.href));
+  return generateDdl(await loadDeclaredSchema());
 }
 
 export function migrationFiles() {

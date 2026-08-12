@@ -361,6 +361,22 @@ def migration_schema(paths: list[Path]) -> dict[str, set[str]]:
     return tables
 
 
+def drizzle_schema(paths: list[Path]) -> dict[str, set[str]]:
+    """Read every domain Drizzle fragment; an empty registry is never a valid schema."""
+    tables: dict[str, set[str]] = {}
+    for schema_path in paths:
+        schema_text = schema_path.read_text(encoding="utf-8")
+        for table, body in re.findall(
+            r'sqliteTable\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*\{(.*?)\}\s*(?:,.*?)?\);',
+            schema_text,
+            re.DOTALL,
+        ):
+            tables[table] = set(
+                re.findall(r'(?:text|integer|real)\("([A-Za-z_][A-Za-z0-9_]*)"', body)
+            )
+    return tables
+
+
 SCORECARD = "docs/quality/scorecard.md"
 ACTIVE_PLANS = "docs/exec-plans/active.md"
 COMPLETED_PLANS = "docs/exec-plans/completed.md"
@@ -729,19 +745,11 @@ def check_repository() -> list[str]:
                     f"Table '{table}' in {migration.relative_to(ROOT)} has no declared owner"
                 )
 
-    schema_tables: dict[str, set[str]] = {}
-    for schema_path in all_files((".ts",)):
-        if schema_path.name != "schema.ts":
-            continue
-        schema_text = schema_path.read_text(encoding="utf-8")
-        for table, body in re.findall(
-            r'sqliteTable\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*\{(.*?)\}\s*(?:,.*?)?\);',
-            schema_text,
-            re.DOTALL,
-        ):
-            schema_tables[table] = set(
-                re.findall(r'(?:text|integer|real)\("([A-Za-z_][A-Za-z0-9_]*)"', body)
-            )
+    schema_directory = ROOT / "apps/api/src/adapters/persistence/schema"
+    schema_paths = sorted(schema_directory.glob("*.ts"))
+    schema_tables = drizzle_schema(schema_paths)
+    if not schema_tables:
+        problems.append("No Drizzle tables discovered in domain schema fragments")
     migration_paths = sorted(path for path in all_files((".sql",)) if "migrations" in path.parts)
     migration_tables = migration_schema(migration_paths)
     if schema_tables != migration_tables:

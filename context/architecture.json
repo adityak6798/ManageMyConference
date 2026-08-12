@@ -154,6 +154,16 @@
         "path": "apps/web/src/workspaces/registry.tsx",
         "governing": "ARC-DOM-001",
         "reason": "The console workspace registry. Listing every domain's workspace module is the whole of what it does."
+      },
+      {
+        "path": "packages/contracts/src/index.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The public contracts barrel. Re-exporting every domain contract while preserving the package import path is the whole of what it does."
+      },
+      {
+        "path": "apps/api/src/adapters/persistence/schema/registry.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The storage declaration registry. It supplies foreign-key columns to domain schema factories and composes their returned tables without reading or writing application data."
       }
     ],
     "layerPaths": {

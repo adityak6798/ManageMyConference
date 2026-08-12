@@ -7,6 +7,9 @@
   "acceptance": ["ACC-IDENTITY-EVENTS"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/events.ts",
+    "apps/api/src/adapters/persistence/schema/events.ts",
+    "apps/api/seed/domains/events",
     "apps/api/src/domain/events",
     "apps/api/src/application/events",
     "apps/api/src/adapters/persistence/d1-event-repository.ts",

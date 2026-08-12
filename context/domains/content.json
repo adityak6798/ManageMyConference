@@ -7,6 +7,9 @@
   "acceptance": ["ACC-SPEAKER"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/content.ts",
+    "apps/api/src/adapters/persistence/schema/content.ts",
+    "apps/api/seed/domains/content",
     "apps/api/src/domain/content",
     "apps/api/src/application/content",
     "apps/api/src/adapters/content/d1-speaker-conversion.ts",

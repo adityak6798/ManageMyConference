@@ -7,6 +7,9 @@
   "acceptance": ["ACC-PUBLIC"],
   "plans": ["PLAN-002", "PLAN-003"],
   "paths": [
+    "packages/contracts/src/domains/publishing.ts",
+    "apps/api/src/adapters/persistence/schema/publishing.ts",
+    "apps/api/seed/domains/publishing",
     "apps/api/src/domain/publishing",
     "apps/api/src/application/publishing",
     "apps/api/src/adapters/persistence/d1-publication-repository.ts",
