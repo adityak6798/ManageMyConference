@@ -27,7 +27,13 @@ import {
   DeliveryRecoveryConflictError,
   TemplateVersionTakenError,
 } from "./ports";
-import type { CommunicationsEnqueue, DeliveryRequest, EnqueuedDelivery } from "./public";
+import type {
+  CalendarInviteEnqueueRequest,
+  CalendarInviteEnqueueResult,
+  CommunicationsEnqueue,
+  DeliveryRequest,
+  EnqueuedDelivery,
+} from "./public";
 
 export interface CommunicationsDependencies {
   repository: CommunicationsRepository;
@@ -344,6 +350,68 @@ export class CommunicationsService implements CommunicationsEnqueue {
       // unchanged is one this call created.
       created: delivery.id === prepared.id,
     };
+  }
+
+  async enqueueCalendarInvite(
+    request: CalendarInviteEnqueueRequest,
+  ): Promise<CalendarInviteEnqueueResult> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const current = await this.dependencies.repository.calendarInviteState(
+        request.organizationId,
+        request.eventId,
+        request.sessionId,
+        request.speakerProfileId,
+      );
+      if (
+        current?.scheduleRef === request.scheduleRef &&
+        current.recipientRef === request.recipientRef
+      ) {
+        const delivery = await this.dependencies.repository.get(current.deliveryId);
+        if (!delivery) throw new Error("Calendar invitation state refers to no delivery");
+        return {
+          id: delivery.id,
+          idempotencyKey: delivery.idempotencyKey,
+          state: delivery.state,
+          created: false,
+          sequence: current.sequence,
+        };
+      }
+
+      const sequence = (current?.sequence ?? -1) + 1;
+      const deliveryRequest = request.deliveryFor(sequence);
+      if (
+        deliveryRequest.organizationId !== request.organizationId ||
+        deliveryRequest.eventId !== request.eventId ||
+        deliveryRequest.recipientRef !== request.recipientRef
+      )
+        throw new CommunicationsInputError(
+          "Calendar invitation delivery does not match its durable state",
+        );
+      const prepared = await this.prepare(deliveryRequest);
+      const stored = await this.dependencies.repository.enqueueCalendarInvite(
+        prepared,
+        {
+          organizationId: request.organizationId,
+          eventId: request.eventId,
+          sessionId: request.sessionId,
+          speakerProfileId: request.speakerProfileId,
+          scheduleRef: request.scheduleRef,
+          recipientRef: request.recipientRef,
+          sequence,
+          deliveryId: prepared.id,
+        },
+        current?.sequence ?? null,
+      );
+      if (stored)
+        return {
+          id: stored.id,
+          idempotencyKey: stored.idempotencyKey,
+          state: stored.state,
+          created: stored.id === prepared.id,
+          sequence,
+        };
+    }
+    throw new Error("Calendar invitation state changed too often to enqueue");
   }
 
   /**

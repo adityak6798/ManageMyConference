@@ -172,11 +172,39 @@ export function defineCommunicationsIntegrationsSchema(references: {
     ],
   );
 
+  const calendarInviteStates = sqliteTable(
+    "calendar_invite_states",
+    {
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => references.organizationsId),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      sessionId: text("session_id").notNull(),
+      speakerProfileId: text("speaker_profile_id").notNull(),
+      scheduleRef: text("schedule_ref").notNull(),
+      recipientRef: text("recipient_ref").notNull(),
+      sequence: integer("sequence").notNull(),
+      deliveryId: text("delivery_id")
+        .notNull()
+        .references(() => communicationDeliveries.id),
+    },
+    (table) => [
+      primaryKey({
+        columns: [table.organizationId, table.eventId, table.sessionId, table.speakerProfileId],
+      }),
+      check("calendar_invite_states_sequence", sql`${table.sequence} >= 0`),
+      unique().on(table.deliveryId),
+    ],
+  );
+
   return {
     messageTemplates,
     communicationDeliveries,
     communicationAttempts,
     outboundProjectionState,
     accelEventsSyncRuns,
+    calendarInviteStates,
   };
 }

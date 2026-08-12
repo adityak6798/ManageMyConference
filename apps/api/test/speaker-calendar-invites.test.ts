@@ -75,6 +75,10 @@ function harness(
   // A standing outbox, so a second send sees what the first one wrote — which is the whole point
   // of the idempotency assertions below.
   const enqueued = new Map<string, DeliveryRequest>();
+  const inviteStates = new Map<
+    string,
+    { scheduleRef: string; recipientRef: string; sequence: number; deliveryId: string }
+  >();
   const requests: DeliveryRequest[] = [];
   const service = new SpeakerCalendarInviteService({
     content: {
@@ -89,22 +93,37 @@ function harness(
         }) as ContentWorkspaceView,
     },
     communications: {
-      enqueue: async (request) => {
-        requests.push(request);
-        const existing = enqueued.get(request.idempotencyKey);
-        if (existing)
+      enqueueCalendarInvite: async (inviteRequest) => {
+        const stateKey = `${inviteRequest.sessionId}:${inviteRequest.speakerProfileId}`;
+        const current = inviteStates.get(stateKey);
+        if (
+          current?.scheduleRef === inviteRequest.scheduleRef &&
+          current.recipientRef === inviteRequest.recipientRef
+        )
           return {
-            id: "existing",
-            idempotencyKey: request.idempotencyKey,
-            state: "queued",
+            id: current.deliveryId,
+            idempotencyKey: `calendar-invite:${stateKey}:${current.sequence}`,
+            state: "queued" as const,
             created: false,
+            sequence: current.sequence,
           };
+        const sequence = (current?.sequence ?? -1) + 1;
+        const request = inviteRequest.deliveryFor(sequence);
+        requests.push(request);
         enqueued.set(request.idempotencyKey, request);
+        const deliveryId = `delivery-${enqueued.size}`;
+        inviteStates.set(stateKey, {
+          scheduleRef: inviteRequest.scheduleRef,
+          recipientRef: inviteRequest.recipientRef,
+          sequence,
+          deliveryId,
+        });
         return {
-          id: `delivery-${enqueued.size}`,
+          id: deliveryId,
           idempotencyKey: request.idempotencyKey,
-          state: "queued",
+          state: "queued" as const,
           created: true,
+          sequence,
         };
       },
     },
@@ -160,25 +179,58 @@ describe("sending speaker calendar invitations", () => {
     expect(test.enqueued.size).toBe(1);
   });
 
-  it("treats a moved session as a new invitation, not a suppressed duplicate", async () => {
-    const before = harness({
+  it("reissues REQUEST with increasing SEQUENCE when a session moves A -> B -> A", async () => {
+    const workspace = {
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
-    await before.service.send(organizer, eventId);
-    const firstKey = before.requests[0]?.idempotencyKey ?? "";
+    };
+    const test = harness(workspace);
+    await test.service.send(organizer, eventId);
 
-    const after = harness({
-      sessions: [session("s1", ["p1"], { ...placed, startsAt: "2026-09-01T18:00:00.000Z" })],
-      speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
-    await after.service.send(organizer, eventId);
+    workspace.sessions = [
+      session("s1", ["p1"], { ...placed, startsAt: "2026-09-01T18:00:00.000Z" }),
+    ];
+    await test.service.send(organizer, eventId);
+    workspace.sessions = [session("s1", ["p1"], placed)];
+    await test.service.send(organizer, eventId);
 
-    // A different key, so the outbox does not swallow it — and the invitation carries the new
-    // time, which is what a client applies over the entry it already holds.
-    expect(after.requests[0]?.idempotencyKey).not.toBe(firstKey);
-    const payload = after.requests[0]?.payload as { calendarInvite: { content: string } };
-    expect(payload.calendarInvite.content).toContain("DTSTART:20260901T180000Z");
+    expect(test.requests).toHaveLength(3);
+    const clientVisible = test.requests.map((request) => {
+      const payload = request.payload as { calendarInvite: { content: string } };
+      return payload.calendarInvite.content.match(/(?:DTSTART|SEQUENCE):[^\r]+/g);
+    });
+    expect(clientVisible).toEqual([
+      ["DTSTART:20260901T160000Z", "SEQUENCE:0"],
+      ["DTSTART:20260901T180000Z", "SEQUENCE:1"],
+      ["DTSTART:20260901T160000Z", "SEQUENCE:2"],
+    ]);
+    expect(test.requests.map(({ idempotencyKey }) => idempotencyKey)).toEqual([
+      "calendar-invite:s1:p1:0",
+      "calendar-invite:s1:p1:1",
+      "calendar-invite:s1:p1:2",
+    ]);
+  });
+
+  it("reissues to a corrected speaker address with a higher SEQUENCE", async () => {
+    const workspace = {
+      sessions: [session("s1", ["p1"], placed)],
+      speakers: [speaker("p1", "wrong@example.test")],
+    };
+    const test = harness(workspace);
+    await test.service.send(organizer, eventId);
+    workspace.speakers = [speaker("p1", "ada@example.test")];
+    await test.service.send(organizer, eventId);
+
+    expect(test.requests.map(({ recipientRef }) => recipientRef)).toEqual([
+      "wrong@example.test",
+      "ada@example.test",
+    ]);
+    const correctedRequest = test.requests[1];
+    if (!correctedRequest) throw new Error("the corrected address queued no invitation");
+    const corrected = (correctedRequest.payload as { calendarInvite: { content: string } })
+      .calendarInvite.content;
+    expect(corrected).toContain("SEQUENCE:1");
+    expect(corrected).toContain("mailto:ada@example.test");
   });
 
   it("names who could not be invited rather than quietly reaching fewer people", async () => {

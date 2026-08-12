@@ -155,4 +155,22 @@ export type PreparedDeliveryWriter<TStatement> = (
 export interface CommunicationsEnqueue {
   enqueue(request: DeliveryRequest): Promise<EnqueuedDelivery>;
   prepareEnqueue(request: DeliveryRequest): Promise<PreparedDelivery>;
+  enqueueCalendarInvite(
+    request: CalendarInviteEnqueueRequest,
+  ): Promise<CalendarInviteEnqueueResult>;
+}
+
+export interface CalendarInviteEnqueueRequest {
+  readonly organizationId: string;
+  readonly eventId: string;
+  readonly sessionId: string;
+  readonly speakerProfileId: string;
+  readonly scheduleRef: string;
+  readonly recipientRef: string;
+  /** Content owns the iCalendar bytes; communications owns the durable sequence allocation. */
+  readonly deliveryFor: (sequence: number) => DeliveryRequest;
+}
+
+export interface CalendarInviteEnqueueResult extends EnqueuedDelivery {
+  readonly sequence: number;
 }

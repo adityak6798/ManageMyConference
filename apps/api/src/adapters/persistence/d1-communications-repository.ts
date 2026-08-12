@@ -1,5 +1,6 @@
 import {
   type CommunicationsRepository,
+  type CalendarInviteState,
   DeliveryRecoveryConflictError,
   TemplateVersionTakenError,
 } from "../../application/communications/ports";
@@ -60,6 +61,16 @@ type AttemptRow = {
   outcome: DeliveryAttempt["outcome"];
   provider_reference: string | null;
   error_code: string | null;
+};
+type CalendarInviteStateRow = {
+  organization_id: string;
+  event_id: string;
+  session_id: string;
+  speaker_profile_id: string;
+  schedule_ref: string;
+  recipient_ref: string;
+  sequence: number;
+  delivery_id: string;
 };
 
 const deliveryColumns =
@@ -297,6 +308,119 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       if (!row) throw new Error("D1 did not return an enqueued delivery");
       return row;
     });
+  }
+
+  async calendarInviteState(
+    organizationId: string,
+    eventId: string,
+    sessionId: string,
+    speakerProfileId: string,
+  ) {
+    const result = await this.database
+      .prepare(
+        "SELECT organization_id, event_id, session_id, speaker_profile_id, schedule_ref, recipient_ref, sequence, delivery_id FROM calendar_invite_states WHERE organization_id = ? AND event_id = ? AND session_id = ? AND speaker_profile_id = ? LIMIT 1",
+      )
+      .bind(organizationId, eventId, sessionId, speakerProfileId)
+      .all<CalendarInviteStateRow>();
+    this.ensure(result, "read calendar invitation state");
+    const row = result.results?.[0];
+    return row
+      ? {
+          organizationId: row.organization_id,
+          eventId: row.event_id,
+          sessionId: row.session_id,
+          speakerProfileId: row.speaker_profile_id,
+          scheduleRef: row.schedule_ref,
+          recipientRef: row.recipient_ref,
+          sequence: row.sequence,
+          deliveryId: row.delivery_id,
+        }
+      : null;
+  }
+
+  async enqueueCalendarInvite(
+    delivery: Delivery,
+    state: CalendarInviteState,
+    expectedSequence: number | null,
+  ) {
+    const stateStatement =
+      expectedSequence === null
+        ? this.database
+            .prepare(
+              "INSERT INTO calendar_invite_states (organization_id, event_id, session_id, speaker_profile_id, schedule_ref, recipient_ref, sequence, delivery_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, event_id, session_id, speaker_profile_id) DO NOTHING",
+            )
+            .bind(
+              state.organizationId,
+              state.eventId,
+              state.sessionId,
+              state.speakerProfileId,
+              state.scheduleRef,
+              state.recipientRef,
+              state.sequence,
+              state.deliveryId,
+            )
+        : this.database
+            .prepare(
+              "UPDATE calendar_invite_states SET schedule_ref = ?, recipient_ref = ?, sequence = ?, delivery_id = ? WHERE organization_id = ? AND event_id = ? AND session_id = ? AND speaker_profile_id = ? AND sequence = ? AND EXISTS (SELECT 1 FROM communication_deliveries WHERE id = ?)",
+            )
+            .bind(
+              state.scheduleRef,
+              state.recipientRef,
+              state.sequence,
+              state.deliveryId,
+              state.organizationId,
+              state.eventId,
+              state.sessionId,
+              state.speakerProfileId,
+              expectedSequence,
+              state.deliveryId,
+            );
+    const deliveryValues = [
+      delivery.id,
+      delivery.organizationId,
+      delivery.eventId,
+      delivery.idempotencyKey,
+      delivery.triggerType,
+      delivery.channel,
+      delivery.templateId,
+      delivery.templateVersion,
+      delivery.recipientRef,
+      JSON.stringify(delivery.payload),
+      delivery.renderedSubject,
+      delivery.renderedBody,
+      delivery.projectionVersion,
+      delivery.state,
+      delivery.attemptCount,
+      delivery.nextAttemptAt,
+      delivery.leaseToken,
+      delivery.createdAt,
+      delivery.updatedAt,
+    ];
+    const deliveryStatement =
+      expectedSequence === null
+        ? insertDeliveryStatement(this.database, delivery)
+        : this.database
+            .prepare(
+              `INSERT INTO communication_deliveries (${deliveryColumns}) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM calendar_invite_states WHERE organization_id = ? AND event_id = ? AND session_id = ? AND speaker_profile_id = ? AND sequence = ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
+            )
+            .bind(
+              ...deliveryValues,
+              state.organizationId,
+              state.eventId,
+              state.sessionId,
+              state.speakerProfileId,
+              expectedSequence,
+            );
+    const results = await this.database.batch([deliveryStatement, stateStatement]);
+    for (const result of results) this.ensure(result, "enqueue calendar invitation");
+    const current = await this.calendarInviteState(
+      state.organizationId,
+      state.eventId,
+      state.sessionId,
+      state.speakerProfileId,
+    );
+    if (current?.deliveryId !== delivery.id) return null;
+    return this.get(delivery.id);
   }
 
   async listTemplates(organizationId: string) {

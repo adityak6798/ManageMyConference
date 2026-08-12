@@ -59,6 +59,85 @@ describe("D1CommunicationsRepository", () => {
     expect(repeated.map(({ id }) => id)).toEqual(audience.map(({ id }) => id));
   });
 
+  it("atomically advances calendar invitation state and its delivery sequence", async () => {
+    const migrated = await createMigratedDatabase({ label: "calendar-invite-state", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1CommunicationsRepository(migrated.database);
+    let id = 0;
+    const communications = new CommunicationsService({
+      repository,
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => `calendar-delivery-${++id}`,
+      now: () => new Date("2026-08-12T09:00:00.000Z"),
+    });
+    const organizationId = "00000000-0000-4000-8000-000000000010";
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const send = (scheduleRef: string, recipientRef = "ada@example.test") =>
+      communications.enqueueCalendarInvite({
+        organizationId,
+        eventId,
+        sessionId: "session-1",
+        speakerProfileId: "speaker-1",
+        scheduleRef,
+        recipientRef,
+        deliveryFor: (sequence) => ({
+          organizationId,
+          eventId,
+          idempotencyKey: `calendar-invite:session-1:speaker-1:${sequence}`,
+          triggerType: "speaker.calendar_invite",
+          channel: "email",
+          recipientRef,
+          templateKey: "speaker-calendar-invite",
+          payload: {
+            speakerName: "Ada",
+            sessionTitle: "State",
+            eventName: "Greenroom Demo Summit",
+            calendarInvite: {
+              method: "REQUEST",
+              filename: "invite.ics",
+              content: `SEQUENCE:${sequence}`,
+            },
+          },
+        }),
+      });
+
+    await expect(send("A")).resolves.toMatchObject({ created: true, sequence: 0 });
+    await expect(send("A")).resolves.toMatchObject({ created: false, sequence: 0 });
+    await expect(send("B")).resolves.toMatchObject({ created: true, sequence: 1 });
+    await expect(send("A")).resolves.toMatchObject({ created: true, sequence: 2 });
+    await expect(send("A", "corrected@example.test")).resolves.toMatchObject({
+      created: true,
+      sequence: 3,
+    });
+
+    const deliveries = (await repository.list(organizationId, eventId)).filter(
+      ({ triggerType }) => triggerType === "speaker.calendar_invite",
+    );
+    expect(deliveries.map(({ recipientRef, payload }) => ({ recipientRef, payload }))).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:0" }),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:1" }),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:2" }),
+        }),
+      }),
+      expect.objectContaining({
+        recipientRef: "corrected@example.test",
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:3" }),
+        }),
+      }),
+    ]);
+  });
+
   it("persists idempotent deliveries and atomically records attempts with projection state", async () => {
     const migrated = await createMigratedDatabase({ label: "communications", seed: true });
     runtime = migrated.runtime;

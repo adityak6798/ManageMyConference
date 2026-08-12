@@ -22,6 +22,17 @@ export class DeliveryRecoveryConflictError extends Error {}
  */
 export class TemplateVersionTakenError extends Error {}
 
+export interface CalendarInviteState {
+  readonly organizationId: string;
+  readonly eventId: string;
+  readonly sessionId: string;
+  readonly speakerProfileId: string;
+  readonly scheduleRef: string;
+  readonly recipientRef: string;
+  readonly sequence: number;
+  readonly deliveryId: string;
+}
+
 export interface DeliveryProvider {
   deliver(delivery: Delivery): Promise<ProviderResult>;
 }
@@ -87,6 +98,23 @@ export interface CommunicationsRepository {
    * comparing identity.
    */
   enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]>;
+  calendarInviteState(
+    organizationId: string,
+    eventId: string,
+    sessionId: string,
+    speakerProfileId: string,
+  ): Promise<CalendarInviteState | null>;
+  /**
+   * Advance the invitation state and enqueue its REQUEST in one commit.
+   *
+   * Null means another caller advanced the pair first; the application re-reads and either
+   * returns that identical invitation or tries the next sequence for its different schedule.
+   */
+  enqueueCalendarInvite(
+    delivery: Delivery,
+    state: CalendarInviteState,
+    expectedSequence: number | null,
+  ): Promise<Delivery | null>;
   list(organizationId: string, eventId: string): Promise<readonly Delivery[]>;
   historyPage(
     organizationId: string,
