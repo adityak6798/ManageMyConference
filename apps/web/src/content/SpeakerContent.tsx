@@ -10,8 +10,11 @@
  * that caused it instead of at the bottom of the page.
  */
 
+// biome-ignore-all lint/security/noDangerouslySetInnerHtml: the content API returns parser-sanitized markup and hostile-input tests guard this rendering boundary.
+
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import {
+  addContentComment,
   clearSpeakerProfilePhoto,
   completeSpeakerTask,
   contentFieldErrors,
@@ -178,6 +181,7 @@ export function SpeakerView({
     if (busy) return;
     const input = formEvent.currentTarget.elements.namedItem("asset") as HTMLInputElement;
     const file = input.files?.[0];
+    const taskId = String(new FormData(formEvent.currentTarget).get("taskId") ?? "");
     if (!file) {
       uploadFeedback.announce("error", "Choose a file before uploading.");
       return;
@@ -190,6 +194,7 @@ export function SpeakerView({
         name: file.name,
         contentType: file.type as "image/jpeg" | "image/png" | "application/pdf",
         contentBase64,
+        ...(taskId ? { taskId } : {}),
       });
     }).then((result) => {
       if (result.ok) uploadFormRef.current?.reset();
@@ -204,6 +209,29 @@ export function SpeakerView({
 
   return (
     <div className="content-workspace">
+      {(workspace.resources ?? []).length > 0 ? (
+        <section aria-labelledby="speaker-resources-heading">
+          <h2 id="speaker-resources-heading">Speaker resources</h2>
+          <div className="grid-auto">
+            {(workspace.resources ?? []).map((resource) => (
+              <Card key={resource.id} title={resource.title}>
+                <div
+                  className="resource-body"
+                  dangerouslySetInnerHTML={{ __html: resource.bodyHtml }}
+                />
+                {resource.embedHtml ? (
+                  <iframe
+                    title={`${resource.title} embedded reference`}
+                    sandbox=""
+                    referrerPolicy="no-referrer"
+                    srcDoc={resource.embedHtml}
+                  />
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <dl className="grid-auto">
         <Stat
           label="Tasks to complete"
@@ -399,6 +427,19 @@ export function SpeakerView({
                 PNG, JPEG, or PDF.
               </p>
             </div>
+            <label>
+              Requested task
+              <select name="taskId" defaultValue="">
+                <option value="">General upload</option>
+                {tasks
+                  .filter((task) => task.type === "file-request")
+                  .map((task) => (
+                    <option key={task.id} value={task.id}>
+                      {task.title}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <button type="submit" aria-disabled={busy}>
               {busy ? "Uploading…" : "Upload asset"}
             </button>
@@ -456,6 +497,32 @@ export function SpeakerView({
                         </button>
                       ) : null}
                     </span>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const body = String(new FormData(event.currentTarget).get("body"));
+                        // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+                        void run(() => addContentComment(asset.id, body));
+                      }}
+                    >
+                      <input
+                        name="body"
+                        aria-label={`Comment on ${asset.name}`}
+                        placeholder="Add a comment"
+                        required
+                      />
+                      <button type="submit" className="ghost small" disabled={busy}>
+                        Comment
+                      </button>
+                    </form>
+                    {(workspace.comments ?? [])
+                      .filter((comment) => comment.assetId === asset.id)
+                      .map((comment) => (
+                        <p className="sub" key={comment.id}>
+                          <strong>{comment.authorName}</strong> · {shortDateTime(comment.createdAt)}{" "}
+                          — {comment.body}
+                        </p>
+                      ))}
                   </li>
                 );
               })}

@@ -44,6 +44,7 @@ const form = (overrides: Record<string, unknown> = {}) => ({
   title: "Call for proposals",
   description: "Tell us what you would like to talk about.",
   fields: [field()],
+  routing: [],
   status: "draft",
   version: 1,
   publishedAt: null,
@@ -137,6 +138,42 @@ describe("publishing what is on screen", () => {
     expect(
       within(question("Proposal title")).queryByText("Give this question a label."),
     ).toBeNull();
+  });
+
+  it("reports a stale draft and reloads only when the organizer chooses recovery", async () => {
+    let organizerLoads = 0;
+    const calls = stubApi((url, init) => {
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return errorResponse(
+          409,
+          "CONFLICT",
+          "This draft changed elsewhere. Reload the latest draft before saving again.",
+        );
+      if (url.startsWith("/api/events/")) {
+        organizerLoads += 1;
+        return jsonResponse({
+          cfp: form({
+            title: organizerLoads === 1 ? "Loaded draft" : "Other editor's draft",
+            version: organizerLoads === 1 ? 4 : 5,
+          }),
+        });
+      }
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    fireEvent.change(await screen.findByLabelText("Form title"), {
+      target: { value: "My unsaved edit" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
+    expect(screen.getByLabelText("Form title")).toHaveValue("My unsaved edit");
+    expect(writes(calls)[0]?.body.expectedVersion).toBe(4);
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest draft" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Form title")).toHaveValue("Other editor's draft"),
+    );
   });
 });
 
@@ -299,6 +336,32 @@ describe("the public submission form", () => {
       abstract: "How the composer keeps draft and live apart.",
     });
     expect(String(submission?.body.idempotencyKey).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("reveals dependent questions only when their condition matches", async () => {
+    const conditional = form({
+      status: "open",
+      publishedStatus: "open",
+      fields: [
+        field({ id: "category", type: "select", label: "Category", options: ["Talk", "Workshop"] }),
+        field({
+          id: "equipment",
+          label: "Equipment needs",
+          visibleWhen: { fieldId: "category", operator: "equals", values: ["Workshop"] },
+        }),
+      ],
+    });
+    stubApi((url) =>
+      url.startsWith("/api/public/events/") ? jsonResponse({ cfp: conditional }) : undefined,
+    );
+    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+
+    expect(await screen.findByLabelText("Category *")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Equipment needs *")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Category *"), { target: { value: "Workshop" } });
+    expect(screen.getByLabelText("Equipment needs *")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Category *"), { target: { value: "Talk" } });
+    expect(screen.queryByLabelText("Equipment needs *")).toBeNull();
   });
 
   it("puts the server's rejection on the answer that caused it", async () => {

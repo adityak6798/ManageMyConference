@@ -1,6 +1,9 @@
 export type PublicationState = "draft" | "ready" | "published";
 export type TaskStatus = "open" | "complete";
 export type AssetVisibility = "private" | "publishable";
+export type ResourceVisibility = "hidden" | "visible";
+export type SpeakerWorkflowStatus = "invited" | "onboarding" | "ready" | "blocked";
+export type SpeakerTaskType = "general" | "file-request";
 
 /**
  * A session content owns.
@@ -35,6 +38,9 @@ export interface SpeakerProfile {
   readonly pronouns: string;
   readonly organization: string;
   readonly photoAssetId?: string;
+  readonly workflowStatus?: SpeakerWorkflowStatus | undefined;
+  readonly logistics?: Readonly<Record<string, string>> | undefined;
+  readonly customFields?: Readonly<Record<string, string>> | undefined;
 }
 
 export interface SpeakerTask {
@@ -45,6 +51,9 @@ export interface SpeakerTask {
   readonly dueAt: string;
   readonly status: TaskStatus;
   readonly completedAt?: string;
+  readonly type?: SpeakerTaskType | undefined;
+  readonly instructions?: string | undefined;
+  readonly sessionId?: string | undefined;
 }
 
 export interface SpeakerAsset {
@@ -56,6 +65,32 @@ export interface SpeakerAsset {
   readonly storageKey: string;
   readonly visibility: AssetVisibility;
   readonly uploadedAt: string;
+  readonly taskId?: string | undefined;
+  readonly sessionId?: string | undefined;
+  readonly versionGroupId?: string | undefined;
+  readonly versionNumber?: number | undefined;
+  readonly isLatest?: boolean | undefined;
+}
+
+export interface ContentComment {
+  readonly id: string;
+  readonly eventId: string;
+  readonly assetId: string;
+  readonly authorId: string;
+  readonly authorName: string;
+  readonly body: string;
+  readonly createdAt: string;
+}
+export interface ContentRevision {
+  readonly id: string;
+  readonly eventId: string;
+  readonly entityType: "profile" | "session";
+  readonly entityId: string;
+  readonly revisionNumber: number;
+  readonly snapshotJson: string;
+  readonly actorId: string;
+  readonly createdAt: string;
+  readonly restoredFromRevisionId?: string | undefined;
 }
 
 /**
@@ -79,10 +114,24 @@ export interface SpeakerMessage {
   readonly sentAt: string;
 }
 
+export interface SpeakerResource {
+  readonly id: string;
+  readonly eventId: string;
+  readonly title: string;
+  readonly slug: string;
+  readonly bodyHtml: string;
+  readonly embedHtml: string;
+  readonly visibility: ResourceVisibility;
+  readonly sortOrder: number;
+}
+
 export interface ContentWorkspace {
   readonly sessions: readonly ContentSession[];
   readonly speakers: readonly SpeakerProfile[];
   readonly tasks: readonly SpeakerTask[];
   readonly assets: readonly SpeakerAsset[];
   readonly messages: readonly SpeakerMessage[];
+  readonly resources?: readonly SpeakerResource[];
+  readonly comments?: readonly ContentComment[];
+  readonly revisions?: readonly ContentRevision[];
 }

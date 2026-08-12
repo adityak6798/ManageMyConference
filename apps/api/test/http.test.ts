@@ -31,6 +31,12 @@ const testCrm = () =>
     speakerConversion: { createOrLink: async () => ({ speakerId: crypto.randomUUID() }) },
     // These harness cases never assign an owner; the CRM's own suites cover eligibility.
     identities: { listAssignableOwnersForEvent: async () => [] },
+    // Nor do they reach the organization directory, whose own suites cover both.
+    events: { belongsToOrganization: async () => false },
+    outreach: {
+      prepare: async () => undefined,
+      send: async () => ({ deliveryId: "unused", created: true }),
+    },
     newId: () => crypto.randomUUID(),
     now: () => new Date("2026-08-09T12:00:00.000Z"),
   });

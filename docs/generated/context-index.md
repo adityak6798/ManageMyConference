@@ -17,12 +17,14 @@
 ## Identifier backlinks
 
 ### `ACC-AGENDA`
+- `test` / `repository-fact`: [apps/api/test/agenda-http.test.ts](../../apps/api/test/agenda-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-service.test.ts](../../apps/api/test/agenda-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-agenda-repository.integration.test.ts](../../apps/api/test/d1-agenda-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/agenda.spec.ts](../../apps/web/e2e/agenda.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/event-scoped-loading.spec.ts](../../apps/web/e2e/event-scoped-loading.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/agenda-assisted-placement.test.tsx](../../apps/web/test/agenda-assisted-placement.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-failure-feedback.test.tsx](../../apps/web/test/agenda-failure-feedback.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timeslots.test.tsx](../../apps/web/test/agenda-timeslots.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timezone.test.tsx](../../apps/web/test/agenda-timezone.test.tsx)
@@ -49,6 +51,7 @@
 - `test` / `repository-fact`: [apps/api/test/d1-crm-repository.integration.test.ts](../../apps/api/test/d1-crm-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-speaker-conversion.integration.test.ts](../../apps/api/test/d1-speaker-conversion.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/crm.spec.ts](../../apps/web/e2e/crm.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/crm-directory.test.tsx](../../apps/web/test/crm-directory.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/crm-owner-assignment.test.tsx](../../apps/web/test/crm-owner-assignment.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
@@ -100,9 +103,15 @@
 
 ### `ACC-INTEGRATION`
 - `test` / `repository-fact`: [apps/api/test/communications-http.test.ts](../../apps/api/test/communications-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-service.test.ts](../../apps/api/test/communications-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-template.test.ts](../../apps/api/test/communications-template.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-communications-repository.integration.test.ts](../../apps/api/test/d1-communications-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/deterministic-provider.test.ts](../../apps/api/test/deterministic-provider.test.ts)
+- `test` / `repository-fact`: [apps/api/test/provider-configuration.test.ts](../../apps/api/test/provider-configuration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/provider-contract.test.ts](../../apps/api/test/provider-contract.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/communications.spec.ts](../../apps/web/e2e/communications.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/communications-compose.test.tsx](../../apps/web/test/communications-compose.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/communications.test.tsx](../../apps/web/test/communications.test.tsx)
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -146,7 +155,10 @@
 
 ### `ACC-SPEAKER`
 - `test` / `repository-fact`: [apps/api/test/content-calendar-publication.test.ts](../../apps/api/test/content-calendar-publication.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-csv-import.test.ts](../../apps/api/test/content-csv-import.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-deliverables.test.ts](../../apps/api/test/content-deliverables.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-resource-sanitizer.test.ts](../../apps/api/test/content-resource-sanitizer.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-service.test.ts](../../apps/api/test/content-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-content-repository.integration.test.ts](../../apps/api/test/d1-content-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/event-scoped-loading.spec.ts](../../apps/web/e2e/event-scoped-loading.spec.ts)
@@ -174,6 +186,7 @@
 
 ### `ARC-DOM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/registry.ts](../../apps/api/src/adapters/persistence/schema/registry.ts)
+- `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/contract.ts](../../apps/api/src/transport/http/routes/contract.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/registry.ts](../../apps/api/src/transport/http/routes/registry.ts)
@@ -274,6 +287,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/agenda.ts](../../apps/api/src/adapters/persistence/schema/agenda.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/agenda-service.ts](../../apps/api/src/application/agenda/agenda-service.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/agenda.ts](../../apps/api/src/domain/agenda/agenda.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/agenda/assisted-placement.ts](../../apps/api/src/domain/agenda/assisted-placement.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/agenda.ts](../../apps/api/src/transport/http/routes/agenda.ts)
 - `code` / `repository-fact`: [apps/web/src/agenda/AgendaWorkspace.tsx](../../apps/web/src/agenda/AgendaWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/agenda/model.ts](../../apps/web/src/agenda/model.ts)
@@ -302,6 +316,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/cfp.ts](../../packages/contracts/src/domains/cfp.ts)
 
 ### `PRD-CNT-001`
@@ -316,13 +331,21 @@
 - `code` / `repository-fact`: [packages/contracts/src/domains/review.ts](../../packages/contracts/src/domains/review.ts)
 
 ### `PRD-COM-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-communications-repository.ts](../../apps/api/src/adapters/persistence/d1-communications-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/communications-integrations.ts](../../apps/api/src/adapters/persistence/schema/communications-integrations.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/providers/email-provider.ts](../../apps/api/src/adapters/providers/email-provider.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/communications-service.ts](../../apps/api/src/application/communications/communications-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/errors.ts](../../apps/api/src/application/communications/errors.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/communications/template.ts](../../apps/api/src/domain/communications/template.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-template.test.ts](../../apps/api/test/communications-template.test.ts)
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/communications/ComposePanel.tsx](../../apps/web/src/communications/ComposePanel.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
@@ -332,9 +355,14 @@
 ### `PRD-CRM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-crm-repository.ts](../../apps/api/src/adapters/persistence/d1-crm-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/crm.ts](../../apps/api/src/adapters/persistence/schema/crm.ts)
+- `code` / `repository-fact`: [apps/api/src/application/crm/contact-repository.ts](../../apps/api/src/application/crm/contact-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/crm-service.ts](../../apps/api/src/application/crm/crm-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/crm/contact-import.ts](../../apps/api/src/domain/crm/contact-import.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/crm/contact.ts](../../apps/api/src/domain/crm/contact.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/crm/prospect.ts](../../apps/api/src/domain/crm/prospect.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/crm.ts](../../apps/api/src/transport/http/routes/crm.ts)
+- `code` / `repository-fact`: [apps/web/src/CrmDirectoryWorkspace.tsx](../../apps/web/src/CrmDirectoryWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/CrmWorkspace.tsx](../../apps/web/src/CrmWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/crm.tsx](../../apps/web/src/workspaces/crm.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -377,10 +405,20 @@
 
 ### `PRD-INT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/communications-integrations.ts](../../apps/api/src/adapters/persistence/schema/communications-integrations.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/providers/accelevents-provider.ts](../../apps/api/src/adapters/providers/accelevents-provider.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/providers/airtable-provider.ts](../../apps/api/src/adapters/providers/airtable-provider.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/providers/configuration.ts](../../apps/api/src/adapters/providers/configuration.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/providers/email-provider.ts](../../apps/api/src/adapters/providers/email-provider.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/providers/http-outcome.ts](../../apps/api/src/adapters/providers/http-outcome.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/errors.ts](../../apps/api/src/application/communications/errors.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
+- `test` / `repository-fact`: [apps/api/test/provider-configuration.test.ts](../../apps/api/test/provider-configuration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/provider-contract.test.ts](../../apps/api/test/provider-contract.test.ts)
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

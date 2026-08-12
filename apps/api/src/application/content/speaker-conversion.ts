@@ -4,7 +4,7 @@
  * profile when they name the same address, which is what `PRD-SPK-001`'s "one event-scoped
  * speaker profile" means in practice.
  */
-export type SpeakerConversionSourceKind = "crm-prospect" | "cfp-proposal";
+export type SpeakerConversionSourceKind = "crm-prospect" | "cfp-proposal" | "csv";
 
 export interface SpeakerConversionCommand {
   readonly eventId: string;

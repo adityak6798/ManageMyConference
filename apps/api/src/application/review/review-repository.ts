@@ -14,6 +14,10 @@ export interface ReviewRepository {
   getPlan(eventId: string): Promise<EvaluationPlan | null>;
   savePlan(plan: EvaluationPlan): Promise<void>;
   createAssignments(assignments: readonly ReviewAssignment[]): Promise<readonly ReviewAssignment[]>;
+  createCappedAssignments(
+    assignments: readonly ReviewAssignment[],
+    caps: ReadonlyMap<string, number>,
+  ): Promise<readonly ReviewAssignment[]>;
   listAssignments(eventId: string, reviewerId?: string): Promise<readonly ReviewAssignment[]>;
   findAssignment(eventId: string, assignmentId: string): Promise<ReviewAssignment | null>;
   /**
@@ -28,6 +32,7 @@ export interface ReviewRepository {
   getConflict(assignmentId: string, reviewerId: string): Promise<ReviewConflict | null>;
   saveConflict(conflict: ReviewConflict): Promise<void>;
   getEvaluation(assignmentId: string, reviewerId: string): Promise<Evaluation | null>;
+  listEvaluations(eventId: string): Promise<readonly Evaluation[]>;
   saveEvaluation(evaluation: Evaluation): Promise<void>;
   completeEvaluation(evaluation: Evaluation, event: ReviewCompletedEvent): Promise<void>;
   listCompletedEvaluations(eventId: string, proposalId: string): Promise<readonly Evaluation[]>;

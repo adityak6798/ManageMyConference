@@ -8,10 +8,11 @@ The repository is deliberately organized as an agent-readable context graph. Sta
 
 The product runs from a deterministic seed with development-only demo identities. The production
 bundle is deployable as one Cloudflare Worker serving both the API and SPA, with emailed-code
-authentication and event-scoped bearer tokens. Every
-provider is a deterministic fake. Of the
+authentication and event-scoped bearer tokens. Credential-gated live email, Airtable and
+Accelevents adapters exist, but the deterministic fakes are the default everywhere and no live
+adapter has ever exchanged a request with a real API. Of the
 nine competition features, four are shipped — one of those with a named hole, one with no test on its
-rows — three are partial, and two are missing. The per-feature verdict with a deciding file for each
+rows — four are partial, and one is missing. The per-feature verdict with a deciding file for each
 is the [traceability table](docs/product/competition-traceability.md); the per-journey verdict, the
 tests behind it, and exactly which commands were run to measure it are the
 [quality scorecard](docs/quality/scorecard.md); everything deferred is in

@@ -11,9 +11,22 @@ DELETE FROM communication_deliveries;
 DELETE FROM message_templates;
 DELETE FROM agenda_publications;
 DELETE FROM agenda_drafts;
+DELETE FROM crm_contact_activities;
+DELETE FROM crm_contact_aliases;
+DELETE FROM crm_contact_events;
+DELETE FROM crm_contact_fields;
+DELETE FROM crm_contact_tags;
+DELETE FROM crm_contact_segments;
+DELETE FROM crm_contact_imports;
+DELETE FROM crm_organization_contacts;
 DELETE FROM crm_activities;
 DELETE FROM crm_contacts;
 DELETE FROM crm_prospects;
+
+DELETE FROM speaker_resources;
+DELETE FROM content_asset_comments;
+DELETE FROM content_revisions;
+DELETE FROM content_speaker_import_rows;
 DELETE FROM speaker_conversion_sources;
 DELETE FROM speaker_conversion_claims;
 DELETE FROM speaker_email_claims;
@@ -22,6 +35,7 @@ DELETE FROM speaker_assets;
 DELETE FROM speaker_tasks;
 DELETE FROM content_sessions;
 DELETE FROM speaker_profiles;
+
 DELETE FROM review_events;
 DELETE FROM review_decisions;
 DELETE FROM review_outcomes;
@@ -96,8 +110,11 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'speaker-jordan-bell', 'speaker'),
   ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');
 
+-- The placeholder is {{speakerName}} because that is the one value a send to the event speakers
+-- fills in per recipient. A demo template naming anything else would refuse to send, which is
+-- correct behaviour and a poor first impression.
 INSERT INTO message_templates (id, organization_id, template_key, version, channel, subject, body, created_at) VALUES
-  ('template-speaker-v1', '00000000-0000-4000-8000-000000000010', 'speaker-invite', 1, 'email', 'Welcome to Greenroom', 'Hello {{speaker}}', '2026-08-10T12:00:00.000Z');
+  ('template-speaker-v1', '00000000-0000-4000-8000-000000000010', 'speaker-invite', 1, 'email', 'Welcome to Greenroom', 'Hello {{speakerName}}, your session is confirmed. Please complete your speaker profile before the event.', '2026-08-10T12:00:00.000Z');
 
 INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES
   ('delivery-queued', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'seed:queued', 'speaker.invited', 'email', 'template-speaker-v1', 1, 'speaker:queued', '{"speaker":"Queued Speaker"}', NULL, 'queued', 0, '2026-08-10T12:00:00.000Z', NULL, '2026-08-10T12:00:00.000Z', '2026-08-10T12:00:00.000Z'),
@@ -161,6 +178,9 @@ INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,co
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
 INSERT INTO speaker_messages (id,event_id,speaker_profile_id,subject,sent_at) VALUES
 ('40000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Welcome to Greenroom Demo Summit','2026-08-10T16:00:00.000Z');
+INSERT INTO speaker_resources (id,event_id,title,slug,body_html,embed_html,visibility,sort_order) VALUES
+('41000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','Speaker handbook','speaker-handbook','<h2>Welcome to Greenroom</h2><p>Use this portal to finish your tasks and share deliverables.</p>','','visible',0);
+
 -- Every submission stores the snapshot of the form it was filled in against, so the organizer
 -- projection derives the submitter from real field types rather than a heuristic, and every one
 -- answers the required contact-email field the published form asks for.
@@ -194,10 +214,11 @@ INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decide
   ('00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000011', 'accepted', 'seed-organizer', '2026-08-09T15:05:00.000Z', 'The accessibility workshop the programme was missing.');
 
 INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000001', '[{"id":"relevance","name":"Relevance","description":"Fit for this audience","minScore":1,"maxScore":5},{"id":"clarity","name":"Clarity","description":"Strength and clarity of the proposal","minScore":1,"maxScore":5}]', '2026-08-09T12:00:00.000Z');
+  ('00000000-0000-4000-8000-000000000001', '[{"id":"relevance","name":"Relevance","description":"Fit for this audience","type":"numeric","minScore":1,"maxScore":5,"weight":2},{"id":"format","name":"Recommended format","description":"Choose the best delivery format","type":"dropdown","options":["Talk","Workshop","Panel"],"weight":1},{"id":"feedback","name":"Reviewer feedback","description":"Explain the recommendation","type":"text","maxLength":1000,"weight":1}]', '2026-08-09T12:00:00.000Z');
 
-INSERT INTO review_assignments (id, event_id, proposal_id, reviewer_id, created_at) VALUES
-  ('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'seed-reviewer', '2026-08-09T12:00:00.000Z');
+INSERT INTO review_assignments (id, event_id, proposal_id, reviewer_id, round, created_at) VALUES
+  ('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'seed-reviewer', 1, '2026-08-09T12:00:00.000Z');
+
 INSERT INTO cfp_forms (event_id, title, description, fields_json, status, version, published_at, published_json)
 VALUES (
   '00000000-0000-4000-8000-000000000001',
@@ -212,13 +233,61 @@ VALUES (
 
 INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES
   ('50000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','Dr. Ada Rivera','contacted','seed-organizer','Follow up on keynote topic','2026-08-08T17:00:00.000Z','2026-08-01T12:00:00.000Z','2026-08-05T12:00:00.000Z'),
-  ('50000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Morgan Chen','engaged','seed-organizer','Send formal invitation','2026-08-15T17:00:00.000Z','2026-08-02T12:00:00.000Z','2026-08-06T12:00:00.000Z');
+  ('50000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Morgan Chen','engaged','seed-organizer','Send formal invitation','2026-08-15T17:00:00.000Z','2026-08-02T12:00:00.000Z','2026-08-06T12:00:00.000Z'),
+  -- The same person, courted again for the workshop day. This is the row that makes the
+  -- directory's central claim demonstrable on a clean seed: one contact, two event histories.
+  ('50000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','Dr. Ada Rivera','identified','seed-organizer','Confirm interest for the workshop day',NULL,'2026-08-07T12:00:00.000Z','2026-08-07T12:00:00.000Z');
 INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) VALUES
   ('60000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','Ada Rivera','ada@example.test',1),
-  ('60000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000002','Morgan Chen','morgan@example.test',1);
+  ('60000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000002','Morgan Chen','morgan@example.test',1),
+  ('60000000-0000-4000-8000-000000000003','50000000-0000-4000-8000-000000000003','Ada Rivera','ada@example.test',1);
 INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id) VALUES
   ('70000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','email','Introductory outreach sent',0,'2026-08-05T12:00:00.000Z','seed-organizer'),
   ('70000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000002','note','Interested in the responsible AI track',1,'2026-08-06T12:00:00.000Z','seed-organizer');
+
+-- The organization-wide directory. Addresses are stored normalized, which is what the partial
+-- unique index on (organization_id, email) relies on.
+INSERT INTO crm_organization_contacts (id,organization_id,name,email,company,title,notes,source,merged_into_id,created_at,updated_at) VALUES
+  ('51000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000010','Dr. Ada Rivera','ada@example.test','Northwind Access','Principal Engineer','Prefers a morning slot and a shared green room.','prospect',NULL,'2026-08-01T12:00:00.000Z','2026-08-07T12:00:00.000Z'),
+  ('51000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000010','Morgan Chen','morgan@example.test','Southwind Labs','Staff Engineer',NULL,'prospect',NULL,'2026-08-02T12:00:00.000Z','2026-08-06T12:00:00.000Z'),
+  ('51000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000010','Priya Raman','priya@example.test','Eastwind Studio','Design Lead',NULL,'import',NULL,'2026-08-03T12:00:00.000Z','2026-08-03T12:00:00.000Z'),
+  -- Sourced from nowhere yet, and near-identical to Priya: the duplicate an organizer is meant
+  -- to find and merge. Same name and company, a second address, so it is a *near* duplicate
+  -- rather than one the unique index would have refused outright.
+  ('51000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000010','Priya Raman','p.raman@eastwind.test','Eastwind Studio','Design Lead',NULL,'import',NULL,'2026-08-04T12:00:00.000Z','2026-08-04T12:00:00.000Z');
+
+INSERT INTO crm_contact_tags (contact_id,tag) VALUES
+  ('51000000-0000-4000-8000-000000000001','keynote'),
+  ('51000000-0000-4000-8000-000000000001','accessibility'),
+  ('51000000-0000-4000-8000-000000000002','workshop'),
+  ('51000000-0000-4000-8000-000000000003','design'),
+  ('51000000-0000-4000-8000-000000000004','design');
+
+INSERT INTO crm_contact_fields (contact_id,field_key,field_value) VALUES
+  ('51000000-0000-4000-8000-000000000001','topic','Inclusive event design'),
+  ('51000000-0000-4000-8000-000000000001','timezone','America/Los_Angeles'),
+  ('51000000-0000-4000-8000-000000000002','topic','Responsible AI'),
+  ('51000000-0000-4000-8000-000000000003','topic','Wayfinding');
+
+-- One person, both events, projected from the two prospects above.
+INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) VALUES
+  ('51000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','2026-08-01T12:00:00.000Z'),
+  ('51000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000003','2026-08-07T12:00:00.000Z'),
+  ('51000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000002','2026-08-02T12:00:00.000Z');
+
+INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) VALUES
+  ('71000000-0000-4000-8000-000000000001','51000000-0000-4000-8000-000000000001','note','Met at the accessibility summit',1,'2026-08-01T12:00:00.000Z','seed-organizer'),
+  ('71000000-0000-4000-8000-000000000002','51000000-0000-4000-8000-000000000001','note','Sourced into event 00000000-0000-4000-8000-000000000002',0,'2026-08-07T12:00:00.000Z','seed-organizer'),
+  ('71000000-0000-4000-8000-000000000003','51000000-0000-4000-8000-000000000003','import','Imported from speakers-2026.csv',0,'2026-08-03T12:00:00.000Z','seed-organizer'),
+  ('71000000-0000-4000-8000-000000000004','51000000-0000-4000-8000-000000000004','import','Imported from speakers-2026.csv',0,'2026-08-04T12:00:00.000Z','seed-organizer');
+
+-- A saved view stores its definition, so it picks up contacts added after it was saved.
+INSERT INTO crm_contact_segments (id,organization_id,name,definition_json,created_at,created_by) VALUES
+  ('52000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000010','Design shortlist','{"tags":["design"]}','2026-08-04T12:00:00.000Z','seed-organizer');
+
+INSERT INTO crm_contact_imports (id,organization_id,filename,row_count,created_count,updated_count,skipped_count,imported_at,imported_by) VALUES
+  ('53000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000010','speakers-2026.csv',2,2,0,0,'2026-08-04T12:00:00.000Z','seed-organizer');
+
 
 -- The published projection is exactly what `POST /api/publishing/events/{id}/publish` composes
 -- from the seeded CFP, content, and agenda above, so a clean reset already shows the workspace

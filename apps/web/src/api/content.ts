@@ -4,13 +4,14 @@ import {
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
   setSpeakerPhotoInputSchema,
+  speakerCsvImportResultSchema,
   type UpdateContentSessionInput,
   type UpdateSpeakerProfileInput,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch, decodeResponse } from "./config";
+import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ContentApiError extends Error {
   constructor(readonly envelope: import("@greenroom/contracts").ApiErrorEnvelope) {
@@ -139,6 +140,9 @@ export async function uploadSpeakerAsset(
     name: string;
     contentType: "image/jpeg" | "image/png" | "application/pdf";
     contentBase64: string;
+    taskId?: string;
+    sessionId?: string;
+    versionGroupId?: string;
   },
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
@@ -179,6 +183,131 @@ export async function withdrawContentSession(
 ): Promise<void> {
   const response = await fetcher(`/api/content-sessions/${sessionId}`, { method: "DELETE" });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+export async function saveSpeakerResource(
+  input: {
+    id?: string;
+    eventId: string;
+    title: string;
+    slug: string;
+    bodyHtml: string;
+    embedHtml: string;
+    embedAllowedHosts: string[];
+    visibility: "hidden" | "visible";
+    sortOrder: number;
+  },
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(
+    input.id ? `/api/speaker-resources/${input.id}` : "/api/speaker-resources",
+    {
+      method: input.id ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        input.id
+          ? {
+              title: input.title,
+              slug: input.slug,
+              bodyHtml: input.bodyHtml,
+              embedHtml: input.embedHtml,
+              embedAllowedHosts: input.embedAllowedHosts,
+              visibility: input.visibility,
+              sortOrder: input.sortOrder,
+            }
+          : input,
+      ),
+    },
+  );
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+export async function deleteSpeakerResource(
+  resourceId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/speaker-resources/${resourceId}`, { method: "DELETE" });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+async function contentMutation(
+  path: string,
+  body: unknown,
+  fetcher: typeof fetch = fetch,
+): Promise<Response> {
+  const response = await fetcher(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+  return response;
+}
+
+export async function importSpeakerCsv(
+  eventId: string,
+  csv: string,
+  commit: boolean,
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await contentMutation("/api/speaker-imports", { eventId, csv, commit }, fetcher);
+  return speakerCsvImportResultSchema.parse(await response.json());
+}
+export async function updateSpeakerWorkflow(
+  profileId: string,
+  input: {
+    workflowStatus: "invited" | "onboarding" | "ready" | "blocked";
+    logistics: Record<string, string>;
+    customFields: Record<string, string>;
+  },
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/workflow`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+export async function bulkRequestSpeakerTasks(
+  input: {
+    profileIds: string[];
+    title: string;
+    dueAt: string;
+    type: "general" | "file-request";
+    instructions: string;
+  },
+  fetcher: typeof fetch = fetch,
+) {
+  await contentMutation("/api/speaker-tasks/bulk", input, fetcher);
+}
+export async function addContentComment(
+  assetId: string,
+  body: string,
+  fetcher: typeof fetch = fetch,
+) {
+  await contentMutation("/api/content-comments", { assetId, body }, fetcher);
+}
+export async function restoreContentRevision(revisionId: string, fetcher: typeof fetch = fetch) {
+  await contentMutation("/api/content-revisions/restore", { revisionId }, fetcher);
+}
+export async function downloadDeliverables(
+  eventId: string,
+  assetIds: string[],
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await contentMutation(
+    "/api/content-deliverables/bulk-download",
+    { eventId, assetIds },
+    fetcher,
+  );
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "speaker-deliverables.zip";
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function publishSpeakerAsset(

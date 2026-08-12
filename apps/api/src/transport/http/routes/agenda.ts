@@ -7,6 +7,7 @@
  * @spec PRD-AGD-001
  */
 import {
+  agendaAutoPlaceSchema,
   agendaIdParamsSchema,
   agendaPlacementSchema,
   agendaResourcesSchema,
@@ -14,6 +15,7 @@ import {
 import {
   AgendaConflictError,
   AgendaNotFoundError,
+  AgendaPublicationConflictError,
   AgendaResourceInUseError,
 } from "../../../application/agenda/public";
 import { requireEventCapability } from "../../../application/identity/actor";
@@ -24,6 +26,7 @@ const routes = [
   "GET /api/events/:eventId/agenda",
   "PUT /api/events/:eventId/agenda/resources",
   "PUT /api/events/:eventId/agenda/placements/:placementId",
+  "POST /api/events/:eventId/agenda/assisted-placements",
   "DELETE /api/events/:eventId/agenda/placements/:placementId",
   "POST /api/events/:eventId/agenda/publications",
 ] as const;
@@ -78,6 +81,47 @@ export const agendaRoutes: RouteModule = {
         agenda: await agenda.place(context.get("actor"), params.data.eventId, body.data),
       });
     });
+    /*
+     * Generating a draft is a placement edit, not a publication: it writes the same draft rows
+     * a drag writes, needs the same `agenda:manage`, and reaches no public surface. It is a
+     * POST because it is not idempotent in the HTTP sense — the board it produces depends on
+     * the board it starts from — though re-running it converges rather than duplicating,
+     * because each session's assisted placement keeps the same id.
+     */
+    app.post("/api/events/:eventId/agenda/assisted-placements", async (context) => {
+      if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+      const params = agendaIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      // Authorized before the body is read, so an unauthenticated caller is told it is
+      // unauthenticated rather than being handed a critique of a payload it may not send.
+      requireEventCapability(context.get("actor"), params.data.eventId, "agenda:manage");
+      // "Place everything" is the natural meaning of this action, so an absent body means it.
+      // A body that is present but not JSON is still a caller mistake and still fails.
+      const body = agendaAutoPlaceSchema.safeParse(
+        context.req.raw.body === null ? {} : ((await readJson(context.req)) ?? {}),
+      );
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Assisted placement request is invalid.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        agenda: await agenda.autoPlace(
+          context.get("actor"),
+          params.data.eventId,
+          body.data.sessionIds,
+        ),
+      });
+    });
     app.delete("/api/events/:eventId/agenda/placements/:placementId", async (context) => {
       if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
       const parsed = agendaIdParamsSchema.safeParse(context.req.param());
@@ -101,10 +145,21 @@ export const agendaRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
-      return context.json(
-        { schedule: await agenda.publish(context.get("actor"), parsed.data.eventId) },
-        201,
+      /*
+       * `Idempotency-Key` is optional and means "this is a retry of one intent, not a new one".
+       * Without it every call allocates the next version, which is correct for an organizer
+       * pressing Publish again after editing; with it, a client that never saw the first
+       * response gets that response rather than a second immutable version of the same board.
+       */
+      const commandKey = context.req.header("idempotency-key")?.trim();
+      // The key is stored for idempotency and not echoed: it tells the caller only what the
+      // caller already sent, and `publishedScheduleSchema` is the shape this route promises.
+      const { commandKey: _storedKey, ...schedule } = await agenda.publish(
+        context.get("actor"),
+        parsed.data.eventId,
+        commandKey || undefined,
       );
+      return context.json({ schedule }, 201);
     });
     /*
      * The public schedule is addressed by the event's public slug, like every other public
@@ -158,6 +213,10 @@ export const agendaRoutes: RouteModule = {
       };
     if (error instanceof AgendaResourceInUseError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 409 as const };
+    // Losing the version race repeatedly is contention, not a malformed request: the board is
+    // publishable and the same command will succeed once the concurrent publications settle.
+    if (error instanceof AgendaPublicationConflictError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     return null;
   },
 };

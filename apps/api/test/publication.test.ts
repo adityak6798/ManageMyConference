@@ -215,6 +215,7 @@ async function composedFixture() {
       publishedAt: "2026-08-09T12:00:00.000Z",
     } as never,
     true,
+    0,
   );
   const cfp = new CfpService(
     cfpRepository,

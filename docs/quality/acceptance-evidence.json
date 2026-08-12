@@ -45,6 +45,9 @@
         "apps/api/test/review-service.test.ts",
         "apps/api/test/review-http.test.ts",
         "apps/api/test/content-http.test.ts",
+        "apps/api/test/content-resource-sanitizer.test.ts",
+        "apps/api/test/content-csv-import.test.ts",
+        "apps/api/test/content-deliverables.test.ts",
         "apps/api/test/d1-review-repository.integration.test.ts",
         "apps/web/test/proposal-acceptance.test.tsx",
         "apps/web/e2e/review-workflow.spec.ts",
@@ -84,6 +87,7 @@
         "apps/api/test/d1-crm-repository.integration.test.ts",
         "apps/api/test/d1-speaker-conversion.integration.test.ts",
         "apps/web/test/crm-owner-assignment.test.tsx",
+        "apps/web/test/crm-directory.test.tsx",
         "apps/web/e2e/crm.spec.ts"
       ]
     },

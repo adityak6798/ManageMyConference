@@ -68,7 +68,12 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
 
   // Published and matching before the journey starts, so a re-run against a fixture an
   // earlier run already edited still exercises the same transitions.
-  const seedForm = await page.request.put(`/api/events/${EVENT_ID}/cfp`, { data: SEEDED_FORM });
+  const current = await page.request.get(`/api/events/${EVENT_ID}/cfp`);
+  expect(current.ok(), `loading the CFP revision failed: ${await current.text()}`).toBe(true);
+  const currentVersion = (await current.json()).cfp.version as number;
+  const seedForm = await page.request.put(`/api/events/${EVENT_ID}/cfp`, {
+    data: { ...SEEDED_FORM, expectedVersion: currentVersion },
+  });
   expect(seedForm.ok(), `seeding the CFP failed: ${await seedForm.text()}`).toBe(true);
   expect(
     (
@@ -195,4 +200,28 @@ test("a call for proposals that cannot be read blocks editing instead of offerin
   await page.unroute(`**/api/events/${EVENT_ID}/cfp`);
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("button", { name: "Save draft" })).toBeVisible();
+});
+
+test("a stale organizer draft is refused and can safely reload the winning edit", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+  await page.goto(CFP);
+  await expect(page.getByLabel("Form title")).toBeVisible();
+
+  const loaded = await page.request.get(`/api/events/${EVENT_ID}/cfp`);
+  const snapshot = (await loaded.json()).cfp as typeof SEEDED_FORM & { version: number };
+  await page.getByLabel("Form title").fill("Stale local title");
+  const winning = await page.request.put(`/api/events/${EVENT_ID}/cfp`, {
+    data: { ...SEEDED_FORM, title: "Concurrent winning title", expectedVersion: snapshot.version },
+  });
+  expect(winning.ok(), `winning save failed: ${await winning.text()}`).toBe(true);
+
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("alert")).toContainText("changed elsewhere");
+  await expect(page.getByLabel("Form title")).toHaveValue("Stale local title");
+  await page.getByRole("button", { name: "Reload latest draft" }).click();
+  await expect(page.getByLabel("Form title")).toHaveValue("Concurrent winning title");
 });

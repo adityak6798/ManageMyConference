@@ -46,12 +46,17 @@ const schemaRegistry = new URL("apps/api/src/adapters/persistence/schema/registr
 /** Objects the migrations create that a Drizzle schema cannot declare. */
 export const UNMODELLED_OBJECTS = [
   "trigger:cfp_status_delete_rejects_in_use",
+  "trigger:cfp_route_status_delete_guard",
+  "trigger:cfp_form_route_insert_guard",
+  "trigger:cfp_form_route_update_guard",
+  "trigger:cfp_submission_route_status_guard",
   "trigger:cfp_submission_initializes_default_status",
   "trigger:cfp_transition_requires_configured_status",
   "trigger:review_assignment_requires_plan",
   "trigger:review_completion_rejects_conflict",
   "trigger:review_conflict_rejects_completion",
   "trigger:review_plan_lock",
+  "trigger:review_assignment_cap",
 ];
 
 const dialect = new SQLiteSyncDialect();

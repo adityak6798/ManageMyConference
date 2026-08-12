@@ -348,6 +348,7 @@ describe("who sees the submitter", () => {
                   eventId,
                   proposalId,
                   reviewerId: "seed-reviewer",
+                  round: 1,
                   createdAt: "2026-08-10T09:00:00.000Z",
                 },
                 // Exactly what the server sends a reviewer: the mask, and no contact details.
@@ -594,6 +595,7 @@ describe("the Reviewers column", () => {
     // A co-organizer who also holds the reviewer role: exactly the identity the assignable list
     // withholds from whoever is looking at triage.
     reviewerId: "seed-organizer",
+    round: 1,
     createdAt: "2026-08-11T09:00:00.000Z",
   };
   const plan = {
@@ -633,7 +635,7 @@ describe("the Reviewers column", () => {
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
     const row = await rowFor();
-    expect(within(row).getByText("Olivia Organizer")).toBeInTheDocument();
+    expect(within(row).getByText("Olivia Organizer · round 1")).toBeInTheDocument();
     // The user id is what this cell printed while one list answered both questions.
     expect(row.textContent).not.toContain("seed-organizer");
   });
@@ -704,6 +706,6 @@ describe("the Reviewers column", () => {
     expect(alert).toHaveTextContent("already completed their evaluation");
     expect(alert).not.toHaveTextContent("The review request is invalid");
     // Nothing was removed, so the reviewer is still named on the row.
-    expect(within(await rowFor()).getByText("Olivia Organizer")).toBeInTheDocument();
+    expect(within(await rowFor()).getByText("Olivia Organizer · round 1")).toBeInTheDocument();
   });
 });

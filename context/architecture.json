@@ -44,9 +44,9 @@
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
       },
       {
-        "path": "apps/api/src/application/communications/communications-service.ts",
+        "path": "apps/api/src/application/communications/public.ts",
         "governing": "PRD-COM-001",
-        "reason": "Communications' command surface and its three typed errors, composed by the transport."
+        "reason": "Communications' declared export surface: the enqueue interface a lifecycle event uses when there is no request actor, the prepared-delivery writer a caller commits in its own batch, the service type the transport composes, and the three typed errors both translate. Narrowed from communications-service.ts, which #92 recorded as the one entry naming a service instead of an export surface."
       },
       {
         "path": "apps/api/src/application/content/content-service.ts",
@@ -195,7 +195,13 @@
     "externalPackagesByLayer": {
       "domain": [],
       "application": [],
-      "adapters": ["drizzle-orm", "drizzle-orm/sqlite-core"],
+      "adapters": [
+        "drizzle-orm",
+        "drizzle-orm/sqlite-core",
+        "papaparse",
+        "sanitize-html",
+        "fflate"
+      ],
       "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
       "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
       "contracts": ["zod"]

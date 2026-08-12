@@ -80,6 +80,8 @@ describe("communications outbox", () => {
   it("enqueues a typed trigger exactly once and preserves its template version", async () => {
     const test = harness();
     const first = await templateAndTrigger(test);
+    // A second request under the same key returns the first delivery, and the message that was
+    // composed then is the message that stands: the later payload does not rewrite it.
     const duplicate = await test.service.trigger(organizer, {
       organizationId,
       eventId,
@@ -87,11 +89,68 @@ describe("communications outbox", () => {
       triggerType: "speaker.invited",
       channel: "email",
       recipientRef: "speaker:42",
-      payload: {},
+      payload: { speaker: "Someone else" },
       templateKey: "speaker-invite",
     });
     expect(duplicate.id).toBe(first.id);
+    expect(duplicate.renderedBody).toBe("Hello Ada");
     expect(first).toMatchObject({ state: "queued", templateVersion: 1 });
+  });
+
+  it("hands the provider the rendered message, and logs the attempt without it", async () => {
+    const test = harness();
+    const records: Record<string, unknown>[] = [];
+    const worker = new OutboxWorker(
+      test.repository,
+      { email: test.provider, airtable: test.provider, accelevents: test.provider },
+      { newId: () => crypto.randomUUID(), now: () => new Date("2026-08-10T12:00:00.000Z") },
+      { attempt: (record) => records.push({ ...record }) },
+    );
+    const delivery = await templateAndTrigger(test, {
+      recipientRef: "ada@example.test",
+      payload: { speaker: "Ada" },
+    });
+
+    await worker.runOne();
+
+    // What a human would receive reached the provider — not just the template id.
+    expect(test.provider.calls[0]?.renderedSubject).toBe("You're invited");
+    expect(test.provider.calls[0]?.renderedBody).toBe("Hello Ada");
+    // The operational log correlates and nothing more: no recipient, no message, no payload.
+    const [record] = records;
+    expect(record).toMatchObject({ deliveryId: delivery.id, outcome: "succeeded", sequence: 1 });
+    expect(JSON.stringify(record)).not.toContain("ada@example.test");
+    expect(JSON.stringify(record)).not.toContain("Hello Ada");
+    // Nor the idempotency key: a caller of POST /deliveries chooses it and could key a delivery
+    // by the recipient's address.
+    expect(record).not.toHaveProperty("idempotencyKey");
+    expect(JSON.stringify(record)).not.toContain(delivery.idempotencyKey);
+  });
+
+  it("refuses a trigger whose payload cannot fill the template it names", async () => {
+    const test = harness();
+    await test.service.createTemplate(organizer, {
+      organizationId,
+      key: "speaker-invite",
+      version: 1,
+      channel: "email",
+      subject: "You're invited",
+      body: "Hello {{speaker}}",
+    });
+
+    // Half a message reaching a speaker is worse than a delivery that refuses to enqueue.
+    await expect(
+      test.service.trigger(organizer, {
+        organizationId,
+        eventId,
+        idempotencyKey: "speaker:42:invite:v1",
+        triggerType: "speaker.invited",
+        channel: "email",
+        recipientRef: "speaker:42",
+        payload: {},
+        templateKey: "speaker-invite",
+      }),
+    ).rejects.toThrow("{{speaker}}");
   });
 
   it.each(["success", "malformed", "terminal"] as const)(
@@ -341,6 +400,8 @@ describe("communications outbox", () => {
       templateVersion: null,
       recipientRef: "session:storage",
       payload: {},
+      renderedSubject: null,
+      renderedBody: null,
       projectionVersion: 1,
       state: "terminal",
       attemptCount: 1,

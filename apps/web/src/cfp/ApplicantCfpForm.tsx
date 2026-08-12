@@ -3,7 +3,7 @@ import { CfpApiError, type CfpFormDto, submitProposal } from "../api/cfp";
 import { IconForm } from "../ui/icons";
 import { Card, EmptyState, Pill } from "../ui/primitives";
 import { FieldControl } from "./controls";
-import { DEFAULT_TITLE, describe } from "./model";
+import { conditionMatches, DEFAULT_TITLE, describe } from "./model";
 
 /** The applicant submission lifecycle, separate from the organizer's draft composer. */
 export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: CfpFormDto }) {
@@ -45,16 +45,26 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
     >
       {form.status === "open" ? (
         <form onSubmit={submit} className="cfp-public-form">
-          {form.fields.map((field) => (
-            <FieldControl
-              key={field.id}
-              field={field}
-              idPrefix="answer"
-              value={answers[field.id] ?? ""}
-              errors={errors[`answers.${field.id}`] ?? []}
-              onChange={(next) => setAnswers((current) => ({ ...current, [field.id]: next }))}
-            />
-          ))}
+          {form.fields
+            .filter((field) => conditionMatches(field.visibleWhen, answers))
+            .map((field) => (
+              <FieldControl
+                key={field.id}
+                field={field}
+                idPrefix="answer"
+                value={answers[field.id] ?? ""}
+                errors={errors[`answers.${field.id}`] ?? []}
+                onChange={(next) =>
+                  setAnswers((current) => {
+                    const updated = { ...current, [field.id]: next };
+                    for (const candidate of form.fields)
+                      if (!conditionMatches(candidate.visibleWhen, updated))
+                        delete updated[candidate.id];
+                    return updated;
+                  })
+                }
+              />
+            ))}
           <div className="cfp-public-actions">
             <button type="submit" disabled={submitting}>
               {submitting ? "Submitting…" : "Submit proposal"}

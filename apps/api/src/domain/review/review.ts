@@ -2,9 +2,12 @@ export type ReviewCriterion = {
   readonly id: string;
   readonly name: string;
   readonly description: string;
-  readonly minScore: number;
-  readonly maxScore: number;
-};
+  readonly weight?: number | undefined;
+} & (
+  | { readonly type?: "numeric" | undefined; readonly minScore: number; readonly maxScore: number }
+  | { readonly type: "dropdown"; readonly options: readonly string[] }
+  | { readonly type: "text"; readonly maxLength: number }
+);
 
 export type EvaluationPlan = {
   readonly eventId: string;
@@ -17,6 +20,7 @@ export type ReviewAssignment = {
   readonly eventId: string;
   readonly proposalId: string;
   readonly reviewerId: string;
+  readonly round?: number;
   readonly createdAt: string;
 };
 
@@ -27,7 +31,11 @@ export type ReviewConflict = {
   readonly declaredAt: string;
 };
 
-export type EvaluationScore = { readonly criterionId: string; readonly score: number };
+export type EvaluationScore = {
+  readonly criterionId: string;
+  readonly value?: number | string | undefined;
+  readonly score?: number | undefined;
+};
 
 export type Evaluation = {
   readonly assignmentId: string;
@@ -42,6 +50,7 @@ export type Evaluation = {
 export type ReviewOutcome = {
   readonly eventId: string;
   readonly proposalId: string;
+  readonly round?: number;
   readonly completedEvaluationCount: number;
   readonly averageScore: number;
   readonly updatedAt: string;

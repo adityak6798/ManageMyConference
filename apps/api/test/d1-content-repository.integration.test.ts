@@ -1,8 +1,6 @@
 // @acceptance ACC-SPEAKER
-import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { createMigratedDatabase } from "./support/seeded-d1";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
 import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
 import {
@@ -19,16 +17,17 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
+import { AgendaService } from "../src/application/agenda/agenda-service";
 import {
   ContentService,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
-import { AgendaService } from "../src/application/agenda/agenda-service";
-import { ReviewService } from "../src/application/review/review-service";
-import { ProposalNotFoundError } from "../src/application/review/public";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import { ProposalNotFoundError } from "../src/application/review/public";
+import { ReviewService } from "../src/application/review/review-service";
+import { createMigratedDatabase } from "./support/seeded-d1";
 
-const statements = (sql: string) =>
+const _statements = (sql: string) =>
   sql
     .split(";")
     .map((value) => value.trim())
@@ -209,6 +208,9 @@ describe("D1ContentRepository", () => {
       storageKey: "event/profile/asset",
       visibility: "private" as const,
       uploadedAt: "2026-08-10T12:00:00.000Z",
+      versionGroupId: "80000000-0000-4000-8000-000000000001",
+      versionNumber: 1,
+      isLatest: true,
     };
     await repository.addAsset(privateAsset);
     await expect(repository.findAsset(privateAsset.id)).resolves.toEqual(privateAsset);
@@ -236,8 +238,18 @@ describe("D1ContentRepository", () => {
       name: "slides.pdf",
       contentType: "application/pdf",
       storageKey: "event/profile/slides",
+      versionGroupId: "80000000-0000-4000-8000-000000000002",
     };
     await repository.addAsset(slides);
+    const slidesV2 = {
+      ...slides,
+      id: "80000000-0000-4000-8000-000000000003",
+      storageKey: "event/profile/slides-v2",
+      versionNumber: 2,
+    };
+    await repository.replaceLatestAsset(slidesV2, slides);
+    await repository.deleteAsset(slidesV2.id);
+    await expect(repository.findAsset(slides.id)).resolves.toMatchObject({ isLatest: true });
     await expect(
       photoService.setProfilePhoto(organizer, managedProfile.id, slides.id),
     ).rejects.toBeInstanceOf(SpeakerPhotoInvalidError);
