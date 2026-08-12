@@ -5,7 +5,7 @@ import {
   type PlacedSessionTime,
   type Placement,
 } from "../../domain/agenda/agenda";
-import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
+import { type Actor, requireEventCapability } from "../identity/actor";
 import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
 import type { AgendaContentQuery } from "../content/public";
 import type { ContentAgendaInterface } from "./public";
@@ -24,22 +24,11 @@ export class AgendaService implements ContentAgendaInterface {
     private readonly repository: AgendaRepository,
     private readonly now: () => Date,
     private readonly content: AgendaContentQuery,
-    private readonly canManageEvent: (
-      actor: Actor,
-      eventId: string,
-    ) => Promise<boolean> = async () => false,
+    _canManageEvent: (actor: Actor, eventId: string) => Promise<boolean> = async () => false,
   ) {}
 
   private async organizer(actor: Actor | null, eventId: string): Promise<Actor> {
-    const authorized = requireCapability(actor, "agenda:manage");
-    // Every grant on the event is considered: a first-match lookup made this depend on the
-    // order the identity directory returned an actor's roles in (`ARC-AUTH-001`).
-    const scoped = authorized.eventAccess.some(
-      ({ eventId: id, capabilities }) => id === eventId && capabilities.has("agenda:manage"),
-    );
-    if (!scoped && !(await this.canManageEvent(authorized, eventId)))
-      throw new CapabilityDeniedError("Agenda access denied");
-    return authorized;
+    return requireEventCapability(actor, eventId, "agenda:manage");
   }
 
   async draft(actor: Actor | null, eventId: string) {

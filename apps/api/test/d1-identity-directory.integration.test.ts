@@ -55,6 +55,7 @@ describe("D1IdentityDirectory", () => {
       ]),
       capabilities: new Set([
         "events:read",
+        "communications:manage",
         "events:settings:read",
         "events:settings:update",
         "agenda:manage",

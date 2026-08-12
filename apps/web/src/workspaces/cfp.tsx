@@ -15,6 +15,7 @@ export const cfpWorkspace: WorkspaceModule = {
   order: 4,
   icon: <IconForm size={16} />,
   personas: ["organizer"],
+  canAccess: ({ isEventOrganizer }) => isEventOrganizer,
   header: () => ({
     eyebrow: "Program",
     title: "Call for proposals",

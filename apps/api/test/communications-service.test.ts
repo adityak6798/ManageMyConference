@@ -13,7 +13,13 @@ const organizer: Actor = {
   name: "Organizer",
   persona: "organizer",
   organizations: [{ id: organizationId }],
-  eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["events:read"]) }],
+  eventAccess: [
+    {
+      eventId,
+      role: "organizer",
+      capabilities: new Set(["events:read", "communications:manage"]),
+    },
+  ],
   capabilities: new Set(["communications:manage"]),
 };
 
@@ -120,7 +126,7 @@ describe("communications outbox", () => {
       eventAccess: [{ eventId, role: "reviewer", capabilities: new Set(["events:read"]) }],
     };
     await expect(test.service.retry(mixedRoleActor, organizationId, delivery.id)).rejects.toThrow(
-      "Event access denied",
+      "Actor lacks communications:manage for event",
     );
   });
 
@@ -156,7 +162,7 @@ describe("communications outbox", () => {
         payload: {},
         projectionVersion: 1,
       }),
-    ).rejects.toThrow("Event access denied");
+    ).rejects.toThrow("Actor lacks communications:manage for event");
     const otherOrganizationId = "00000000-0000-4000-8000-000000000020";
     const otherEventId = "00000000-0000-4000-8000-000000000002";
     const multiOrganizationActor: Actor = {
@@ -164,7 +170,11 @@ describe("communications outbox", () => {
       organizations: [{ id: organizationId }, { id: otherOrganizationId }],
       eventAccess: [
         ...organizer.eventAccess,
-        { eventId: otherEventId, role: "organizer", capabilities: new Set(["events:read"]) },
+        {
+          eventId: otherEventId,
+          role: "organizer",
+          capabilities: new Set(["events:read", "communications:manage"]),
+        },
       ],
     };
     await expect(

@@ -151,7 +151,7 @@ describe("agenda conflicts and publication", () => {
     expect(publicSchedule).not.toHaveProperty("publishedBy");
     expect((await service.draft(organizer, eventId)).placements).toHaveLength(2);
   });
-  it("allows organization owners to initialize a newly created event", async () => {
+  it("requires a freshly created event role before agenda initialization", async () => {
     const organizationOwner = { ...organizer, eventAccess: [] };
     const service = new AgendaService(
       new MemoryAgendaRepository(),
@@ -165,7 +165,7 @@ describe("agenda conflicts and publication", () => {
         tracks: draft.tracks,
         slots: draft.slots,
       }),
-    ).resolves.toMatchObject({ eventId });
+    ).rejects.toThrow("Actor lacks agenda:manage for event");
   });
   it("does not treat read-only cross-tenant event access as ownership", async () => {
     const foreignEventId = "00000000-0000-4000-8000-000000000099";
@@ -191,7 +191,7 @@ describe("agenda conflicts and publication", () => {
         tracks: draft.tracks,
         slots: draft.slots,
       }),
-    ).rejects.toThrow("Agenda access denied");
+    ).rejects.toThrow("Actor lacks agenda:manage for event");
   });
   it("fails cross-event operations before mutation", async () => {
     const service = new AgendaService(
@@ -201,6 +201,6 @@ describe("agenda conflicts and publication", () => {
     );
     await expect(
       service.remove(organizer, "00000000-0000-4000-8000-000000000099", "place-a"),
-    ).rejects.toThrow("Agenda access denied");
+    ).rejects.toThrow("Actor lacks agenda:manage for event");
   });
 });
