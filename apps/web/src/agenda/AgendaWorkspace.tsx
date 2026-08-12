@@ -59,7 +59,6 @@ import {
   isViewId,
   NEW_SLOT,
   type Placement,
-  placementShape,
   readViewFromUrl,
   type Slot,
   type SlotForm,
@@ -118,7 +117,11 @@ export function AgendaWorkspace({
   const [unplaced, setUnplaced] = useState<ReadonlyMap<string, string>>(new Map());
   const [carry, setCarryState] = useState<Carry | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null);
-  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  /** The element to focus after the next render, and where to land if it cannot take it. */
+  const [pendingFocus, setPendingFocus] = useState<{
+    readonly id: string;
+    readonly fallbackId?: string | undefined;
+  } | null>(null);
   // Typed-but-unsaved timeslot rows, keyed by slot id (and `NEW_SLOT` for the one that
   // has no id yet). A row with no entry here simply shows what the server holds.
   const [slotForms, setSlotForms] = useState<Record<string, SlotForm>>({});
@@ -177,18 +180,19 @@ export function AgendaWorkspace({
   // takes focus, and after a cancel the card that was picked up takes it back.
   useEffect(() => {
     if (!pendingFocus) return;
-    const target = document.getElementById(pendingFocus);
+    const { id, fallbackId } = pendingFocus;
+    const target = document.getElementById(id);
     /*
-     * A control that the action disabled — the assisted button once the last session is
-     * seated — cannot take focus, and the browser has already dropped focus to the body,
-     * where the next Tab restarts at the top of the console. The panel holding the result
-     * is the honest place to land instead: it is labelled by the tab that names it, and it
-     * is on screen in every view.
+     * A control the action disabled — the assisted button once the last session is seated —
+     * cannot take focus, and the browser has already dropped it on the body, where the next
+     * Tab restarts at the top of the console. Only the caller that has somewhere sensible to
+     * fall back to names one; for every other action a missing target leaves focus where the
+     * operator put it, which is what a card that scrolled out of a filtered list wants.
      */
     const landable = target && !target.matches(":disabled") ? target : null;
-    (landable ?? document.getElementById(`panel-${view}`))?.focus();
+    (landable ?? (fallbackId ? document.getElementById(fallbackId) : null))?.focus();
     setPendingFocus(null);
-  }, [pendingFocus, view]);
+  }, [pendingFocus]);
 
   /*
    * Which sessions the assisted pass may be asked to seat, before any search narrows the rail.
@@ -351,21 +355,20 @@ export function AgendaWorkspace({
     describe: (updated: Draft) => string,
     {
       focusId,
+      fallbackId,
       row,
       explanations,
     }: {
       focusId?: string | undefined;
+      /** Where focus lands when `focusId` names a control this action has disabled. */
+      fallbackId?: string | undefined;
       row?: string | undefined;
       /**
        * Assisted-placement reasons this action produced; anything else clears them.
        *
-       * Read after the action resolves, because the reasons arrive with its response, and
-       * handed the reasons already on screen so a pass can decide which of them it has
-       * actually invalidated.
+       * Read after the action resolves, because the reasons arrive with its response.
        */
-      explanations?:
-        | ((current: ReadonlyMap<string, string>) => ReadonlyMap<string, string>)
-        | undefined;
+      explanations?: (() => ReadonlyMap<string, string>) | undefined;
     } = {},
   ) {
     setBusy(true);
@@ -382,15 +385,19 @@ export function AgendaWorkspace({
        * the verdict of one pass over one board; when the board moves, the verdict is stale
        * whether or not the session it names has moved with it.
        */
-      setUnplaced((current) => explanations?.(current) ?? (current.size ? new Map() : current));
+      setUnplaced((current) => explanations?.() ?? (current.size ? new Map() : current));
       if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
-      if (focusId) setPendingFocus(focusId);
+      if (focusId) setPendingFocus({ id: focusId, fallbackId });
     } catch (error) {
       if (!mounted.current) return;
       const message = error instanceof Error ? error.message : "Agenda update failed.";
       feedback.announce("error", message);
       if (row) setRowErrors((current) => ({ ...current, [row]: message }));
+      // A refusal is the case where staying put matters most: the control was disabled while
+      // the request was in flight, so the browser has already dropped focus on the body, and
+      // the operator would otherwise Tab from the top of the console to read what went wrong.
+      if (focusId) setPendingFocus({ id: focusId, fallbackId });
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -411,31 +418,19 @@ export function AgendaWorkspace({
    */
   function generateDraft() {
     const chosen = selection.count ? [...selection.ids] : undefined;
-    // What this pass is answerable for. The count it announces and the notes it is allowed to
-    // keep are both about these sessions, never about a board another organizer moved
-    // underneath it.
-    const asked = new Set(chosen ?? unscheduledIds);
-    const seatedBefore = new Set(draft.placements.map(({ sessionId }) => sessionId));
-    const boardBefore = placementShape(draft.placements);
     let couldNotPlace: readonly { sessionId: string; reason: string }[] = [];
     let seated = 0;
-    let boardMoved = false;
     return act(
       async () => {
         try {
-          const { unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
+          const { placed, unplaced: reported, ...board } = await autoPlaceSessions(eventId, chosen);
           couldNotPlace = reported;
           /*
-           * Counted from the sessions this pass was asked about, not from how many placements
-           * the board gained. A difference of totals also counts a card another organizer
-           * dragged in the same second, and reporting theirs as "placed" under this button
-           * would be the same lie the label was fixed to stop telling.
+           * The server's own answer, not a diff of two boards. Only it can separate what this
+           * pass seated from what another organizer did in the same seconds, and this control
+           * exists to say what it did.
            */
-          const seatedNow = new Set(board.placements.map(({ sessionId }) => sessionId));
-          seated = [...asked].filter((id) => seatedNow.has(id) && !seatedBefore.has(id)).length;
-          // Every placement, by identity and position — so "the board did not move" is a fact
-          // about the board rather than about a total that two opposite edits leave unchanged.
-          boardMoved = placementShape(board.placements) !== boardBefore;
+          seated = placed.length;
           return board;
         } catch (error) {
           /*
@@ -458,24 +453,25 @@ export function AgendaWorkspace({
       },
       {
         // Focus survives the press: this control disables itself while the request is in
-        // flight, and a disabled control cannot hold focus.
+        // flight, and a disabled control cannot hold focus. The panel catches it when the
+        // pass leaves nothing to place and the button is disabled for good.
         focusId: "agenda-assisted-action",
+        fallbackId: `panel-${view}`,
         /*
-         * This pass's verdicts, plus the ones it had no business overturning.
+         * This pass's verdicts, and only this pass's.
          *
-         * A pass over the whole board re-judges every unscheduled session, so its answer is the
-         * complete answer and replaces what was there. A pass over a *subset* judged only the
-         * sessions it was given — and if the board is the board those other verdicts were about,
-         * they are exactly as true as they were a moment ago. Anything that moves the board
-         * drops them, which is the rule this map has always followed: the check is on the
-         * placements themselves, because a pass that seats one session while another organizer
-         * unschedules another leaves every total unchanged and the verdicts stale anyway.
+         * A subset pass judged just the sessions it was given, so it is tempting to keep the
+         * notes on the others — and the first review of #119 asked for exactly that. Two later
+         * passes showed why it cannot be done from here: whether those notes are still true
+         * depends on whether the board moved, and this screen cannot tell. A placement, a room,
+         * a slot, or another organizer's edit arrives in the same response, and a reason that
+         * survives the change which disproved it is worse than no reason at all. So the rule
+         * stays the one this map has always followed: a pass replaces the verdicts wholesale,
+         * and a session it was not asked about goes back to saying nothing until something
+         * judges it again.
          */
-        explanations: (current) => {
-          const judged = new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason]));
-          if (!chosen || boardMoved) return judged;
-          return new Map([...current, ...judged]);
-        },
+        explanations: () =>
+          new Map(couldNotPlace.map(({ sessionId, reason }) => [sessionId, reason])),
       },
     );
   }
@@ -620,7 +616,7 @@ export function AgendaWorkspace({
         : fallbackRoom && fallbackSlot
           ? cellKey(fallbackRoom.id, fallbackSlot.id)
           : null;
-      if (target) setPendingFocus(`agenda-cell-${target}`);
+      if (target) setPendingFocus({ id: `agenda-cell-${target}` });
     }
     feedback.announce(
       "success",
@@ -630,11 +626,11 @@ export function AgendaWorkspace({
 
   function cancelCarry() {
     if (!carry) return;
-    setPendingFocus(
-      carry.placementId
+    setPendingFocus({
+      id: carry.placementId
         ? `agenda-placement-${carry.placementId}`
         : `agenda-session-${carry.sessionId}`,
-    );
+    });
     feedback.announce("success", `Cancelled. “${carry.title}” was not moved.`);
     setCarry(null);
     setOverCell(null);
@@ -1380,7 +1376,7 @@ export function AgendaWorkspace({
               selection.clear();
               // This control leaves with the selection it cleared, so focus is handed to the
               // action it was about rather than dropped on the document.
-              setPendingFocus("agenda-assisted-action");
+              setPendingFocus({ id: "agenda-assisted-action", fallbackId: `panel-${view}` });
             }}
           >
             Clear selection

@@ -1,17 +1,17 @@
 import {
-  conflictsFor,
-  placedSessionTimes,
   type AgendaDraft,
+  conflictsFor,
   type PlacedSessionTime,
   type Placement,
+  placedSessionTimes,
 } from "../../domain/agenda/agenda";
 import {
-  planAssistedPlacements,
   type AssistedPlacementPlan,
+  planAssistedPlacements,
 } from "../../domain/agenda/assisted-placement";
+import type { AgendaContentQuery } from "../content/public";
 import { type Actor, requireEventCapability } from "../identity/actor";
 import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
-import type { AgendaContentQuery } from "../content/public";
 import type { ContentAgendaInterface } from "./public";
 
 export class AgendaConflictError extends Error {
@@ -128,17 +128,24 @@ export class AgendaService implements ContentAgendaInterface {
      * request and is not part of the stored draft, so re-reading the draft cannot change it.
      */
     let unplaced: AssistedPlacementPlan["unplaced"] = [];
+    /*
+     * What this pass seated, recorded where it is known rather than inferred downstream. The
+     * board that comes back also carries whatever else happened while this request was in
+     * flight, so a caller diffing it cannot tell this action's work from another organizer's.
+     */
+    let placed: string[] = [];
     const persisted = await this.repository.savePlacements(eventId, (current) => {
       const plan = planAssistedPlacements(
         { ...current, sessions: draft.sessions },
         { ...(sessionIds ? { sessionIds } : {}), trackHints },
       );
       unplaced = plan.unplaced;
+      placed = plan.placements.map(({ sessionId }) => sessionId);
       return plan.placements;
     });
     if (!persisted) throw new AgendaNotFoundError("Agenda not found");
-    const placed = { ...persisted, sessions: draft.sessions };
-    return { ...placed, conflicts: conflictsFor(placed), unplaced };
+    const board = { ...persisted, sessions: draft.sessions };
+    return { ...board, conflicts: conflictsFor(board), placed, unplaced };
   }
 
   async configure(

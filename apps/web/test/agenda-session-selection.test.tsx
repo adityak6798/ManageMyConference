@@ -58,6 +58,7 @@ const generated = {
       slotId: "slot-0900",
     },
   ],
+  placed: ["session-one"],
   unplaced: [{ sessionId: "session-two", title: "Closing panel", reason: NO_ROOM }],
 };
 
@@ -84,9 +85,9 @@ function stubFetch() {
 const rail = () => within(screen.getByRole("region", { name: /Unscheduled/i }) as HTMLElement);
 const action = () =>
   screen.getByRole("button", { name: /Generate draft|Place \d+ selected/ }) as HTMLButtonElement;
-/** Matched on the title alone: the name also carries the session's position in the rail. */
+/** Matched on the title alone: a shared title also carries a position in the name. */
 const box = (title: string) =>
-  rail().getByRole("checkbox", { name: new RegExp(`^Select ${title},`) });
+  rail().getByRole("checkbox", { name: new RegExp(`^Select ${title}[ (]`) });
 const tick = (title: string) => fireEvent.click(box(title));
 
 describe("choosing which sessions an assisted pass seats", () => {
@@ -264,35 +265,54 @@ describe("choosing which sessions an assisted pass seats", () => {
     expect(screen.queryAllByRole("button", { name: "Clear selection" })).toHaveLength(0);
   });
 
-  it("names each checkbox by its position as well as its title", async () => {
-    stubFetch();
+  it("adds a position to a checkbox only when its title is not its own", async () => {
+    // Two sessions under one title — the assisted planner breaks ties on id for exactly that
+    // reason — and two identical announcements give a screen-reader user nothing to choose by.
+    const twins = {
+      ...board,
+      sessions: [
+        { id: "session-one", title: "Lightning talks", speakerIds: [] },
+        { id: "session-two", title: "Lightning talks", speakerIds: [] },
+        { id: "session-three", title: "Closing panel", speakerIds: [] },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify({ agenda: twins }), { status: 200 })),
+      ),
+    );
     render(<AgendaWorkspace event={event} onError={onError} />);
     await screen.findByRole("button", { name: "Generate draft" });
 
-    // Two sessions may share a title — the assisted planner breaks ties on id for exactly that
-    // reason — and two identical announcements give a screen-reader user nothing to choose by.
     expect(
       rail().getByRole("checkbox", {
-        name: "Select Opening keynote, 1 of 2, for assisted placement",
+        name: "Select Lightning talks (1 of 3) for assisted placement",
       }),
     ).toBeTruthy();
     expect(
       rail().getByRole("checkbox", {
-        name: "Select Closing panel, 2 of 2, for assisted placement",
+        name: "Select Lightning talks (2 of 3) for assisted placement",
       }),
+    ).toBeTruthy();
+    // The unambiguous one is left alone: a position on every box is a number that renumbers
+    // with the search and contradicts the count in the live region beside it.
+    expect(
+      rail().getByRole("checkbox", { name: "Select Closing panel for assisted placement" }),
     ).toBeTruthy();
   });
 
   /*
-   * What a subset pass is allowed to say about the sessions it was not given.
+   * What a pass is allowed to leave on screen about sessions it did not judge: nothing.
    *
-   * The explanations in the rail are the verdict of one pass over one board, and the board's
-   * standing rule is that a board change makes every earlier verdict stale. A subset pass makes
-   * that rule sharper in both directions, and both directions are asserted here: a pass that
-   * seated nothing did not move the board, so notes it never judged still hold; a pass that
-   * seated something did, so they do not.
+   * The first review of #119 asked for the opposite — a subset pass that seats nothing should
+   * keep the notes it never looked at — and it was built that way. Two later passes took it
+   * apart: whether those notes still hold depends on whether the board moved, and the board that
+   * comes back also carries rooms, slots and other organizers' edits, so this screen cannot tell.
+   * A verdict that outlives the change which disproved it is worse than no verdict, so the rule
+   * is the one this map has always followed, and it is asserted rather than assumed.
    */
-  describe("explanations a subset pass did not overturn", () => {
+  describe("explanations belong to the pass that made them", () => {
     const threeSessions = [
       { id: "session-one", title: "Opening keynote", speakerIds: [] },
       { id: "session-two", title: "Closing panel", speakerIds: [] },
@@ -313,7 +333,7 @@ describe("choosing which sessions an assisted pass seats", () => {
     };
 
     /** Answers each pass from the ids it names, so a subset gets a subset's answer. */
-    function stubPasses(subsetPlaces: boolean) {
+    function stubPasses() {
       vi.stubGlobal(
         "fetch",
         vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -325,35 +345,17 @@ describe("choosing which sessions an assisted pass seats", () => {
           const unplaced = (asked ?? ["session-two", "session-three"])
             .filter((id) => id !== "session-one")
             .map((sessionId) => ({ sessionId, title: sessionId, reason: NO_ROOM }));
-          // A subset pass either seats nothing (the board stands still) or seats its one
-          // session into a second room the response invents.
-          const placements =
-            asked && subsetPlaces
-              ? [
-                  ...seatedOne.placements,
-                  {
-                    id: `assisted-${asked[0]}`,
-                    sessionId: asked[0] as string,
-                    roomId: "room-main",
-                    trackId: "track-platform",
-                    slotId: "slot-0900",
-                  },
-                ]
-              : seatedOne.placements;
           return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                agenda: { ...seatedOne, placements, unplaced: asked ? unplaced : unplaced },
-              }),
-              { status: 200 },
-            ),
+            new Response(JSON.stringify({ agenda: { ...seatedOne, placed: [], unplaced } }), {
+              status: 200,
+            }),
           );
         }),
       );
     }
 
-    it("keeps the note on a session it was never asked about, when it seated nothing", async () => {
-      stubPasses(false);
+    it("replaces every verdict with its own, and says nothing about the rest", async () => {
+      stubPasses();
       render(<AgendaWorkspace event={event} onError={onError} />);
       fireEvent.click(await screen.findByRole("button", { name: "Generate draft" }));
       await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
@@ -361,42 +363,28 @@ describe("choosing which sessions an assisted pass seats", () => {
       tick("Closing panel");
       fireEvent.click(action());
 
-      // The pass judged one session and moved nothing. "Hallway track" is exactly as stuck as
-      // it was a moment ago, and taking its reason away would be losing what the organizer is
-      // reading rather than retracting something that stopped being true.
-      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
+      // One session was judged, so one reason is on screen. "Hallway track" is unscheduled and
+      // silent, which is the honest state: nothing in this response is a statement about it, and
+      // the last thing that was may no longer be true.
+      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(1));
     });
 
-    it("drops the others when the board moved but the totals did not", async () => {
-      // The pass seats one session in the same second another organizer unschedules a different
-      // one. Placement *counts* are identical either side, so a count is not a board: the
-      // verdicts are about a board that no longer exists and every one of them has to go.
+    it("counts what the server says it seated, not the difference between two boards", async () => {
+      // The pass seats nothing, and in the same seconds another organizer's placement arrives in
+      // the response. A client diffing boards would credit this button with their drag.
       vi.stubGlobal(
         "fetch",
         vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
           const method = init?.method ?? "GET";
           if (method === "GET")
-            return Promise.resolve(
-              new Response(JSON.stringify({ agenda: seatedOne }), { status: 200 }),
-            );
+            return Promise.resolve(new Response(JSON.stringify({ agenda: full }), { status: 200 }));
           return Promise.resolve(
             new Response(
               JSON.stringify({
                 agenda: {
                   ...seatedOne,
-                  // One in, one out: the same total, a different board.
-                  placements: [
-                    {
-                      id: "assisted-session-two",
-                      sessionId: "session-two",
-                      roomId: "room-main",
-                      trackId: "track-platform",
-                      slotId: "slot-0900",
-                    },
-                  ],
-                  unplaced: [
-                    { sessionId: "session-three", title: "Hallway track", reason: NO_ROOM },
-                  ],
+                  placed: [],
+                  unplaced: [{ sessionId: "session-two", title: "Closing panel", reason: NO_ROOM }],
                 },
               }),
               { status: 200 },
@@ -410,23 +398,9 @@ describe("choosing which sessions an assisted pass seats", () => {
       tick("Closing panel");
       fireEvent.click(action());
 
-      // Exactly one note survives — this pass's own — and the announcement counts what the
-      // organizer asked for rather than the difference between two totals, which here is zero.
-      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(1));
-      expect(screen.getByRole("status").textContent).toContain("Placed 1 session.");
-    });
-
-    it("drops the others once it has actually moved the board", async () => {
-      stubPasses(true);
-      render(<AgendaWorkspace event={event} onError={onError} />);
-      fireEvent.click(await screen.findByRole("button", { name: "Generate draft" }));
-      await waitFor(() => expect(rail().getAllByText(NO_ROOM)).toHaveLength(2));
-
-      tick("Closing panel");
-      fireEvent.click(action());
-
-      // This pass seated something, so the board is not the board those verdicts were about.
-      await waitFor(() => expect(rail().queryAllByText(NO_ROOM)).toHaveLength(0));
+      await waitFor(() =>
+        expect(screen.getByRole("status").textContent).toContain("Placed 0 sessions."),
+      );
     });
   });
 

@@ -475,9 +475,9 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
   ).toBe(true);
 
   // ---- ticking one session, by keyboard ------------------------------------
-  // Matched on the title alone: the name also carries the session's position in the rail, which
-  // is what keeps two sessions sharing a title apart.
-  const chosen = page.getByRole("checkbox", { name: new RegExp(`^Select ${secondSession},`) });
+  // Matched on the title alone: a session whose title is shared with another also carries a
+  // position in its name, which is what keeps the two apart. These two seeded titles differ.
+  const chosen = page.getByRole("checkbox", { name: new RegExp(`^Select ${secondSession}[ (]`) });
   await chosen.focus();
   await page.keyboard.press("Space");
   await expect(chosen).toBeChecked();

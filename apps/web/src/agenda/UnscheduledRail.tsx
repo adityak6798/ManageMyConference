@@ -71,6 +71,20 @@ export function UnscheduledRail({
   const hidden = selection.ids.filter((id) => !listed.has(id)).length;
   const allListed = sessions.length > 0 && sessions.every(({ id }) => selection.isSelected(id));
   const someListed = sessions.some(({ id }) => selection.isSelected(id));
+  /*
+   * Titles that more than one listed session answers to.
+   *
+   * The domain expects them — `planAssistedPlacements` breaks ties on id precisely because
+   * "two sessions sharing a title" is an ordinary board — and two identical announcements give
+   * a screen-reader user nothing to choose between. Only those get a position, because a
+   * position on every box would be a number that renumbers with the search box and contradicts
+   * the count in the live region beside it.
+   */
+  const shared = new Set(
+    sessions
+      .map(({ title }) => title)
+      .filter((title, index, titles) => titles.indexOf(title) !== index),
+  );
   // Clearing takes the control that did it off the screen, and a control that removes itself
   // leaves keyboard focus on `document.body` — which on this page means Tab restarts at the
   // top of the console. Focus lands on the group control instead, which is why this rail
@@ -183,15 +197,11 @@ export function UnscheduledRail({
                   <input
                     type="checkbox"
                     className="agenda-rail-check"
-                    /*
-                     * The card beside this box replaces its own content with an `aria-label`,
-                     * so the box has to name the session itself rather than borrow it — and it
-                     * carries its position because two sessions may share a title. The domain
-                     * expects that: `planAssistedPlacements` breaks ties on id precisely
-                     * because "two sessions sharing a title" is an ordinary board. Without the
-                     * position, choosing between two identical announcements is guesswork.
-                     */
-                    aria-label={`Select ${session.title}, ${index + 1} of ${sessions.length}, for assisted placement`}
+                    // The card beside this box replaces its own content with an `aria-label`,
+                    // so the box has to name the session itself rather than borrow it.
+                    aria-label={`Select ${session.title}${
+                      shared.has(session.title) ? ` (${index + 1} of ${sessions.length})` : ""
+                    } for assisted placement`}
                     checked={chosen}
                     disabled={busy}
                     onChange={(event) => selection.choose(session.id, event.target.checked)}

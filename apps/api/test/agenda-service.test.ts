@@ -6,10 +6,10 @@ import {
   AgendaPublicationConflictError,
   AgendaService,
 } from "../src/application/agenda/agenda-service";
-import type { Actor } from "../src/application/identity/actor";
-import { conflictsFor, type AgendaDraft } from "../src/domain/agenda/agenda";
-import { planAssistedPlacements } from "../src/domain/agenda/assisted-placement";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
+import type { Actor } from "../src/application/identity/actor";
+import { type AgendaDraft, conflictsFor } from "../src/domain/agenda/agenda";
+import { planAssistedPlacements } from "../src/domain/agenda/assisted-placement";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const draft: AgendaDraft = {
@@ -127,6 +127,10 @@ describe("assisted agenda placement", () => {
       "session-2",
       "session-4",
     ]);
+    // What the pass seated, said by the only party that can know it: the board it returns also
+    // carries whatever else landed while the request was in flight, so a caller diffing boards
+    // cannot tell this pass's work from another organizer's.
+    expect([...result.placed].sort()).toEqual(["session-2", "session-4"]);
     // The two it was not asked about are left where they were, not reported as unplaceable:
     // they were never candidates, and an explanation would be about a pass that never ran.
     expect(result.unplaced).toEqual([]);
