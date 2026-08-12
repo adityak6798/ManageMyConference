@@ -252,9 +252,41 @@ export class AgendaService implements ContentAgendaInterface {
    */
   async publishedSessionSchedules(
     eventId: string,
-  ): Promise<ReadonlyMap<string, PlacedSessionTime>> {
-    const published = await this.repository.getPublished(eventId);
-    return published ? placedSessionTimes(published.agenda) : new Map();
+  ): Promise<
+    ReadonlyMap<
+      string,
+      PlacedSessionTime & { readonly revision: number; readonly revisedAt: string }
+    >
+  > {
+    const publications = await this.repository.listPublished(eventId);
+    const revisions = new Map<
+      string,
+      PlacedSessionTime & { revision: number; revisedAt: string }
+    >();
+    for (const publication of publications) {
+      const schedules = placedSessionTimes(publication.agenda);
+      const sessionIds = new Set([...revisions.keys(), ...schedules.keys()]);
+      for (const sessionId of sessionIds) {
+        const next = schedules.get(sessionId);
+        const previous = revisions.get(sessionId);
+        if (!next) {
+          revisions.delete(sessionId);
+          continue;
+        }
+        const unchanged =
+          previous &&
+          previous.startsAt === next.startsAt &&
+          previous.endsAt === next.endsAt &&
+          previous.location === next.location;
+        revisions.set(
+          sessionId,
+          unchanged
+            ? previous
+            : { ...next, revision: publication.version, revisedAt: publication.publishedAt },
+        );
+      }
+    }
+    return revisions;
   }
 
   /**

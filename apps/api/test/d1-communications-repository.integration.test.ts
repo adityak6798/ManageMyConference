@@ -59,6 +59,86 @@ describe("D1CommunicationsRepository", () => {
     expect(repeated.map(({ id }) => id)).toEqual(audience.map(({ id }) => id));
   });
 
+  it("atomically advances calendar invitation state and its delivery sequence", async () => {
+    const migrated = await createMigratedDatabase({ label: "calendar-invite-state", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1CommunicationsRepository(migrated.database);
+    let id = 0;
+    const communications = new CommunicationsService({
+      repository,
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => `calendar-delivery-${++id}`,
+      now: () => new Date("2026-08-12T09:00:00.000Z"),
+    });
+    const organizationId = "00000000-0000-4000-8000-000000000010";
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const send = (scheduleRef: string, recipientRef = "ada@example.test") =>
+      communications.enqueueCalendarInvite({
+        organizationId,
+        eventId,
+        sessionId: "session-1",
+        speakerProfileId: "speaker-1",
+        scheduleRef,
+        scheduleRevisedAt: "2026-08-12T08:00:00.000Z",
+        recipientRef,
+        deliveryFor: (sequence) => ({
+          organizationId,
+          eventId,
+          idempotencyKey: `calendar-invite:session-1:speaker-1:${sequence}`,
+          triggerType: "speaker.calendar_invite",
+          channel: "email",
+          recipientRef,
+          templateKey: "speaker-calendar-invite",
+          payload: {
+            speakerName: "Ada",
+            sessionTitle: "State",
+            eventName: "Greenroom Demo Summit",
+            calendarInvite: {
+              method: "REQUEST",
+              filename: "invite.ics",
+              content: `SEQUENCE:${sequence}`,
+            },
+          },
+        }),
+      });
+
+    await expect(send("A")).resolves.toMatchObject({ created: true, sequence: 0 });
+    await expect(send("A")).resolves.toMatchObject({ created: false, sequence: 0 });
+    await expect(send("B")).resolves.toMatchObject({ created: true, sequence: 1 });
+    await expect(send("A")).resolves.toMatchObject({ created: true, sequence: 2 });
+    await expect(send("A", "corrected@example.test")).resolves.toMatchObject({
+      created: true,
+      sequence: 3,
+    });
+
+    const deliveries = (await repository.list(organizationId, eventId)).filter(
+      ({ triggerType }) => triggerType === "speaker.calendar_invite",
+    );
+    expect(deliveries.map(({ recipientRef, payload }) => ({ recipientRef, payload }))).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:0" }),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:1" }),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:2" }),
+        }),
+      }),
+      expect.objectContaining({
+        recipientRef: "corrected@example.test",
+        payload: expect.objectContaining({
+          calendarInvite: expect.objectContaining({ content: "SEQUENCE:3" }),
+        }),
+      }),
+    ]);
+  });
+
   it("persists idempotent deliveries and atomically records attempts with projection state", async () => {
     const migrated = await createMigratedDatabase({ label: "communications", seed: true });
     runtime = migrated.runtime;
@@ -322,6 +402,106 @@ describe("D1CommunicationsRepository", () => {
       )
       .first<{ state: string; attempt_count: number }>();
     expect(row).toEqual({ state: "succeeded", attempt_count: 1 });
+  });
+});
+
+describe("migration 1704, after invitations already exist", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("preserves the last legacy schedule and client-visible sequence", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "calendar-invite-backfill",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    await database.prepare("DROP TABLE calendar_invite_states").run();
+    await database.batch([
+      database.prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-a', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:session:profile:2026-09-01T16:00:00.000Z|2026-09-01T17:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'old@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000000' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T08:00:00.000Z', NULL, '2026-08-12T08:00:00.000Z', '2026-08-12T08:00:00.000Z')",
+      ),
+      database.prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-b', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:session:profile:2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'new@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000001' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T09:00:00.000Z', NULL, '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')",
+      ),
+      database.prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-return', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:returned-session:returned-profile:2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'return@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000001' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T09:00:00.000Z', NULL, '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')",
+      ),
+    ]);
+
+    await applyMigrations(database as never, {
+      from: "1704_calendar_invite_states.sql",
+      through: "1704_calendar_invite_states.sql",
+    });
+
+    const state = await new D1CommunicationsRepository(database).calendarInviteState(
+      "00000000-0000-4000-8000-000000000010",
+      "00000000-0000-4000-8000-000000000001",
+      "session",
+      "profile",
+    );
+    expect(state).toEqual({
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      eventId: "00000000-0000-4000-8000-000000000001",
+      sessionId: "session",
+      speakerProfileId: "profile",
+      scheduleRef: "2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+      recipientRef: "new@example.test",
+      sequence: 19000001,
+      deliveryId: "legacy-b",
+    });
+
+    const communications = new CommunicationsService({
+      repository: new D1CommunicationsRepository(database),
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => "post-upgrade",
+      now: () => new Date("2026-08-12T10:00:00.000Z"),
+    });
+    await expect(
+      communications.enqueueCalendarInvite({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        sessionId: "session",
+        speakerProfileId: "profile",
+        scheduleRef: "3|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+        scheduleRevisedAt: "2026-08-12T08:00:00.000Z",
+        recipientRef: "new@example.test",
+        deliveryFor: () => {
+          throw new Error("an unchanged legacy invitation must not be rebuilt");
+        },
+      }),
+    ).resolves.toMatchObject({ created: false, sequence: 19000001, id: "legacy-b" });
+
+    await expect(
+      communications.enqueueCalendarInvite({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        sessionId: "returned-session",
+        speakerProfileId: "returned-profile",
+        scheduleRef: "5|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+        scheduleRevisedAt: "2026-08-12T09:30:00.000Z",
+        recipientRef: "return@example.test",
+        deliveryFor: (sequence) => ({
+          organizationId: "00000000-0000-4000-8000-000000000010",
+          eventId: "00000000-0000-4000-8000-000000000001",
+          idempotencyKey: `calendar-invite:returned-session:returned-profile:${sequence}`,
+          triggerType: "speaker.calendar_invite",
+          channel: "email",
+          recipientRef: "return@example.test",
+          templateKey: "speaker-calendar-invite",
+          payload: {
+            speakerName: "Speaker",
+            sessionTitle: "Session",
+            eventName: "Greenroom Demo Summit",
+            calendarInvite: {
+              method: "REQUEST",
+              filename: "invite.ics",
+              content: `SEQUENCE:${sequence}`,
+            },
+          },
+        }),
+      }),
+    ).resolves.toMatchObject({ created: true, sequence: 19000002 });
   });
 });
 

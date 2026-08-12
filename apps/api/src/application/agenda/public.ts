@@ -41,7 +41,14 @@ export interface ContentAgendaInterface {
    * (`PRD-PUB-001`). Callers that must match the public programme byte for byte have to read
    * the publishing domain's projection instead of this.
    */
-  publishedSessionSchedules(eventId: string): Promise<ReadonlyMap<string, PlacedSessionTime>>;
+  publishedSessionSchedules(
+    eventId: string,
+  ): Promise<
+    ReadonlyMap<
+      string,
+      PlacedSessionTime & { readonly revision: number; readonly revisedAt: string }
+    >
+  >;
   /**
    * Take a session off the board, dropping every draft placement that holds it.
    *

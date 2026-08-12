@@ -1,6 +1,7 @@
 import {
   type CommunicationsRepository,
   type DeliveryCompletion,
+  type CalendarInviteState,
   DeliveryRecoveryConflictError,
   TemplateVersionTakenError,
 } from "../../application/communications/ports";
@@ -16,6 +17,16 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
   private readonly deliveries = new Map<string, Delivery>();
   private readonly attemptLog: DeliveryAttempt[] = [];
   readonly projections = new Map<string, ProjectionState>();
+  private readonly calendarInvites = new Map<string, CalendarInviteState>();
+
+  private calendarInviteKey(
+    state: Pick<
+      CalendarInviteState,
+      "organizationId" | "eventId" | "sessionId" | "speakerProfileId"
+    >,
+  ) {
+    return `${state.organizationId}:${state.eventId}:${state.sessionId}:${state.speakerProfileId}`;
+  }
 
   async createTemplate(template: MessageTemplate): Promise<void> {
     if (
@@ -82,6 +93,44 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     const stored: Delivery[] = [];
     for (const delivery of deliveries) stored.push(await this.enqueue(delivery));
     return stored;
+  }
+
+  async calendarInviteState(
+    organizationId: string,
+    eventId: string,
+    sessionId: string,
+    speakerProfileId: string,
+  ) {
+    return (
+      this.calendarInvites.get(
+        this.calendarInviteKey({ organizationId, eventId, sessionId, speakerProfileId }),
+      ) ?? null
+    );
+  }
+
+  async enqueueCalendarInvite(
+    delivery: Delivery,
+    state: CalendarInviteState,
+    expectedSequence: number | null,
+  ) {
+    const key = this.calendarInviteKey(state);
+    const current = this.calendarInvites.get(key);
+    if ((current?.sequence ?? null) !== expectedSequence) return null;
+    const stored = await this.enqueue(delivery);
+    this.calendarInvites.set(key, { ...state, deliveryId: stored.id });
+    return stored;
+  }
+
+  async normalizeCalendarInviteScheduleRef(
+    state: CalendarInviteState,
+    expectedScheduleRef: string,
+  ) {
+    const key = this.calendarInviteKey(state);
+    const current = this.calendarInvites.get(key);
+    if (current?.scheduleRef !== expectedScheduleRef || current.sequence !== state.sequence)
+      return false;
+    this.calendarInvites.set(key, state);
+    return true;
   }
 
   async list(organizationId: string, eventId: string) {

@@ -5,7 +5,7 @@ import {
   CommunicationsService,
   type DeliveryRequest,
 } from "../src/application/communications/public";
-import type { ContentWorkspaceView } from "../src/application/content/content-service";
+import type { CalendarInviteContentWorkspaceView } from "../src/application/content/content-service";
 import {
   CalendarOrganizerUnconfiguredError,
   SpeakerCalendarInviteService,
@@ -47,7 +47,13 @@ const speaker = (id: string, email: string | null) => ({
 const session = (
   id: string,
   speakerProfileIds: string[],
-  schedule?: { startsAt: string; endsAt: string; location: string },
+  schedule?: {
+    startsAt: string;
+    endsAt: string;
+    location: string;
+    revision?: number;
+    revisedAt?: string;
+  },
 ) => ({
   id,
   eventId,
@@ -59,7 +65,15 @@ const session = (
   tags: [],
   tracks: [],
   publicationState: "published" as const,
-  ...(schedule ? { schedule } : {}),
+  ...(schedule
+    ? {
+        schedule: {
+          ...schedule,
+          revision: schedule.revision ?? 1,
+          revisedAt: schedule.revisedAt ?? "2026-08-12T08:00:00.000Z",
+        },
+      }
+    : {}),
 });
 
 const placed = {
@@ -69,16 +83,20 @@ const placed = {
 };
 
 function harness(
-  workspace: Partial<ContentWorkspaceView>,
+  workspace: Partial<CalendarInviteContentWorkspaceView>,
   options: { organizerEmail?: string | undefined } = { organizerEmail: "programme@greenroom.test" },
 ) {
   // A standing outbox, so a second send sees what the first one wrote — which is the whole point
   // of the idempotency assertions below.
   const enqueued = new Map<string, DeliveryRequest>();
+  const inviteStates = new Map<
+    string,
+    { scheduleRef: string; recipientRef: string; sequence: number; deliveryId: string }
+  >();
   const requests: DeliveryRequest[] = [];
   const service = new SpeakerCalendarInviteService({
     content: {
-      workspace: async () =>
+      calendarInviteWorkspace: async () =>
         ({
           sessions: [],
           speakers: [],
@@ -86,25 +104,40 @@ function harness(
           assets: [],
           messages: [],
           ...workspace,
-        }) as ContentWorkspaceView,
+        }) as CalendarInviteContentWorkspaceView,
     },
     communications: {
-      enqueue: async (request) => {
-        requests.push(request);
-        const existing = enqueued.get(request.idempotencyKey);
-        if (existing)
+      enqueueCalendarInvite: async (inviteRequest) => {
+        const stateKey = `${inviteRequest.sessionId}:${inviteRequest.speakerProfileId}`;
+        const current = inviteStates.get(stateKey);
+        if (
+          current?.scheduleRef === inviteRequest.scheduleRef &&
+          current.recipientRef === inviteRequest.recipientRef
+        )
           return {
-            id: "existing",
-            idempotencyKey: request.idempotencyKey,
-            state: "queued",
+            id: current.deliveryId,
+            idempotencyKey: `calendar-invite:${stateKey}:${current.sequence}`,
+            state: "queued" as const,
             created: false,
+            sequence: current.sequence,
           };
+        const sequence = (current?.sequence ?? -1) + 1;
+        const request = inviteRequest.deliveryFor(sequence);
+        requests.push(request);
         enqueued.set(request.idempotencyKey, request);
+        const deliveryId = `delivery-${enqueued.size}`;
+        inviteStates.set(stateKey, {
+          scheduleRef: inviteRequest.scheduleRef,
+          recipientRef: inviteRequest.recipientRef,
+          sequence,
+          deliveryId,
+        });
         return {
-          id: `delivery-${enqueued.size}`,
+          id: deliveryId,
           idempotencyKey: request.idempotencyKey,
-          state: "queued",
+          state: "queued" as const,
           created: true,
+          sequence,
         };
       },
     },
@@ -128,7 +161,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1", "p2"], placed), session("s2", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test"), speaker("p2", "grace@example.test")],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
 
     expect(await test.service.send(organizer, eventId)).toEqual({
       sent: 3,
@@ -152,7 +185,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
 
     expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 1, alreadySent: 0 });
     // The second press reports honestly rather than claiming to have sent again.
@@ -160,32 +193,89 @@ describe("sending speaker calendar invitations", () => {
     expect(test.enqueued.size).toBe(1);
   });
 
-  it("treats a moved session as a new invitation, not a suppressed duplicate", async () => {
-    const before = harness({
+  it("reissues REQUEST with increasing SEQUENCE when a session moves A -> B -> A", async () => {
+    const workspace = {
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
-    await before.service.send(organizer, eventId);
-    const firstKey = before.requests[0]?.idempotencyKey ?? "";
+    };
+    const test = harness(workspace);
+    await test.service.send(organizer, eventId);
 
-    const after = harness({
-      sessions: [session("s1", ["p1"], { ...placed, startsAt: "2026-09-01T18:00:00.000Z" })],
+    workspace.sessions = [
+      session("s1", ["p1"], { ...placed, startsAt: "2026-09-01T18:00:00.000Z" }),
+    ];
+    await test.service.send(organizer, eventId);
+    workspace.sessions = [session("s1", ["p1"], placed)];
+    await test.service.send(organizer, eventId);
+
+    expect(test.requests).toHaveLength(3);
+    const clientVisible = test.requests.map((request) => {
+      const payload = request.payload as { calendarInvite: { content: string } };
+      return payload.calendarInvite.content.match(/(?:DTSTART|SEQUENCE):[^\r]+/g);
+    });
+    expect(clientVisible).toEqual([
+      ["DTSTART:20260901T160000Z", "SEQUENCE:0"],
+      ["DTSTART:20260901T180000Z", "SEQUENCE:1"],
+      ["DTSTART:20260901T160000Z", "SEQUENCE:2"],
+    ]);
+    expect(test.requests.map(({ idempotencyKey }) => idempotencyKey)).toEqual([
+      "calendar-invite:s1:p1:0",
+      "calendar-invite:s1:p1:1",
+      "calendar-invite:s1:p1:2",
+    ]);
+  });
+
+  it("reissues when a session is published as A -> unscheduled -> A", async () => {
+    const workspace = {
+      sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
-    await after.service.send(organizer, eventId);
+    };
+    const test = harness(workspace);
+    await test.service.send(organizer, eventId);
 
-    // A different key, so the outbox does not swallow it — and the invitation carries the new
-    // time, which is what a client applies over the entry it already holds.
-    expect(after.requests[0]?.idempotencyKey).not.toBe(firstKey);
-    const payload = after.requests[0]?.payload as { calendarInvite: { content: string } };
-    expect(payload.calendarInvite.content).toContain("DTSTART:20260901T180000Z");
+    workspace.sessions = [session("s1", ["p1"])];
+    expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 0, alreadySent: 0 });
+
+    workspace.sessions = [session("s1", ["p1"], { ...placed, revision: 3 })];
+    expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 1, alreadySent: 0 });
+
+    const clientVisible = test.requests.map((request) => {
+      const payload = request.payload as { calendarInvite: { content: string } };
+      return payload.calendarInvite.content.match(/(?:UID|DTSTART|SEQUENCE):[^\r]+/g);
+    });
+    expect(clientVisible).toEqual([
+      ["UID:s1@greenroom", "DTSTART:20260901T160000Z", "SEQUENCE:0"],
+      ["UID:s1@greenroom", "DTSTART:20260901T160000Z", "SEQUENCE:1"],
+    ]);
+  });
+
+  it("reissues to a corrected speaker address with a higher SEQUENCE", async () => {
+    const workspace = {
+      sessions: [session("s1", ["p1"], placed)],
+      speakers: [speaker("p1", "wrong@example.test")],
+    };
+    const test = harness(workspace);
+    await test.service.send(organizer, eventId);
+    workspace.speakers = [speaker("p1", "ada@example.test")];
+    await test.service.send(organizer, eventId);
+
+    expect(test.requests.map(({ recipientRef }) => recipientRef)).toEqual([
+      "wrong@example.test",
+      "ada@example.test",
+    ]);
+    const correctedRequest = test.requests[1];
+    if (!correctedRequest) throw new Error("the corrected address queued no invitation");
+    const corrected = (correctedRequest.payload as { calendarInvite: { content: string } })
+      .calendarInvite.content;
+    expect(corrected).toContain("SEQUENCE:1");
+    expect(corrected).toContain("mailto:ada@example.test");
   });
 
   it("names who could not be invited rather than quietly reaching fewer people", async () => {
     const test = harness({
       sessions: [session("s1", ["p1", "p2", "p3"], placed), session("s2", ["p1"])],
       speakers: [speaker("p1", "ada@example.test"), speaker("p2", null)],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
 
     const result = await test.service.send(organizer, eventId);
     expect(result.sent).toBe(1);
@@ -205,7 +295,7 @@ describe("sending speaker calendar invitations", () => {
       {
         sessions: [session("s1", ["p1"], placed)],
         speakers: [speaker("p1", "ada@example.test")],
-      } as Partial<ContentWorkspaceView>,
+      } as Partial<CalendarInviteContentWorkspaceView>,
       { organizerEmail: undefined },
     );
     // A calendar client refuses an invitation whose ORGANIZER is not the sender, so a fabricated
@@ -258,14 +348,14 @@ describe("sending speaker calendar invitations", () => {
     );
     const service = new SpeakerCalendarInviteService({
       content: {
-        workspace: async () =>
+        calendarInviteWorkspace: async () =>
           ({
             sessions: [session("s1", ["p1"], placed)],
             speakers: [speaker("p1", "ada@example.test")],
             tasks: [],
             assets: [],
             messages: [],
-          }) as ContentWorkspaceView,
+          }) as CalendarInviteContentWorkspaceView,
       },
       communications,
       events: {
@@ -303,7 +393,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
     const speakerActor: Actor = {
       ...organizer,
       persona: "speaker",

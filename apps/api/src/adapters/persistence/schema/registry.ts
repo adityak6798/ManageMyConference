@@ -67,6 +67,7 @@ export const schema = {
 
 export const {
   accelEventsSyncRuns,
+  calendarInviteStates,
   agendaDrafts,
   agendaPublications,
   attendeeItineraries,
