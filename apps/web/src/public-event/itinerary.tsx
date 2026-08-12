@@ -5,7 +5,7 @@
  * Two things are worth knowing before reading the hook.
  *
  * 1. **The token is the identity.** It is minted by the server on the first star, kept in
- *    `localStorage` against the event's slug, and put in the request path. Nothing here
+ *    `localStorage` against the event's id, and put in the request path. Nothing here
  *    reads a session, because `/api/public/*` has none to read — see `api/itinerary.ts`.
  * 2. **The starred set is optimistic and the server is the referee.** A star updates the
  *    screen immediately and saves in the background; the server answers with the list it
@@ -18,8 +18,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createItinerary, readItinerary, saveItinerary } from "../api/itinerary";
 import type { PublicSession } from "./model";
 
-/** Namespaced per event: one browser can hold an itinerary for each conference it visits. */
-const tokenKey = (eventSlug: string) => `greenroom:itinerary:${eventSlug}`;
+/*
+ * Namespaced per event, by the event's **id** rather than its slug.
+ *
+ * One browser can hold an itinerary for each conference it visits, and the key has to
+ * outlive a rename: the public slug is editable (see the publishing settings form in this
+ * same change), so keying on it meant that the first time an organizer changed their public
+ * address, every attendee's browser started looking under a key nothing had written and
+ * their itinerary silently vanished — while the row it addressed was still perfectly
+ * readable through its token.
+ */
+const tokenKey = (eventId: string) => `greenroom:itinerary:${eventId}`;
 
 /**
  * `localStorage` throws rather than returning null in a partitioned or blocked context —
@@ -27,9 +36,9 @@ const tokenKey = (eventSlug: string) => `greenroom:itinerary:${eventSlug}`;
  * attendee who cannot persist should still be able to star sessions for this visit, so
  * every access degrades to memory instead of taking the page down.
  */
-function readToken(eventSlug: string): string | null {
+function readToken(eventId: string): string | null {
   try {
-    return window.localStorage.getItem(tokenKey(eventSlug));
+    return window.localStorage.getItem(tokenKey(eventId));
   } catch {
     // ERROR-INTENT: storage is unavailable; the itinerary stays in memory for this visit.
     return null;
@@ -37,9 +46,9 @@ function readToken(eventSlug: string): string | null {
 }
 
 /** Whether the token was actually persisted; false means this visit only. */
-function writeToken(eventSlug: string, token: string): boolean {
+function writeToken(eventId: string, token: string): boolean {
   try {
-    window.localStorage.setItem(tokenKey(eventSlug), token);
+    window.localStorage.setItem(tokenKey(eventId), token);
     return true;
   } catch {
     // ERROR-INTENT: as above — storage is unavailable, and the itinerary still works for
@@ -64,7 +73,7 @@ export interface ItineraryState {
  * generation, and a response from an older generation is discarded rather than resurrecting
  * a set the attendee has already moved past.
  */
-export function useItinerary(eventSlug: string, enabled: boolean): ItineraryState {
+export function useItinerary(eventSlug: string, eventId: string, enabled: boolean): ItineraryState {
   const [slugs, setSlugs] = useState<readonly string[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -72,9 +81,19 @@ export function useItinerary(eventSlug: string, enabled: boolean): ItineraryStat
   const generation = useRef(0);
   /** The in-flight mint, so concurrent first-stars join one rather than each making a row. */
   const minting = useRef<Promise<Awaited<ReturnType<typeof createItinerary>>> | null>(null);
+  /*
+   * Writes are serialised through this tail.
+   *
+   * Each save replaces the whole stored list, so two in flight at once are decided by which
+   * response the server happens to handle last rather than by the order the attendee
+   * starred. The generation counter below only stops a stale *response* being adopted
+   * locally — it cannot stop a stale *request* landing last and overwriting storage, which
+   * shows up as a star that survives on screen and is missing after a reload.
+   */
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
-    if (!enabled || !eventSlug) return;
+    if (!enabled || !eventId || !eventSlug) return;
     /*
      * A `?plan=` link wins over whatever this browser already had, and is adopted into
      * storage so the next visit needs no link. That is what makes the share URL work as a
@@ -82,8 +101,8 @@ export function useItinerary(eventSlug: string, enabled: boolean): ItineraryStat
      * owner, so possession of the link is the whole of the claim to it.
      */
     const shared = new URLSearchParams(window.location.search).get("plan");
-    const stored = shared || readToken(eventSlug);
-    if (shared) writeToken(eventSlug, shared);
+    const stored = shared || readToken(eventId);
+    if (shared) writeToken(eventId, shared);
     setToken(stored);
     if (!stored) {
       setReady(true);
@@ -110,7 +129,7 @@ export function useItinerary(eventSlug: string, enabled: boolean): ItineraryStat
     return () => {
       live = false;
     };
-  }, [enabled, eventSlug]);
+  }, [enabled, eventId, eventSlug]);
 
   const persist = useCallback(
     async (next: readonly string[]) => {
@@ -134,7 +153,7 @@ export function useItinerary(eventSlug: string, enabled: boolean): ItineraryStat
           if (!minting.current) {
             creator = true;
             minting.current = createItinerary(eventSlug, next).then((created) => {
-              writeToken(eventSlug, created.token);
+              writeToken(eventId, created.token);
               setToken(created.token);
               return created;
             });
@@ -156,7 +175,7 @@ export function useItinerary(eventSlug: string, enabled: boolean): ItineraryStat
         setFailure("Your itinerary could not be saved, so it will not survive a reload.");
       }
     },
-    [eventSlug, token],
+    [eventId, eventSlug, token],
   );
 
   const toggle = useCallback(
@@ -165,8 +184,14 @@ export function useItinerary(eventSlug: string, enabled: boolean): ItineraryStat
         const next = current.includes(slug)
           ? current.filter((candidate) => candidate !== slug)
           : [...current, slug];
-        // ERROR-INTENT: state updaters cannot await; persist renders both outcomes.
-        void persist(next);
+        // Queued behind whatever is already in flight, so the last request to reach storage
+        // is the last selection the attendee made. ERROR-INTENT: state updaters cannot
+        // await, and `persist` renders both of its outcomes; the tail is reset to a resolved
+        // promise either way so one failure cannot wedge every later write.
+        writes.current = writes.current.then(
+          () => persist(next),
+          () => persist(next),
+        );
         return next;
       });
     },
@@ -207,11 +232,32 @@ const stamp = (iso: string) => `${iso.replace(/[-:]/g, "").replace(/\.\d{3}/, ""
  * calendar the attendee actually uses: a long SUMMARY or DESCRIPTION silently truncates.
  */
 function fold(line: string): string {
-  if (line.length <= 75) return line;
-  const parts = [line.slice(0, 75)];
-  for (let index = 75; index < line.length; index += 74)
-    parts.push(` ${line.slice(index, index + 74)}`);
-  return parts.join("\r\n");
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) return line;
+  /*
+   * Measured in UTF-8 octets and split on whole characters. The spec counts octets, so a
+   * title in any non-Latin script exceeds the limit long before its `.length` does; and
+   * slicing by UTF-16 code unit can land between the halves of a surrogate pair, which
+   * turns an emoji or a rarer CJK character into two replacement characters in the file
+   * the attendee imports. Continuation lines carry a leading space and so may hold 74.
+   */
+  const parts: string[] = [];
+  let current = "";
+  let octets = 0;
+  for (const character of line) {
+    const width = encoder.encode(character).length;
+    // The first line may fill 75; every continuation spends one octet on its own space.
+    const limit = parts.length === 0 ? 75 : 74;
+    if (octets + width > limit) {
+      parts.push(current);
+      current = "";
+      octets = 0;
+    }
+    current += character;
+    octets += width;
+  }
+  if (current) parts.push(current);
+  return parts.map((part, index) => (index === 0 ? part : ` ${part}`)).join("\r\n");
 }
 
 /**

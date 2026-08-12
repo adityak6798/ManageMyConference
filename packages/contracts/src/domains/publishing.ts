@@ -95,9 +95,27 @@ export type PublicScheduleDto = z.infer<typeof publicScheduleSchema>;
  * meaningful value that clears the field, and `undefined` means "leave it alone".
  */
 // @spec PRD-PUB-001
+/*
+ * A real calendar day, not merely a well-shaped one.
+ *
+ * The shape alone accepts `2026-02-31` and `2026-99-99`, and neither is harmless here: the
+ * public page formats these values with `Intl.DateTimeFormat`, which throws a `RangeError`
+ * on an invalid `Date` and would take the whole client-rendered page down, while a merely
+ * overflowing day silently normalises and publishes a date nobody typed. The round-trip is
+ * the check — `Date` normalises out of range, so a value that does not come back identical
+ * was never a day.
+ */
 export const publicEventDaySchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a calendar date, as YYYY-MM-DD");
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a calendar date, as YYYY-MM-DD")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    // Checked before `toISOString`, which throws `RangeError` on an invalid date rather
+    // than returning something comparable — a refinement that throws fails the request
+    // with an unhandled error instead of a validation message.
+    if (Number.isNaN(parsed.getTime())) return false;
+    return parsed.toISOString().startsWith(value);
+  }, "That date does not exist");
 /** A day, or the empty string that clears it back to the agenda-derived value. */
 const editableDaySchema = z.union([publicEventDaySchema, z.literal("")]);
 export const publicationSettingsInputSchema = z

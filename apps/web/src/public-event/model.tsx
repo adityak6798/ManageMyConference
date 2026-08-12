@@ -263,13 +263,21 @@ interface EmbedOptions {
 }
 
 const SAFE_ACCENT = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i;
+/** The optional card fields an embed may name. Mirrors `EMBED_FIELDS` in the console. */
+const EMBED_FIELD_IDS = new Set(["time", "room", "track", "format", "abstract", "speakers"]);
 
 function parseEmbedOptions(search: string): EmbedOptions {
   const parameters = new URLSearchParams(search);
+  /*
+   * Filtered to the identifiers the cards actually understand. Without this, `fields=times`
+   * — a plausible typo for `time` — produced a non-empty set that matched nothing, and the
+   * "empty means everything" fallback then suppressed every optional field on every card
+   * instead of being ignored as the contract says unrecognised values are.
+   */
   const fields = (parameters.get("fields") ?? "")
     .split(",")
     .map((field) => field.trim())
-    .filter(Boolean);
+    .filter((field) => EMBED_FIELD_IDS.has(field));
   const accent = parameters.get("accent") ?? "";
   return {
     track: parameters.get("track") ?? "",

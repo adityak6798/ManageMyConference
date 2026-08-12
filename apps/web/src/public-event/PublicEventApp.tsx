@@ -92,7 +92,9 @@ export function PublicEventApp() {
    * so `localStorage` may be partitioned away or blocked outright, and an itinerary that
    * silently fails to persist is worse than one the surface never offered.
    */
-  const itinerary = useItinerary(slug, !embedded);
+  // Keyed on the event id, which a slug change cannot move; the slug is still needed for the
+  // routable share URL and the mint call. Idle until the projection supplies the id.
+  const itinerary = useItinerary(slug, projection?.event.eventId ?? "", !embedded);
   const viewKey = `${section}/${detail ?? ""}`;
   const landedOn = useRef(viewKey);
   const [filteredView, setFilteredView] = useState(section);

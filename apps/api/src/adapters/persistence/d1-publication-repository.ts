@@ -57,9 +57,22 @@ export class D1PublicationRepository implements PublicationRepository {
   }
 
   async findEventIdBySlug(slug: string): Promise<string | null> {
+    /*
+     * Both the served address and the one a draft has reserved.
+     *
+     * The `slug` column holds what is being served right now, and a slug an organizer has
+     * edited but not yet published lives only in `draft_json`. Checking the column alone let
+     * two events draft the same address: the second save succeeded, and the conflict only
+     * surfaced as a unique-index failure at publish time — a 500 on the wrong action, long
+     * after the point where the organizer could have chosen a different name.
+     */
     const result = await this.database
-      .prepare("SELECT event_id FROM public_event_projections WHERE slug = ? LIMIT 1")
-      .bind(slug)
+      .prepare(
+        `SELECT event_id FROM public_event_projections
+         WHERE slug = ? OR json_extract(draft_json, '$.event.slug') = ?
+         LIMIT 1`,
+      )
+      .bind(slug, slug)
       .all<{ event_id: string }>();
     if (!result.success)
       throw new Error(`D1 failed to resolve publication slug: ${result.error ?? "unknown error"}`);

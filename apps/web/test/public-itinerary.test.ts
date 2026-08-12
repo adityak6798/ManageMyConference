@@ -93,6 +93,39 @@ describe("the itinerary as calendar data", () => {
   });
 });
 
+describe("the itinerary as calendar data, in scripts that are not ASCII", () => {
+  it("folds by UTF-8 octets and never splits a character", () => {
+    // 80 CJK characters: well under 75 UTF-16 code units per line by the old measure, and
+    // three times over the octet limit the format actually specifies.
+    const calendar = itineraryCalendar(
+      "Summit",
+      "summit",
+      [session({ title: "\u8b1b\u6f14".repeat(40) })],
+      NOW,
+    );
+
+    const encoder = new TextEncoder();
+    for (const line of calendar.split("\r\n"))
+      expect(encoder.encode(line).length).toBeLessThanOrEqual(75);
+    // Nothing was corrupted on the way: unfolding restores the title exactly.
+    expect(calendar.replaceAll("\r\n ", "")).toContain(`SUMMARY:${"\u8b1b\u6f14".repeat(40)}`);
+  });
+
+  it("keeps a surrogate pair whole across a fold boundary", () => {
+    const calendar = itineraryCalendar(
+      "Summit",
+      "summit",
+      [session({ title: `${"a".repeat(74)}\u{1F389}${"b".repeat(20)}` })],
+      NOW,
+    );
+
+    // A slice by code unit lands between the halves of the emoji and writes two replacement
+    // characters into the file the attendee imports.
+    expect(calendar).not.toContain("\uFFFD");
+    expect(calendar.replaceAll("\r\n ", "")).toContain("\u{1F389}");
+  });
+});
+
 describe("embed options a host page supplies", () => {
   it("reads a track, a field selection, an accent and the chrome switch", () => {
     const options = parseEmbedOptions(
@@ -114,6 +147,17 @@ describe("embed options a host page supplies", () => {
     expect(options.track).toBe("");
     expect(options.accent).toBe("");
     expect(options.bare).toBe(false);
+  });
+
+  it("ignores a field identifier it does not recognise", () => {
+    // `times` is a plausible typo for `time`. It used to produce a non-empty set matching
+    // nothing, so the "empty means everything" fallback stopped applying and every optional
+    // field disappeared from every card.
+    const typo = parseEmbedOptions("?fields=times");
+    expect(typo.fields.size).toBe(0);
+
+    const mixed = parseEmbedOptions("?fields=time,nonsense,room");
+    expect([...mixed.fields]).toEqual(["time", "room"]);
   });
 
   it("refuses an accent that is not a literal hex colour", () => {

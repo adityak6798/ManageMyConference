@@ -79,13 +79,14 @@ export const publishingPaths: OpenApiFragment = {
       path: "/api/public/events/{slug}/itinerary",
       request: {
         params: publicEventSlugParamsSchema,
-        body: { required: false, content: json(itineraryInputSchema) },
+        body: { required: true, content: json(itineraryInputSchema) },
       },
       responses: {
         201: {
           description: "A new itinerary, and the only response that carries its token",
           content: json(itineraryCreatedResponseSchema),
         },
+        400: errorResponse,
         404: errorResponse,
         429: errorResponse,
         500: errorResponse,

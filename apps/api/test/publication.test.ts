@@ -2,6 +2,7 @@
 
 import {
   type PublicScheduleDto,
+  publicationSettingsInputSchema,
   publicEventProjectionSchema,
   publicScheduleSchema,
 } from "@greenroom/contracts";
@@ -433,6 +434,56 @@ describe("publication snapshots", () => {
       await expect(
         service.updateSettings(organizer, record.eventId, { slug: "already-taken" }),
       ).rejects.toBeInstanceOf(PublicationSlugTakenError);
+    });
+
+    it("refuses a date the calendar does not have", async () => {
+      // The shape check alone accepts these. `2026-02-31` normalises silently to March and
+      // publishes a day nobody typed; `2026-99-99` is an Invalid Date, and the public page
+      // hands it to `Intl`, which throws and takes the client-rendered page down with it.
+      for (const day of ["2026-02-31", "2026-99-99", "2026-13-01"])
+        expect(publicationSettingsInputSchema.safeParse({ startsOn: day }).success).toBe(false);
+      expect(publicationSettingsInputSchema.safeParse({ startsOn: "2026-02-28" }).success).toBe(
+        true,
+      );
+      // A leap day the year actually has.
+      expect(publicationSettingsInputSchema.safeParse({ startsOn: "2028-02-29" }).success).toBe(
+        true,
+      );
+    });
+
+    it("refuses a range the agenda would invert once one end is cleared", async () => {
+      const { record, service } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      // The agenda runs 2026-09-01 to 2026-09-02. Hand the start back to the agenda and pin
+      // the end before it: the stored pair passes every check that looks only at stored
+      // values, because one of them is empty — but the range the public page composes runs
+      // 09-01 to 08-30, backwards.
+      await expect(
+        service.updateSettings(organizer, record.eventId, {
+          startsOn: "",
+          endsOn: "2026-08-30",
+        }),
+      ).rejects.toBeInstanceOf(PublicationSettingsError);
+
+      // The stored value is untouched by the refusal, so the draft is not left half-applied.
+      const after = await service.preview(organizer, record.eventId);
+      expect(after?.draft.event.endsOn).not.toBe("2026-08-30");
+    });
+
+    it("sees a public address another event has only reserved in its draft", async () => {
+      const { record, service, repository } = await composedFixture();
+      const organizer = await resolveSeededDemoActor("organizer");
+      // A slug held in another event's *draft* is not in the `slug` column, which is why
+      // the repository looks in `draft_json` too. Without that, both events save happily
+      // and the second one to publish fails the unique index as a 500.
+      const reserved = vi
+        .spyOn(repository, "findEventIdBySlug")
+        .mockResolvedValueOnce("00000000-0000-4000-8000-0000000000ff");
+
+      await expect(
+        service.updateSettings(organizer, record.eventId, { slug: "reserved-elsewhere" }),
+      ).rejects.toBeInstanceOf(PublicationSlugTakenError);
+      expect(reserved).toHaveBeenCalledWith("reserved-elsewhere");
     });
 
     it("keeps a slug edit off the live address until it is published", async () => {

@@ -18,20 +18,37 @@ test.use({
 
 const SLUG = "greenroom-demo-summit";
 
+const EVENT_ID = "00000000-0000-4000-8000-000000000001";
+
 /*
- * Wait until the itinerary has actually been minted and stored.
+ * Wait until the server actually holds `expected` sessions for this browser.
  *
- * The star flips optimistically — that is the point of it — so its label changing proves
- * only that the click was seen, not that a token exists. A navigation before the mint lands
- * therefore finds an empty `localStorage` and a page with nothing on it, which is a race
- * this suite hit under load and not in isolation.
+ * Two weaker waits were tried first and both are worth naming, because each looks
+ * sufficient. Waiting on the star's label proves only that the click was seen — the star
+ * flips optimistically, which is the point of it. Waiting on the token in `localStorage`
+ * proves only that the *mint* landed, and writes are serialised, so a second star can still
+ * be queued behind it. The itinerary page reads its state once on mount, so navigating a
+ * moment early renders a short list and then never corrects itself.
+ *
+ * Asking the API what it stored is the only signal that is not a guess about timing.
  */
-const awaitStoredItinerary = async (page: import("@playwright/test").Page) => {
-  await expect
+const awaitStoredItinerary = async (page: import("@playwright/test").Page, expected: number) => {
+  const token = await expect
     .poll(() =>
-      page.evaluate((slug) => window.localStorage.getItem(`greenroom:itinerary:${slug}`), SLUG),
+      page.evaluate((id) => window.localStorage.getItem(`greenroom:itinerary:${id}`), EVENT_ID),
     )
-    .not.toBeNull();
+    .not.toBeNull()
+    .then(() =>
+      page.evaluate((id) => window.localStorage.getItem(`greenroom:itinerary:${id}`), EVENT_ID),
+    );
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(`/api/public/itineraries/${token}`);
+      if (!response.ok()) return -1;
+      return ((await response.json()) as { itinerary: { sessionSlugs: string[] } }).itinerary
+        .sessionSlugs.length;
+    })
+    .toBe(expected);
 };
 
 const SURFACES = [
@@ -112,7 +129,7 @@ test("keeps a two-session itinerary across a reload and downloads it as a calend
   await expect(
     page.getByRole("button", { name: `Remove ${second} from my itinerary` }),
   ).toBeVisible();
-  await awaitStoredItinerary(page);
+  await awaitStoredItinerary(page, 2);
 
   await page.goto(`/events/${SLUG}/itinerary`);
   await expect(page.getByRole("status")).toHaveText("2 sessions in your itinerary");
@@ -151,7 +168,7 @@ test("keeps a two-session itinerary across a reload and downloads it as a calend
 test("hands an itinerary to another browser through its link alone", async ({ page, browser }) => {
   await page.goto(`/events/${SLUG}/sessions`);
   await page.getByRole("button", { name: "Add Accessible by default to my itinerary" }).click();
-  await awaitStoredItinerary(page);
+  await awaitStoredItinerary(page, 1);
   await page.goto(`/events/${SLUG}/itinerary`);
   const shareUrl = await page
     .getByRole("link", { name: /\/itinerary\?plan=/ })

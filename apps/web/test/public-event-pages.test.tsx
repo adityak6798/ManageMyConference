@@ -825,7 +825,9 @@ describe("attendee itinerary", () => {
 
     await star("Closing notes");
     await waitFor(() =>
-      expect(window.localStorage.getItem(`greenroom:itinerary:${SLUG}`)).toBe(TOKEN),
+      expect(window.localStorage.getItem(`greenroom:itinerary:${projection.event.eventId}`)).toBe(
+        TOKEN,
+      ),
     );
     await star("Calm systems for busy event teams");
 
@@ -893,7 +895,9 @@ describe("attendee itinerary", () => {
       await screen.findByRole("link", { name: "Calm systems for busy event teams" }),
     ).toBeVisible();
     // Adopted into storage, so the next visit to this device needs no link.
-    expect(window.localStorage.getItem(`greenroom:itinerary:${SLUG}`)).toBe(TOKEN);
+    expect(window.localStorage.getItem(`greenroom:itinerary:${projection.event.eventId}`)).toBe(
+      TOKEN,
+    );
   });
 
   it("says the itinerary is a link rather than an account", async () => {

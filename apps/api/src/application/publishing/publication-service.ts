@@ -5,6 +5,7 @@ import {
   type PublicationSettings,
   publicEventSlug,
   publicSlugs,
+  resolveEventDates,
 } from "../../domain/publishing/publication";
 import type { PublicSchedule } from "../agenda/public";
 import type { PublishingContentQuery } from "../content/public";
@@ -170,8 +171,7 @@ export class PublicationService {
            * agenda existed at all — which left an organizer unable to say "the conference
            * runs Monday to Wednesday" while a single rehearsal slot sat on the Sunday.
            */
-          startsOn: publication.draft.event.startsOn || (sortedDates[0] ?? ""),
-          endsOn: publication.draft.event.endsOn || (sortedDates.at(-1) ?? ""),
+          ...resolveEventDates(publication.draft.event, sortedDates),
         },
         cfp: cfp
           ? {
@@ -232,11 +232,27 @@ export class PublicationService {
     const stored = await this.repository.findByEventId(eventId);
     const base = stored ?? this.emptyPublication(eventId, event);
     const merged = applyPublicationSettings(base.draft, settings);
-    // Checked after the merge, not in the contract: a request that sends only `endsOn` has to
-    // be compared against the stored `startsOn`, which the contract cannot see. An empty end
-    // of the range is deferred to the agenda and so cannot contradict anything.
-    if (merged.event.startsOn && merged.event.endsOn && merged.event.startsOn > merged.event.endsOn)
-      throw new PublicationSettingsError("The end date cannot fall before the start date.");
+    /*
+     * Checked after the merge, not in the contract: a request that sends only `endsOn` has
+     * to be compared against the stored `startsOn`, which the contract cannot see.
+     *
+     * And checked against the *composed* range rather than the stored one, because an empty
+     * end is not "no constraint" — it is deferred to the agenda, and the agenda's answer can
+     * itself invert the range. Clearing `startsOn` while `endsOn` stays pinned to a day
+     * before the first scheduled session used to pass this check and then publish backwards.
+     * The stored value stays empty either way; only the validation looks through it.
+     */
+    const schedule = await this.sources.schedule(eventId);
+    const agendaDays = (schedule?.agenda?.slots ?? [])
+      .flatMap(({ startsAt, endsAt }) => [startsAt.slice(0, 10), endsAt.slice(0, 10)])
+      .toSorted();
+    const composed = resolveEventDates(merged.event, agendaDays);
+    if (composed.startsOn && composed.endsOn && composed.startsOn > composed.endsOn)
+      throw new PublicationSettingsError(
+        merged.event.startsOn && merged.event.endsOn
+          ? "The end date cannot fall before the start date."
+          : "Those dates end before the schedule starts. Set both days rather than leaving one to the agenda.",
+      );
     if (merged.event.slug !== base.draft.event.slug) {
       const owner = await this.repository.findEventIdBySlug(merged.event.slug);
       if (owner && owner !== eventId)

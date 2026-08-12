@@ -113,6 +113,23 @@ export interface PublicationSettings {
 }
 
 /**
+ * The dates the public page shows: the organizer's typed ones, with the agenda filling
+ * whichever end they left empty.
+ *
+ * Extracted so composition and validation cannot drift apart. They did: `updateSettings`
+ * compared only the *stored* values, so clearing one end while the other stayed pinned
+ * passed the check and then composed into an inverted range — an agenda start after a
+ * pinned end — which was returned to the organizer and published.
+ */
+export const resolveEventDates = (
+  stored: { startsOn: string; endsOn: string },
+  agendaDays: readonly string[],
+): { startsOn: string; endsOn: string } => ({
+  startsOn: stored.startsOn || (agendaDays[0] ?? ""),
+  endsOn: stored.endsOn || (agendaDays.at(-1) ?? ""),
+});
+
+/**
  * Merge organizer-typed settings into a stored draft.
  *
  * Applied to the **stored** draft, never to a composed preview. Composition fills empty

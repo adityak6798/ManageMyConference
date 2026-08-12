@@ -225,11 +225,25 @@ export const publishingRoutes: RouteModule = {
       const parsed = publicEventSlugParamsSchema.safeParse(context.req.param());
       if (!parsed.success || !itineraries)
         return context.json(itineraryNotFound(context.get("correlationId")), 404);
+      /*
+       * The body is required and a malformed one is refused rather than quietly treated as
+       * an empty itinerary. It used to be the second: the contract advertised the body as
+       * optional while `readJson` rejected an absent one, and any body that parsed as JSON
+       * but failed the schema — an over-limit list, a slug that is not a slug — produced a
+       * 201 with nothing saved, which is the least useful answer available.
+       */
       const body = itineraryInputSchema.safeParse(await readJson(context.req));
-      const created = await itineraries.create(
-        parsed.data.slug,
-        body.success ? body.data.sessionSlugs : [],
-      );
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The itinerary could not be created.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const created = await itineraries.create(parsed.data.slug, body.data.sessionSlugs);
       return context.json(itineraryCreatedResponseSchema.parse(created), 201);
     });
 
@@ -279,7 +293,10 @@ export const publishingRoutes: RouteModule = {
         code: "VALIDATION_FAILED" as const,
         message: error.message,
         status: 400 as const,
-        fields: { endsOn: [error.message] },
+        // Both fields: the failure describes the relationship between them, and the
+        // translator cannot know which one the organizer actually touched. Naming only
+        // `endsOn` highlighted an untouched input and left the changed one unexplained.
+        fields: { startsOn: [error.message], endsOn: [error.message] },
       };
     return null;
   },
