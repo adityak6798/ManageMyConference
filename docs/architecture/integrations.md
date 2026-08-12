@@ -17,7 +17,7 @@ documentation and covered by a stubbed contract suite, and the staging smoke in
 has not run. **No AI port exists at all**: the bullet below is a design constraint on future work,
 not a description of code (`GAP-011`, issue #57).
 
-- Email: enqueue template/version plus recipient reference; the delivery carries the message rendered from that template version, and the adapter reports the provider's message reference and a normalized result. *Live adapter implemented and contract-tested against a stub; unverified against a real mail API. No lifecycle event enqueues a delivery yet (`GAP-010`, issue #66) — an organizer sends from the console.*
+- Email: enqueue template/version plus recipient reference; the delivery carries the message rendered from that template version, and the adapter reports the provider's message reference and a normalized result. *Live adapter implemented and contract-tested against a stub; unverified against a real mail API. Lifecycle events enqueue: acceptance, task assignment, reviewer assignment, an accept/decline decision, and — through the schedule-published event below — a per-speaker schedule confirmation. An organizer can also send from the console.*
 - Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Implemented as a download; nothing delivers an invite to a speaker's calendar (issue #56).*
 - Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; live adapters exist and upsert on the Greenroom reference, but no organizer-facing mapping, dry-run or connection-test workflow does (issue #23's Airtable product surface, issue #58).*
 - AI: suggestion/draft only, with provenance, explicit acceptance, timeouts, and deterministic manual fallback. *Not implemented.*
@@ -32,6 +32,26 @@ two of its own, `PROJECTION_SUPERSEDED` and `UNEXPECTED_PROVIDER_ERROR`, which a
 under [delivery lifecycle and recovery](#delivery-lifecycle-and-recovery) below.
 
 Provider calls originate from outbox workers, not open database transactions. Adapters normalize retryable versus terminal errors and never leak SDK types inward.
+
+## Domain events on the `event` channel
+
+One channel calls nothing outside. An `event` delivery carries a domain event another domain
+committed — today only `EVT-SCHEDULE-PUBLISHED` — so that the announcement of a fact and the fact
+itself share one transaction. The agenda appends the record to the same D1 `batch` as its
+publication through an opaque writer, so a crash between the two cannot leave a published
+schedule nobody is told about, or an announcement of a snapshot that does not exist.
+
+Draining it does not call a provider. It hands the record to a `DomainEventConsumer`, which
+returns the same normalized result a provider does, so retry, backoff, immutable attempts and the
+terminal state after three tries all apply unchanged. `SchedulePublishedConsumer` turns one such
+record into one email per reachable speaker, keyed `schedule:{eventId}:v{version}:{userId}` — the
+outbox is at-least-once, so a lease that expires mid-fan-out simply re-runs and nobody is written
+to twice. An `event` delivery reaching a worker with no consumer bound fails terminally with
+`NO_EVENT_CONSUMER` rather than sitting queued or reporting success.
+
+The alternative this replaces was to model the publication as an `airtable` delivery, which would
+have queued a fabricated push to somebody's base and written projection state claiming the
+schedule had been sent there.
 
 ## Delivery lifecycle and recovery
 

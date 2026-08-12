@@ -88,8 +88,53 @@ export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions">
   readonly sessions: readonly ScheduledContentSession[];
 }
 
+/**
+ * How content asks for a speaker to be told something.
+ *
+ * Content owns this interface and holds no import of the delivering domain — the same inversion
+ * `SpeakerConversionPort` and the CRM's `OutreachDispatchPort` already use, bound in the
+ * composition root. Content states the lifecycle fact ("this speaker was accepted"); which
+ * template renders it, which trigger it carries and how it is deduplicated are the delivering
+ * domain's decisions, not content's.
+ *
+ * **Implementations must not throw.** Every method here is called after the change that caused
+ * it is already durable. Failing the request at that point would report a failure for work that
+ * succeeded, and `requestTasks` mints its task ids per call, so an organizer retrying it would
+ * create a second set of tasks — the message would be sent at the cost of duplicating the thing
+ * it was announcing. An implementation that cannot queue the message reports it through its own
+ * telemetry instead; see the binding in `apps/api/src/index.ts`.
+ *
+ * @spec PRD-SPK-002 PRD-COM-001 ARC-DOM-001
+ */
+export interface SpeakerNotificationPort {
+  /** An accepted proposal became this speaker's session. */
+  speakerAccepted(fact: {
+    readonly eventId: string;
+    readonly profileId: string;
+    readonly speakerName: string;
+    readonly speakerEmail: string;
+    readonly sessionTitle: string;
+  }): Promise<void>;
+  /** Work was assigned to this speaker. Keyed on `taskId`, which is unique per assignment. */
+  taskAssigned(fact: {
+    readonly eventId: string;
+    readonly profileId: string;
+    readonly taskId: string;
+    readonly speakerName: string;
+    readonly speakerEmail: string;
+    readonly taskTitle: string;
+    readonly dueAt: string;
+  }): Promise<void>;
+}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
+  /**
+   * Tells speakers about things that happened to them. Optional: a composition exercising only
+   * the workspace has nobody to tell, and content works unchanged without it — the speaker
+   * simply is not written to, which is what the product did before issue #66.
+   */
+  speakerNotifications?: SpeakerNotificationPort;
   assetStorage: AssetStoragePort;
   /** The review domain's answer to "may this proposal become content?". */
   proposals: AcceptedProposalQuery;
@@ -365,6 +410,23 @@ export class ContentService {
       tasks.push(task);
     }
     await this.dependencies.repository.addTasks(tasks);
+    // One message per task rather than one per speaker: a speaker given three deliverables has
+    // three things to do by three dates, and a single "you have work" message is the kind that
+    // gets read once and never acted on. `taskId` keys each one, so a repeated request that
+    // somehow reuses an id converges rather than sending twice.
+    for (const task of tasks) {
+      const profile = profiles.find((candidate) => candidate?.id === task.speakerProfileId);
+      if (!profile) continue;
+      await this.dependencies.speakerNotifications?.taskAssigned({
+        eventId,
+        profileId: profile.id,
+        taskId: task.id,
+        speakerName: profile.name,
+        speakerEmail: profile.email,
+        taskTitle: task.title,
+        dueAt: task.dueAt,
+      });
+    }
     return tasks;
   }
 
@@ -490,6 +552,27 @@ export class ContentService {
           return this.accept(actor, command, correlationId, conflictRetries - 1);
         throw error;
       }
+      // Told after the session is durable, so nobody is welcomed to a session that failed to
+      // commit. Inside the `!existing` branch because a re-accept of the same proposal is the
+      // same acceptance — the delivering domain deduplicates too, but not announcing it twice
+      // is cheaper than deduplicating it twice.
+      await this.dependencies.speakerNotifications?.speakerAccepted({
+        eventId: command.eventId,
+        profileId: speaker.id,
+        speakerName: speaker.name,
+        speakerEmail: speaker.email,
+        sessionTitle: session.title,
+      });
+      for (const task of tasks)
+        await this.dependencies.speakerNotifications?.taskAssigned({
+          eventId: command.eventId,
+          profileId: speaker.id,
+          taskId: task.id,
+          speakerName: speaker.name,
+          speakerEmail: speaker.email,
+          taskTitle: task.title,
+          dueAt: task.dueAt,
+        });
     }
     return this.projected(command.eventId);
   }
@@ -685,6 +768,15 @@ export class ContentService {
       status: "open",
     };
     await this.dependencies.repository.addTask(task);
+    await this.dependencies.speakerNotifications?.taskAssigned({
+      eventId: profile.eventId,
+      profileId: profile.id,
+      taskId: task.id,
+      speakerName: profile.name,
+      speakerEmail: profile.email,
+      taskTitle: task.title,
+      dueAt: task.dueAt,
+    });
     return task;
   }
 

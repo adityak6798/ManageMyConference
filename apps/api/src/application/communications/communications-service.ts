@@ -5,7 +5,12 @@ import {
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
-import type { Delivery, MessageTemplate } from "../../domain/communications/delivery";
+import {
+  type Delivery,
+  type MessageTemplate,
+  isProjectionChannel,
+  triggerAllowsChannel,
+} from "../../domain/communications/delivery";
 import {
   TemplatePlaceholderError,
   TemplateValueError,
@@ -291,15 +296,18 @@ export class CommunicationsService implements CommunicationsEnqueue {
         : null);
     if (input.templateKey && !template)
       throw new CommunicationsNotFoundError("Template version not found");
+    // One rule, read off the trigger/channel table, replacing four conditionals that between
+    // them encoded the same mapping and could not express a channel that is neither email nor a
+    // projection.
+    if (!triggerAllowsChannel(input.triggerType, input.channel))
+      throw new CommunicationsInputError(
+        `A ${input.triggerType} delivery cannot be sent over the ${input.channel} channel`,
+      );
     if (input.channel === "email" && !template)
       throw new CommunicationsInputError("Email delivery requires a template");
     if (template && template.channel !== input.channel)
       throw new CommunicationsInputError("Template channel does not match delivery channel");
-    if (input.channel === "email" && input.triggerType === "projection.requested")
-      throw new CommunicationsInputError("Projection triggers require a projection provider");
-    if (input.channel !== "email" && input.triggerType !== "projection.requested")
-      throw new CommunicationsInputError("Projection providers require a projection trigger");
-    if (input.channel !== "email" && input.projectionVersion === undefined)
+    if (isProjectionChannel(input.channel) && input.projectionVersion === undefined)
       throw new CommunicationsInputError("Projection delivery requires a version");
     // Render once, here, so the delivery carries the message rather than the instructions for
     // reconstructing it. A projection has no template and therefore no message.

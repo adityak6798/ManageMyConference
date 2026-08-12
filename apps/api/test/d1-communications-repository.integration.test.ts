@@ -148,9 +148,12 @@ describe("D1CommunicationsRepository", () => {
 
     await apiWorker.scheduled({}, { DB: database } as Environment);
 
+    // The seeded queued row is a speaker's schedule confirmation, shaped as the publication
+    // fan-out writes it. Draining it proves the deployed entrypoint reaches a delivery the
+    // product itself would have produced, rather than one invented for this assertion.
     const row = await database
       .prepare(
-        "SELECT state, attempt_count FROM communication_deliveries WHERE id = 'delivery-queued'",
+        "SELECT state, attempt_count FROM communication_deliveries WHERE id = 'delivery-schedule-confirmation'",
       )
       .first<{ state: string; attempt_count: number }>();
     expect(row).toEqual({ state: "succeeded", attempt_count: 1 });

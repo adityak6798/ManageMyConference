@@ -16,6 +16,19 @@ export interface DeliveryProvider {
   deliver(delivery: Delivery): Promise<ProviderResult>;
 }
 
+/**
+ * Acts on an `event`-channel delivery — a domain event another domain committed durably.
+ *
+ * Returns the same `ProviderResult` a provider does, deliberately: consuming an event can fail
+ * halfway just as a send can, and reusing the shape means the bounded retry, the immutable
+ * attempt history and the terminal state after three tries all apply without a second
+ * mechanism. A consumer whose work is idempotent — and it must be, because the outbox is
+ * at-least-once — can therefore be retried by the machinery that already exists.
+ */
+export interface DomainEventConsumer {
+  consume(delivery: Delivery): Promise<ProviderResult>;
+}
+
 // @spec PRD-COM-001 PRD-INT-001
 export interface CommunicationsRepository {
   createTemplate(template: MessageTemplate): Promise<void>;

@@ -1004,7 +1004,13 @@
                               "speaker.invited",
                               "reviewer.assigned",
                               "organizer.digest",
-                              "projection.requested"
+                              "projection.requested",
+                              "schedule.published",
+                              "speaker.scheduled",
+                              "speaker.task_assigned",
+                              "speaker.task_reminder",
+                              "speaker.calendar_invite",
+                              "decision.recorded"
                             ]
                           },
                           "channel": {
@@ -1012,7 +1018,8 @@
                             "enum": [
                               "email",
                               "airtable",
-                              "accelevents"
+                              "accelevents",
+                              "event"
                             ]
                           },
                           "templateId": {
@@ -1416,7 +1423,12 @@
                       "speaker.invited",
                       "reviewer.assigned",
                       "organizer.digest",
-                      "projection.requested"
+                      "projection.requested",
+                      "speaker.scheduled",
+                      "speaker.task_assigned",
+                      "speaker.task_reminder",
+                      "speaker.calendar_invite",
+                      "decision.recorded"
                     ]
                   },
                   "channel": {
@@ -1498,7 +1510,13 @@
                             "speaker.invited",
                             "reviewer.assigned",
                             "organizer.digest",
-                            "projection.requested"
+                            "projection.requested",
+                            "schedule.published",
+                            "speaker.scheduled",
+                            "speaker.task_assigned",
+                            "speaker.task_reminder",
+                            "speaker.calendar_invite",
+                            "decision.recorded"
                           ]
                         },
                         "channel": {
@@ -1506,7 +1524,8 @@
                           "enum": [
                             "email",
                             "airtable",
-                            "accelevents"
+                            "accelevents",
+                            "event"
                           ]
                         },
                         "templateId": {
@@ -1931,7 +1950,13 @@
                             "speaker.invited",
                             "reviewer.assigned",
                             "organizer.digest",
-                            "projection.requested"
+                            "projection.requested",
+                            "schedule.published",
+                            "speaker.scheduled",
+                            "speaker.task_assigned",
+                            "speaker.task_reminder",
+                            "speaker.calendar_invite",
+                            "decision.recorded"
                           ]
                         },
                         "channel": {
@@ -1939,7 +1964,8 @@
                           "enum": [
                             "email",
                             "airtable",
-                            "accelevents"
+                            "accelevents",
+                            "event"
                           ]
                         },
                         "templateId": {
@@ -2443,7 +2469,13 @@
                                   "speaker.invited",
                                   "reviewer.assigned",
                                   "organizer.digest",
-                                  "projection.requested"
+                                  "projection.requested",
+                                  "schedule.published",
+                                  "speaker.scheduled",
+                                  "speaker.task_assigned",
+                                  "speaker.task_reminder",
+                                  "speaker.calendar_invite",
+                                  "decision.recorded"
                                 ]
                               },
                               "channel": {
@@ -2451,7 +2483,8 @@
                                 "enum": [
                                   "email",
                                   "airtable",
-                                  "accelevents"
+                                  "accelevents",
+                                  "event"
                                 ]
                               },
                               "templateId": {

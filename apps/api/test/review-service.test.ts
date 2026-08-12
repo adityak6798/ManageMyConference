@@ -16,6 +16,7 @@ import {
   ReviewService,
   ReviewValidationError,
 } from "../src/application/review/review-service";
+import type { ReviewNotificationPort } from "../src/application/review/review-service";
 
 /** The rejection itself, so a test can assert on the typed error's own fields. */
 const refusalOf = async (work: Promise<unknown>) =>
@@ -26,7 +27,15 @@ const refusalOf = async (work: Promise<unknown>) =>
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const proposalId = "10000000-0000-4000-8000-000000000001";
-const build = (options: { reviewers?: readonly { id: string; name: string }[] } = {}) => {
+const build = (
+  options: {
+    reviewers?: readonly { id: string; name: string }[];
+    /** Records what review asked to have sent, for the lifecycle-trigger tests (issue #52). */
+    notifications?: ReviewNotificationPort;
+    /** `null` models a published form that collected no contact address. */
+    submitter?: { name: string; email: string } | null;
+  } = {},
+) => {
   // The people identity-access reports as reviewers of this event. The seeded organizer holds
   // the reviewer role on the demo event too, which is exactly how she came to be offered as an
   // assignable reviewer of her own event.
@@ -40,7 +49,10 @@ const build = (options: { reviewers?: readonly { id: string; name: string }[] } 
       title: "Test proposal",
       abstract: "Test abstract",
       submitterName: "Robin Submitter",
-      submitter: { name: "Robin Submitter", email: "robin@example.test" },
+      submitter:
+        options.submitter === undefined
+          ? { name: "Robin Submitter", email: "robin@example.test" }
+          : options.submitter,
       answers: [
         { fieldId: "format", label: "Session format", type: "select", value: "Workshop" },
         {
@@ -56,6 +68,7 @@ const build = (options: { reviewers?: readonly { id: string; name: string }[] } 
   const service = new ReviewService({
     repository,
     proposals,
+    ...(options.notifications ? { notifications: options.notifications } : {}),
     identities: {
       isReviewerForEvent: async (userId, scopedEventId) =>
         scopedEventId === eventId && reviewers.some(({ id: reviewerId }) => reviewerId === userId),
@@ -801,5 +814,120 @@ describe("review workflow", () => {
         1,
       ),
     ).rejects.toBeInstanceOf(ReviewNotFoundError);
+  });
+});
+
+describe("what a review action asks to have sent (issues #52, #66)", () => {
+  const recorder = () => {
+    const assigned: Parameters<ReviewNotificationPort["reviewerAssigned"]>[0][] = [];
+    const decided: Parameters<ReviewNotificationPort["decisionRecorded"]>[0][] = [];
+    return {
+      assigned,
+      decided,
+      port: {
+        async reviewerAssigned(fact) {
+          assigned.push(fact);
+        },
+        async decisionRecorded(fact) {
+          decided.push(fact);
+        },
+      } satisfies ReviewNotificationPort,
+    };
+  };
+
+  const plan = async (
+    service: ReviewService,
+    organizer: Awaited<ReturnType<typeof resolveSeededDemoActor>>,
+  ) => {
+    await service.configurePlan(organizer, eventId, [
+      { id: "fit", name: "Fit", description: "Audience fit", minScore: 1, maxScore: 5 },
+    ]);
+  };
+
+  it("tells a reviewer once per round, however many passes the organizer distributes in", async () => {
+    const notifications = recorder();
+    const { service } = build({ notifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+    await plan(service, organizer);
+
+    await service.assign(organizer, eventId, [proposalId], "seed-reviewer");
+    // The same list again assigns nothing, so there is nothing new to say.
+    await service.assign(organizer, eventId, [proposalId], "seed-reviewer");
+
+    expect(notifications.assigned).toHaveLength(1);
+    expect(notifications.assigned[0]).toMatchObject({
+      eventId,
+      reviewerId: "seed-reviewer",
+      round: 1,
+      proposalCount: 1,
+    });
+  });
+
+  it("tells a reviewer given work by bulk distribution too, not only by hand", async () => {
+    const notifications = recorder();
+    const { service } = build({ notifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+    await plan(service, organizer);
+
+    // `distribute` is the path the console uses. A notification wired only to `assign` would
+    // look correct in a unit test and reach nobody in the product.
+    await service.distribute(organizer, eventId, [proposalId], ["seed-reviewer"], 2);
+
+    expect(notifications.assigned).toHaveLength(1);
+    expect(notifications.assigned[0]).toMatchObject({ reviewerId: "seed-reviewer" });
+  });
+
+  it("tells the submitter their proposal was accepted, naming it", async () => {
+    const notifications = recorder();
+    const { service } = build({ notifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.decide(organizer, eventId, [proposalId], "accepted");
+
+    expect(notifications.decided).toEqual([
+      {
+        eventId,
+        proposalId,
+        outcome: "accepted",
+        submitterName: "Robin Submitter",
+        submitterEmail: "robin@example.test",
+        proposalTitle: "Test proposal",
+      },
+    ]);
+  });
+
+  it("tells the submitter about a decline as well as an acceptance", async () => {
+    const notifications = recorder();
+    const { service } = build({ notifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.decide(organizer, eventId, [proposalId], "declined");
+
+    // A rejection that silently goes unsent is the failure mode this is guarding: it is the
+    // message an applicant is actually waiting for.
+    expect(notifications.decided[0]).toMatchObject({ outcome: "declined" });
+  });
+
+  it("reports a submitter with no address as having none, rather than inventing one", async () => {
+    const notifications = recorder();
+    const { service } = build({ notifications: notifications.port, submitter: null });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.decide(organizer, eventId, [proposalId], "accepted");
+
+    // A published form that collected no contact address leaves nobody to write to. Guessing —
+    // from an answer that looks like an address, say — would send one applicant's decision to
+    // whoever else's address happened to be in the form.
+    expect(notifications.decided).toHaveLength(1);
+    expect(notifications.decided[0]?.submitterEmail).toBeNull();
+  });
+
+  it("still decides when there is nobody bound to tell", async () => {
+    const { service } = build();
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    const { decisions } = await service.decide(organizer, eventId, [proposalId], "accepted");
+
+    expect(decisions).toHaveLength(1);
   });
 });

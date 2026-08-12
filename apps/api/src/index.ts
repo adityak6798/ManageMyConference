@@ -26,7 +26,10 @@ import {
   CommunicationsNotFoundError,
   CommunicationsService,
 } from "./application/communications/public";
+import type { DeliveryRequest } from "./application/communications/public";
+import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { ContentService } from "./application/content/content-service";
+import type { SpeakerNotificationPort } from "./application/content/content-service";
 import { CrmService } from "./application/crm/crm-service";
 import { OutreachRejectedError } from "./application/crm/public";
 import type { OutreachMessage } from "./application/crm/public";
@@ -34,6 +37,7 @@ import { EventService } from "./application/events/event-service";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { ReviewService } from "./application/review/review-service";
+import type { ReviewNotificationPort } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
 
 export interface Environment {
@@ -46,6 +50,13 @@ export interface Environment {
   INITIAL_ORGANIZER_USER_ID?: string;
   INITIAL_ORGANIZER_EMAIL?: string;
   ENVIRONMENT?: string;
+  /**
+   * Public origin of this deployment, for links inside messages the outbox sends.
+   *
+   * The scheduled drain has no request to read an origin from, so a link in a schedule
+   * confirmation has to come from configuration. Non-secret; belongs in vars.
+   */
+  PUBLIC_BASE_URL?: string;
   /**
    * `fixture` (the default) or `live`.
    *
@@ -77,7 +88,34 @@ const communicationsRepository = (environment: Environment) =>
     environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
   );
 
+/**
+ * Where a speaker downloads the calendar for an event.
+ *
+ * `PUBLIC_BASE_URL` is deployment configuration, not something this domain can infer: the
+ * scheduled drain has no request to read an origin from, and a message containing a relative
+ * path reaches somebody's inbox as text they cannot click. Absent, the confirmation still goes
+ * out and simply says where to look instead of linking there — a message with a broken link is
+ * worse than one with none.
+ */
+const speakerCalendarUrl = (environment: Environment) => (eventId: string) =>
+  environment.PUBLIC_BASE_URL
+    ? `${environment.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/events/${eventId}/speaker-calendar.ics`
+    : "your event's schedule page";
+
 export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
+  // The drain is not a request, so it builds its own composition. Only the enqueue surface is
+  // used — the schedule fan-out calls `enqueue`, which takes no actor by design.
+  const communications = new CommunicationsService({
+    repository: communicationsRepository(environment),
+    eventDirectory: new EventService({
+      repository: new D1EventRepository(environment.DB),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    }),
+    speakerDirectory: new D1IdentityDirectory(environment.DB),
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
   const worker = new OutboxWorker(
     communicationsRepository(environment),
     // Throws rather than falling back if `live` is half-configured, so a scheduled drain that
@@ -93,6 +131,11 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
         console.info(JSON.stringify({ level: "info", message: "delivery.attempt", ...record }));
       },
     },
+    new SchedulePublishedConsumer({
+      enqueue: communications,
+      speakerDirectory: new D1IdentityDirectory(environment.DB),
+      calendarUrl: speakerCalendarUrl(environment),
+    }),
   );
   let processed = 0;
   while (processed < limit && (await worker.runOne())) processed += 1;
@@ -167,11 +210,127 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
+    const communications = new CommunicationsService({
+      repository: communicationsRepository(environment),
+      eventDirectory: service,
+      // Who an event's speakers are is identity's answer, not a read of content's profiles.
+      speakerDirectory: identityDirectory,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    /**
+     * Turns a lifecycle fact into a queued delivery, and never lets that failure become the
+     * lifecycle action's failure.
+     *
+     * Every caller of this has already committed the change it is announcing: the session
+     * exists, the tasks are written, the decision is recorded. Throwing here would report a
+     * failure for work that succeeded, and for `requestTasks` — whose task ids are minted per
+     * call — the organizer's retry would create a second set of tasks. So the enqueue is
+     * awaited, and a failure is logged rather than propagated.
+     *
+     * The log line carries the identifiers a human needs to send the message by hand: the event,
+     * and whatever the fact was about. That is the difference between a suppressed error and a
+     * recoverable one.
+     */
+    const notifyLifecycle = async (
+      eventId: string,
+      subject: Record<string, string>,
+      request: (organizationId: string) => Omit<DeliveryRequest, "organizationId" | "eventId">,
+    ): Promise<void> => {
+      try {
+        const organizationId = await service.organizationOf(eventId);
+        // Not an error to swallow quietly: an event with no owning organization means the id is
+        // wrong or the row is gone, and either way there is nobody to address the message to.
+        if (!organizationId) throw new Error("Event has no owning organization");
+        await communications.enqueue({
+          organizationId,
+          eventId,
+          ...request(organizationId),
+        });
+      } catch (error) {
+        // ERROR-INTENT: a message that cannot be queued must not fail the already-committed
+        // action that caused it; see `SpeakerNotificationPort`. Reported at error level with the
+        // identifiers needed to send it by hand, so this is visible and recoverable rather than
+        // discarded.
+        logger.error(
+          { eventId, ...subject, error: error instanceof Error ? error.message : String(error) },
+          "lifecycle.notification.failed",
+        );
+      }
+    };
+    const speakerNotifications: SpeakerNotificationPort = {
+      speakerAccepted: (fact) =>
+        notifyLifecycle(fact.eventId, { profileId: fact.profileId }, () => ({
+          idempotencyKey: `speaker-invite:${fact.eventId}:${fact.profileId}`,
+          triggerType: "speaker.invited",
+          channel: "email",
+          recipientRef: fact.speakerEmail,
+          payload: { speakerName: fact.speakerName, sessionTitle: fact.sessionTitle },
+          templateKey: "speaker-invite",
+        })),
+      taskAssigned: (fact) =>
+        notifyLifecycle(fact.eventId, { taskId: fact.taskId, profileId: fact.profileId }, () => ({
+          idempotencyKey: `speaker-task:${fact.taskId}`,
+          triggerType: "speaker.task_assigned",
+          channel: "email",
+          recipientRef: fact.speakerEmail,
+          payload: {
+            speakerName: fact.speakerName,
+            taskTitle: fact.taskTitle,
+            dueAt: fact.dueAt,
+          },
+          templateKey: "speaker-task",
+        })),
+    };
+    const reviewNotifications: ReviewNotificationPort = {
+      async reviewerAssigned(fact) {
+        const reviewer = await identityDirectory.findRecipient(fact.reviewerId);
+        // No address means nobody to write to. Logged rather than queued, because a delivery to
+        // a non-address would burn an attempt and fail terminally with a code that describes the
+        // provider's refusal rather than the reason: this reviewer has no email linked.
+        if (!reviewer?.email) {
+          logger.warn(
+            { eventId: fact.eventId, reviewerId: fact.reviewerId },
+            "lifecycle.notification.unaddressable",
+          );
+          return;
+        }
+        await notifyLifecycle(fact.eventId, { reviewerId: fact.reviewerId }, () => ({
+          idempotencyKey: `reviewer-assigned:${fact.eventId}:${fact.reviewerId}:r${fact.round}`,
+          triggerType: "reviewer.assigned",
+          channel: "email",
+          recipientRef: reviewer.email as string,
+          payload: { reviewerName: reviewer.name, round: fact.round },
+          templateKey: "reviewer-assignment",
+        }));
+      },
+      async decisionRecorded(fact) {
+        if (!fact.submitterEmail) {
+          logger.warn(
+            { eventId: fact.eventId, proposalId: fact.proposalId },
+            "lifecycle.notification.unaddressable",
+          );
+          return;
+        }
+        await notifyLifecycle(fact.eventId, { proposalId: fact.proposalId }, () => ({
+          // The outcome is in the key on purpose: a reversed decision is a different thing to
+          // announce, so re-deciding sends the corrected message instead of being deduplicated
+          // into silence by the first one.
+          idempotencyKey: `decision:${fact.eventId}:${fact.proposalId}:${fact.outcome}`,
+          triggerType: "decision.recorded",
+          channel: "email",
+          recipientRef: fact.submitterEmail as string,
+          payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
+          templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
+        }));
+      },
+    };
     const reviewService = new ReviewService({
       repository: new D1ReviewRepository(environment.DB),
       proposals: new D1SubmittedProposalAdapter(environment.DB),
       identities: identityDirectory,
       events: service,
+      notifications: reviewNotifications,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -179,6 +338,9 @@ export default {
     // interface, never by reading `cfp_submissions` (`ARC-FLOW-001`).
     const content = new ContentService({
       repository: contentRepository,
+      // Acceptance and task assignment now reach the speaker. Content states the fact; this
+      // binding decides the template, the trigger and the idempotency key.
+      speakerNotifications,
       assetStorage: new R2AssetStorage(environment.ASSETS),
       proposals: reviewService,
       // The agenda owns when a session happens; content asks rather than keeping a second copy,
@@ -197,14 +359,6 @@ export default {
       sanitizeResourceEmbed,
       parseSpeakerCsv,
       createDeliverablesZip,
-    });
-    const communications = new CommunicationsService({
-      repository: communicationsRepository(environment),
-      eventDirectory: service,
-      // Who an event's speakers are is identity's answer, not a read of content's profiles.
-      speakerDirectory: identityDirectory,
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
     });
     /**
      * Binds the CRM's outreach port to communications' published enqueue interface.

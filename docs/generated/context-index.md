@@ -103,6 +103,7 @@
 
 ### `ACC-INTEGRATION`
 - `test` / `repository-fact`: [apps/api/test/communications-http.test.ts](../../apps/api/test/communications-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/communications-lifecycle.test.ts](../../apps/api/test/communications-lifecycle.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-service.test.ts](../../apps/api/test/communications-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-template.test.ts](../../apps/api/test/communications-template.test.ts)
@@ -186,7 +187,9 @@
 
 ### `ARC-DOM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/registry.ts](../../apps/api/src/adapters/persistence/schema/registry.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/contract.ts](../../apps/api/src/transport/http/routes/contract.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/registry.ts](../../apps/api/src/transport/http/routes/registry.ts)
@@ -314,6 +317,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/cfp/cfp-service.ts](../../apps/api/src/application/cfp/cfp-service.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/cfp.ts](../../apps/api/src/transport/http/routes/cfp.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
@@ -339,6 +343,9 @@
 - `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/schedule-published-consumer.ts](../../apps/api/src/application/communications/schedule-published-consumer.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/template.ts](../../apps/api/src/domain/communications/template.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
@@ -347,6 +354,7 @@
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/communications/ComposePanel.tsx](../../apps/web/src/communications/ComposePanel.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
@@ -414,6 +422,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/communications/outbox-worker.ts](../../apps/api/src/application/communications/outbox-worker.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/schedule-published-consumer.ts](../../apps/api/src/application/communications/schedule-published-consumer.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-public.test.ts](../../apps/api/test/communications-public.test.ts)
