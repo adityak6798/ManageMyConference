@@ -12,6 +12,8 @@
     "communication_deliveries": "communications-integrations",
     "communication_deliveries_next": "communications-integrations",
     "communication_attempts": "communications-integrations",
+    "communication_attempts_next": "communications-integrations",
+    "outbound_projection_state_next": "communications-integrations",
     "outbound_projection_state": "communications-integrations",
     "crm_prospects": "crm",
     "crm_contacts": "crm",

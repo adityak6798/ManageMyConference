@@ -85,10 +85,25 @@ export async function enqueueDueTaskReminders(
   const offsetDays = dependencies.offsetDays ?? REMINDER_OFFSET_DAYS;
   const templateKey = dependencies.templateKey ?? REMINDER_TEMPLATE_KEY;
   const dueBefore = new Date(dependencies.now().getTime() + offsetDays * DAY_MS).toISOString();
-  const due = await dependencies.work.listOpenSpeakerWork(
-    dueBefore,
-    dependencies.limit ?? REMINDER_BATCH_LIMIT,
-  );
+  let due: Awaited<ReturnType<CommunicationsContentQuery["listOpenSpeakerWork"]>>;
+  try {
+    due = await dependencies.work.listOpenSpeakerWork(
+      dueBefore,
+      dependencies.limit ?? REMINDER_BATCH_LIMIT,
+    );
+  } catch (error) {
+    // ERROR-INTENT: this is the one failure that would stall the whole tick. `scheduled()` runs
+    // reminders before the drain, so a storage failure reading open tasks propagating out of
+    // here would leave every queued delivery unsent until the read started working again —
+    // reminders taking the outbox down with them. It is reported and the tick continues to the
+    // drain; the next tick reads again, and nothing durable was missed because nothing was
+    // written.
+    dependencies.onFailure?.({
+      reason: "open speaker work could not be read",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    return { considered: 0, enqueued: 0 };
+  }
 
   // One lookup per event rather than per task: a conference's tasks cluster into a handful of
   // events, and this is inside a cron tick's subrequest budget.

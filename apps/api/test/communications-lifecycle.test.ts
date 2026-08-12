@@ -387,6 +387,29 @@ describe("reminding a speaker about work that is coming due (issue #52)", () => 
     expect(failures[0]).toMatchObject({ taskId: "task-1", reason: "no owning organization" });
   });
 
+  it("does not take the outbox down with it when the task read fails", async () => {
+    const test = harness();
+    const failures: Record<string, unknown>[] = [];
+
+    // `scheduled()` runs reminders before the drain, so this throwing would leave every queued
+    // delivery unsent until the read started working again. Reported, and the tick goes on.
+    const result = await enqueueDueTaskReminders({
+      work: {
+        listOpenSpeakerWork: async () => {
+          throw new Error("D1 content query failed: connection lost");
+        },
+      },
+      enqueue: test.service,
+      organizationOf: async () => organizationId,
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+      onFailure: (fields) => failures.push(fields),
+    });
+
+    expect(result).toEqual({ considered: 0, enqueued: 0 });
+    expect(failures[0]).toMatchObject({ reason: "open speaker work could not be read" });
+    expect(String(failures[0]?.detail)).toContain("connection lost");
+  });
+
   it("asks only for work due inside the window", async () => {
     const test = harness();
     await seedTemplate(

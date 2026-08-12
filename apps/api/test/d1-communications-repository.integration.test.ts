@@ -2,12 +2,13 @@
 import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrations, createMigratedDatabase } from "./support/seeded-d1";
 import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
 import {
   D1CommunicationsRepository,
   preparedDeliveryWriter,
 } from "../src/adapters/persistence/d1-communications-repository";
+import { TemplateVersionTakenError } from "../src/application/communications/ports";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
 import { CommunicationsService } from "../src/application/communications/communications-service";
 import apiWorker, { type Environment } from "../src/index";
@@ -163,6 +164,156 @@ describe("D1CommunicationsRepository", () => {
       )
       .first<{ state: string; attempt_count: number }>();
     expect(row).toEqual({ state: "succeeded", attempt_count: 1 });
+  });
+});
+
+describe("migration 1703, against tables that already have rows", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("carries every delivery, attempt and projection row across the rebuild", async () => {
+    /*
+     * The path the rest of this suite cannot reach, and the one that matters on deploy.
+     *
+     * `createMigratedDatabase` applies every migration and *then* the seed, so 1703's copy always
+     * runs against three empty tables there. The first version of this migration passed the
+     * entire suite while being unable to run at all on a database holding a single delivery
+     * attempt: `PRAGMA foreign_keys = OFF` does not survive between statements on D1, so
+     * `DROP TABLE communication_deliveries` was refused with `FOREIGN KEY constraint failed`.
+     *
+     * Applying the migration a second time over the seeded fixture is what exercises the copy
+     * with rows present — the seed leaves deliveries, attempts and a projection-state row, which
+     * is the shape a real database has.
+     */
+    const migrated = await createMigratedDatabase({ label: "delivery-rebuild", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const counts = () =>
+      database
+        .prepare(
+          "SELECT (SELECT COUNT(*) FROM communication_deliveries) AS deliveries, (SELECT COUNT(*) FROM communication_attempts) AS attempts, (SELECT COUNT(*) FROM outbound_projection_state) AS projections",
+        )
+        .first<{ deliveries: number; attempts: number; projections: number }>();
+
+    const before = await counts();
+    expect(before?.deliveries, "the seed should leave deliveries to carry across").toBeGreaterThan(
+      0,
+    );
+    expect(before?.attempts, "and attempts referencing them").toBeGreaterThan(0);
+    expect(before?.projections, "and projection state referencing them").toBeGreaterThan(0);
+
+    await applyMigrations(database as never, {
+      from: "1703_delivery_domain_event_triggers.sql",
+      through: "1703_delivery_domain_event_triggers.sql",
+    });
+
+    expect(await counts()).toEqual(before);
+
+    // Every column, not just the row count: a rebuild that dropped one would still count right.
+    expect(
+      await database
+        .prepare("SELECT * FROM communication_deliveries WHERE id = 'delivery-speaker-invite'")
+        .first<Record<string, unknown>>(),
+    ).toMatchObject({
+      idempotency_key:
+        "speaker-invite:00000000-0000-4000-8000-000000000001:10000000-0000-4000-8000-000000000001",
+      trigger_type: "speaker.invited",
+      channel: "email",
+      recipient_ref: "sam@example.test",
+      state: "succeeded",
+      attempt_count: 1,
+      rendered_subject: "Welcome to Greenroom",
+    });
+
+    // The children still resolve through their foreign keys to the recreated parent.
+    const joined = await database
+      .prepare(
+        "SELECT a.id FROM communication_attempts a JOIN communication_deliveries d ON d.id = a.delivery_id WHERE a.delivery_id = 'delivery-speaker-invite'",
+      )
+      .all<{ id: string }>();
+    expect((joined.results ?? []).map((attempt: { id: string }) => attempt.id)).toEqual([
+      "attempt-speaker-invite-1",
+    ]);
+
+    // The uniqueness the rebuild had to preserve is still enforced on the new table.
+    await expect(
+      database
+        .prepare(
+          "UPDATE communication_deliveries SET idempotency_key = (SELECT idempotency_key FROM communication_deliveries WHERE id = 'delivery-speaker-invite') WHERE id = 'delivery-speaker-task-1'",
+        )
+        .run(),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
+});
+
+describe("publishing a template version against real D1", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("reports a taken version as a typed conflict rather than an opaque failure", async () => {
+    /*
+     * The matcher this exercises reads SQLite's message text, because D1 exposes no error code.
+     * Proving it in memory would prove nothing: the memory repository throws the typed error
+     * directly, so a wrong pattern here would restore the `500` this change exists to remove and
+     * every unit test would stay green.
+     */
+    const migrated = await createMigratedDatabase({ label: "template-conflict", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1CommunicationsRepository(migrated.database);
+    const template = {
+      id: "template-conflict-1",
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      key: "speaker-invite",
+      version: 1,
+      channel: "email" as const,
+      subject: "Welcome",
+      body: "Hello {{speakerName}}",
+      createdAt: "2026-08-10T12:00:00.000Z",
+    };
+
+    // The seed already publishes `speaker-invite` version 1.
+    await expect(repository.createTemplate(template)).rejects.toBeInstanceOf(
+      TemplateVersionTakenError,
+    );
+    // And the allocator's read is what turns that into the next number.
+    expect(await repository.latestTemplateVersion(template.organizationId, "speaker-invite")).toBe(
+      1,
+    );
+    await repository.createTemplate({ ...template, version: 2 });
+    expect(await repository.latestTemplateVersion(template.organizationId, "speaker-invite")).toBe(
+      2,
+    );
+  });
+
+  it("lets the service allocate consecutive versions over real storage", async () => {
+    const migrated = await createMigratedDatabase({ label: "template-allocate", seed: true });
+    runtime = migrated.runtime;
+    let id = 0;
+    const service = new CommunicationsService({
+      repository: new D1CommunicationsRepository(migrated.database),
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => `allocated-${++id}`,
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+    });
+    const organizer = {
+      id: "seed-organizer",
+      name: "Olivia",
+      persona: "organizer" as const,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000010" }],
+      eventAccess: [],
+      capabilities: new Set(["communications:manage" as const]),
+    };
+
+    // Version 1 is seeded, so an allocator that ignored storage would collide on its first try.
+    const next = await service.createTemplate(organizer, {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      key: "speaker-invite",
+      channel: "email",
+      subject: "Corrected",
+      body: "Hello again {{speakerName}}",
+    });
+
+    expect(next.version).toBe(2);
   });
 });
 
