@@ -89,10 +89,16 @@ feature-by-feature verdict.
   `PRD-IAM-001`, `ARC-AUTH-001`.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
-  by default). What remains is a provisioned preview/production target and its smoke and rollback
-  gates; without those, deployability is locally verified but no hosted URL is evidenced. Owner:
-  platform. Governing ID: `ENG-CI-001`. Closure: provision the target, run public/embed/API smoke
-  against its URL, and prevent promotion or roll back when that smoke fails.
+  by default). The target is now provisioned and a hosted URL **is** evidenced:
+  https://project-greenroom-api.adityak6798.workers.dev, on remote D1 and R2, verified by request on
+  2026-08-12 across `/health`, demo sign-in, the public event/schedule/speaker pages, both embeds,
+  the R2-served headshot, and `/openapi.json`.
+
+  What remains is the part that makes deployment *safe* rather than merely done: that verification
+  was performed by hand and once. No smoke suite runs against the deployed URL, nothing prevents a
+  promotion when it would fail, and there is no rollback path — so a broken deploy is discovered by
+  a human looking. Owner: platform. Governing ID: `ENG-CI-001`. Closure: run the public/embed/API
+  smoke against the deployed URL as a gate, and prevent promotion or roll back when it fails.
 - `GAP-009` **Closed by issue #49**: CFP conditions and category-based status routing are persisted,
   rendered by both applicant surfaces, enforced by server validation, and snapshotted on submission.
   Owner: cfp. Governing ID: `PRD-CFP-001`, `PRD-CFP-002`, `ACC-CFP`.

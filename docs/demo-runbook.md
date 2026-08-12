@@ -8,10 +8,17 @@ Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-
 API and the built frontend, against remote D1 (`manage-my-conf`) and R2 (`manage-my-conf`), seeded
 from the same `seed/reset.sql` this runbook uses locally.
 
-It runs in **demo mode** (`ENVIRONMENT=development`, `DEMO_MODE=true`), which is the only
-configuration that can sign anyone in while `GAP-007` stands. State that plainly rather than
-implying more: **anyone who opens that URL can sign in as an organizer of the seeded event.** It
-holds seed data only. Issue #12 is what changes that.
+It runs in **demo mode** (`ENVIRONMENT=development`, `DEMO_MODE=true`). Production emailed-code
+sign-in exists in the product — `GAP-007` is partially closed — but demo mode deliberately turns it
+off: `/api/auth/code` answers 404 whenever `demoMode` is set, and it would additionally need the
+`AUTH_EMAIL_ENDPOINT` and `AUTH_EMAIL_TOKEN` bindings this deployment does not carry. So demo
+personas are the only way in *here*, which is a property of this deployment rather than a missing
+feature.
+
+State the consequence plainly rather than implying less: **anyone who opens that URL can sign in as
+an organizer of the seeded event.** It holds seed data only. Issue #12 owns what would change
+that — durable logout and revocation, rotation and recovery, membership administration, audit
+events, and the provider ADR.
 
 Verified live on 2026-08-12: `/health` reports database and session signing configured; the
 organizer, reviewer and speaker personas sign in; the public event, schedule, speaker pages and both

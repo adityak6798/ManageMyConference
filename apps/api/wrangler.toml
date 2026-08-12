@@ -20,14 +20,16 @@ CALENDAR_ORGANIZER_EMAIL = "organizer@greenroom.invalid"
 #
 # `runtimeAuth` (src/index.ts) refuses `DEMO_MODE=true` unless `ENVIRONMENT=development`, and
 # refuses to boot at all without either demo mode or `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`.
-# Production authentication does not exist yet (`GAP-007`), so demo mode is the only configuration
-# that can currently sign anyone in. Local development keeps these three in a gitignored
-# `.dev.vars`; a deployed Worker cannot read that file, so the two non-secret ones live here.
-# `SESSION_SECRET` remains a Worker secret and is never written to this file.
+# Production emailed-code sign-in does exist (`GAP-007` is partially closed), but demo mode turns it
+# off by design — `/api/auth/code` answers 404 while `demoMode` is set — and this deployment carries
+# no mail bindings, so demo personas are the only way in here. Local development keeps these in a
+# gitignored `.dev.vars`; a deployed Worker cannot read that file, so the two non-secret ones live
+# here. `SESSION_SECRET` remains a Worker secret and is never written to this file.
 #
 # The cost, stated plainly: anyone who finds the deployed URL can sign in as an organizer of the
 # seeded event. That is acceptable for a demo holding only seed data and is not acceptable for
-# anything else. Graduating this deployment means issue #12 (real authentication), after which
+# anything else. Graduating this deployment is issue #12 — durable logout and revocation, rotation
+# and recovery, membership administration, audit events, the provider ADR — after which
 # `ENVIRONMENT` becomes `production` and both of these lines are deleted.
 ENVIRONMENT = "development"
 DEMO_MODE = "true"
