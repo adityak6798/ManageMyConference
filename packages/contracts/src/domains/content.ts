@@ -69,6 +69,11 @@ export const speakerAssetSchema = z.object({
   storageKey: z.string(),
   visibility: z.enum(["private", "publishable"]),
   uploadedAt: z.string().datetime(),
+  taskId: z.string().uuid().optional(),
+  sessionId: z.string().uuid().optional(),
+  versionGroupId: z.string().uuid().optional(),
+  versionNumber: z.number().int().positive().optional(),
+  isLatest: z.boolean().optional(),
 });
 export const speakerMessageSchema = z.object({
   id: z.string().uuid(),
@@ -87,6 +92,26 @@ export const speakerResourceSchema = z.object({
   visibility: z.enum(["hidden", "visible"]),
   sortOrder: z.number().int(),
 });
+export const contentCommentSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  assetId: z.string().uuid(),
+  authorId: z.string(),
+  authorName: z.string(),
+  body: z.string(),
+  createdAt: z.string().datetime(),
+});
+export const contentRevisionSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  entityType: z.enum(["profile", "session"]),
+  entityId: z.string().uuid(),
+  revisionNumber: z.number().int().positive(),
+  snapshotJson: z.string(),
+  actorId: z.string(),
+  createdAt: z.string().datetime(),
+  restoredFromRevisionId: z.string().uuid().optional(),
+});
 export const contentWorkspaceSchema = z.object({
   sessions: z.array(contentSessionSchema),
   speakers: z.array(speakerProfileSchema),
@@ -94,6 +119,8 @@ export const contentWorkspaceSchema = z.object({
   assets: z.array(speakerAssetSchema),
   messages: z.array(speakerMessageSchema),
   resources: z.array(speakerResourceSchema).optional(),
+  comments: z.array(contentCommentSchema).optional(),
+  revisions: z.array(contentRevisionSchema).optional(),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 /**
@@ -138,6 +165,9 @@ export const uploadSpeakerAssetInputSchema = z.object({
       /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
       "Asset content must be valid base64",
     ),
+  taskId: z.string().uuid().optional(),
+  sessionId: z.string().uuid().optional(),
+  versionGroupId: z.string().uuid().optional(),
 });
 export type UploadSpeakerAssetInput = z.infer<typeof uploadSpeakerAssetInputSchema>;
 export const eventContentParamsSchema = z.object({ eventId: z.string().uuid() });
@@ -178,6 +208,11 @@ export const updateSpeakerWorkflowInputSchema = z.object({
   logistics: z.record(z.string().max(1000)),
   customFields: z.record(z.string().max(1000)),
 });
+export const addContentCommentInputSchema = z.object({
+  assetId: z.string().uuid(),
+  body: z.string().trim().min(1).max(4000),
+});
+export const restoreContentRevisionInputSchema = z.object({ revisionId: z.string().uuid() });
 export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),
   subject: z.string().trim().min(1).max(200),

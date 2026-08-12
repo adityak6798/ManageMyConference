@@ -31,6 +31,9 @@ import {
   bulkRequestSpeakerTaskInputSchema,
   speakerCsvImportInputSchema,
   updateSpeakerWorkflowInputSchema,
+  addContentCommentInputSchema,
+  restoreContentRevisionInputSchema,
+  contentCommentSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -76,6 +79,38 @@ export const contentPaths: OpenApiFragment = {
       request: { body: { required: true, content: json(speakerCsvImportInputSchema) } },
       responses: {
         200: { description: "Speaker import preview or result" },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-comments",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(addContentCommentInputSchema) } },
+      responses: {
+        201: {
+          description: "Attributed asset comment",
+          content: json(z.object({ comment: contentCommentSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-revisions/restore",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(restoreContentRevisionInputSchema) } },
+      responses: {
+        200: {
+          description: "Workspace after restoring the selected revision",
+          content: json(contentWorkspaceSchema),
+        },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,

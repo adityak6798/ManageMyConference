@@ -14,6 +14,8 @@ import type {
   SpeakerProfile,
   SpeakerTask,
   SpeakerResource,
+  ContentComment,
+  ContentRevision,
 } from "../../domain/content/content";
 
 const by =
@@ -30,6 +32,8 @@ export class MemoryContentRepository
   private assets: ContentWorkspace["assets"] = [];
   private messages: ContentWorkspace["messages"] = [];
   private resources: NonNullable<ContentWorkspace["resources"]> = [];
+  private comments: NonNullable<ContentWorkspace["comments"]> = [];
+  private revisions: NonNullable<ContentWorkspace["revisions"]> = [];
 
   constructor(seed?: ContentWorkspace) {
     if (seed)
@@ -41,6 +45,8 @@ export class MemoryContentRepository
         messages: this.messages,
       } = seed);
     if (seed) this.resources = seed.resources ?? [];
+    if (seed) this.comments = seed.comments ?? [];
+    if (seed) this.revisions = seed.revisions ?? [];
   }
   async findSessionByProposal(eventId: string, proposalId: string) {
     return (
@@ -92,6 +98,15 @@ export class MemoryContentRepository
           (left, right) =>
             left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
         ),
+      comments: this.comments.filter(
+        (item) =>
+          item.eventId === eventId &&
+          (!userId ||
+            this.assets.some(
+              (asset) => asset.id === item.assetId && profileIds.has(asset.speakerProfileId),
+            )),
+      ),
+      revisions: userId ? [] : this.revisions.filter((item) => item.eventId === eventId),
     };
   }
 
@@ -170,6 +185,7 @@ export class MemoryContentRepository
   }
   async deleteAsset(assetId: string) {
     this.assets = this.assets.filter(({ id }) => id !== assetId);
+    this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
   async addTask(task: SpeakerTask) {
     this.tasks = [...this.tasks, task];
@@ -204,6 +220,15 @@ export class MemoryContentRepository
   }
   async findResource(resourceId: string) {
     return this.resources.find(({ id }) => id === resourceId) ?? null;
+  }
+  async addComment(comment: ContentComment) {
+    this.comments = [...this.comments, comment];
+  }
+  async addRevision(revision: ContentRevision) {
+    this.revisions = [...this.revisions, revision];
+  }
+  async findRevision(revisionId: string) {
+    return this.revisions.find(({ id }) => id === revisionId) ?? null;
   }
 }
 

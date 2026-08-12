@@ -115,6 +115,11 @@ export function defineContentSchema(references: {
       storageKey: text("storage_key").notNull().unique(),
       visibility: text("visibility").notNull(),
       uploadedAt: text("uploaded_at").notNull(),
+      taskId: text("task_id"),
+      sessionId: text("session_id"),
+      versionGroupId: text("version_group_id"),
+      versionNumber: integer("version_number").notNull().default(1),
+      isLatest: integer("is_latest", { mode: "boolean" }).notNull().default(true),
     },
     (table) => [
       check("speaker_assets_visibility", sql`${table.visibility} IN ('private','publishable')`),
@@ -154,6 +159,56 @@ export function defineContentSchema(references: {
       unique("speaker_resources_event_slug_unique").on(table.eventId, table.slug),
       check("speaker_resources_visibility", sql`${table.visibility} IN ('hidden','visible')`),
       index("speaker_resources_event_order_idx").on(table.eventId, table.sortOrder),
+    ],
+  );
+  const contentAssetComments = sqliteTable(
+    "content_asset_comments",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      assetId: text("asset_id")
+        .notNull()
+        .references(() => speakerAssets.id),
+      authorId: text("author_id")
+        .notNull()
+        .references(() => references.usersId),
+      authorName: text("author_name").notNull(),
+      body: text("body").notNull(),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [index("content_asset_comments_asset_idx").on(table.assetId, table.createdAt)],
+  );
+  const contentRevisions = sqliteTable(
+    "content_revisions",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      entityType: text("entity_type").notNull(),
+      entityId: text("entity_id").notNull(),
+      revisionNumber: integer("revision_number").notNull(),
+      snapshotJson: text("snapshot_json").notNull(),
+      actorId: text("actor_id")
+        .notNull()
+        .references(() => references.usersId),
+      createdAt: text("created_at").notNull(),
+      restoredFromRevisionId: text("restored_from_revision_id"),
+    },
+    (table) => [
+      check("content_revisions_entity_type", sql`${table.entityType} IN ('profile','session')`),
+      unique("content_revisions_entity_revision_unique").on(
+        table.entityType,
+        table.entityId,
+        table.revisionNumber,
+      ),
+      index("content_revisions_entity_idx").on(
+        table.entityType,
+        table.entityId,
+        table.revisionNumber,
+      ),
     ],
   );
   const speakerConversionSources = sqliteTable(
@@ -204,6 +259,8 @@ export function defineContentSchema(references: {
     speakerAssets,
     speakerMessages,
     speakerResources,
+    contentAssetComments,
+    contentRevisions,
     speakerConversionSources,
     speakerConversionClaims,
     speakerEmailClaims,

@@ -24,6 +24,8 @@
     "speaker_assets": "content",
     "speaker_messages": "content",
     "speaker_resources": "content",
+    "content_asset_comments": "content",
+    "content_revisions": "content",
     "cfp_forms": "cfp",
     "cfp_submissions": "cfp",
     "cfp_statuses": "cfp",

@@ -65,6 +65,32 @@ export interface SpeakerAsset {
   readonly storageKey: string;
   readonly visibility: AssetVisibility;
   readonly uploadedAt: string;
+  readonly taskId?: string | undefined;
+  readonly sessionId?: string | undefined;
+  readonly versionGroupId?: string | undefined;
+  readonly versionNumber?: number | undefined;
+  readonly isLatest?: boolean | undefined;
+}
+
+export interface ContentComment {
+  readonly id: string;
+  readonly eventId: string;
+  readonly assetId: string;
+  readonly authorId: string;
+  readonly authorName: string;
+  readonly body: string;
+  readonly createdAt: string;
+}
+export interface ContentRevision {
+  readonly id: string;
+  readonly eventId: string;
+  readonly entityType: "profile" | "session";
+  readonly entityId: string;
+  readonly revisionNumber: number;
+  readonly snapshotJson: string;
+  readonly actorId: string;
+  readonly createdAt: string;
+  readonly restoredFromRevisionId?: string | undefined;
 }
 
 /**
@@ -106,4 +132,6 @@ export interface ContentWorkspace {
   readonly assets: readonly SpeakerAsset[];
   readonly messages: readonly SpeakerMessage[];
   readonly resources?: readonly SpeakerResource[];
+  readonly comments?: readonly ContentComment[];
+  readonly revisions?: readonly ContentRevision[];
 }

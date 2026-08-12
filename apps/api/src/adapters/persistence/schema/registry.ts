@@ -74,6 +74,8 @@ export const {
   communicationAttempts,
   communicationDeliveries,
   contentSessions,
+  contentAssetComments,
+  contentRevisions,
   crmActivities,
   crmContacts,
   crmProspects,

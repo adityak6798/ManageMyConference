@@ -532,6 +532,7 @@ export class ContentService {
     )
       throw new CapabilityDeniedError("Speaker profile access denied");
     const updated = { ...profile, ...input };
+    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
     await this.dependencies.repository.updateProfile(updated);
     return updated;
   }
@@ -678,6 +679,7 @@ export class ContentService {
     if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
       throw new CapabilityDeniedError("Session speaker access denied");
     const updated = { ...session, ...input };
+    await this.recordRevision(authorized, "session", session.id, session.eventId, session);
     await this.dependencies.repository.updateSession(updated);
     return updated;
   }
@@ -837,6 +839,9 @@ export class ContentService {
       name: string;
       contentType: string;
       bytes: Uint8Array;
+      taskId?: string | undefined;
+      sessionId?: string | undefined;
+      versionGroupId?: string | undefined;
     },
   ): Promise<SpeakerAsset> {
     const profile = await this.dependencies.repository.findProfile(input.profileId);
@@ -851,6 +856,31 @@ export class ContentService {
       contentType: input.contentType,
       bytes: input.bytes,
     });
+    const workspace = await this.dependencies.repository.workspace(profile.eventId);
+    const previous = input.versionGroupId
+      ? workspace.assets
+          .filter(
+            (asset) =>
+              asset.versionGroupId === input.versionGroupId &&
+              asset.speakerProfileId === profile.id,
+          )
+          .toSorted((a, b) => (b.versionNumber ?? 1) - (a.versionNumber ?? 1))[0]
+      : input.taskId
+        ? workspace.assets.filter(
+            (asset) =>
+              asset.taskId === input.taskId &&
+              asset.speakerProfileId === profile.id &&
+              asset.isLatest !== false,
+          )[0]
+        : undefined;
+    if (
+      input.taskId &&
+      !workspace.tasks.some(
+        (task) => task.id === input.taskId && task.speakerProfileId === profile.id,
+      )
+    )
+      throw new CapabilityDeniedError("Speaker asset access denied");
+    if (previous) await this.dependencies.repository.updateAsset({ ...previous, isLatest: false });
     const asset: SpeakerAsset = {
       id,
       eventId: profile.eventId,
@@ -860,6 +890,11 @@ export class ContentService {
       storageKey: stored.key,
       visibility: "private",
       uploadedAt: this.dependencies.now().toISOString(),
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      versionGroupId: previous?.versionGroupId ?? previous?.id ?? input.versionGroupId ?? id,
+      versionNumber: (previous?.versionNumber ?? 0) + 1,
+      isLatest: true,
     };
     try {
       await this.dependencies.repository.addAsset(asset);
@@ -875,6 +910,97 @@ export class ContentService {
       throw metadataError;
     }
     return asset;
+  }
+
+  private async recordRevision(
+    actor: Actor,
+    entityType: "profile" | "session",
+    entityId: string,
+    eventId: string,
+    snapshot: unknown,
+    restoredFromRevisionId?: string,
+  ) {
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    const revisionNumber =
+      Math.max(
+        0,
+        ...(workspace.revisions ?? [])
+          .filter(
+            (revision) => revision.entityType === entityType && revision.entityId === entityId,
+          )
+          .map(({ revisionNumber }) => revisionNumber),
+      ) + 1;
+    await this.dependencies.repository.addRevision({
+      id: this.dependencies.newId(),
+      eventId,
+      entityType,
+      entityId,
+      revisionNumber,
+      snapshotJson: JSON.stringify(snapshot),
+      actorId: actor.id,
+      createdAt: this.dependencies.now().toISOString(),
+      ...(restoredFromRevisionId ? { restoredFromRevisionId } : {}),
+    });
+  }
+
+  async addAssetComment(actor: Actor | null, assetId: string, body: string) {
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    if (!asset || !(await this.mayReadPrivately(actor, asset))) throw new CapabilityDeniedError();
+    const authorized = requireEventCapability(actor, asset.eventId, "content:read");
+    const comment = {
+      id: this.dependencies.newId(),
+      eventId: asset.eventId,
+      assetId,
+      authorId: authorized.id,
+      authorName: authorized.name,
+      body,
+      createdAt: this.dependencies.now().toISOString(),
+    };
+    await this.dependencies.repository.addComment(comment);
+    return comment;
+  }
+
+  async restoreRevision(actor: Actor | null, revisionId: string) {
+    const revision = await this.dependencies.repository.findRevision(revisionId);
+    if (!revision) throw new CapabilityDeniedError();
+    const authorized = requireEventCapability(actor, revision.eventId, "content:manage");
+    if (revision.entityType === "profile") {
+      const current = await this.dependencies.repository.findProfile(revision.entityId);
+      if (!current) throw new CapabilityDeniedError();
+      await this.recordRevision(
+        authorized,
+        "profile",
+        current.id,
+        current.eventId,
+        current,
+        revision.id,
+      );
+      const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
+      await this.dependencies.repository.updateProfile({
+        ...snapshot,
+        id: current.id,
+        eventId: current.eventId,
+        userId: current.userId,
+      });
+    } else {
+      const current = await this.dependencies.repository.findSession(revision.entityId);
+      if (!current) throw new CapabilityDeniedError();
+      await this.recordRevision(
+        authorized,
+        "session",
+        current.id,
+        current.eventId,
+        current,
+        revision.id,
+      );
+      const snapshot = JSON.parse(revision.snapshotJson) as ContentSession;
+      await this.dependencies.repository.updateSession({
+        ...snapshot,
+        id: current.id,
+        eventId: current.eventId,
+      });
+    }
+    return this.projected(revision.eventId);
   }
 
   /**

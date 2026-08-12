@@ -6,6 +6,8 @@ import type {
   SpeakerProfile,
   SpeakerTask,
   SpeakerResource,
+  ContentComment,
+  ContentRevision,
 } from "../../domain/content/content";
 
 export interface AcceptedContent {
@@ -37,6 +39,9 @@ export interface ContentRepository {
   updateResource(resource: SpeakerResource): Promise<void>;
   deleteResource(resourceId: string): Promise<void>;
   findResource(resourceId: string): Promise<SpeakerResource | null>;
+  addComment(comment: ContentComment): Promise<void>;
+  addRevision(revision: ContentRevision): Promise<void>;
+  findRevision(revisionId: string): Promise<ContentRevision | null>;
 }
 
 export class ContentConflictError extends Error {}

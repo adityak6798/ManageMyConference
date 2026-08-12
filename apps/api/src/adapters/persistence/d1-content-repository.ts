@@ -11,6 +11,8 @@ import type {
   SpeakerProfile,
   SpeakerTask,
   SpeakerResource,
+  ContentComment,
+  ContentRevision,
 } from "../../domain/content/content";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 interface D1Statement {
@@ -212,7 +214,16 @@ export class D1ContentRepository
     );
     const speakers = profileRows.map((row) => this.profile(row));
     if (userId && speakers.length === 0)
-      return { sessions: [], speakers: [], tasks: [], assets: [], messages: [], resources: [] };
+      return {
+        sessions: [],
+        speakers: [],
+        tasks: [],
+        assets: [],
+        messages: [],
+        resources: [],
+        comments: [],
+        revisions: [],
+      };
     const scoped = <T>(table: string, order: string, map: (row: Row) => T) =>
       this.rows(
         `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND profile.user_id = ? ORDER BY ${order}`,
@@ -258,7 +269,24 @@ export class D1ContentRepository
         eventId,
       )
     ).map((row) => this.resource(row));
-    return { sessions, speakers, tasks, assets, messages, resources };
+    const comments = (
+      await this.rows(
+        userId
+          ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND profile.user_id=? ORDER BY comment.created_at"
+          : "SELECT * FROM content_asset_comments WHERE event_id=? ORDER BY created_at",
+        eventId,
+        ...(userId ? [userId] : []),
+      )
+    ).map((row) => this.comment(row));
+    const revisions = userId
+      ? []
+      : (
+          await this.rows(
+            "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at",
+            eventId,
+          )
+        ).map((row) => this.revision(row));
+    return { sessions, speakers, tasks, assets, messages, resources, comments, revisions };
   }
   async updateProfile(profile: SpeakerProfile) {
     await this.run(
@@ -299,11 +327,20 @@ export class D1ContentRepository
     await this.run("DELETE FROM content_sessions WHERE id=?", sessionId);
   }
   async updateAsset(asset: SpeakerAsset) {
-    await this.run("UPDATE speaker_assets SET visibility=? WHERE id=?", asset.visibility, asset.id);
+    await this.run(
+      "UPDATE speaker_assets SET visibility=?,task_id=?,session_id=?,version_group_id=?,version_number=?,is_latest=? WHERE id=?",
+      asset.visibility,
+      asset.taskId ?? null,
+      asset.sessionId ?? null,
+      asset.versionGroupId ?? asset.id,
+      asset.versionNumber ?? 1,
+      asset.isLatest === false ? 0 : 1,
+      asset.id,
+    );
   }
   async addAsset(asset: SpeakerAsset) {
     await this.run(
-      "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at) VALUES (?,?,?,?,?,?,?,?)",
+      "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,task_id,session_id,version_group_id,version_number,is_latest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
       asset.id,
       asset.eventId,
       asset.speakerProfileId,
@@ -312,9 +349,15 @@ export class D1ContentRepository
       asset.storageKey,
       asset.visibility,
       asset.uploadedAt,
+      asset.taskId ?? null,
+      asset.sessionId ?? null,
+      asset.versionGroupId ?? asset.id,
+      asset.versionNumber ?? 1,
+      asset.isLatest === false ? 0 : 1,
     );
   }
   async deleteAsset(assetId: string) {
+    await this.run("DELETE FROM content_asset_comments WHERE asset_id=?", assetId);
     await this.run("DELETE FROM speaker_assets WHERE id=?", assetId);
   }
   async addTask(task: SpeakerTask) {
@@ -402,6 +445,38 @@ export class D1ContentRepository
     )[0];
     return row ? this.resource(row) : null;
   }
+  async addComment(comment: ContentComment) {
+    await this.run(
+      "INSERT INTO content_asset_comments (id,event_id,asset_id,author_id,author_name,body,created_at) VALUES (?,?,?,?,?,?,?)",
+      comment.id,
+      comment.eventId,
+      comment.assetId,
+      comment.authorId,
+      comment.authorName,
+      comment.body,
+      comment.createdAt,
+    );
+  }
+  async addRevision(revision: ContentRevision) {
+    await this.run(
+      "INSERT INTO content_revisions (id,event_id,entity_type,entity_id,revision_number,snapshot_json,actor_id,created_at,restored_from_revision_id) VALUES (?,?,?,?,?,?,?,?,?)",
+      revision.id,
+      revision.eventId,
+      revision.entityType,
+      revision.entityId,
+      revision.revisionNumber,
+      revision.snapshotJson,
+      revision.actorId,
+      revision.createdAt,
+      revision.restoredFromRevisionId ?? null,
+    );
+  }
+  async findRevision(revisionId: string) {
+    const row = (
+      await this.rows("SELECT * FROM content_revisions WHERE id=? LIMIT 1", revisionId)
+    )[0];
+    return row ? this.revision(row) : null;
+  }
   private session(row: Row): ContentSession {
     return {
       id: row.id ?? "",
@@ -457,6 +532,11 @@ export class D1ContentRepository
       storageKey: row.storage_key ?? "",
       visibility: (row.visibility ?? "private") as SpeakerAsset["visibility"],
       uploadedAt: row.uploaded_at ?? "",
+      ...(row.task_id ? { taskId: row.task_id } : {}),
+      ...(row.session_id ? { sessionId: row.session_id } : {}),
+      ...(row.version_group_id ? { versionGroupId: row.version_group_id } : {}),
+      versionNumber: Number(row.version_number ?? 1),
+      isLatest: Number(row.is_latest ?? 1) === 1,
     };
   }
   private message(row: Row): SpeakerMessage {
@@ -478,6 +558,32 @@ export class D1ContentRepository
       embedHtml: String(row.embed_html ?? ""),
       visibility: String(row.visibility ?? "hidden") as SpeakerResource["visibility"],
       sortOrder: Number(row.sort_order ?? 0),
+    };
+  }
+  private comment(row: Row): ContentComment {
+    return {
+      id: row.id ?? "",
+      eventId: row.event_id ?? "",
+      assetId: row.asset_id ?? "",
+      authorId: row.author_id ?? "",
+      authorName: row.author_name ?? "",
+      body: row.body ?? "",
+      createdAt: row.created_at ?? "",
+    };
+  }
+  private revision(row: Row): ContentRevision {
+    return {
+      id: row.id ?? "",
+      eventId: row.event_id ?? "",
+      entityType: (row.entity_type ?? "profile") as ContentRevision["entityType"],
+      entityId: row.entity_id ?? "",
+      revisionNumber: Number(row.revision_number ?? 1),
+      snapshotJson: row.snapshot_json ?? "{}",
+      actorId: row.actor_id ?? "",
+      createdAt: row.created_at ?? "",
+      ...(row.restored_from_revision_id
+        ? { restoredFromRevisionId: row.restored_from_revision_id }
+        : {}),
     };
   }
 }

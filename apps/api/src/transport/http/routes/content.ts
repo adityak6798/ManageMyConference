@@ -25,6 +25,8 @@ import {
   bulkRequestSpeakerTaskInputSchema,
   speakerCsvImportInputSchema,
   updateSpeakerWorkflowInputSchema,
+  addContentCommentInputSchema,
+  restoreContentRevisionInputSchema,
 } from "@greenroom/contracts";
 import {
   ResourceEmbedDeniedError,
@@ -58,6 +60,8 @@ const routes = [
   "POST /api/speaker-imports",
   "POST /api/speaker-tasks/bulk",
   "PATCH /api/speaker-profiles/:profileId/workflow",
+  "POST /api/content-comments",
+  "POST /api/content-revisions/restore",
 ] as const;
 
 export const contentRoutes: RouteModule = {
@@ -514,6 +518,47 @@ export const contentRoutes: RouteModule = {
       return context.json(
         { resource: await content.createResource(context.get("actor"), parsed.data) },
         201,
+      );
+    });
+    app.post("/api/content-comments", async (context) => {
+      const parsed = addContentCommentInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Comment is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        {
+          comment: await content.addAssetComment(
+            context.get("actor"),
+            parsed.data.assetId,
+            parsed.data.body,
+          ),
+        },
+        201,
+      );
+    });
+    app.post("/api/content-revisions/restore", async (context) => {
+      const parsed = restoreContentRevisionInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Revision is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        await content.restoreRevision(context.get("actor"), parsed.data.revisionId),
       );
     });
     app.patch("/api/speaker-resources/:resourceId", async (context) => {
