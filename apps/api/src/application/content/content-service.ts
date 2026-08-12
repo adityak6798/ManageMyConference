@@ -81,12 +81,18 @@ export class ResourceEmbedDeniedError extends Error {}
  * changes when somebody deliberately republishes it.
  */
 export interface ScheduledContentSession extends ContentSession {
-  readonly schedule?: SessionSchedule & { readonly revision: number; readonly revisedAt: string };
+  readonly schedule?: SessionSchedule;
 }
 
 /** The content workspace as it leaves the application layer, with schedules resolved. */
 export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
   readonly sessions: readonly ScheduledContentSession[];
+}
+
+export interface CalendarInviteContentWorkspaceView extends Omit<ContentWorkspaceView, "sessions"> {
+  readonly sessions: readonly (ContentSession & {
+    readonly schedule?: SessionSchedule & { readonly revision: number; readonly revisedAt: string };
+  })[];
 }
 
 /**
@@ -590,7 +596,10 @@ export class ContentService {
    * the snapshot in force; a session it does not name has no `schedule` at all rather than an
    * empty or stale one.
    */
-  private async projected(eventId: string, userId?: string): Promise<ContentWorkspaceView> {
+  private async projectedForCalendarInvites(
+    eventId: string,
+    userId?: string,
+  ): Promise<CalendarInviteContentWorkspaceView> {
     const [workspace, schedules] = await Promise.all([
       this.dependencies.repository.workspace(eventId, userId),
       this.dependencies.agenda.publishedSessionSchedules(eventId),
@@ -601,6 +610,25 @@ export class ContentService {
         const schedule = schedules.get(session.id);
         return schedule ? { ...session, schedule } : session;
       }),
+    };
+  }
+
+  private async projected(eventId: string, userId?: string): Promise<ContentWorkspaceView> {
+    const workspace = await this.projectedForCalendarInvites(eventId, userId);
+    return {
+      ...workspace,
+      sessions: workspace.sessions.map(({ schedule, ...session }) =>
+        schedule
+          ? {
+              ...session,
+              schedule: {
+                startsAt: schedule.startsAt,
+                endsAt: schedule.endsAt,
+                location: schedule.location,
+              },
+            }
+          : session,
+      ),
     };
   }
 
@@ -645,6 +673,16 @@ export class ContentService {
     if (!isOrganizer && !isSpeaker)
       throw new CapabilityDeniedError("Content workspace access denied");
     return this.projected(eventId, isOrganizer ? undefined : authorized.id);
+  }
+
+  async calendarInviteWorkspace(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<CalendarInviteContentWorkspaceView> {
+    const authorized = requireEventCapability(actor, eventId, "content:read");
+    if (!hasEventRole(authorized, eventId, "organizer"))
+      throw new CapabilityDeniedError("Calendar invitation access denied");
+    return this.projectedForCalendarInvites(eventId);
   }
 
   async updateMyProfile(

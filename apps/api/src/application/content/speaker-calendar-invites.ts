@@ -19,7 +19,7 @@ import type {
 } from "../communications/public";
 import { type Actor, CapabilityDeniedError, requireEventCapability } from "../identity/actor";
 import { buildSpeakerInvite } from "./calendar-invite";
-import type { ContentWorkspaceView } from "./content-service";
+import type { CalendarInviteContentWorkspaceView } from "./content-service";
 
 /** Refuses rather than sending an invitation nobody could accept. */
 export class CalendarOrganizerUnconfiguredError extends Error {}
@@ -47,7 +47,10 @@ export interface SpeakerCalendarInviteResult {
  */
 export interface SpeakerCalendarInviteDependencies {
   readonly content: {
-    workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspaceView>;
+    calendarInviteWorkspace(
+      actor: Actor | null,
+      eventId: string,
+    ): Promise<CalendarInviteContentWorkspaceView>;
   };
   readonly communications: {
     enqueueCalendarInvite(
@@ -108,7 +111,7 @@ export class SpeakerCalendarInviteService {
     const event = await this.dependencies.events.get(authorized, eventId);
     if (!event) throw new CapabilityDeniedError("Event not found");
 
-    const workspace = await this.dependencies.content.workspace(authorized, eventId);
+    const workspace = await this.dependencies.content.calendarInviteWorkspace(authorized, eventId);
     const profiles = new Map(workspace.speakers.map((speaker) => [speaker.id, speaker]));
     const stamp = this.dependencies.now();
     const unreachable: { session: string; reason: string }[] = [];

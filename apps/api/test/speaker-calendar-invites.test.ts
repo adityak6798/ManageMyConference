@@ -5,7 +5,7 @@ import {
   CommunicationsService,
   type DeliveryRequest,
 } from "../src/application/communications/public";
-import type { ContentWorkspaceView } from "../src/application/content/content-service";
+import type { CalendarInviteContentWorkspaceView } from "../src/application/content/content-service";
 import {
   CalendarOrganizerUnconfiguredError,
   SpeakerCalendarInviteService,
@@ -83,7 +83,7 @@ const placed = {
 };
 
 function harness(
-  workspace: Partial<ContentWorkspaceView>,
+  workspace: Partial<CalendarInviteContentWorkspaceView>,
   options: { organizerEmail?: string | undefined } = { organizerEmail: "programme@greenroom.test" },
 ) {
   // A standing outbox, so a second send sees what the first one wrote — which is the whole point
@@ -96,7 +96,7 @@ function harness(
   const requests: DeliveryRequest[] = [];
   const service = new SpeakerCalendarInviteService({
     content: {
-      workspace: async () =>
+      calendarInviteWorkspace: async () =>
         ({
           sessions: [],
           speakers: [],
@@ -104,7 +104,7 @@ function harness(
           assets: [],
           messages: [],
           ...workspace,
-        }) as ContentWorkspaceView,
+        }) as CalendarInviteContentWorkspaceView,
     },
     communications: {
       enqueueCalendarInvite: async (inviteRequest) => {
@@ -161,7 +161,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1", "p2"], placed), session("s2", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test"), speaker("p2", "grace@example.test")],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
 
     expect(await test.service.send(organizer, eventId)).toEqual({
       sent: 3,
@@ -185,7 +185,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
 
     expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 1, alreadySent: 0 });
     // The second press reports honestly rather than claiming to have sent again.
@@ -275,7 +275,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1", "p2", "p3"], placed), session("s2", ["p1"])],
       speakers: [speaker("p1", "ada@example.test"), speaker("p2", null)],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
 
     const result = await test.service.send(organizer, eventId);
     expect(result.sent).toBe(1);
@@ -295,7 +295,7 @@ describe("sending speaker calendar invitations", () => {
       {
         sessions: [session("s1", ["p1"], placed)],
         speakers: [speaker("p1", "ada@example.test")],
-      } as Partial<ContentWorkspaceView>,
+      } as Partial<CalendarInviteContentWorkspaceView>,
       { organizerEmail: undefined },
     );
     // A calendar client refuses an invitation whose ORGANIZER is not the sender, so a fabricated
@@ -348,14 +348,14 @@ describe("sending speaker calendar invitations", () => {
     );
     const service = new SpeakerCalendarInviteService({
       content: {
-        workspace: async () =>
+        calendarInviteWorkspace: async () =>
           ({
             sessions: [session("s1", ["p1"], placed)],
             speakers: [speaker("p1", "ada@example.test")],
             tasks: [],
             assets: [],
             messages: [],
-          }) as ContentWorkspaceView,
+          }) as CalendarInviteContentWorkspaceView,
       },
       communications,
       events: {
@@ -393,7 +393,7 @@ describe("sending speaker calendar invitations", () => {
     const test = harness({
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-    } as Partial<ContentWorkspaceView>);
+    } as Partial<CalendarInviteContentWorkspaceView>);
     const speakerActor: Actor = {
       ...organizer,
       persona: "speaker",
