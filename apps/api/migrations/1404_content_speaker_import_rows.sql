@@ -1,0 +1,1 @@
+CREATE TABLE content_speaker_import_rows (event_id TEXT NOT NULL REFERENCES events(id),normalized_email TEXT NOT NULL,status TEXT NOT NULL CHECK (status IN ('pending','complete')),PRIMARY KEY(event_id,normalized_email));

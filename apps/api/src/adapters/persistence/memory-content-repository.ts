@@ -34,6 +34,7 @@ export class MemoryContentRepository
   private resources: NonNullable<ContentWorkspace["resources"]> = [];
   private comments: NonNullable<ContentWorkspace["comments"]> = [];
   private revisions: NonNullable<ContentWorkspace["revisions"]> = [];
+  private imports = new Map<string, "pending" | "complete">();
 
   constructor(seed?: ContentWorkspace) {
     if (seed)
@@ -53,6 +54,16 @@ export class MemoryContentRepository
       this.sessions.find((item) => item.eventId === eventId && item.proposalId === proposalId) ??
       null
     );
+  }
+  async findSpeakerImport(eventId: string, email: string) {
+    return this.imports.get(`${eventId}:${email}`) ?? null;
+  }
+  async beginSpeakerImport(eventId: string, email: string) {
+    if (!this.imports.has(`${eventId}:${email}`))
+      this.imports.set(`${eventId}:${email}`, "pending");
+  }
+  async completeSpeakerImport(eventId: string, email: string) {
+    this.imports.set(`${eventId}:${email}`, "complete");
   }
   async accept(content: AcceptedContent) {
     // Mirrors `UNIQUE(event_id, proposal_id)` in D1 so acceptance idempotency is exercised here

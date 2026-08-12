@@ -44,6 +44,9 @@ export interface ContentRepository {
   addComment(comment: ContentComment): Promise<void>;
   addRevision(revision: ContentRevision): Promise<void>;
   findRevision(revisionId: string): Promise<ContentRevision | null>;
+  findSpeakerImport(eventId: string, email: string): Promise<"pending" | "complete" | null>;
+  beginSpeakerImport(eventId: string, email: string): Promise<void>;
+  completeSpeakerImport(eventId: string, email: string): Promise<void>;
 }
 
 export class ContentConflictError extends Error {}

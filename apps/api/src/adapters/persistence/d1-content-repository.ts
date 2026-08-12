@@ -35,6 +35,30 @@ export class D1ContentRepository
   implements ContentRepository, AgendaContentQuery, PublishingContentQuery
 {
   constructor(private readonly database: ContentDatabasePort) {}
+  async findSpeakerImport(eventId: string, email: string) {
+    const row = (
+      await this.rows(
+        "SELECT status FROM content_speaker_import_rows WHERE event_id=? AND normalized_email=? LIMIT 1",
+        eventId,
+        email,
+      )
+    )[0];
+    return row ? (row.status as "pending" | "complete") : null;
+  }
+  async beginSpeakerImport(eventId: string, email: string) {
+    await this.run(
+      "INSERT OR IGNORE INTO content_speaker_import_rows (event_id,normalized_email,status) VALUES (?,?,'pending')",
+      eventId,
+      email,
+    );
+  }
+  async completeSpeakerImport(eventId: string, email: string) {
+    await this.run(
+      "UPDATE content_speaker_import_rows SET status='complete' WHERE event_id=? AND normalized_email=?",
+      eventId,
+      email,
+    );
+  }
   async listSchedulableSessions(eventId: string) {
     const sessions = await this.rows(
       "SELECT id, title, speaker_profile_ids, tracks FROM content_sessions WHERE event_id = ? ORDER BY title",

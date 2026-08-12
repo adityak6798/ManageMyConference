@@ -258,6 +258,20 @@ export function defineContentSchema(references: {
     },
     (table) => [primaryKey({ columns: [table.eventId, table.normalizedEmail] })],
   );
+  const contentSpeakerImportRows = sqliteTable(
+    "content_speaker_import_rows",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      normalizedEmail: text("normalized_email").notNull(),
+      status: text("status").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.normalizedEmail] }),
+      check("content_speaker_import_rows_status", sql`${table.status} IN ('pending','complete')`),
+    ],
+  );
 
   return {
     contentSessions,
@@ -271,5 +285,6 @@ export function defineContentSchema(references: {
     speakerConversionSources,
     speakerConversionClaims,
     speakerEmailClaims,
+    contentSpeakerImportRows,
   };
 }

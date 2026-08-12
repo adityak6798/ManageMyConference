@@ -223,6 +223,20 @@ export class ContentService {
       const errors: string[] = [];
       if (!row.name) errors.push("Name is required");
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errors.push("Valid email is required");
+      for (const [label, value] of [
+        ["Logistics", row.logistics],
+        ["Custom fields", row.customFields],
+      ] as const) {
+        if (!value) continue;
+        try {
+          const parsedFields = JSON.parse(value);
+          if (!parsedFields || Array.isArray(parsedFields) || typeof parsedFields !== "object")
+            errors.push(`${label} must be a JSON object`);
+        } catch {
+          // ERROR-INTENT: malformed optional JSON is a row validation disposition, not an exception that aborts preview.
+          errors.push(`${label} must be valid JSON`);
+        }
+      }
       const duplicate = known.has(normalizedEmail) || seen.has(normalizedEmail);
       if (duplicate) errors.push("Duplicate email");
       seen.add(normalizedEmail);
@@ -233,8 +247,18 @@ export class ContentService {
     let imported = 0;
     if (input.commit)
       for (const row of rows) {
-        if (row.errors.length) continue;
+        const importState = await this.dependencies.repository.findSpeakerImport(
+          input.eventId,
+          row.email,
+        );
+        if (importState === "pending") {
+          const duplicateIndex = row.errors.indexOf("Duplicate email");
+          if (duplicateIndex >= 0) row.errors.splice(duplicateIndex, 1);
+          row.duplicate = false;
+        }
+        if (row.errors.length || importState === "complete") continue;
         try {
+          await this.dependencies.repository.beginSpeakerImport(input.eventId, row.email);
           const { speakerId } = await this.dependencies.speakerConversion.createOrLink({
             eventId: input.eventId,
             source: { kind: "csv", id: row.email },
@@ -247,18 +271,8 @@ export class ContentService {
           });
           const profile = await this.dependencies.repository.findProfile(speakerId);
           if (profile) {
-            const parseFields = (value?: string) => {
-              if (!value) return {};
-              try {
-                const result = JSON.parse(value);
-                return typeof result === "object" && result
-                  ? (result as Record<string, string>)
-                  : {};
-              } catch {
-                // ERROR-INTENT: malformed optional custom-field JSON imports as an empty field set; row-level required data was already validated.
-                return {};
-              }
-            };
+            const parseFields = (value?: string) =>
+              value ? (JSON.parse(value) as Record<string, string>) : {};
             await this.dependencies.repository.updateProfile({
               ...profile,
               workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
@@ -270,6 +284,7 @@ export class ContentService {
               customFields: parseFields(row.customFields),
             });
           }
+          await this.dependencies.repository.completeSpeakerImport(input.eventId, row.email);
           imported += 1;
         } catch {
           // ERROR-INTENT: imports are idempotent per normalized email; expose the failed row so a retry is explicit and safe.

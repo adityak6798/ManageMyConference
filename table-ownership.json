@@ -26,6 +26,7 @@
     "speaker_resources": "content",
     "content_asset_comments": "content",
     "content_revisions": "content",
+    "content_speaker_import_rows": "content",
     "cfp_forms": "cfp",
     "cfp_submissions": "cfp",
     "cfp_statuses": "cfp",

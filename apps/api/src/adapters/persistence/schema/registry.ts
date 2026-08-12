@@ -76,6 +76,7 @@ export const {
   contentSessions,
   contentAssetComments,
   contentRevisions,
+  contentSpeakerImportRows,
   crmActivities,
   crmContacts,
   crmProspects,
