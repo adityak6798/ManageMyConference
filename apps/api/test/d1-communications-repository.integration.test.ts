@@ -4,6 +4,7 @@ import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyMigrations, createMigratedDatabase } from "./support/seeded-d1";
 import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
+import { D1ContentRepository } from "../src/adapters/persistence/d1-content-repository";
 import {
   D1CommunicationsRepository,
   preparedDeliveryWriter,
@@ -243,6 +244,78 @@ describe("migration 1703, against tables that already have rows", () => {
         )
         .run(),
     ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
+});
+
+describe("the open speaker work reminders are built from", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("returns the seeded open tasks with the address each speaker can be reached at", async () => {
+    /*
+     * `CommunicationsContentQuery.listOpenSpeakerWork` is reached through content's repository
+     * rather than by querying its tables here — this suite belongs to communications, and the
+     * point of the declared interface is that this domain never learns a `speaker_tasks` column.
+     *
+     * Worth a real-D1 case rather than a fake: the scheduled-entrypoint test above already runs
+     * this SQL, but against the seed's due dates it returns nothing, so a wrong join or a wrong
+     * predicate would execute cleanly and the reminder pass would simply never find anybody.
+     */
+    const migrated = await createMigratedDatabase({ label: "open-speaker-work", seed: true });
+    runtime = migrated.runtime;
+    const content = new D1ContentRepository(migrated.database as never);
+
+    const due = await content.listOpenSpeakerWork("2027-01-01T00:00:00.000Z", 100);
+
+    // Oldest first, so a bounded batch works through the most overdue rather than an arbitrary
+    // slice; both seeded tasks belong to the speaker whose profile carries an address.
+    expect(due.map(({ taskId, title, dueAt }) => ({ taskId, title, dueAt }))).toEqual([
+      {
+        taskId: "30000000-0000-4000-8000-000000000001",
+        title: "Confirm profile details",
+        dueAt: "2026-08-20T23:59:00.000Z",
+      },
+      {
+        taskId: "30000000-0000-4000-8000-000000000002",
+        title: "Upload a headshot",
+        dueAt: "2026-08-22T23:59:00.000Z",
+      },
+    ]);
+    expect(due[0]).toMatchObject({
+      eventId: "00000000-0000-4000-8000-000000000001",
+      profileId: "10000000-0000-4000-8000-000000000001",
+      userId: "seed-speaker",
+      speakerName: "Sam Speaker",
+      email: "sam@example.test",
+    });
+
+    // The window is a filter, not decoration: nothing is due before the earliest task.
+    expect(await content.listOpenSpeakerWork("2026-08-19T00:00:00.000Z", 100)).toEqual([]);
+    // And the bound is honoured, so one tick cannot meet an unbounded backlog.
+    expect(await content.listOpenSpeakerWork("2027-01-01T00:00:00.000Z", 1)).toHaveLength(1);
+  });
+
+  it("omits a completed task, because there is nothing left to remind anybody about", async () => {
+    const migrated = await createMigratedDatabase({ label: "open-speaker-work-done", seed: true });
+    runtime = migrated.runtime;
+    const content = new D1ContentRepository(migrated.database as never);
+    // Completed through content's own repository rather than by an UPDATE on `speaker_tasks`:
+    // this suite belongs to communications and does not get to name another domain's columns,
+    // which is the same rule the query under test exists to honour.
+    const workspace = await content.workspace("00000000-0000-4000-8000-000000000001");
+    const task = workspace.tasks.find(({ id }) => id === "30000000-0000-4000-8000-000000000001");
+    if (!task) throw new Error("the seeded speaker task is missing");
+    await content.updateTask({
+      ...task,
+      status: "complete",
+      completedAt: "2026-08-11T00:00:00.000Z",
+    });
+
+    expect(
+      (await content.listOpenSpeakerWork("2027-01-01T00:00:00.000Z", 100)).map(
+        ({ taskId }) => taskId,
+      ),
+    ).toEqual(["30000000-0000-4000-8000-000000000002"]);
   });
 });
 
