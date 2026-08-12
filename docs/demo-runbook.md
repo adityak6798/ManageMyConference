@@ -2,9 +2,36 @@
 
 Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12 (working tree: commit `bb637d4`)
 
+## Where it is deployed
+
+**https://project-greenroom-api.adityak6798.workers.dev** — one Cloudflare Worker serving both the
+API and the built frontend, against remote D1 (`manage-my-conf`) and R2 (`manage-my-conf`), seeded
+from the same `seed/reset.sql` this runbook uses locally.
+
+It runs in **demo mode** (`ENVIRONMENT=development`, `DEMO_MODE=true`). Production emailed-code
+sign-in exists in the product — `GAP-007` is partially closed — but demo mode deliberately turns it
+off: `/api/auth/code` answers 404 whenever `demoMode` is set, and it would additionally need the
+`AUTH_EMAIL_ENDPOINT` and `AUTH_EMAIL_TOKEN` bindings this deployment does not carry. So demo
+personas are the only way in *here*, which is a property of this deployment rather than a missing
+feature.
+
+State the consequence plainly rather than implying less: **anyone who opens that URL can sign in as
+an organizer of the seeded event.** It holds seed data only. Issue #12 owns what would change
+that — durable logout and revocation, rotation and recovery, membership administration, audit
+events, and the provider ADR.
+
+Verified live on 2026-08-12: `/health` reports database and session signing configured; the
+organizer, reviewer and speaker personas sign in; the public event, schedule, speaker pages and both
+embeds serve; the seeded headshot resolves from R2; `/openapi.json` and `/docs` serve. The
+`* * * * *` cron drains the outbox every minute against `COMMUNICATIONS_PROVIDERS=fixture`, so
+nothing leaves the Worker.
+
+Deploying is `npm run deploy` from the repository root, which builds `apps/web` first — a stale
+build ships a stale frontend, because `[assets] directory = "../web/dist"` uploads whatever is there.
+
 ## What this demo is, and is not
 
-It runs locally, from a deterministic seed, with development-only signed demo identities. The built
+Locally it runs from a deterministic seed, with development-only signed demo identities. The built
 frontend is served by the Worker with a configurable API origin. Production emailed-code
 authentication exists; the remaining lifecycle work is tracked by `GAP-007`. Local
 delivery, uploads, and every provider are deterministic fakes: no message leaves the machine. The
