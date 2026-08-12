@@ -99,6 +99,13 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
   return processed;
 }
 
+export function pruneItineraries(environment: Environment): Promise<void> {
+  return new ItineraryService(
+    new D1ItineraryRepository(environment.DB),
+    new D1PublicationRepository(environment.DB),
+  ).prune();
+}
+
 export function runtimeAuth(
   environment: Pick<
     Environment,
@@ -351,6 +358,8 @@ export default {
     return Promise.resolve(app.fetch(request));
   },
   scheduled(_controller: unknown, environment: Environment): Promise<void> {
-    return drainOutbox(environment).then(() => undefined);
+    return Promise.all([drainOutbox(environment), pruneItineraries(environment)]).then(
+      () => undefined,
+    );
   },
 };

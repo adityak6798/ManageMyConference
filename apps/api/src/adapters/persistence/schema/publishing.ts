@@ -66,6 +66,9 @@ export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }
       check("attendee_itineraries_token_hash", sql`length(${table.tokenHash}) = 64`),
       check("attendee_itineraries_session_slugs", sql`json_valid(${table.sessionSlugs})`),
       index("attendee_itineraries_event_id_idx").on(table.eventId),
+      index("attendee_itineraries_empty_updated_at_idx")
+        .on(table.updatedAt)
+        .where(sql`${table.sessionSlugs} = '[]'`),
     ],
   );
 

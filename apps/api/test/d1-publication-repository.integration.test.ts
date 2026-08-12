@@ -12,6 +12,7 @@ import { D1PublicationRepository } from "../src/adapters/persistence/d1-publicat
 import { D1ReviewRepository } from "../src/adapters/persistence/d1-review-repository";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
+import { D1ItineraryRepository } from "../src/adapters/persistence/d1-itinerary-repository";
 import { D1SubmittedProposalAdapter } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { R2AssetStorage, type R2BucketPort } from "../src/adapters/storage/r2-asset-storage";
 import { AgendaService } from "../src/application/agenda/agenda-service";
@@ -202,6 +203,39 @@ describe("D1PublicationRepository", () => {
       status: 409,
       fields: { slug: ["That public address is already taken."] },
     });
+  });
+
+  it("prunes stale empty itineraries and plans whose event ended beyond the grace", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-itinerary-retention" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const itineraries = new D1ItineraryRepository(database);
+    const old = "2026-08-01T00:00:00.000Z";
+    const recent = "2026-08-20T09:00:00.000Z";
+    await itineraries.create("a".repeat(64), DEMO_EVENT, [], old);
+    await itineraries.create("b".repeat(64), DEMO_EVENT, [], recent);
+    await itineraries.create(
+      "c".repeat(64),
+      "00000000-0000-4000-8000-000000000002",
+      ["saved-session"],
+      recent,
+    );
+    const ended = { ...safeProjection, event: { ...safeProjection.event, endsOn: "2026-08-18" } };
+    await new D1PublicationRepository(database).saveSettings(
+      "00000000-0000-4000-8000-000000000002",
+      "ended-event",
+      ended,
+    );
+
+    await itineraries.prune("2026-08-19T10:00:00.000Z", "2026-08-19");
+
+    await expect(itineraries.findByTokenHash("a".repeat(64))).resolves.toBeNull();
+    await expect(itineraries.findByTokenHash("b".repeat(64))).resolves.not.toBeNull();
+    await expect(itineraries.findByTokenHash("c".repeat(64))).resolves.toBeNull();
   });
 
   it("stores only allowlisted fields when publishing a contaminated draft", async () => {
