@@ -814,6 +814,60 @@ describe("D1 CRM organization directory", () => {
     expect(timeline?.map(({ summary }) => summary)).toEqual(["Imported from speakers-2026.csv"]);
   });
 
+  it("writes no part of a merge whose primary was merged away first", async () => {
+    const migrated = await migratedRuntime("crm-merge-dead-primary");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * The case the other merge tests skip: the organization and both ids are right, and the
+     * primary has itself been merged away since the service checked. Six of the batch's seven
+     * statements refused it and the seventh — the alias insert — did not, so the survivor
+     * gained an alias for a duplicate that was never retired, on a row the directory no longer
+     * lists. A merge cannot be undone, so a merge that half-applies is the worst outcome here.
+     */
+    await database
+      .prepare("UPDATE crm_organization_contacts SET merged_into_id = ? WHERE id = ?")
+      .bind(adaId, priyaId)
+      .run();
+
+    await repository.mergeContacts({
+      organizationId,
+      primaryId: priyaId,
+      duplicateIds: [priyaDuplicateId],
+      aliases: [
+        {
+          id: "54000000-0000-4000-8000-0000000000e1",
+          name: "Priya Raman",
+          email: "p.raman@eastwind.test",
+          mergedFromId: priyaDuplicateId,
+          mergedAt: "2026-08-11T12:00:00.000Z",
+        },
+      ],
+      activity: {
+        id: "71000000-0000-4000-8000-0000000000e1",
+        kind: "merge",
+        summary: "Merged into a primary that was already merged away",
+        private: false,
+        occurredAt: "2026-08-11T12:00:00.000Z",
+        actorId: "seed-organizer",
+      },
+    });
+
+    // Nothing at all: no alias, no retired duplicate, no merge entry.
+    const aliases = await database
+      .prepare("SELECT id FROM crm_contact_aliases WHERE contact_id = ?")
+      .bind(priyaId)
+      .all();
+    expect(aliases.results ?? []).toHaveLength(0);
+    expect(
+      (await repository.findContact(organizationId, priyaDuplicateId))?.mergedIntoId,
+    ).toBeNull();
+    expect(
+      (await repository.findContact(organizationId, priyaId))?.activities.map(({ kind }) => kind),
+    ).not.toContain("merge");
+  });
+
   it("keeps both links when the merged records were sourced into the same event", async () => {
     const migrated = await migratedRuntime("crm-merge-same-event");
     runtime = migrated.runtime;

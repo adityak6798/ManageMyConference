@@ -132,7 +132,10 @@ export class MemoryCrmRepository implements CrmRepository {
     updated: readonly OrganizationContact[],
   ) {
     this.imports.push(record);
-    for (const contact of [...created, ...updated]) this.contacts.set(contact.id, contact);
+    for (const contact of created) this.contacts.set(contact.id, contact);
+    // Updated rows go through the same guard the D1 adapter applies to them, because they go
+    // through the same statements there.
+    for (const contact of updated) await this.updateContact(contact);
   }
   async mergeContacts(input: {
     organizationId: string;

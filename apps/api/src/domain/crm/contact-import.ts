@@ -129,12 +129,24 @@ export function parseContactCsv(text: string): ParsedContactCsv {
           .filter(Boolean),
       ),
     ];
-    const fields = header
-      .map((column, index) => ({ column, value: (values[index] ?? "").trim() }))
-      .filter(({ column, value }) => column.startsWith("field:") && value.length > 0)
-      // Trimmed, because `field: topic` is what a spreadsheet produces when somebody types a
-      // space after the colon, and an untrimmed key is a different key from the same column.
-      .map(({ column, value }) => ({ key: column.slice("field:".length).trim(), value }));
+    /*
+     * Deduped by key, last column winning, because storage collapses them the same way:
+     * `crm_contact_fields` is keyed on `(contact_id, field_key)` and the write upserts. Left
+     * undeduped, a sheet with two `field:topic` columns produced a response describing two
+     * fields where one was stored, and made the capacity count one higher than the contact
+     * would actually carry — a refusal for something committing would not have done.
+     */
+    const fields = [
+      ...new Map(
+        header
+          .map((column, index) => ({ column, value: (values[index] ?? "").trim() }))
+          .filter(({ column, value }) => column.startsWith("field:") && value.length > 0)
+          // Trimmed, because `field: topic` is what a spreadsheet produces when somebody types
+          // a space after the colon, and an untrimmed key is a different key from the same
+          // column.
+          .map(({ column, value }) => [column.slice("field:".length).trim(), value] as const),
+      ),
+    ].map(([key, value]) => ({ key, value }));
     /*
      * Every bound the hand-typed create path enforces through `createContactInputSchema`, both
      * ends of each one.

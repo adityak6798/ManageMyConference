@@ -771,6 +771,33 @@ describe("ACC-CRM organization directory", () => {
     expect(after.tags).toHaveLength(25);
   });
 
+  it("collapses a repeated field column the way storage does", async () => {
+    const { service } = setup();
+    // `crm_contact_fields` is keyed on (contact_id, field_key) and the write upserts, so a sheet
+    // with two `field:topic` columns stores one. Returning two described something that was
+    // never stored, and counted one extra against the capacity limit.
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "repeated.csv",
+      csv: [
+        "name,email,field:topic,field:topic",
+        "Repeat Person,repeat@example.test,first,second",
+      ].join("\n"),
+    });
+    expect(preview.rows[0]?.fields).toEqual([{ key: "topic", value: "second" }]);
+
+    await service.importContacts(organizer, organizationId, {
+      filename: "repeated.csv",
+      csv: [
+        "name,email,field:topic,field:topic",
+        "Repeat Person,repeat@example.test,first,second",
+      ].join("\n"),
+    });
+    const { contacts } = await service.listContacts(organizer, organizationId, {
+      search: "repeat@example.test",
+    });
+    expect(contacts[0]?.fields).toEqual([{ key: "topic", value: "second" }]);
+  });
+
   it("names both limits when a row breaks both", async () => {
     const { service, repository } = setup();
     const contact = await contactOf(service, { name: "Both", email: "both@example.test" });

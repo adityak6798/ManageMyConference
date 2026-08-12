@@ -825,7 +825,7 @@ export class D1CrmRepository implements CrmRepository {
         ...input.aliases.map((alias) =>
           this.database
             .prepare(
-              `INSERT INTO crm_contact_aliases (id,contact_id,name,email,merged_from_id,merged_at) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?)`,
+              `INSERT INTO crm_contact_aliases (id,contact_id,name,email,merged_from_id,merged_at) SELECT ?,?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
             )
             .bind(
               alias.id,
