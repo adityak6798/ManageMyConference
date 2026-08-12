@@ -702,6 +702,57 @@ describe("ACC-CRM organization directory", () => {
     ).not.toThrow();
   });
 
+  it("refuses an import row that would overfill a contact, rather than truncating what it holds", async () => {
+    const { service } = setup();
+    /*
+     * A cap applied by slicing the union looked like a bound and behaved like a delete: the
+     * sliced list is what the repository writes, and the write removes everything not in it.
+     * So an import that only meant to enrich destroyed tags it never mentioned — and, because
+     * the union listed the stored values first, dropped the organizer's new ones instead.
+     */
+    const nineteen = Array.from({ length: 19 }, (_, index) => `t${index}`);
+    const contact = await contactOf(service, {
+      name: "Full Person",
+      email: "full@example.test",
+      tags: [...nineteen, "keep-me"],
+    });
+    expect(contact.tags).toHaveLength(20);
+
+    const result = await service.importContacts(organizer, organizationId, {
+      filename: "overfill.csv",
+      csv: ["name,email,tags", "Full Person,full@example.test,brand-new"].join("\n"),
+    });
+    // The row is refused by name, and counted as skipped rather than reported as an update.
+    expect(result.record.updatedCount).toBe(0);
+    expect(result.record.skippedCount).toBe(1);
+    expect(result.rejected[0]?.errors.at(-1)).toMatch(/would give full@example.test 21 tags/);
+    // Nothing was lost, and nothing was silently added.
+    const after = await service.getContact(organizer, organizationId, contact.id);
+    expect(after.tags).toHaveLength(20);
+    expect(after.tags).toContain("keep-me");
+    expect(after.tags).not.toContain("brand-new");
+  });
+
+  it("keeps the file's own values when an import enriches a contact", async () => {
+    const { service } = setup();
+    const contact = await contactOf(service, {
+      name: "Growing Person",
+      email: "growing@example.test",
+      tags: ["existing"],
+    });
+    await service.importContacts(organizer, organizationId, {
+      filename: "enrich.csv",
+      csv: [
+        "name,email,tags,field:topic",
+        "Growing Person,growing@example.test,added,Platform",
+      ].join("\n"),
+    });
+    const after = await service.getContact(organizer, organizationId, contact.id);
+    // Both, and the row's own value first — a file is authoritative about what it names.
+    expect(after.tags).toEqual(["added", "existing"]);
+    expect(after.fields).toEqual([{ key: "topic", value: "Platform" }]);
+  });
+
   it("names the earlier row when one file imports an address twice", async () => {
     const { service } = setup();
     const preview = await service.previewImport(organizer, organizationId, {

@@ -551,6 +551,8 @@ export class CrmService {
     });
     const created: OrganizationContact[] = [];
     const updated: OrganizationContact[] = [];
+    /** Rows the file itself was fine with, but that this directory cannot accept as they are. */
+    const refused: (ParsedContactRow & { action: "create" | "update" | "skip" })[] = [];
     for (const row of preview.rows) {
       if (row.action === "skip") continue;
       const command: CreateContactCommand = {
@@ -577,6 +579,35 @@ export class CrmService {
       // Classified as an update a moment ago, so it exists; a concurrent merge is the only way
       // it could not, and then the row is simply not applied rather than resurrecting a record.
       if (!existing || existing.mergedIntoId) continue;
+      // The row's own values first, because a file is authoritative about what it names.
+      const tags = [...new Set([...row.tags, ...existing.tags])];
+      const fields = [
+        ...row.fields,
+        ...existing.fields.filter(({ key }) => !row.fields.some((field) => field.key === key)),
+      ];
+      /*
+       * A union that would exceed what one contact may carry refuses the row; it does not
+       * truncate it.
+       *
+       * Truncating looked like a cap and behaved like a delete: the sliced list is what the
+       * repository writes, and the write removes every tag and field not in it, so an import
+       * that merely enriched a contact silently destroyed values it never mentioned — and,
+       * because the union put the stored values first, discarded the organizer's new ones
+       * instead. Refusing keeps both, and says which row could not be applied.
+       */
+      if (tags.length > 20 || fields.length > 30) {
+        refused.push({
+          ...row,
+          action: "skip",
+          errors: [
+            ...row.errors,
+            tags.length > 20
+              ? `Applying this row would give ${row.email} ${tags.length} tags, and a contact may carry 20.`
+              : `Applying this row would give ${row.email} ${fields.length} custom fields, and a contact may carry 30.`,
+          ],
+        });
+        continue;
+      }
       updated.push({
         ...existing,
         name: row.name,
@@ -584,15 +615,8 @@ export class CrmService {
         title: row.title ?? existing.title,
         // An import enriches; it never silently erases a note somebody typed here.
         notes: existing.notes ?? row.notes,
-        // Capped at the same counts a single contact may carry. An import enriches, and each
-        // file's row is bounded, but successive imports of disjoint keys against one address
-        // accumulate — and every tag and field is a bound SQL variable on the write, so an
-        // uncapped union eventually met D1's variable limit as an opaque failure.
-        tags: [...new Set([...existing.tags, ...row.tags])].slice(0, 20),
-        fields: [
-          ...existing.fields.filter(({ key }) => !row.fields.some((field) => field.key === key)),
-          ...row.fields,
-        ].slice(0, 30),
+        tags,
+        fields,
         activities: [...existing.activities, activity(`Updated by import ${input.filename}`)],
         updatedAt: now,
       });
@@ -604,7 +628,8 @@ export class CrmService {
       rowCount: preview.rows.length,
       createdCount: created.length,
       updatedCount: updated.length,
-      skippedCount: preview.rows.filter(({ action }) => action === "skip").length,
+      // Rows the parser refused, plus the ones only the live directory could refuse.
+      skippedCount: preview.rows.filter(({ action }) => action === "skip").length + refused.length,
       importedAt: now,
       importedBy: authorized.id,
     };
@@ -612,7 +637,7 @@ export class CrmService {
     return {
       record,
       contacts: [...created, ...updated],
-      rejected: preview.rows.filter(({ action }) => action === "skip"),
+      rejected: [...preview.rows.filter(({ action }) => action === "skip"), ...refused],
     };
   }
 
@@ -929,6 +954,15 @@ export class CrmService {
           actorId: authorized.id,
         },
       });
+      // The write is guarded on the contact still being live, and that check happens inside the
+      // batch — so a merge landing between the read above and this write refuses the whole
+      // sourcing and leaves nothing behind. Saying so here is the difference between reporting
+      // the race and reporting "prospect not found", which names something the caller never
+      // asked about.
+      if (!(await this.dependencies.repository.findById(command.eventId, prospect.id)))
+        throw new ContactMergeInvalidError(
+          "This contact was merged while it was being sourced; use the primary",
+        );
       prospectId = prospect.id;
     }
 

@@ -645,6 +645,52 @@ describe("D1 CRM organization directory", () => {
     expect(after?.activities).toEqual([]);
   });
 
+  it("applies no half of an update to a contact merged away since the caller read it", async () => {
+    const migrated = await migratedRuntime("crm-update-merged");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(migrated.database);
+    /*
+     * The contact row's UPDATE refused a merged-away record while its tags, fields and timeline
+     * accepted one, so a row the directory no longer lists had its history rewritten and its
+     * tags destroyed. The same one-sided shape as the cross-organization case, one condition
+     * further in — which is why ownership and liveness are now a single clause.
+     */
+    const stored = await repository.findContact(organizationId, priyaDuplicateId);
+    if (!stored) throw new Error("The seeded contact is missing");
+    await database
+      .prepare("UPDATE crm_organization_contacts SET merged_into_id = ? WHERE id = ?")
+      .bind(priyaId, priyaDuplicateId)
+      .run();
+
+    await repository.updateContact(
+      {
+        ...stored,
+        name: "Renamed after the merge",
+        tags: ["replaced"],
+        fields: [],
+        updatedAt: "2026-08-11T12:00:00.000Z",
+      },
+      [
+        {
+          id: "71000000-0000-4000-8000-0000000000fb",
+          kind: "note",
+          summary: "Written after the merge",
+          private: true,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      ],
+    );
+
+    const after = await repository.findContact(organizationId, priyaDuplicateId);
+    expect(after?.name).toBe(stored.name);
+    expect(after?.tags).toEqual(stored.tags);
+    expect(after?.activities.map(({ summary }) => summary)).toEqual(
+      stored.activities.map(({ summary }) => summary),
+    );
+  });
+
   it("writes no pipeline row when the directory link is refused", async () => {
     const migrated = await migratedRuntime("crm-link-refused");
     runtime = migrated.runtime;
