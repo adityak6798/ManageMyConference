@@ -1,7 +1,6 @@
 import {
   type AcceptContentInput,
   acceptContentInputSchema,
-  apiErrorEnvelopeSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
   setSpeakerPhotoInputSchema,
@@ -11,7 +10,7 @@ import {
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch } from "./config";
+import { apiFetch as fetch, decodeResponse } from "./config";
 
 export class ContentApiError extends Error {
   constructor(readonly envelope: import("@greenroom/contracts").ApiErrorEnvelope) {
@@ -20,13 +19,7 @@ export class ContentApiError extends Error {
 }
 
 async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorEnvelopeSchema.safeParse(body);
-    if (parsed.success) throw new ContentApiError(parsed.data);
-    throw new Error(`Content API failed with status ${response.status}`);
-  }
-  return schema.parse(body);
+  return decodeResponse(response, schema, (envelope) => new ContentApiError(envelope));
 }
 
 export async function getContent(

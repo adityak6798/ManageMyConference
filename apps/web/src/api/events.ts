@@ -1,6 +1,5 @@
 import {
   type ApiErrorEnvelope,
-  apiErrorEnvelopeSchema,
   authConfigResponseSchema,
   type CreateEventInput,
   createEventInputSchema,
@@ -14,7 +13,7 @@ import {
   sessionResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch } from "./config";
+import { apiFetch as fetch, decodeResponse } from "./config";
 
 export class ApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {
@@ -23,13 +22,7 @@ export class ApiError extends Error {
 }
 
 async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorEnvelopeSchema.safeParse(body);
-    if (parsed.success) throw new ApiError(parsed.data);
-    throw new Error(`API failed with status ${response.status} and an invalid error response`);
-  }
-  return schema.parse(body);
+  return decodeResponse(response, schema, (envelope) => new ApiError(envelope));
 }
 
 export async function startDemoSession(

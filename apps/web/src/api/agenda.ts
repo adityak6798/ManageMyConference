@@ -4,11 +4,10 @@ import {
   agendaDraftSchema,
   agendaPlacementSchema,
   agendaResourcesSchema,
-  apiErrorEnvelopeSchema,
   publishedScheduleSchema,
 } from "@greenroom/contracts";
 import { z } from "zod";
-import { apiFetch as fetch } from "./config";
+import { apiFetch as fetch, decodeResponse } from "./config";
 
 export class AgendaApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {
@@ -17,13 +16,7 @@ export class AgendaApiError extends Error {
 }
 
 async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorEnvelopeSchema.safeParse(body);
-    if (parsed.success) throw new AgendaApiError(parsed.data);
-    throw new Error(`API failed with status ${response.status} and an invalid error response`);
-  }
-  return schema.parse(body);
+  return decodeResponse(response, schema, (envelope) => new AgendaApiError(envelope));
 }
 
 export async function getAgenda(eventId: string, fetcher: typeof fetch = fetch) {

@@ -1,12 +1,11 @@
 import {
   type ApiErrorEnvelope,
-  apiErrorEnvelopeSchema,
   type CommunicationsHistoryDto,
   communicationsHistoryResponseSchema,
   deliveryResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch } from "./config";
+import { apiFetch as fetch, decodeResponse } from "./config";
 
 export class CommunicationsApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {
@@ -15,13 +14,7 @@ export class CommunicationsApiError extends Error {
 }
 
 async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorEnvelopeSchema.safeParse(body);
-    if (parsed.success) throw new CommunicationsApiError(parsed.data);
-    throw new Error(`Communications API failed with status ${response.status}`);
-  }
-  return schema.parse(body);
+  return decodeResponse(response, schema, (envelope) => new CommunicationsApiError(envelope));
 }
 
 export async function getCommunicationsHistory(

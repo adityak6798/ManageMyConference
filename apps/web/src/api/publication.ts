@@ -1,11 +1,10 @@
 import {
   type ApiErrorEnvelope,
-  apiErrorEnvelopeSchema,
   type PublicEventProjectionDto,
   publicationPreviewResponseSchema,
   publicEventResponseSchema,
 } from "@greenroom/contracts";
-import { apiFetch as fetch } from "./config";
+import { apiFetch as fetch, decodeResponse } from "./config";
 
 export class PublicApiError extends Error {}
 
@@ -25,13 +24,13 @@ export type PublicationDto = ReturnType<
 >["publication"];
 
 async function decodePublication(response: Response): Promise<PublicationDto> {
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorEnvelopeSchema.safeParse(body);
-    if (parsed.success) throw new PublicationApiError(parsed.data);
-    throw new Error(`The publishing API failed with status ${response.status}.`);
-  }
-  return publicationPreviewResponseSchema.parse(body).publication;
+  return (
+    await decodeResponse(
+      response,
+      publicationPreviewResponseSchema,
+      (envelope) => new PublicationApiError(envelope),
+    )
+  ).publication;
 }
 
 /**
@@ -93,11 +92,11 @@ export async function getPublicEvent(
   fetcher: typeof fetch = fetch,
 ): Promise<PublicEventProjectionDto> {
   const response = await fetcher(`/api/public/events/${encodeURIComponent(slug)}`);
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorEnvelopeSchema.safeParse(body);
-    if (parsed.success) throw new PublicApiError(parsed.data.error.message);
-    throw new Error("The public event could not be loaded");
-  }
-  return publicEventResponseSchema.parse(body).projection;
+  return (
+    await decodeResponse(
+      response,
+      publicEventResponseSchema,
+      (envelope) => new PublicApiError(envelope.error.message),
+    )
+  ).projection;
 }
