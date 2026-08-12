@@ -71,6 +71,7 @@
 - `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-harness.integration.test.ts](../../apps/api/test/d1-harness.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-write-result.test.ts](../../apps/api/test/d1-write-result.test.ts)
 - `test` / `repository-fact`: [apps/api/test/demo-session.test.ts](../../apps/api/test/demo-session.test.ts)
 - `test` / `repository-fact`: [apps/api/test/event-mappers.test.ts](../../apps/api/test/event-mappers.test.ts)
 - `test` / `repository-fact`: [apps/api/test/event-service.test.ts](../../apps/api/test/event-service.test.ts)

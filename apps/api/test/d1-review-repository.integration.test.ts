@@ -1,8 +1,7 @@
 // @acceptance ACC-REVIEW
-import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 import {
   type D1ReviewDatabasePort,
   D1ReviewRepository,
@@ -262,5 +261,90 @@ describe("review D1 persistence", () => {
     await expect(
       reviews.deleteAssignment(eventId, "20000000-0000-4000-8000-0000000000ff"),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("review round rebuild correction", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("runs 1301 over seeded assignments with evaluations, conflicts and outcomes", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "review-rebuild-populated",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const reviewerId = "seed-reviewer";
+    const evaluatedAssignment = "20000000-0000-4000-8000-000000000001";
+    const conflictedAssignment = "rebuild-conflicted-assignment";
+
+    await database
+      .prepare(
+        "INSERT INTO review_assignments (id, event_id, proposal_id, reviewer_id, round, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+      )
+      .bind(
+        conflictedAssignment,
+        eventId,
+        "10000000-0000-4000-8000-000000000002",
+        reviewerId,
+        "2026-08-12T12:00:00.000Z",
+      )
+      .run();
+    await database
+      .prepare(
+        "INSERT INTO review_evaluations (assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at) VALUES (?, ?, '[]', 'seeded rebuild', 'completed', ?, ?)",
+      )
+      .bind(evaluatedAssignment, reviewerId, "2026-08-12T12:01:00.000Z", "2026-08-12T12:01:00.000Z")
+      .run();
+    await database
+      .prepare(
+        "INSERT INTO review_conflicts (assignment_id, reviewer_id, reason, declared_at) VALUES (?, ?, 'seeded rebuild', ?)",
+      )
+      .bind(conflictedAssignment, reviewerId, "2026-08-12T12:02:00.000Z")
+      .run();
+    await database
+      .prepare(
+        "INSERT INTO review_outcomes (event_id, proposal_id, round, completed_evaluation_count, average_score, updated_at) VALUES (?, ?, 1, 1, 4.5, ?)",
+      )
+      .bind(eventId, "10000000-0000-4000-8000-000000000001", "2026-08-12T12:03:00.000Z")
+      .run();
+
+    const counts = async () =>
+      (
+        await database
+          .prepare(
+            "SELECT (SELECT COUNT(*) FROM review_assignments) AS assignments, (SELECT COUNT(*) FROM review_evaluations) AS evaluations, (SELECT COUNT(*) FROM review_conflicts) AS conflicts, (SELECT COUNT(*) FROM review_outcomes) AS outcomes",
+          )
+          .all<{
+            assignments: number;
+            evaluations: number;
+            conflicts: number;
+            outcomes: number;
+          }>()
+      ).results?.[0];
+    const before = await counts();
+    expect(before).toEqual({ assignments: 2, evaluations: 1, conflicts: 1, outcomes: 1 });
+
+    await applyMigrationFile(database, "1301_review_rounds_safe_rebuild.sql");
+
+    expect(await counts()).toEqual(before);
+    const foreignKeyViolations = await database.prepare("PRAGMA foreign_key_check").all();
+    expect(foreignKeyViolations.results ?? []).toEqual([]);
+    const triggers = await database
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'review_%' ORDER BY name",
+      )
+      .all<{ name: string }>();
+    expect((triggers.results ?? []).map(({ name }: { name: string }) => name)).toEqual(
+      expect.arrayContaining([
+        "review_assignment_cap",
+        "review_assignment_requires_plan",
+        "review_completion_rejects_conflict",
+        "review_conflict_rejects_completion",
+        "review_plan_lock",
+      ]),
+    );
   });
 });

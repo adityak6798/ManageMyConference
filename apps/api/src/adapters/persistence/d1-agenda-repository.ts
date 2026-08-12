@@ -8,20 +8,20 @@ import {
   type Placement,
   type SchedulePublishedEvent,
 } from "../../domain/agenda/agenda";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 interface D1Result<T> {
   results?: T[];
   success: boolean;
   error?: string;
-  meta?: { changes?: number };
 }
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
-  run<T = unknown>(): Promise<D1Result<T>>;
+  run<T = unknown>(): Promise<D1WriteResult & { results?: T[] }>;
   all<T>(): Promise<D1Result<T>>;
 }
 interface AgendaDatabase {
   prepare(query: string): D1Statement;
-  batch<T = unknown>(statements: D1Statement[]): Promise<D1Result<T>[]>;
+  batch<T = unknown>(statements: D1Statement[]): Promise<Array<D1WriteResult & { results?: T[] }>>;
 }
 
 /**
@@ -200,7 +200,7 @@ export class D1AgendaRepository implements AgendaRepository {
         .run();
       if (!result.success)
         throw new Error(`D1 failed to update agenda draft: ${result.error ?? "unknown error"}`);
-      if ((result.meta?.changes ?? 0) === 1) return updated;
+      if (changedRows(result, "update agenda draft") === 1) return updated;
     }
     throw new Error("D1 failed to update agenda draft after concurrent changes");
   }
@@ -235,7 +235,7 @@ export class D1AgendaRepository implements AgendaRepository {
       ...((await this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule))) ??
         []),
     ];
-    let results: D1Result<unknown>[];
+    let results: Array<D1WriteResult & { results?: unknown[] }>;
     try {
       results = await this.database.batch(statements);
     } catch (error) {

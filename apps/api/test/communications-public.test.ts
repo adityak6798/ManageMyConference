@@ -149,12 +149,12 @@ describe("communications public enqueue interface", () => {
             bound.push(values);
             return statement;
           },
-          run: async () => ({ success: true }),
+          run: async () => ({ success: true, meta: { changes: 1 } }),
           all: async () => ({ success: true, results: [] }),
         };
         return statement;
       },
-      batch: async () => [{ success: true }],
+      batch: async () => [{ success: true, meta: { changes: 1 } }],
     };
 
     const statements = preparedDeliveryWriter(database)(prepared);

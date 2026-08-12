@@ -27,6 +27,7 @@
     "apps/api/src/transport/http/routes/platform.ts",
     "apps/api/src/adapters/persistence/schema.ts",
     "apps/api/src/adapters/persistence/schema/registry.ts",
+    "apps/api/src/adapters/persistence/d1-write-result.ts",
     "apps/web/src/App.tsx",
     "apps/web/src/main.tsx",
     "apps/web/src/api/config.ts",
@@ -59,6 +60,7 @@
     "apps/web/src/workspaces/contract.ts",
     "apps/web/src/workspaces/registry.tsx",
     "apps/api/test/d1-harness.integration.test.ts",
+    "apps/api/test/d1-write-result.test.ts",
     "apps/api/test/support/seeded-d1.ts"
   ],
   "symbols": {

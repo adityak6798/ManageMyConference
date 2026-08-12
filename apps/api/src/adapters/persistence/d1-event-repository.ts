@@ -1,6 +1,7 @@
 import type { EventRepository } from "../../application/events/event-repository";
 import type { Event } from "../../domain/events/event";
 import { type EventRow, eventToRow, rowToEvent } from "./event-mappers";
+import type { D1WriteResult } from "./d1-write-result";
 
 export interface D1Result<T> {
   results?: T[];
@@ -10,13 +11,15 @@ export interface D1Result<T> {
 
 export interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
-  run<T = unknown>(): Promise<D1Result<T>>;
+  run<T = unknown>(): Promise<D1WriteResult & { results?: T[] }>;
   all<T>(): Promise<D1Result<T>>;
 }
 
 export interface D1DatabasePort {
   prepare(query: string): D1PreparedStatement;
-  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
+  batch<T = unknown>(
+    statements: D1PreparedStatement[],
+  ): Promise<Array<D1WriteResult & { results?: T[] }>>;
 }
 
 export class D1EventRepository implements EventRepository {

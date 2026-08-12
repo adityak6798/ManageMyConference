@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectText } from "../check-errors.mjs";
 
+test("rejects a NUL byte in source text", () => {
+  const nul = String.fromCharCode(0);
+  assert.ok(inspectText(`const key = \`left${nul}right\`;`).length > 0);
+  assert.deepEqual(inspectText("const key = `left\\0right`;"), []);
+});
+
 test("rejects silent catch and permits explained suppression", () => {
   assert.notEqual(inspectText("try { work(); } catch { }"), []);
   assert.deepEqual(

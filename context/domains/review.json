@@ -24,6 +24,7 @@
     "apps/api/migrations/0013_cfp_submission_default_status.sql",
     "apps/api/migrations/0021_review_decisions.sql",
     "apps/api/migrations/1300_review_rounds.sql",
+    "apps/api/migrations/1301_review_rounds_safe_rebuild.sql",
     "apps/api/test/review-service.test.ts",
     "apps/api/test/review-http.test.ts",
     "apps/api/test/d1-review-repository.integration.test.ts",

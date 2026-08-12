@@ -9,6 +9,11 @@
   "architecture": {
     "publicApplicationEntryPoints": [
       {
+        "path": "apps/api/src/adapters/persistence/d1-write-result.ts",
+        "governing": "ARC-003",
+        "reason": "The transport-wide D1 write-result contract. Persistence adapters share its required affected-row count and refusal helper so a missing driver count has one meaning, while the module contains no domain logic or table knowledge."
+      },
+      {
         "path": "apps/api/src/application/events/event-service.ts",
         "governing": "ARC-DOM-001",
         "reason": "Every domain that must know an event exists, or who organizes it, asks this service: review resolves event membership through it and the transport composes it."
@@ -319,6 +324,7 @@
         "apps/api/src/transport/http/routes/platform.ts",
         "apps/api/src/adapters/persistence/schema.ts",
         "apps/api/src/adapters/persistence/schema/registry.ts",
+        "apps/api/src/adapters/persistence/d1-write-result.ts",
         "apps/web/src/App.tsx",
         "apps/web/src/main.tsx",
         "apps/web/src/api/config.ts",
@@ -351,6 +357,7 @@
         "apps/web/src/workspaces/contract.ts",
         "apps/web/src/workspaces/registry.tsx",
         "apps/api/test/d1-harness.integration.test.ts",
+        "apps/api/test/d1-write-result.test.ts",
         "apps/api/test/support/seeded-d1.ts"
       ]
     },
@@ -496,6 +503,7 @@
         "apps/api/migrations/0013_cfp_submission_default_status.sql",
         "apps/api/migrations/0021_review_decisions.sql",
         "apps/api/migrations/1300_review_rounds.sql",
+        "apps/api/migrations/1301_review_rounds_safe_rebuild.sql",
         "apps/api/test/review-service.test.ts",
         "apps/api/test/review-http.test.ts",
         "apps/api/test/d1-review-repository.integration.test.ts",

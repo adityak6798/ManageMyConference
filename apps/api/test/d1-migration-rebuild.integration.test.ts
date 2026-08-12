@@ -15,28 +15,31 @@
 import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import {
+  applyMigrationFile,
+  createMigratedDatabase,
+  migrationFilenames,
+} from "./support/seeded-d1";
 
-/**
- * Strip comments first, *then* split on statement boundaries. The order is the whole trick.
- *
- * Splitting first breaks a comment line that contains a semicolon into two pieces, and only the
- * first still begins with `--` — so the remainder survives comment-stripping and is handed to
- * SQLite as prose (`near "they": syntax error`). Migration headers here are long and explanatory,
- * so they do contain semicolons. Stripping whole comment lines up front cannot produce that.
- *
- * Dropping comment-led *chunks* instead is the other trap: the first chunk is the file's header
- * plus the first real statement, so the statement disappears silently and the test then fails
- * somewhere unrelated.
- */
-const statements = (sql: string) =>
-  sql
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("--"))
-    .join("\n")
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean);
+const rebuildCoverage = {
+  "0002_identity_event_foundation.sql": "foundational rename drops its private old table",
+  "1300_review_rounds.sql": "unsafe deployed history corrected forward by 1301",
+  "1301_review_rounds_safe_rebuild.sql": "seeded replay in the review D1 integration suite",
+  "1703_delivery_domain_event_triggers.sql": "seeded replay below",
+  "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
+} as const;
+
+describe("migration rebuild coverage", () => {
+  it("requires every migration containing DROP TABLE to declare its populated-data disposition", async () => {
+    const migrations = await migrationFilenames();
+    const dropping: string[] = [];
+    for (const name of migrations) {
+      const sql = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
+      if (/\bDROP\s+TABLE\b/i.test(sql)) dropping.push(name);
+    }
+    expect(dropping).toEqual(Object.keys(rebuildCoverage).sort());
+  });
+});
 
 describe("communication_deliveries rebuild", () => {
   let runtime: Miniflare | undefined;
@@ -57,11 +60,7 @@ describe("communication_deliveries rebuild", () => {
     expect(before.results?.[0]?.attempts).toBeGreaterThan(0);
     expect(before.results?.[0]?.projections).toBeGreaterThan(0);
 
-    const sql = await readFile(
-      new URL("../migrations/1703_delivery_domain_event_triggers.sql", import.meta.url),
-      "utf8",
-    );
-    for (const statement of statements(sql)) await migrated.database.prepare(statement).run();
+    await applyMigrationFile(migrated.database, "1703_delivery_domain_event_triggers.sql");
 
     // Every row survives the rebuild, and the children still point at the deliveries they did.
     const after = await migrated.database
