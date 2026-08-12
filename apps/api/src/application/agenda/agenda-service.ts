@@ -128,23 +128,31 @@ export class AgendaService implements ContentAgendaInterface {
      * request and is not part of the stored draft, so re-reading the draft cannot change it.
      */
     let unplaced: AssistedPlacementPlan["unplaced"] = [];
-    /*
-     * What this pass seated, recorded where it is known rather than inferred downstream. The
-     * board that comes back also carries whatever else happened while this request was in
-     * flight, so a caller diffing it cannot tell this action's work from another organizer's.
-     */
-    let placed: string[] = [];
+    let planned: readonly Placement[] = [];
     const persisted = await this.repository.savePlacements(eventId, (current) => {
       const plan = planAssistedPlacements(
         { ...current, sessions: draft.sessions },
         { ...(sessionIds ? { sessionIds } : {}), trackHints },
       );
       unplaced = plan.unplaced;
-      placed = plan.placements.map(({ sessionId }) => sessionId);
+      planned = plan.placements;
       return plan.placements;
     });
     if (!persisted) throw new AgendaNotFoundError("Agenda not found");
     const board = { ...persisted, sessions: draft.sessions };
+    /*
+     * What this pass seated, told by the only party that can know it — and read off the board
+     * that was actually stored, not off the last plan this request computed.
+     *
+     * The caller cannot work it out: the board in this response also carries whatever another
+     * organizer committed while the request was in flight, so a difference of boards credits
+     * this action with their work. Nor is the plan itself the answer: the repository may run it
+     * more than once behind a compare-and-set, and an attempt that lost the race planned
+     * placements that were never written. A planned placement counts only if the stored board
+     * came back holding it.
+     */
+    const stored = new Set(persisted.placements.map(({ id }) => id));
+    const placed = planned.filter(({ id }) => stored.has(id)).map(({ sessionId }) => sessionId);
     return { ...board, conflicts: conflictsFor(board), placed, unplaced };
   }
 

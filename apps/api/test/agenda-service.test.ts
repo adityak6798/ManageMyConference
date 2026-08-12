@@ -141,6 +141,38 @@ describe("assisted agenda placement", () => {
     expect(result.conflicts).toEqual([]);
   });
 
+  /*
+   * The one path where "what this pass seated" can disagree with what exists.
+   *
+   * `savePlacements` takes a planner the repository may run more than once: it plans against the
+   * revision it is about to replace, and a lost compare-and-set re-plans. An attempt that lost
+   * planned placements that were never written, so reporting the last plan would tell the
+   * organizer "Placed 2 sessions" about a board holding neither.
+   */
+  it("reports only the placements the write actually kept, under contention", async () => {
+    const repository = new MemoryAgendaRepository([emptyBoard]);
+    const real = repository.savePlacements.bind(repository);
+    vi.spyOn(repository, "savePlacements").mockImplementation(async (id, plan) =>
+      real(id, (current) => {
+        // The losing attempt: its plan is computed and thrown away, exactly as a compare-and-set
+        // failure discards one. Whatever it planned must not reach the organizer.
+        plan(current);
+        // The winning attempt seats one session, and the board comes back holding just that.
+        const [first] = plan(current);
+        return first ? [first] : [];
+      }),
+    );
+    const service = new AgendaService(repository, () => new Date(), boardContent());
+
+    const result = await service.autoPlace(organizer, eventId);
+
+    expect(result.placed).toHaveLength(1);
+    expect(result.placements).toHaveLength(1);
+    // Said about the stored board, not about an attempt: every id reported is on it.
+    const stored = new Set(result.placements.map(({ sessionId }) => sessionId));
+    expect(result.placed.every((sessionId) => stored.has(sessionId))).toBe(true);
+  });
+
   it("produces a conflict-free board, keeping a shared speaker out of one hour", async () => {
     const repository = new MemoryAgendaRepository([emptyBoard]);
     const service = new AgendaService(repository, () => new Date(), boardContent());

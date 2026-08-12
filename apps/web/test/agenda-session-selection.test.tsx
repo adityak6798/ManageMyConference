@@ -287,16 +287,17 @@ describe("choosing which sessions an assisted pass seats", () => {
 
     expect(
       rail().getByRole("checkbox", {
-        name: "Select Lightning talks (1 of 3) for assisted placement",
+        name: "Select Lightning talks (1 of 2) for assisted placement",
       }),
     ).toBeTruthy();
     expect(
       rail().getByRole("checkbox", {
-        name: "Select Lightning talks (2 of 3) for assisted placement",
+        name: "Select Lightning talks (2 of 2) for assisted placement",
       }),
     ).toBeTruthy();
-    // The unambiguous one is left alone: a position on every box is a number that renumbers
-    // with the search and contradicts the count in the live region beside it.
+    // Numbered within the pair, not within the rail: "(3 of 12)" would be a position in a
+    // list that renumbers with the search box and a total that contradicts the count beside it.
+    // The unambiguous session is left alone entirely.
     expect(
       rail().getByRole("checkbox", { name: "Select Closing panel for assisted placement" }),
     ).toBeTruthy();

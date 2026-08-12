@@ -48,7 +48,10 @@ const publicRoot = () =>
   isItinerary ? <StableItineraryRedirect token={itineraryToken ?? ""} /> : <PublicEventApp />;
 
 // ERROR-INTENT: bootstrapping cannot await, and there is no React tree yet to render a failure
-// into — so the outcome is rendered into the document instead, by both branches below.
+// into — so the outcome is rendered into the document instead. This covers the console's
+// deferred load, which is the fetch that can fail after this module is running; a public root
+// that throws while *this* module is evaluating faults before any handler exists, exactly as it
+// did when both roots were static imports.
 void (isPublic ? Promise.resolve(publicRoot()) : import("./App").then(({ App }) => <App />))
   .then((element) => {
     createRoot(container).render(<StrictMode>{element}</StrictMode>);

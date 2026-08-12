@@ -72,19 +72,17 @@ export function UnscheduledRail({
   const allListed = sessions.length > 0 && sessions.every(({ id }) => selection.isSelected(id));
   const someListed = sessions.some(({ id }) => selection.isSelected(id));
   /*
-   * Titles that more than one listed session answers to.
+   * How many listed sessions answer to each title.
    *
-   * The domain expects them — `planAssistedPlacements` breaks ties on id precisely because
+   * The domain expects repeats — `planAssistedPlacements` breaks ties on id precisely because
    * "two sessions sharing a title" is an ordinary board — and two identical announcements give
-   * a screen-reader user nothing to choose between. Only those get a position, because a
-   * position on every box would be a number that renumbers with the search box and contradicts
-   * the count in the live region beside it.
+   * a screen-reader user nothing to choose between. Only a repeated title is numbered, and the
+   * number counts within that title rather than within the rail: "Lunch break (2 of 2)" is what
+   * the reader needs, where "(11 of 12)" would be a position in a list that renumbers every
+   * time the search box narrows it, and a total that contradicts the count beside it.
    */
-  const shared = new Set(
-    sessions
-      .map(({ title }) => title)
-      .filter((title, index, titles) => titles.indexOf(title) !== index),
-  );
+  const perTitle = new Map<string, number>();
+  for (const { title } of sessions) perTitle.set(title, (perTitle.get(title) ?? 0) + 1);
   // Clearing takes the control that did it off the screen, and a control that removes itself
   // leaves keyboard focus on `document.body` — which on this page means Tab restarts at the
   // top of the console. Focus lands on the group control instead, which is why this rail
@@ -178,6 +176,13 @@ export function UnscheduledRail({
         {sessions.length ? (
           <div className="agenda-rail-list">
             {sessions.map((session, index) => {
+              // Which of the sessions under this title this one is, counted among them alone.
+              const sharing = perTitle.get(session.title) ?? 1;
+              const ordinal =
+                sharing > 1
+                  ? sessions.slice(0, index).filter(({ title }) => title === session.title).length +
+                    1
+                  : 0;
               const held = heldSessionId === session.id;
               const chosen = selection.isSelected(session.id);
               const reason = unplaced.get(session.id);
@@ -200,7 +205,7 @@ export function UnscheduledRail({
                     // The card beside this box replaces its own content with an `aria-label`,
                     // so the box has to name the session itself rather than borrow it.
                     aria-label={`Select ${session.title}${
-                      shared.has(session.title) ? ` (${index + 1} of ${sessions.length})` : ""
+                      ordinal ? ` (${ordinal} of ${sharing})` : ""
                     } for assisted placement`}
                     checked={chosen}
                     disabled={busy}

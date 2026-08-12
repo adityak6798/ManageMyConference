@@ -118,9 +118,10 @@ export function AgendaWorkspace({
   const [carry, setCarryState] = useState<Carry | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null);
   /** The element to focus after the next render, and where to land if it cannot take it. */
+  /** Where focus goes after the next render, and whether it may take it from someone. */
   const [pendingFocus, setPendingFocus] = useState<{
     readonly id: string;
-    readonly fallbackId?: string | undefined;
+    readonly onlyIfDropped?: boolean | undefined;
   } | null>(null);
   // Typed-but-unsaved timeslot rows, keyed by slot id (and `NEW_SLOT` for the one that
   // has no id yet). A row with no entry here simply shows what the server holds.
@@ -176,23 +177,38 @@ export function AgendaWorkspace({
     return () => window.removeEventListener("popstate", sync);
   }, []);
 
-  // Focus follows the operator across a re-render: after a drop the card that moved
-  // takes focus, and after a cancel the card that was picked up takes it back.
+  /*
+   * Focus follows the operator across a re-render, in one of two ways.
+   *
+   * Most actions *move* it: picking a session up puts the operator on the grid that can receive
+   * it, dropping one puts them on the card that moved, cancelling gives them back the card they
+   * were holding. That is the default, because in each case the element they pressed is gone or
+   * is no longer where the work is.
+   *
+   * An action that only disabled its own control instead *recovers* focus (`onlyIfDropped`).
+   * The browser drops focus to the body when a focused control is disabled, so a body focus is
+   * the signal that nobody else has taken it. Without that test, an assisted pass finishing
+   * while the operator types in the search box would pull the caret out of the field, and their
+   * next space would press the button it had landed on rather than typing a space.
+   *
+   * Either way, when the named element is gone or still disabled and focus *has* been dropped,
+   * the panel takes it rather than leaving it on the body, where the next Tab would restart at
+   * the top of the console. The panel is read here rather than named when the action started,
+   * because the operator may have changed view while the request was in flight.
+   */
   useEffect(() => {
     if (!pendingFocus) return;
-    const { id, fallbackId } = pendingFocus;
-    const target = document.getElementById(id);
-    /*
-     * A control the action disabled — the assisted button once the last session is seated —
-     * cannot take focus, and the browser has already dropped it on the body, where the next
-     * Tab restarts at the top of the console. Only the caller that has somewhere sensible to
-     * fall back to names one; for every other action a missing target leaves focus where the
-     * operator put it, which is what a card that scrolled out of a filtered list wants.
-     */
-    const landable = target && !target.matches(":disabled") ? target : null;
-    (landable ?? (fallbackId ? document.getElementById(fallbackId) : null))?.focus();
+    const { id, onlyIfDropped } = pendingFocus;
     setPendingFocus(null);
-  }, [pendingFocus]);
+    const dropped = document.activeElement === null || document.activeElement === document.body;
+    const target = document.getElementById(id);
+    const landable = target && !target.matches(":disabled") ? target : null;
+    if (landable) {
+      if (!onlyIfDropped || dropped) landable.focus();
+      return;
+    }
+    if (dropped) document.getElementById(`panel-${view}`)?.focus();
+  }, [pendingFocus, view]);
 
   /*
    * Which sessions the assisted pass may be asked to seat, before any search narrows the rail.
@@ -253,7 +269,6 @@ export function AgendaWorkspace({
     for (const id of [conflict.placementId, conflict.conflictingPlacementId])
       conflictsByPlacement.set(id, [...(conflictsByPlacement.get(id) ?? []), conflict]);
 
-  const placedSessionIds = new Set(draft.placements.map(({ sessionId }) => sessionId));
   const needle = query.trim().toLowerCase();
   /*
    * Everything without a slot, before the search box narrows it.
@@ -355,13 +370,13 @@ export function AgendaWorkspace({
     describe: (updated: Draft) => string,
     {
       focusId,
-      fallbackId,
+      /** Recover focus only if the action's own disabling dropped it. See the focus effect. */
+      recoverFocusOnly,
       row,
       explanations,
     }: {
       focusId?: string | undefined;
-      /** Where focus lands when `focusId` names a control this action has disabled. */
-      fallbackId?: string | undefined;
+      recoverFocusOnly?: boolean | undefined;
       row?: string | undefined;
       /**
        * Assisted-placement reasons this action produced; anything else clears them.
@@ -388,7 +403,7 @@ export function AgendaWorkspace({
       setUnplaced((current) => explanations?.() ?? (current.size ? new Map() : current));
       if (row) clearRowError(row);
       feedback.announce("success", describe(updated));
-      if (focusId) setPendingFocus({ id: focusId, fallbackId });
+      if (focusId) setPendingFocus({ id: focusId, onlyIfDropped: recoverFocusOnly });
     } catch (error) {
       if (!mounted.current) return;
       const message = error instanceof Error ? error.message : "Agenda update failed.";
@@ -397,7 +412,7 @@ export function AgendaWorkspace({
       // A refusal is the case where staying put matters most: the control was disabled while
       // the request was in flight, so the browser has already dropped focus on the body, and
       // the operator would otherwise Tab from the top of the console to read what went wrong.
-      if (focusId) setPendingFocus({ id: focusId, fallbackId });
+      if (focusId) setPendingFocus({ id: focusId, onlyIfDropped: recoverFocusOnly });
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -452,11 +467,11 @@ export function AgendaWorkspace({
         return `${placed} ${couldNotPlace.length} could not be placed; each one says why in Unscheduled.`;
       },
       {
-        // Focus survives the press: this control disables itself while the request is in
-        // flight, and a disabled control cannot hold focus. The panel catches it when the
-        // pass leaves nothing to place and the button is disabled for good.
+        // Focus survives the press, and survives a refusal: this control disables itself
+        // while the request is in flight, and a disabled control cannot hold focus. Recovery
+        // only, because the operator may have moved on to the search box meanwhile.
         focusId: "agenda-assisted-action",
-        fallbackId: `panel-${view}`,
+        recoverFocusOnly: true,
         /*
          * This pass's verdicts, and only this pass's.
          *
@@ -1361,7 +1376,7 @@ export function AgendaWorkspace({
           {zoneLabel}
         </span>
         <span className="agenda-count">
-          {placedSessionIds.size} of {draft.sessions.length} scheduled
+          {draft.sessions.length - unscheduledCount} of {draft.sessions.length} scheduled
         </span>
         {/* Wherever the rail cannot carry the selection — the Conflicts view has no rail, and
             a search that matches nothing leaves no group control to put Clear beside — the
@@ -1376,7 +1391,7 @@ export function AgendaWorkspace({
               selection.clear();
               // This control leaves with the selection it cleared, so focus is handed to the
               // action it was about rather than dropped on the document.
-              setPendingFocus({ id: "agenda-assisted-action", fallbackId: `panel-${view}` });
+              setPendingFocus({ id: "agenda-assisted-action", onlyIfDropped: true });
             }}
           >
             Clear selection
