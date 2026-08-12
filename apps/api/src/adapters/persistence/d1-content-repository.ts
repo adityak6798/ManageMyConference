@@ -139,7 +139,7 @@ export class D1ContentRepository
       ...content.speakers.map((profile) =>
         this.database
           .prepare(
-            "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id,workflow_status,logistics_json,custom_fields_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
           )
           .bind(
             profile.id,
@@ -152,12 +152,15 @@ export class D1ContentRepository
             profile.pronouns,
             profile.organization,
             profile.photoAssetId ?? null,
+            profile.workflowStatus ?? "onboarding",
+            JSON.stringify(profile.logistics ?? {}),
+            JSON.stringify(profile.customFields ?? {}),
           ),
       ),
       ...content.tasks.map((task) =>
         this.database
           .prepare(
-            "INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at,task_type,instructions,session_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
           )
           .bind(
             task.id,
@@ -167,6 +170,9 @@ export class D1ContentRepository
             task.dueAt,
             task.status,
             task.completedAt ?? null,
+            task.type ?? "general",
+            task.instructions ?? "",
+            task.sessionId ?? null,
           ),
       ),
       ...content.messages.map((message) =>
@@ -256,12 +262,15 @@ export class D1ContentRepository
   }
   async updateProfile(profile: SpeakerProfile) {
     await this.run(
-      "UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=? WHERE id=?",
+      "UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
       profile.name,
       profile.bio,
       profile.pronouns,
       profile.organization,
       profile.photoAssetId ?? null,
+      profile.workflowStatus ?? "onboarding",
+      JSON.stringify(profile.logistics ?? {}),
+      JSON.stringify(profile.customFields ?? {}),
       profile.id,
     );
   }
@@ -310,7 +319,7 @@ export class D1ContentRepository
   }
   async addTask(task: SpeakerTask) {
     await this.run(
-      "INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES (?,?,?,?,?,?,?)",
+      "INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at,task_type,instructions,session_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
       task.id,
       task.eventId,
       task.speakerProfileId,
@@ -318,6 +327,9 @@ export class D1ContentRepository
       task.dueAt,
       task.status,
       task.completedAt ?? null,
+      task.type ?? "general",
+      task.instructions ?? "",
+      task.sessionId ?? null,
     );
   }
   async addMessage(message: SpeakerMessage) {
@@ -416,6 +428,9 @@ export class D1ContentRepository
       pronouns: row.pronouns ?? "",
       organization: row.organization ?? "",
       ...(row.photo_asset_id ? { photoAssetId: row.photo_asset_id } : {}),
+      workflowStatus: (row.workflow_status ?? "onboarding") as SpeakerProfile["workflowStatus"],
+      logistics: parse<Record<string, string>>(row.logistics_json ?? "{}"),
+      customFields: parse<Record<string, string>>(row.custom_fields_json ?? "{}"),
     };
   }
   private task(row: Row): SpeakerTask {
@@ -427,6 +442,9 @@ export class D1ContentRepository
       dueAt: row.due_at ?? "",
       status: (row.status ?? "open") as SpeakerTask["status"],
       ...(row.completed_at ? { completedAt: row.completed_at } : {}),
+      type: (row.task_type ?? "general") as SpeakerTask["type"],
+      instructions: row.instructions ?? "",
+      ...(row.session_id ? { sessionId: row.session_id } : {}),
     };
   }
   private asset(row: Row): SpeakerAsset {

@@ -6,6 +6,7 @@ import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository"
 import { AgendaService } from "./application/agenda/agenda-service";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
+import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
 import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
@@ -164,6 +165,7 @@ export default {
       resourceEmbedHosts: ["docs.google.com", "player.vimeo.com", "www.youtube.com"],
       sanitizeResourceHtml,
       sanitizeResourceEmbed,
+      parseSpeakerCsv,
     });
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),

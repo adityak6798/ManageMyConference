@@ -2,6 +2,8 @@ export type PublicationState = "draft" | "ready" | "published";
 export type TaskStatus = "open" | "complete";
 export type AssetVisibility = "private" | "publishable";
 export type ResourceVisibility = "hidden" | "visible";
+export type SpeakerWorkflowStatus = "invited" | "onboarding" | "ready" | "blocked";
+export type SpeakerTaskType = "general" | "file-request";
 
 /**
  * A session content owns.
@@ -36,6 +38,9 @@ export interface SpeakerProfile {
   readonly pronouns: string;
   readonly organization: string;
   readonly photoAssetId?: string;
+  readonly workflowStatus?: SpeakerWorkflowStatus | undefined;
+  readonly logistics?: Readonly<Record<string, string>> | undefined;
+  readonly customFields?: Readonly<Record<string, string>> | undefined;
 }
 
 export interface SpeakerTask {
@@ -46,6 +51,9 @@ export interface SpeakerTask {
   readonly dueAt: string;
   readonly status: TaskStatus;
   readonly completedAt?: string;
+  readonly type?: SpeakerTaskType | undefined;
+  readonly instructions?: string | undefined;
+  readonly sessionId?: string | undefined;
 }
 
 export interface SpeakerAsset {

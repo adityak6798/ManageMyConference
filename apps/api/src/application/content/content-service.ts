@@ -113,6 +113,16 @@ export interface ContentServiceDependencies {
   resourceEmbedHosts?: readonly string[];
   sanitizeResourceHtml?: (input: string) => string;
   sanitizeResourceEmbed?: (input: string, allowedHosts: readonly string[]) => string;
+  parseSpeakerCsv?: (csv: string) => {
+    rows: {
+      name: string;
+      email: string;
+      workflowStatus?: string | undefined;
+      logistics?: string | undefined;
+      customFields?: string | undefined;
+    }[];
+    errors: { row: number; message: string }[];
+  };
 }
 
 function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
@@ -194,6 +204,131 @@ function calendarDateTime(value: string) {
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export class ContentService {
   constructor(private readonly dependencies: ContentServiceDependencies) {}
+
+  async importSpeakers(
+    actor: Actor | null,
+    input: { eventId: string; csv: string; commit: boolean },
+    correlationId: string,
+  ) {
+    const authorized = requireEventCapability(actor, input.eventId, "content:manage");
+    const parsed = this.dependencies.parseSpeakerCsv?.(input.csv) ?? {
+      rows: [],
+      errors: [{ row: 1, message: "CSV parser is unavailable" }],
+    };
+    const existing = await this.dependencies.repository.workspace(input.eventId);
+    const known = new Set(existing.speakers.map(({ email }) => email.toLowerCase()));
+    const seen = new Set<string>();
+    const rows = parsed.rows.map((row, index) => {
+      const errors: string[] = [];
+      if (!row.name) errors.push("Name is required");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errors.push("Valid email is required");
+      const duplicate = known.has(row.email) || seen.has(row.email);
+      if (duplicate) errors.push("Duplicate email");
+      seen.add(row.email);
+      return { row: index + 2, ...row, duplicate, errors };
+    });
+    for (const error of parsed.errors)
+      rows.push({ row: error.row, name: "", email: "", duplicate: false, errors: [error.message] });
+    let imported = 0;
+    if (input.commit)
+      for (const row of rows) {
+        if (row.errors.length) continue;
+        const { speakerId } = await this.dependencies.speakerConversion.createOrLink({
+          eventId: input.eventId,
+          source: { kind: "csv", id: row.email },
+          name: row.name,
+          email: row.email,
+          actorId: authorized.id,
+          occurredAt: this.dependencies.now().toISOString(),
+          correlationId,
+          idempotencyKey: `content-csv:${input.eventId}:${row.email}`,
+        });
+        const profile = await this.dependencies.repository.findProfile(speakerId);
+        if (profile) {
+          const parseFields = (value?: string) => {
+            if (!value) return {};
+            try {
+              const result = JSON.parse(value);
+              return typeof result === "object" && result ? (result as Record<string, string>) : {};
+            } catch {
+              return {};
+            }
+          };
+          await this.dependencies.repository.updateProfile({
+            ...profile,
+            workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
+              row.workflowStatus ?? "",
+            )
+              ? row.workflowStatus
+              : "onboarding") as SpeakerProfile["workflowStatus"],
+            logistics: parseFields(row.logistics),
+            customFields: parseFields(row.customFields),
+          });
+        }
+        imported += 1;
+      }
+    return {
+      preview: !input.commit,
+      total: rows.length,
+      valid: rows.filter(({ errors }) => errors.length === 0).length,
+      imported,
+      invalid: rows.filter(({ errors }) => errors.length > 0 && !errors.includes("Duplicate email"))
+        .length,
+      duplicates: rows.filter(({ duplicate }) => duplicate).length,
+      rows,
+    };
+  }
+
+  async updateSpeakerWorkflow(
+    actor: Actor | null,
+    profileId: string,
+    input: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
+  ) {
+    const profile = await this.dependencies.repository.findProfile(profileId);
+    if (!profile) throw new CapabilityDeniedError();
+    requireEventCapability(actor, profile.eventId, "content:manage");
+    const updated = { ...profile, ...input };
+    await this.dependencies.repository.updateProfile(updated);
+    return updated;
+  }
+
+  async requestTasks(
+    actor: Actor | null,
+    input: {
+      profileIds: string[];
+      title: string;
+      dueAt: string;
+      type: "general" | "file-request";
+      instructions: string;
+      sessionId?: string | undefined;
+    },
+  ) {
+    const profiles = await Promise.all(
+      input.profileIds.map((id) => this.dependencies.repository.findProfile(id)),
+    );
+    if (profiles.some((profile) => !profile)) throw new CapabilityDeniedError();
+    const eventId = profiles[0]?.eventId ?? "";
+    if (profiles.some((profile) => profile?.eventId !== eventId)) throw new CapabilityDeniedError();
+    requireEventCapability(actor, eventId, "content:manage");
+    const tasks: SpeakerTask[] = [];
+    for (const profile of profiles) {
+      if (!profile) continue;
+      const task: SpeakerTask = {
+        id: this.dependencies.newId(),
+        eventId,
+        speakerProfileId: profile.id,
+        title: input.title,
+        dueAt: input.dueAt,
+        status: "open",
+        type: input.type,
+        instructions: input.instructions,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      };
+      await this.dependencies.repository.addTask(task);
+      tasks.push(task);
+    }
+    return tasks;
+  }
 
   async createResource(
     actor: Actor | null,

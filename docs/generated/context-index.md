@@ -143,6 +143,7 @@
 
 ### `ACC-SPEAKER`
 - `test` / `repository-fact`: [apps/api/test/content-calendar-publication.test.ts](../../apps/api/test/content-calendar-publication.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-csv-import.test.ts](../../apps/api/test/content-csv-import.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-resource-sanitizer.test.ts](../../apps/api/test/content-resource-sanitizer.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-service.test.ts](../../apps/api/test/content-service.test.ts)

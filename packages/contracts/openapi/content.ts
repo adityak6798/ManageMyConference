@@ -28,6 +28,9 @@ import {
   updateSpeakerResourceInputSchema,
   speakerResourceParamsSchema,
   speakerResourceSchema,
+  bulkRequestSpeakerTaskInputSchema,
+  speakerCsvImportInputSchema,
+  updateSpeakerWorkflowInputSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -59,6 +62,54 @@ export const contentPaths: OpenApiFragment = {
         201: {
           description: "Sanitized speaker resource",
           content: json(z.object({ resource: speakerResourceSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-imports",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(speakerCsvImportInputSchema) } },
+      responses: {
+        200: { description: "Speaker import preview or result" },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-tasks/bulk",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(bulkRequestSpeakerTaskInputSchema) } },
+      responses: {
+        201: {
+          description: "Tasks assigned to selected speakers",
+          content: json(z.object({ tasks: z.array(speakerTaskSchema) })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/speaker-profiles/{profileId}/workflow",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: profileParamsSchema,
+        body: { required: true, content: json(updateSpeakerWorkflowInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "Updated workflow and logistics fields",
+          content: json(z.object({ profile: speakerProfileSchema })),
         },
         400: errorResponse,
         401: errorResponse,

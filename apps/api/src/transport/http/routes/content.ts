@@ -22,6 +22,9 @@ import {
   createSpeakerResourceInputSchema,
   updateSpeakerResourceInputSchema,
   speakerResourceParamsSchema,
+  bulkRequestSpeakerTaskInputSchema,
+  speakerCsvImportInputSchema,
+  updateSpeakerWorkflowInputSchema,
 } from "@greenroom/contracts";
 import {
   ResourceEmbedDeniedError,
@@ -52,6 +55,9 @@ const routes = [
   "POST /api/speaker-resources",
   "PATCH /api/speaker-resources/:resourceId",
   "DELETE /api/speaker-resources/:resourceId",
+  "POST /api/speaker-imports",
+  "POST /api/speaker-tasks/bulk",
+  "PATCH /api/speaker-profiles/:profileId/workflow",
 ] as const;
 
 export const contentRoutes: RouteModule = {
@@ -429,6 +435,67 @@ export const contentRoutes: RouteModule = {
       return context.body(document, 200, {
         "content-type": "text/calendar; charset=utf-8",
         "content-disposition": 'attachment; filename="greenroom-sessions.ics"',
+      });
+    });
+    app.post("/api/speaker-imports", async (context) => {
+      const parsed = speakerCsvImportInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker CSV import is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        await content.importSpeakers(
+          context.get("actor"),
+          parsed.data,
+          context.get("correlationId"),
+        ),
+      );
+    });
+    app.post("/api/speaker-tasks/bulk", async (context) => {
+      const parsed = bulkRequestSpeakerTaskInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Bulk task request is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        { tasks: await content.requestTasks(context.get("actor"), parsed.data) },
+        201,
+      );
+    });
+    app.patch("/api/speaker-profiles/:profileId/workflow", async (context) => {
+      const params = profileParamsSchema.safeParse(context.req.param());
+      const parsed = updateSpeakerWorkflowInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker workflow is invalid.",
+            context.get("correlationId"),
+            parsed.success ? undefined : validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        profile: await content.updateSpeakerWorkflow(
+          context.get("actor"),
+          params.data.profileId,
+          parsed.data,
+        ),
       });
     });
     app.post("/api/speaker-resources", async (context) => {

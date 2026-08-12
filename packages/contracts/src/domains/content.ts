@@ -44,6 +44,9 @@ export const speakerProfileSchema = z.object({
   pronouns: z.string(),
   organization: z.string(),
   photoAssetId: z.string().uuid().optional(),
+  workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]).optional(),
+  logistics: z.record(z.string()).optional(),
+  customFields: z.record(z.string()).optional(),
 });
 export const speakerTaskSchema = z.object({
   id: z.string().uuid(),
@@ -53,6 +56,9 @@ export const speakerTaskSchema = z.object({
   dueAt: z.string().datetime(),
   status: z.enum(["open", "complete"]),
   completedAt: z.string().datetime().optional(),
+  type: z.enum(["general", "file-request"]).optional(),
+  instructions: z.string().optional(),
+  sessionId: z.string().uuid().optional(),
 });
 export const speakerAssetSchema = z.object({
   id: z.string().uuid(),
@@ -153,6 +159,24 @@ export const requestSpeakerTaskInputSchema = z.object({
   profileId: z.string().uuid(),
   title: z.string().trim().min(1).max(160),
   dueAt: z.string().datetime(),
+});
+export const bulkRequestSpeakerTaskInputSchema = z.object({
+  profileIds: z.array(z.string().uuid()).min(1).max(500),
+  title: z.string().trim().min(1).max(160),
+  dueAt: z.string().datetime(),
+  type: z.enum(["general", "file-request"]),
+  instructions: z.string().trim().max(4000).default(""),
+  sessionId: z.string().uuid().optional(),
+});
+export const speakerCsvImportInputSchema = z.object({
+  eventId: z.string().uuid(),
+  csv: z.string().min(1).max(2_000_000),
+  commit: z.boolean().default(false),
+});
+export const updateSpeakerWorkflowInputSchema = z.object({
+  workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]),
+  logistics: z.record(z.string().max(1000)),
+  customFields: z.record(z.string().max(1000)),
 });
 export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),

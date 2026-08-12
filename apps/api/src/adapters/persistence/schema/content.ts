@@ -60,6 +60,9 @@ export function defineContentSchema(references: {
       pronouns: text("pronouns").notNull(),
       organization: text("organization").notNull(),
       photoAssetId: text("photo_asset_id"),
+      workflowStatus: text("workflow_status").notNull().default("onboarding"),
+      logisticsJson: text("logistics_json").notNull().default("{}"),
+      customFieldsJson: text("custom_fields_json").notNull().default("{}"),
     },
     (table) => [
       unique("speaker_profiles_event_id_source_person_id_unique").on(
@@ -67,6 +70,10 @@ export function defineContentSchema(references: {
         table.sourcePersonId,
       ),
       index("speaker_profiles_event_user_idx").on(table.eventId, table.userId),
+      check(
+        "speaker_profiles_workflow_status",
+        sql`${table.workflowStatus} IN ('invited','onboarding','ready','blocked')`,
+      ),
     ],
   );
   const speakerTasks = sqliteTable(
@@ -83,9 +90,13 @@ export function defineContentSchema(references: {
       dueAt: text("due_at").notNull(),
       status: text("status").notNull(),
       completedAt: text("completed_at"),
+      taskType: text("task_type").notNull().default("general"),
+      instructions: text("instructions").notNull().default(""),
+      sessionId: text("session_id"),
     },
     (table) => [
       check("speaker_tasks_status", sql`${table.status} IN ('open','complete')`),
+      check("speaker_tasks_task_type", sql`${table.taskType} IN ('general','file-request')`),
       index("speaker_tasks_profile_idx").on(table.speakerProfileId),
     ],
   );
