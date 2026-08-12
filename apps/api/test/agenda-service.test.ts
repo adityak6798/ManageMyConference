@@ -144,20 +144,23 @@ describe("assisted agenda placement", () => {
   /*
    * The one path where "what this pass seated" can disagree with what exists.
    *
-   * `savePlacements` takes a planner the repository may run more than once: it plans against the
-   * revision it is about to replace, and a lost compare-and-set re-plans. An attempt that lost
-   * planned placements that were never written, so reporting the last plan would tell the
-   * organizer "Placed 2 sessions" about a board holding neither.
+   * `savePlacements` takes a planner the repository may run more than once — it plans against
+   * the revision it is about to replace, so a lost compare-and-set re-plans — and it may store
+   * fewer placements than the last plan proposed. Reporting the plan rather than the board
+   * would then tell the organizer "Placed 2 sessions" about a board holding one.
+   *
+   * The double below drives that shape directly: the planner runs twice and the write keeps one
+   * placement. It does not reproduce D1's compare-and-set itself, which belongs to the
+   * repository's own integration test.
    */
-  it("reports only the placements the write actually kept, under contention", async () => {
+  it("reports only the placements the write kept, when the planner runs more than once", async () => {
     const repository = new MemoryAgendaRepository([emptyBoard]);
     const real = repository.savePlacements.bind(repository);
     vi.spyOn(repository, "savePlacements").mockImplementation(async (id, plan) =>
       real(id, (current) => {
-        // The losing attempt: its plan is computed and thrown away, exactly as a compare-and-set
-        // failure discards one. Whatever it planned must not reach the organizer.
+        // A first run whose plan is thrown away, as a lost compare-and-set discards one.
         plan(current);
-        // The winning attempt seats one session, and the board comes back holding just that.
+        // The run that counts, of which the write keeps only the first placement.
         const [first] = plan(current);
         return first ? [first] : [];
       }),

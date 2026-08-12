@@ -117,7 +117,6 @@ export function AgendaWorkspace({
   const [unplaced, setUnplaced] = useState<ReadonlyMap<string, string>>(new Map());
   const [carry, setCarryState] = useState<Carry | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null);
-  /** The element to focus after the next render, and where to land if it cannot take it. */
   /** Where focus goes after the next render, and whether it may take it from someone. */
   const [pendingFocus, setPendingFocus] = useState<{
     readonly id: string;
@@ -409,10 +408,16 @@ export function AgendaWorkspace({
       const message = error instanceof Error ? error.message : "Agenda update failed.";
       feedback.announce("error", message);
       if (row) setRowErrors((current) => ({ ...current, [row]: message }));
-      // A refusal is the case where staying put matters most: the control was disabled while
-      // the request was in flight, so the browser has already dropped focus on the body, and
-      // the operator would otherwise Tab from the top of the console to read what went wrong.
-      if (focusId) setPendingFocus({ id: focusId, onlyIfDropped: recoverFocusOnly });
+      /*
+       * A refusal always *recovers* focus, whatever the caller asked for on success.
+       *
+       * Nothing moved, so there is nowhere to move focus to — and the operator has had the
+       * length of a request to go somewhere else. Restoring unconditionally here would take the
+       * caret out of the search box they had started typing in, and hand their next keystroke
+       * to whatever card it landed on. What is worth repairing is only the focus the control's
+       * own disabling dropped.
+       */
+      if (focusId) setPendingFocus({ id: focusId, onlyIfDropped: true });
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -1389,9 +1394,15 @@ export function AgendaWorkspace({
             disabled={busy}
             onClick={() => {
               selection.clear();
-              // This control leaves with the selection it cleared, so focus is handed to the
-              // action it was about rather than dropped on the document.
-              setPendingFocus({ id: "agenda-assisted-action", onlyIfDropped: true });
+              /*
+               * This control leaves with the selection it cleared, so focus is handed on rather
+               * than dropped — to the search box, not to the action. Clearing turns that action
+               * back into "Generate draft", and parking focus on it would put a whole-board
+               * pass one space bar away from an operator who had just been narrowing one. The
+               * search box is where they were: this hatch only appears when the rail cannot
+               * carry it, which is when a search has emptied the rail.
+               */
+              setPendingFocus({ id: "agenda-search" });
             }}
           >
             Clear selection
