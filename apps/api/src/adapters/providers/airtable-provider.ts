@@ -77,11 +77,16 @@ export class AirtableProjectionProvider implements DeliveryProvider {
           records: [
             {
               fields: {
-                [referenceField]: delivery.recipientRef,
-                [versionField]: delivery.projectionVersion ?? 0,
+                // The payload goes first and the two controlled columns overwrite it. Order is
+                // load-bearing: Airtable matches `fieldsToMergeOn` against the value in the
+                // submitted record, so a payload carrying its own `Greenroom Ref` would choose
+                // which existing row this projection overwrites. Content must not be able to
+                // pick its own merge key — an Airtable write cannot be un-sent.
                 ...Object.fromEntries(
                   Object.entries(delivery.payload).map(([key, value]) => [key, cell(value)]),
                 ),
+                [referenceField]: delivery.recipientRef,
+                [versionField]: delivery.projectionVersion ?? 0,
               },
             },
           ],

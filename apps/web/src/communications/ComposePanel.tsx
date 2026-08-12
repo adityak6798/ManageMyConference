@@ -144,13 +144,19 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       });
       setConfirming(false);
       onSent();
-      feedback.announce(
-        "success",
-        `Queued ${result.enqueued} ${result.enqueued === 1 ? "delivery" : "deliveries"} for ${selected.key} version ${selected.version}. ` +
-          (result.unreachable.length
-            ? `${result.unreachable.length} speaker${result.unreachable.length === 1 ? "" : "s"} had no address and ${result.unreachable.length === 1 ? "was" : "were"} not sent to.`
-            : "The outbox sends them on its next run."),
-      );
+      // What happened, not what was attempted. A repeat send of the same template version
+      // writes nothing, and saying "queued" about it would promise mail that will never go.
+      const queued = result.enqueued
+        ? `Queued ${result.enqueued} ${result.enqueued === 1 ? "delivery" : "deliveries"} for ${selected.key} version ${selected.version}. The outbox sends ${result.enqueued === 1 ? "it" : "them"} on its next run.`
+        : `Nothing new to send: every reachable speaker already has ${selected.key} version ${selected.version}. Save a new version to send a correction.`;
+      const repeated =
+        result.enqueued && result.alreadySent
+          ? ` ${result.alreadySent} already had this version and ${result.alreadySent === 1 ? "was" : "were"} not sent again.`
+          : "";
+      const missing = result.unreachable.length
+        ? ` ${result.unreachable.length} speaker${result.unreachable.length === 1 ? "" : "s"} had no address and ${result.unreachable.length === 1 ? "was" : "were"} not sent to.`
+        : "";
+      feedback.announce("success", `${queued}${repeated}${missing}`);
     } catch (reason: unknown) {
       // ERROR-INTENT: a refused send belongs next to the Send control. A template whose
       // placeholders the payload cannot fill fails here, naming the placeholder.

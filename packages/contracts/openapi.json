@@ -952,6 +952,10 @@
                       "type": "integer",
                       "minimum": 0
                     },
+                    "alreadySent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "unreachable": {
                       "type": "array",
                       "items": {
@@ -1100,6 +1104,7 @@
                   },
                   "required": [
                     "enqueued",
+                    "alreadySent",
                     "unreachable",
                     "deliveries"
                   ]

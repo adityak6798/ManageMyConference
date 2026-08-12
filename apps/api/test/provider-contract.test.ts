@@ -267,6 +267,30 @@ describe("provider request shapes", () => {
     });
   });
 
+  it("does not let a projection payload choose which Airtable record it overwrites", async () => {
+    const { fetch, recorded } = stub(200, { records: [{ id: "rec-1" }] });
+
+    await new AirtableProjectionProvider(
+      { baseId: "app1", tableId: "tbl1", token: TOKEN, apiOrigin: "https://airtable.test" },
+      fetch,
+    ).deliver(
+      delivery({
+        channel: "airtable",
+        recipientRef: "session:99",
+        projectionVersion: 4,
+        // A payload carrying the merge column. Airtable matches `fieldsToMergeOn` against the
+        // value in the submitted record, so if this won, this projection would upsert over a
+        // different session's row — and an Airtable write cannot be un-sent.
+        payload: { "Greenroom Ref": "session:1", "Greenroom Version": 999, Title: "Keynote" },
+      }),
+    );
+
+    const fields = JSON.parse(String(recorded[0]?.init.body)).records[0].fields;
+    expect(fields["Greenroom Ref"]).toBe("session:99");
+    expect(fields["Greenroom Version"]).toBe(4);
+    expect(fields.Title).toBe("Keynote");
+  });
+
   it("sends the Accelevents projection with its version and external reference", async () => {
     const { fetch, recorded } = stub(200, { id: "ae-1" });
 

@@ -121,17 +121,26 @@ export class OutboxWorker {
         : undefined,
     );
     // Emitted after the attempt is durable, so the log never claims an outcome the database
-    // does not hold.
-    this.telemetry?.attempt({
-      deliveryId: delivery.id,
-      idempotencyKey: delivery.idempotencyKey,
-      channel: delivery.channel,
-      triggerType: delivery.triggerType,
-      sequence,
-      outcome: attempt.outcome,
-      errorCode: attempt.errorCode,
-      providerReference: attempt.providerReference,
-    });
+    // does not hold, and guarded because a telemetry sink is not worth the queue: a throwing
+    // logger would abort this drain and leave every remaining eligible delivery waiting for the
+    // next tick.
+    try {
+      this.telemetry?.attempt({
+        deliveryId: delivery.id,
+        idempotencyKey: delivery.idempotencyKey,
+        channel: delivery.channel,
+        triggerType: delivery.triggerType,
+        sequence,
+        outcome: attempt.outcome,
+        errorCode: attempt.errorCode,
+        providerReference: attempt.providerReference,
+      });
+    } catch {
+      // ERROR-INTENT: the attempt is already durable and readable in the delivery history; a
+      // failed log line must not stall the outbox for every other queued delivery. The delivery
+      // was processed either way, which is what the return value means.
+      return true;
+    }
     return true;
   }
 }

@@ -66,10 +66,37 @@ describe("provider selection", () => {
     expect(message).not.toContain("accelevents-token");
   });
 
-  it("refuses deterministic providers in production", () => {
-    expect(() => resolveProviders({ ENVIRONMENT: "production" })).toThrow(
-      ProviderConfigurationError,
-    );
+  it.each(["production", "prod", "Production", " production ", "live"])(
+    "refuses deterministic providers when ENVIRONMENT is %o",
+    (environment) => {
+      // Keying on one exact lowercase string made the guard depend on spelling: a Worker
+      // deployed with ENVIRONMENT=prod would send every speaker a `fake:` reference and show
+      // all green.
+      expect(() => resolveProviders({ ENVIRONMENT: environment })).toThrow(
+        ProviderConfigurationError,
+      );
+    },
+  );
+
+  it("names every missing binding at once, not one deploy cycle at a time", () => {
+    let message = "";
+    try {
+      resolveProviders({
+        COMMUNICATIONS_PROVIDERS: "live",
+        EMAIL_API_ENDPOINT: LIVE.EMAIL_API_ENDPOINT,
+        EMAIL_SENDER: LIVE.EMAIL_SENDER,
+        AIRTABLE_BASE_ID: LIVE.AIRTABLE_BASE_ID,
+        AIRTABLE_TABLE_ID: LIVE.AIRTABLE_TABLE_ID,
+        ACCELEVENTS_API_ENDPOINT: LIVE.ACCELEVENTS_API_ENDPOINT,
+      });
+    } catch (error) {
+      // ERROR-INTENT: the message is the assertion subject; it is inspected, not swallowed.
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain("EMAIL_API_TOKEN");
+    expect(message).toContain("AIRTABLE_TOKEN");
+    expect(message).toContain("ACCELEVENTS_TOKEN");
   });
 
   it("rejects a mode it does not recognize instead of guessing", () => {

@@ -63,6 +63,20 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     return delivery;
   }
 
+  async findByIdempotencyKey(organizationId: string, idempotencyKey: string) {
+    return (
+      [...this.deliveries.values()].find(
+        (item) => item.organizationId === organizationId && item.idempotencyKey === idempotencyKey,
+      ) ?? null
+    );
+  }
+
+  async enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]> {
+    const stored: Delivery[] = [];
+    for (const delivery of deliveries) stored.push(await this.enqueue(delivery));
+    return stored;
+  }
+
   async list(organizationId: string, eventId: string) {
     return [...this.deliveries.values()]
       .filter((item) => item.organizationId === organizationId && item.eventId === eventId)

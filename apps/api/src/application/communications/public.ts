@@ -86,6 +86,13 @@ export interface EnqueuedDelivery {
   readonly id: string;
   readonly idempotencyKey: string;
   readonly state: DeliveryState;
+  /**
+   * False when this key already had a delivery and nothing new was written.
+   *
+   * Worth checking before telling anyone a message is on its way: the enqueue succeeded either
+   * way, but only a `created` delivery will actually be sent by the outbox.
+   */
+  readonly created: boolean;
 }
 
 /**
@@ -128,8 +135,15 @@ export type PreparedDeliveryWriter<TStatement> = (
  *   and its `EVT-SCHEDULE-PUBLISHED` record have to survive or fail together, or a crash between
  *   two statements leaves a published schedule nobody is ever told about. The caller passes the
  *   result through a `PreparedDeliveryWriter` and appends the statements to its own batch. The
- *   insert is `INSERT OR IGNORE` on the organization-scoped idempotency key, so a retried
- *   command still produces exactly one delivery.
+ *   insert takes `ON CONFLICT (organization_id, idempotency_key) DO NOTHING`, so a retried
+ *   command still produces exactly one delivery — while a malformed one still fails the batch
+ *   rather than vanishing.
+ *
+ *   Two things a caller of `prepareEnqueue` should know. It returns the **existing** delivery
+ *   when one already holds that key, so a retried command ends up referencing the row the first
+ *   attempt created rather than an id that will never be written. And if you must be certain
+ *   which delivery a durable record refers to, resolve it by idempotency key: two callers
+ *   preparing the same key concurrently both see no existing row, and only one insert wins.
  */
 export interface CommunicationsEnqueue {
   enqueue(request: DeliveryRequest): Promise<EnqueuedDelivery>;

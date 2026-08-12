@@ -663,6 +663,7 @@
         "apps/api/test/communications-public.test.ts",
         "apps/api/test/communications-template.test.ts",
         "apps/api/test/provider-contract.test.ts",
+        "apps/api/test/deterministic-provider.test.ts",
         "apps/api/test/provider-configuration.test.ts",
         "docs/engineering/communications-providers.md",
         "apps/api/test/communications-service.test.ts",

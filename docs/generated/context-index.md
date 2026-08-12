@@ -104,6 +104,7 @@
 - `test` / `repository-fact`: [apps/api/test/communications-service.test.ts](../../apps/api/test/communications-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/communications-template.test.ts](../../apps/api/test/communications-template.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-communications-repository.integration.test.ts](../../apps/api/test/d1-communications-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/deterministic-provider.test.ts](../../apps/api/test/deterministic-provider.test.ts)
 - `test` / `repository-fact`: [apps/api/test/provider-configuration.test.ts](../../apps/api/test/provider-configuration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/provider-contract.test.ts](../../apps/api/test/provider-contract.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/communications.spec.ts](../../apps/web/e2e/communications.spec.ts)

@@ -113,7 +113,15 @@ function harness({ templates = [template], sendFails }: HarnessOptions = {}) {
           ],
         },
       ];
-      return json({ enqueued: 2, unreachable: [recipients[2]], deliveries: [] }, 202);
+      return json(
+        {
+          enqueued: sends.length > 1 ? 0 : 2,
+          alreadySent: sends.length > 1 ? 2 : 0,
+          unreachable: [recipients[2]],
+          deliveries: [],
+        },
+        202,
+      );
     }
     if (url.includes("/api/communications/history")) return json({ history, nextCursor: null });
     return json({ error: { code: "NOT_FOUND", message: "no fixture", correlationId: "x" } }, 404);
@@ -169,7 +177,7 @@ describe("sending a message to speakers from the console", () => {
     const compose = screen.getByRole("region", { name: "Send to speakers" });
     await waitFor(() =>
       expect(within(compose).getByRole("status")).toHaveTextContent(
-        "Queued 2 deliveries for speaker-welcome version 1. 1 speaker had no address and was not sent to.",
+        "Queued 2 deliveries for speaker-welcome version 1. The outbox sends them on its next run. 1 speaker had no address and was not sent to.",
       ),
     );
     // The outbox beside it re-reads, so the delivery the organizer just created is on screen
@@ -234,6 +242,59 @@ describe("sending a message to speakers from the console", () => {
     // rather than guess why nothing sent.
     expect(await screen.findByRole("alert")).toHaveTextContent("{{eventName}}");
     expect(screen.getByRole("alert")).toHaveTextContent("send-trace");
+  });
+
+  it("says nothing was sent when every speaker already has this version", async () => {
+    harness();
+    render(<App />);
+    // First send queues; the second writes nothing because the idempotency key is the same.
+    fireEvent.click(await screen.findByRole("button", { name: "Send to 2 speakers" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
+    const compose = screen.getByRole("region", { name: "Send to speakers" });
+    await waitFor(() => expect(within(compose).getByRole("status")).toHaveTextContent("Queued 2"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Send to 2 speakers" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
+
+    // Not "Queued 2 deliveries". Nothing was written and nothing will be sent; saying otherwise
+    // promises mail that never goes, to an organizer who pressed Send because they were unsure.
+    await waitFor(() =>
+      expect(within(compose).getByRole("status")).toHaveTextContent(
+        "Nothing new to send: every reachable speaker already has speaker-welcome version 1. Save a new version to send a correction.",
+      ),
+    );
+  });
+
+  it("explains a failed read in place of the controls it could not populate", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/session")) return json(session);
+      if (url.endsWith("/api/events/assigned")) return json({ events });
+      if (url.includes("/api/communications/history"))
+        return json({ history: [], nextCursor: null });
+      if (url.includes("/api/communications/recipients"))
+        return json(
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Recipients could not be read.",
+              correlationId: "recipients-trace",
+            },
+          },
+          500,
+        );
+      if (url.includes("/api/communications/templates")) return json({ templates: [] });
+      return json({ error: { code: "NOT_FOUND", message: "no", correlationId: "x" } }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    // Sending without knowing the recipients is impossible, so the panel says why rather than
+    // offering a Send button that cannot mean anything.
+    const compose = await screen.findByRole("region", { name: "Send to speakers" });
+    expect(await within(compose).findByRole("alert")).toHaveTextContent("recipients-trace");
+    expect(within(compose).queryByRole("button", { name: /^Send to/ })).toBeNull();
+    expect(within(compose).getByRole("button", { name: "Try again" })).toBeEnabled();
   });
 
   it("offers no send at all when no speaker can be reached", async () => {

@@ -128,7 +128,10 @@ export const broadcastRecipientsResponseSchema = z.object({
   recipients: z.array(broadcastRecipientSchema),
 });
 export const broadcastResponseSchema = z.object({
+  /** Deliveries this send created. Never counts one an earlier send already wrote. */
   enqueued: z.number().int().nonnegative(),
+  /** Recipients whose delivery already existed under the same key; nothing new was queued. */
+  alreadySent: z.number().int().nonnegative(),
   unreachable: z.array(broadcastRecipientSchema),
   deliveries: z.array(deliverySchema),
 });

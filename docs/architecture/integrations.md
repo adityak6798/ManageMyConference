@@ -8,8 +8,9 @@ What exists today: an HTTP adapter exists for each of the three delivery channel
 `airtable` and `accelevents` — alongside the deterministic fake, and
 `apps/api/src/adapters/providers/configuration.ts` chooses between them from
 `COMMUNICATIONS_PROVIDERS`. `fixture` is the default and is what local development, CI, Playwright
-and the demo run on; `live` requires every credential and refuses to start without them rather
-than falling back to a fake. **No live adapter has ever exchanged a request with its real API** —
+and the demo run on; `live` requires every credential and throws rather than falling back to a
+fake. That throw happens in the scheduled drain, not at startup, so a misconfigured deployment
+serves requests normally and simply never sends — deliveries accumulate as `queued`. **No live adapter has ever exchanged a request with its real API** —
 no credential for any of the three exists here — so the request shapes are written from
 documentation and covered by a stubbed contract suite, and the staging smoke in
 [communications providers](../engineering/communications-providers.md#staging-smoke--required-and-not-yet-performed)
@@ -24,8 +25,11 @@ not a description of code (`GAP-011`, issue #57).
 Adapters normalize every HTTP result through one table of codes — retryable for throttling,
 timeouts and outages; terminal for refusals, unparsable successes and unaddressable recipients —
 so `error_code` in the delivery history means the same thing whichever provider produced it. No
-provider response body ever reaches a stored code. The full table, the credential model and the
-rotation procedure are in [communications providers](../engineering/communications-providers.md).
+provider response body ever reaches a stored code. The adapter codes, the credential model and
+the rotation procedure are in
+[communications providers](../engineering/communications-providers.md); the outbox itself adds
+two of its own, `PROJECTION_SUPERSEDED` and `UNEXPECTED_PROVIDER_ERROR`, which are described
+under [delivery lifecycle and recovery](#delivery-lifecycle-and-recovery) below.
 
 Provider calls originate from outbox workers, not open database transactions. Adapters normalize retryable versus terminal errors and never leak SDK types inward.
 

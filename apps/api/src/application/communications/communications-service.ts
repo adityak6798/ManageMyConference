@@ -1,4 +1,5 @@
 import type { Actor } from "../identity/actor";
+import type { IdentityDirectory } from "../identity/identity-directory";
 import {
   CapabilityDeniedError,
   requireCapability,
@@ -24,17 +25,17 @@ export interface CommunicationsDependencies {
     belongsToOrganization(eventId: string, organizationId: string): Promise<boolean>;
   };
   /**
-   * Who an event's speakers are, answered by identity-access. Communications never reads
-   * `event_roles`, `users` or content's `speaker_profiles` to find out.
+   * Who an event's speakers are, answered by identity-access through its declared interface.
+   * Communications never reads `event_roles`, `users` or content's `speaker_profiles`.
+   *
+   * Named as a `Pick` of `IdentityDirectory` rather than restated structurally, so the contract
+   * that a null email means unreachable — never a guess — is documented in one place and this
+   * consumer is bound to it. CRM and review reach the same interface the same way.
    *
    * Optional because a composition that exercises only the outbox has no directory to give; a
    * broadcast attempted without one is a composition bug and says so.
    */
-  speakerDirectory?: {
-    listSpeakersForEvent(
-      eventId: string,
-    ): Promise<readonly { id: string; name: string; email: string | null }[]>;
-  };
+  speakerDirectory?: Pick<IdentityDirectory, "listSpeakersForEvent">;
   newId(): string;
   now(): Date;
 }
@@ -48,11 +49,28 @@ export interface BroadcastRecipient {
 }
 
 export interface BroadcastResult {
+  /** Deliveries this send actually created. Never counts a row an earlier send already wrote. */
   readonly enqueued: number;
+  /**
+   * Recipients whose delivery already existed under the same key, so nothing new was queued for
+   * them. Pressing Send twice on one template version reports every speaker here and none as
+   * `enqueued` — the alternative is telling an organizer that mail is on its way when no row
+   * was written and none ever will be.
+   */
+  readonly alreadySent: number;
   /** Speakers with no address. Reported so a count of 3 out of 4 is visible, not silent. */
   readonly unreachable: readonly BroadcastRecipient[];
   readonly deliveries: readonly Delivery[];
 }
+
+/**
+ * The largest audience one send will attempt.
+ *
+ * A Worker invocation has a bounded subrequest budget. Enqueueing is one batch now, but the
+ * bound keeps a pathological event from producing a batch nothing downstream can hold, and it
+ * fails *before* writing anything rather than partway through.
+ */
+export const MAX_BROADCAST_RECIPIENTS = 500;
 
 export {
   CommunicationsConflictError,
@@ -99,7 +117,7 @@ export class CommunicationsService implements CommunicationsEnqueue {
   }
 
   /**
-   * Every version of every template in the organization, newest first.
+   * Every version of every template in the organization, by key, newest version first.
    *
    * Versions are immutable, so "editing" a template is publishing a new version and the old one
    * stays readable — a delivery sent last week names the version it used, and this is where an
@@ -168,31 +186,39 @@ export class CommunicationsService implements CommunicationsEnqueue {
       (recipient): recipient is BroadcastRecipient & { address: string } =>
         recipient.address !== null,
     );
-    const deliveries: Delivery[] = [];
-    for (const recipient of reachable) {
-      deliveries.push(
-        await this.dependencies.repository.enqueue(
-          await this.prepare(
-            {
-              organizationId: input.organizationId,
-              eventId: input.eventId,
-              idempotencyKey: `broadcast:${template.key}:v${template.version}:${input.eventId}:${recipient.userId}`,
-              triggerType: "speaker.invited",
-              channel: "email",
-              recipientRef: recipient.address,
-              payload: { ...input.payload, speakerName: recipient.name },
-              templateKey: template.key,
-              templateVersion: template.version,
-            },
-            { scopeChecked: true },
-          ),
-        ),
+    if (reachable.length > MAX_BROADCAST_RECIPIENTS)
+      throw new CommunicationsInputError(
+        `This event has ${reachable.length} reachable speakers and one send is limited to ${MAX_BROADCAST_RECIPIENTS}. Sending more than that in one request risks exhausting the worker mid-send, which would queue some speakers and report failure for all of them.`,
       );
-    }
+
+    const prepared = await Promise.all(
+      reachable.map((recipient) =>
+        this.prepare(
+          {
+            organizationId: input.organizationId,
+            eventId: input.eventId,
+            idempotencyKey: `broadcast:${template.key}:v${template.version}:${input.eventId}:${recipient.userId}`,
+            triggerType: "speaker.invited",
+            channel: "email",
+            recipientRef: recipient.address,
+            payload: { ...input.payload, speakerName: recipient.name },
+            templateKey: template.key,
+            templateVersion: template.version,
+          },
+          { scopeChecked: true },
+        ),
+      ),
+    );
+    // One durable round trip for the whole audience, so a large event cannot be half-sent.
+    const deliveries = await this.dependencies.repository.enqueueMany(prepared);
+    // A stored row keeping the id we just minted is one this send created; a row that came back
+    // with a different id was already there, and saying "queued" about it would be a lie.
+    const created = deliveries.filter((delivery, index) => delivery.id === prepared[index]?.id);
     return {
-      enqueued: deliveries.length,
+      enqueued: created.length,
+      alreadySent: deliveries.length - created.length,
       unreachable: recipients.filter((recipient) => recipient.address === null),
-      deliveries,
+      deliveries: [...deliveries],
     };
   }
 
@@ -210,19 +236,33 @@ export class CommunicationsService implements CommunicationsEnqueue {
    * this surface takes none and what still guards it.
    */
   async enqueue(request: DeliveryRequest): Promise<EnqueuedDelivery> {
-    const delivery = await this.dependencies.repository.enqueue(await this.prepare(request));
+    const prepared = await this.prepare(request);
+    const delivery = await this.dependencies.repository.enqueue(prepared);
     return {
       id: delivery.id,
       idempotencyKey: delivery.idempotencyKey,
       state: delivery.state,
+      // The stored row keeps the id of whichever enqueue wrote it, so an id that came back
+      // unchanged is one this call created.
+      created: delivery.id === prepared.id,
     };
   }
 
   /**
    * Resolve a delivery without writing it, for a caller committing it inside its own batch.
+   *
+   * When this key already has a delivery, that row is returned rather than a fresh one. The
+   * caller is going to hold the returned id — in its own table, in an event payload — and the
+   * insert it commits will not write a second row for the same key, so minting a new id here
+   * would hand back a reference to a delivery that never exists. A retried publish command must
+   * end up pointing at the delivery the first attempt created.
    */
   async prepareEnqueue(request: DeliveryRequest): Promise<Delivery> {
-    return this.prepare(request);
+    const existing = await this.dependencies.repository.findByIdempotencyKey(
+      request.organizationId,
+      request.idempotencyKey,
+    );
+    return existing ?? this.prepare(request);
   }
 
   private async prepare(

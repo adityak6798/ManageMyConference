@@ -16,10 +16,28 @@ verified against a live API.
 | `fixture` (default) | `DeterministicProvider` on all three channels | no | local development, `npm run check`, Playwright, the demo reset |
 | `live` | `HttpEmailProvider`, `AirtableProjectionProvider`, `AccelEventsProjectionProvider` | yes, all of them | a deployment that really sends |
 
-There is no third state, and that is the point. A `live` mode missing any variable **throws at
-startup** and names the missing bindings; it never falls back to a fake. The failure this rule
-exists to prevent is a deployment that believes it is mailing speakers while appending to an
-in-memory array. In the same spirit, `fixture` is refused outright when `ENVIRONMENT=production`.
+### Reaching a failure in `fixture` mode
+
+The deterministic provider succeeds for every recipient except three sub-address tags, which let
+a demo or a test produce a failed delivery from a real product action rather than from a seeded
+row: `someone+bounce@…` is terminally rejected, `someone+timeout@…` fails retryably, and
+`someone+malformed@…` returns an unparsable success. The tag must be the **whole** sub-address —
+`alerts+bounces@corp.example` is somebody's real address and sends normally.
+
+There is no third state, and that is the point. A `live` mode missing any variable **throws**,
+naming every missing binding at once; it never falls back to a fake. The failure this rule exists
+to prevent is a deployment that believes it is mailing speakers while appending to an in-memory
+array. In the same spirit, `fixture` is refused when `ENVIRONMENT` names a production deployment
+(`production`, `prod` or `live`, in any case).
+
+**Where that throw happens, precisely.** `resolveProviders` is called from `drainOutbox`, which
+the one-minute scheduled trigger invokes — **not** at module load and **not** on the request path.
+So a misconfigured deployment does not fail to deploy and does not fail `/health`. What happens is:
+the console keeps accepting sends and answering `202`, deliveries accumulate as `queued`, the
+scheduled drain throws once a minute, and **nothing is ever sent**. Deliveries are not lost and
+drain normally once configuration is fixed. This is the safe direction, but it is quiet: if you
+are verifying a configuration change, watch the Worker's scheduled-invocation logs or the
+delivery history, because a green deploy proves nothing about it.
 
 ## Configuration
 
@@ -58,9 +76,11 @@ Rotate by setting the new secret and redeploying: `wrangler secret put EMAIL_API
 which is terminal — they do not burn retries against a dead credential. Recover them from the
 organizer's history with the retry action once the new secret is live.
 
-To revoke immediately, revoke at the provider **and** set `COMMUNICATIONS_PROVIDERS` to something
-invalid (or unset the token) and redeploy: startup then refuses rather than sending. Deliveries
-accumulate as `queued` and drain when configuration is restored — nothing is lost.
+To revoke immediately, revoke at the provider **and** unset the token, then redeploy. The
+scheduled drain then throws instead of sending. Note what this does *not* do: the deploy
+succeeds, `/health` stays green, and the console keeps accepting sends — the only signal is the
+cron exception. Confirm revocation at the provider, not by watching the deploy. Deliveries
+accumulate as `queued` and drain when configuration is restored; nothing is lost.
 
 ## Normalized outcomes
 
@@ -69,16 +89,29 @@ history means one thing across all three:
 
 | Code | Kind | Cause | Operator action |
 |---|---|---|---|
-| `PROVIDER_TIMEOUT` | retryable | 408, or our own 10s ceiling | none; the outbox backs off |
+| `PROVIDER_TIMEOUT` | retryable | the provider answered 408 | none; the outbox backs off |
 | `PROVIDER_RATE_LIMITED` | retryable | 429 | none unless persistent; then reduce send volume |
 | `PROVIDER_UNAVAILABLE:5xx` | retryable | provider outage | watch; bounded at three attempts |
-| `PROVIDER_UNREACHABLE` | retryable | DNS, TLS, dropped connection | check network/egress |
+| `PROVIDER_UNREACHABLE` | retryable | DNS, TLS, dropped connection, **or our own 10s ceiling** | check network/egress; a whole channel timing out usually means the provider is degraded |
 | `PROVIDER_UNAUTHORIZED:401/403` | terminal | revoked, rotated or misscoped credential | fix the secret, redeploy, retry the delivery |
 | `PROVIDER_REJECTED:4xx` | terminal | the provider understood and refused | fix the data the code points at, then retry |
 | `MALFORMED_PROVIDER_RESPONSE` | terminal | 2xx we cannot parse, or with no reference | inspect the provider's own logs; the effect may have happened |
 | `RECIPIENT_NOT_ADDRESSABLE` | terminal | `recipient_ref` is not a mail address | correct the recipient reference at the source |
 | `MESSAGE_NOT_RENDERED` | terminal | an email delivery carrying no rendered body | a bug: the delivery was written outside the service |
 | `RETRY_EXHAUSTED:<code>` | terminal | three retryable attempts | the underlying code names the cause |
+
+Two more codes appear in the history that no adapter produces — the outbox writes them itself:
+`PROJECTION_SUPERSEDED` (terminal; a newer version for the same destination/event/resource was
+requested before this one ran, so it was never sent) and `UNEXPECTED_PROVIDER_ERROR` (retryable;
+an adapter threw rather than returning an outcome, which is a bug in the adapter).
+
+One edge worth knowing before it confuses somebody at 3am: the 10-second ceiling covers reading
+the body as well as getting the headers. A provider that answers at 9.9s and then streams slowly
+aborts mid-body, which reads as an unparsable success — `MALFORMED_PROVIDER_RESPONSE`, terminal,
+not retried. That is the safe direction (the send may well have happened, and retrying would
+duplicate it) but it means a *terminal* malformed result can have a timeout behind it rather than
+a genuinely bad payload. Check the provider's own logs for the delivery before assuming the
+response was malformed.
 
 A retryable failure becomes terminal on the third attempt. Recovery is the organizer's explicit
 retry (`POST /api/communications/deliveries/{id}/retry`), which adds one further attempt and never
@@ -97,13 +130,23 @@ No response body ever reaches an `error_code`. Bodies can echo a recipient addre
 contents, or a token quoted back in an error message, and `error_code` is stored on an immutable
 attempt and rendered in the organizer's UI. The status is enough to act on.
 
+One caveat on `idempotencyKey`, which the line does carry: for a console send it is
+`broadcast:{templateKey}:v{version}:{eventId}:{userId}` — identifiers, no address. But
+`POST /api/communications/deliveries` lets a caller choose the key freely, so a caller that keys
+a delivery `invite:ada@example.test` puts that address into this log line. Key deliveries by
+identifier, not by address.
+
 ## Rate limits and volume
 
-The scheduled drain runs every minute and takes at most 100 deliveries per invocation, so the
-ceiling is ~100 provider calls per minute per channel. Airtable's published limit is 5 requests
-per second per base and the mail provider's depends on plan; both are above that ceiling, and
-429s are retryable with backoff regardless. Raising the per-invocation limit means checking those
-numbers again.
+The scheduled drain runs every minute and takes at most 100 deliveries per invocation **in total
+across all three channels**, so the ceiling is ~100 provider calls per minute however they are
+distributed. Airtable's published limit is 5 requests per second per base and the mail provider's
+depends on plan; both are above that ceiling, and 429s are retryable with backoff regardless.
+Raising the per-invocation limit means checking those numbers again.
+
+One send from the console is capped separately, at 500 recipients, and refuses before writing
+anything rather than exhausting a Worker invocation partway through and leaving half an event
+queued while reporting failure.
 
 ## Staging smoke — required, and not yet performed
 
@@ -120,8 +163,9 @@ record the result here:
    with the reference column, an Accelevents sandbox tenant. Issue least-privilege credentials as
    above.
 2. Deploy a staging Worker with `COMMUNICATIONS_PROVIDERS=live` and those secrets.
-3. Confirm startup refuses first: deploy once with one token deliberately absent and check the
-   error names the binding and sends nothing.
+3. Confirm the fail-safe first: deploy once with one token deliberately absent. The deploy will
+   **succeed** — check the scheduled-invocation log for the thrown error naming the binding, and
+   confirm a delivery enqueued in that state stays `queued` and is never sent.
 4. Send one delivery per channel from the organizer console to a sandbox recipient. Confirm each
    reaches `succeeded` with a provider reference that resolves in that provider's own dashboard.
 5. Force each failure mode: an invalid recipient (terminal), a revoked token (terminal 401), a

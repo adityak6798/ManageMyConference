@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { preparedDeliveryWriter } from "../src/adapters/persistence/d1-communications-repository";
 import { MemoryCommunicationsRepository } from "../src/adapters/persistence/memory-communications-repository";
+import { MAX_BROADCAST_RECIPIENTS } from "../src/application/communications/communications-service";
 import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
@@ -159,9 +160,29 @@ describe("communications public enqueue interface", () => {
     const statements = preparedDeliveryWriter(database)(prepared);
 
     expect(statements).toHaveLength(1);
-    expect(queries[0]).toContain("INSERT OR IGNORE INTO communication_deliveries");
+    expect(queries[0]).toContain("INSERT INTO communication_deliveries");
+    // Only the duplicate key is absorbed. `INSERT OR IGNORE` would also swallow a CHECK or
+    // NOT NULL violation, and this statement is committed inside another domain's batch with
+    // nothing reloading it afterwards — a silently dropped row there is a published schedule
+    // with no delivery to announce it.
+    expect(queries[0]).toContain("ON CONFLICT (organization_id, idempotency_key) DO NOTHING");
+    expect(queries[0]).not.toContain("INSERT OR IGNORE");
     expect(bound[0]).toContain(prepared.idempotencyKey);
     expect(bound[0]).toContain(JSON.stringify(prepared.payload));
+  });
+
+  it("returns the delivery that already holds the key rather than an id nobody will write", async () => {
+    const { service, repository } = harness();
+    await seedTemplate(service);
+    const first = await service.prepareEnqueue(request());
+    await repository.enqueue(first);
+
+    const second = await service.prepareEnqueue(request());
+
+    // The caller is going to store this id — in its own table, in an event payload. A retried
+    // publish command must end up pointing at the delivery the first attempt created, because
+    // its own insert will not write a second row for the same key.
+    expect(second.id).toBe(first.id);
   });
 });
 
@@ -222,6 +243,27 @@ describe("sending a template to an event's speakers", () => {
 
     expect(await repository.list(organizationId, eventId)).toHaveLength(2);
     expect(second.deliveries.map(({ id }) => id)).toEqual(first.deliveries.map(({ id }) => id));
+    // And it says so. Reporting `enqueued: 2` for a send that wrote nothing would promise mail
+    // that will never go out — the organizer pressed Send precisely because they were unsure.
+    expect(first).toMatchObject({ enqueued: 2, alreadySent: 0 });
+    expect(second).toMatchObject({ enqueued: 0, alreadySent: 2 });
+  });
+
+  it("refuses an audience too large to send in one durable round trip", async () => {
+    const crowd = Array.from({ length: MAX_BROADCAST_RECIPIENTS + 1 }, (_, index) => ({
+      id: `user-${index}`,
+      name: `Speaker ${index}`,
+      email: `speaker${index}@example.test`,
+    }));
+    const { service, repository } = harness(crowd);
+    await seedTemplate(service);
+
+    await expect(
+      service.broadcast(organizer, { organizationId, eventId, templateKey: "speaker-welcome" }),
+    ).rejects.toThrow(CommunicationsInputError);
+    // It fails before writing anything, rather than partway through with half the event queued
+    // and the organizer told the send failed.
+    expect(await repository.list(organizationId, eventId)).toHaveLength(0);
   });
 
   it("sends again for a new template version, which is how a wrong message is corrected", async () => {

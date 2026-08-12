@@ -104,10 +104,21 @@ const attemptFromRow = (row: AttemptRow): DeliveryAttempt => ({
   errorCode: row.error_code,
 });
 
+/**
+ * `ON CONFLICT (organization_id, idempotency_key) DO NOTHING`, deliberately, rather than
+ * `INSERT OR IGNORE`.
+ *
+ * The two behave identically on the duplicate this table exists to absorb, and differently on
+ * everything else: `OR IGNORE` also swallows `CHECK`, `NOT NULL` and foreign-key violations, so
+ * a malformed delivery would vanish and the insert would still report success. That matters most
+ * for `preparedDeliveryWriter`, where the statement is committed inside another domain's batch
+ * and nothing reloads the row afterwards — a swallowed violation there is a published schedule
+ * with no delivery to announce it, which is the exact failure this API exists to prevent.
+ */
 const insertDeliveryStatement = (database: Database, delivery: Delivery): Statement =>
   database
     .prepare(
-      `INSERT OR IGNORE INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
     )
     .bind(
       delivery.id,
@@ -179,6 +190,51 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     this.ensure(result, "find template");
     return result.results?.[0] ? templateFromRow(result.results[0]) : null;
   }
+  private async byKeys(organizationId: string, keys: readonly string[]) {
+    if (keys.length === 0) return new Map<string, Delivery>();
+    const result = await this.database
+      .prepare(
+        `SELECT ${deliveryColumns} FROM communication_deliveries WHERE organization_id = ? AND idempotency_key IN (${keys.map(() => "?").join(", ")})`,
+      )
+      .bind(organizationId, ...keys)
+      .all<DeliveryRow>();
+    this.ensure(result, "reload enqueued deliveries");
+    return new Map(
+      (result.results ?? []).map((row) => [row.idempotency_key, deliveryFromRow(row)] as const),
+    );
+  }
+
+  async findByIdempotencyKey(organizationId: string, idempotencyKey: string) {
+    return (await this.byKeys(organizationId, [idempotencyKey])).get(idempotencyKey) ?? null;
+  }
+
+  /**
+   * One batch, then one read, whatever the audience size.
+   *
+   * Two statements per recipient would spend a Worker invocation's subrequest budget partway
+   * through a large event, leaving half the speakers durably queued and the organizer told the
+   * send failed. The reload is keyed by idempotency key rather than id so the row a previous
+   * send already wrote comes back as itself — that is what lets the caller count what it
+   * actually created.
+   */
+  async enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]> {
+    if (deliveries.length === 0) return [];
+    const organizationId = deliveries[0]?.organizationId as string;
+    const results = await this.database.batch(
+      deliveries.map((delivery) => insertDeliveryStatement(this.database, delivery)),
+    );
+    for (const result of results) this.ensure(result, "enqueue deliveries");
+    const stored = await this.byKeys(
+      organizationId,
+      deliveries.map((delivery) => delivery.idempotencyKey),
+    );
+    return deliveries.map((delivery) => {
+      const row = stored.get(delivery.idempotencyKey);
+      if (!row) throw new Error("D1 did not return an enqueued delivery");
+      return row;
+    });
+  }
+
   async listTemplates(organizationId: string) {
     const result = await this.database
       .prepare(

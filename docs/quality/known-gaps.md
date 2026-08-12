@@ -98,11 +98,15 @@ feature-by-feature verdict.
   rest of the CFP is shipped. Owner: cfp. Governing ID: `PRD-CFP-001`, `ACC-CFP`. Closure: issue #49
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.
-- `GAP-010` **Brief feature 3 is incomplete**: no lifecycle event enqueues a communication, the only
-  provider wired into the Worker is the deterministic success fake, organizer "communications" in the
-  content workspace are log rows rather than sends, and the speaker calendar is a download rather
-  than an invite delivered to Gmail/Outlook/iCal. Impact: the seeded outbox is placeholder data and
-  no message content has ever been produced by a product trigger. Owner: communications-integrations.
+- `GAP-010` **Brief feature 3 is incomplete**: no lifecycle event enqueues a communication,
+  organizer "communications" in the content workspace are log rows rather than sends, and the
+  speaker calendar is a download rather than an invite delivered to Gmail/Outlook/iCal. An
+  organizer *can* now write a template and send it to the event's speakers from the console, and
+  those deliveries carry a message rendered from the template version, so message content is no
+  longer purely decorative — but nothing the product does on its own enqueues anything, and the
+  seeded outbox rows remain placeholder data. Provider selection is credential-gated with live
+  adapters behind it (`fixture` remains the default and no live adapter has met a real API).
+  Owner: communications-integrations.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #56 (calendar delivery), #23 (production
   adapters).
@@ -112,9 +116,13 @@ feature-by-feature verdict.
   Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: issue #57 — either
   a multi-round model plus an honest suggestion port with provenance and manual fallback, or the
   removal of the AI claims from the architecture docs.
-- `GAP-012` **Brief feature 7 is missing**: Accelevents is a delivery-channel enum value with the
-  deterministic fake behind it. There is no client, fixture, field mapping, or organizer surface.
-  Impact: a named brief feature has zero implementation while `PRD-INT-001` names the provider.
+- `GAP-012` **Brief feature 7 is incomplete**: an Accelevents HTTP client with a field mapping now
+  exists behind the credential-gated `live` switch, contract-tested against a stubbed `fetch`. It
+  has never exchanged a request with the real API — no credential exists here, the request shape
+  comes from documentation rather than observation, and the staging smoke has not run. There is
+  still **no organizer surface**: no mapping configuration, connection test, dry-run preview, or
+  visible sync state. Impact: the integration cannot be operated or verified by an organizer, and
+  the adapter's correctness against the real API is unproven.
   Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: issue
   #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
   plainly it is not implemented.
