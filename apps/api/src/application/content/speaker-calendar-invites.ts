@@ -162,6 +162,7 @@ export class SpeakerCalendarInviteService {
           sessionId: session.id,
           speakerProfileId: speaker.id,
           scheduleRef,
+          scheduleRevisedAt: schedule.revisedAt,
           recipientRef: speaker.email,
           deliveryFor: (sequence) => {
             const invite = inviteFor(sequence);

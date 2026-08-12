@@ -81,7 +81,7 @@ export class ResourceEmbedDeniedError extends Error {}
  * changes when somebody deliberately republishes it.
  */
 export interface ScheduledContentSession extends ContentSession {
-  readonly schedule?: SessionSchedule & { readonly revision: number };
+  readonly schedule?: SessionSchedule & { readonly revision: number; readonly revisedAt: string };
 }
 
 /** The content workspace as it leaves the application layer, with schedules resolved. */

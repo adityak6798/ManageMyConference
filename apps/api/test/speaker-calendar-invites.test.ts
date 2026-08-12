@@ -47,7 +47,13 @@ const speaker = (id: string, email: string | null) => ({
 const session = (
   id: string,
   speakerProfileIds: string[],
-  schedule?: { startsAt: string; endsAt: string; location: string; revision?: number },
+  schedule?: {
+    startsAt: string;
+    endsAt: string;
+    location: string;
+    revision?: number;
+    revisedAt?: string;
+  },
 ) => ({
   id,
   eventId,
@@ -59,7 +65,15 @@ const session = (
   tags: [],
   tracks: [],
   publicationState: "published" as const,
-  ...(schedule ? { schedule: { ...schedule, revision: schedule.revision ?? 1 } } : {}),
+  ...(schedule
+    ? {
+        schedule: {
+          ...schedule,
+          revision: schedule.revision ?? 1,
+          revisedAt: schedule.revisedAt ?? "2026-08-12T08:00:00.000Z",
+        },
+      }
+    : {}),
 });
 
 const placed = {

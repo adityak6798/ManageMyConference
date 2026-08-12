@@ -79,6 +79,7 @@ describe("D1CommunicationsRepository", () => {
         sessionId: "session-1",
         speakerProfileId: "speaker-1",
         scheduleRef,
+        scheduleRevisedAt: "2026-08-12T08:00:00.000Z",
         recipientRef,
         deliveryFor: (sequence) => ({
           organizationId,
@@ -460,6 +461,7 @@ describe("migration 1704, after invitations already exist", () => {
         sessionId: "session",
         speakerProfileId: "profile",
         scheduleRef: "3|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+        scheduleRevisedAt: "2026-08-12T08:00:00.000Z",
         recipientRef: "new@example.test",
         deliveryFor: () => {
           throw new Error("an unchanged legacy invitation must not be rebuilt");
@@ -474,6 +476,7 @@ describe("migration 1704, after invitations already exist", () => {
         sessionId: "session",
         speakerProfileId: "profile",
         scheduleRef: "5|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+        scheduleRevisedAt: "2026-08-12T09:30:00.000Z",
         recipientRef: "new@example.test",
         deliveryFor: (sequence) => ({
           organizationId: "00000000-0000-4000-8000-000000000010",

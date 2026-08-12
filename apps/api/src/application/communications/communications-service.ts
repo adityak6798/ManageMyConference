@@ -371,23 +371,30 @@ export class CommunicationsService implements CommunicationsEnqueue {
         (current.scheduleRef === request.scheduleRef || legacyMatch) &&
         current.recipientRef === request.recipientRef
       ) {
-        if (
-          legacyMatch &&
-          !(await this.dependencies.repository.normalizeCalendarInviteScheduleRef(
-            { ...current, scheduleRef: request.scheduleRef },
-            current.scheduleRef,
-          ))
-        )
-          continue;
         const delivery = await this.dependencies.repository.get(current.deliveryId);
         if (!delivery) throw new Error("Calendar invitation state refers to no delivery");
-        return {
-          id: delivery.id,
-          idempotencyKey: delivery.idempotencyKey,
-          state: delivery.state,
-          created: false,
-          sequence: current.sequence,
-        };
+        // A legacy key has no per-session revision. Its delivery timestamp is the durable fact
+        // that tells continuous A from A -> absent -> A before this migration: a revision after
+        // the send means the current schedule returned later and needs another REQUEST now.
+        if (legacyMatch && request.scheduleRevisedAt > delivery.createdAt) {
+          // Fall through to the ordinary sequence allocation below.
+        } else {
+          if (
+            legacyMatch &&
+            !(await this.dependencies.repository.normalizeCalendarInviteScheduleRef(
+              { ...current, scheduleRef: request.scheduleRef },
+              current.scheduleRef,
+            ))
+          )
+            continue;
+          return {
+            id: delivery.id,
+            idempotencyKey: delivery.idempotencyKey,
+            state: delivery.state,
+            created: false,
+            sequence: current.sequence,
+          };
+        }
       }
 
       const sequence = (current?.sequence ?? -1) + 1;

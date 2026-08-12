@@ -252,9 +252,17 @@ export class AgendaService implements ContentAgendaInterface {
    */
   async publishedSessionSchedules(
     eventId: string,
-  ): Promise<ReadonlyMap<string, PlacedSessionTime & { readonly revision: number }>> {
+  ): Promise<
+    ReadonlyMap<
+      string,
+      PlacedSessionTime & { readonly revision: number; readonly revisedAt: string }
+    >
+  > {
     const publications = await this.repository.listPublished(eventId);
-    const revisions = new Map<string, PlacedSessionTime & { revision: number }>();
+    const revisions = new Map<
+      string,
+      PlacedSessionTime & { revision: number; revisedAt: string }
+    >();
     for (const publication of publications) {
       const schedules = placedSessionTimes(publication.agenda);
       const sessionIds = new Set([...revisions.keys(), ...schedules.keys()]);
@@ -270,10 +278,12 @@ export class AgendaService implements ContentAgendaInterface {
           previous.startsAt === next.startsAt &&
           previous.endsAt === next.endsAt &&
           previous.location === next.location;
-        revisions.set(sessionId, {
-          ...next,
-          revision: unchanged ? previous.revision : publication.version,
-        });
+        revisions.set(
+          sessionId,
+          unchanged
+            ? previous
+            : { ...next, revision: publication.version, revisedAt: publication.publishedAt },
+        );
       }
     }
     return revisions;

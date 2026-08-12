@@ -166,6 +166,7 @@ export interface CalendarInviteEnqueueRequest {
   readonly sessionId: string;
   readonly speakerProfileId: string;
   readonly scheduleRef: string;
+  readonly scheduleRevisedAt: string;
   readonly recipientRef: string;
   /** Content owns the iCalendar bytes; communications owns the durable sequence allocation. */
   readonly deliveryFor: (sequence: number) => DeliveryRequest;

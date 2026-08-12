@@ -43,7 +43,12 @@ export interface ContentAgendaInterface {
    */
   publishedSessionSchedules(
     eventId: string,
-  ): Promise<ReadonlyMap<string, PlacedSessionTime & { readonly revision: number }>>;
+  ): Promise<
+    ReadonlyMap<
+      string,
+      PlacedSessionTime & { readonly revision: number; readonly revisedAt: string }
+    >
+  >;
   /**
    * Take a session off the board, dropping every draft placement that holds it.
    *
