@@ -182,7 +182,7 @@ export function EvaluationCard({
           eventId={eventId}
           item={item}
           disabled={busy}
-          onAccepted={(evaluation) => {
+          onAccepted={(evaluation, replacedNotes) => {
             setScores(
               Object.fromEntries(
                 evaluation.scores.flatMap(({ criterionId, value, score }) => {
@@ -191,7 +191,11 @@ export function EvaluationCard({
                 }),
               ),
             );
-            setNotes(evaluation.notes);
+            // Scores are what the reviewer asked for, so they land. Notes are not: replacing them
+            // unconditionally with the server's copy threw away whatever the reviewer had typed
+            // and not yet saved, on an action that says nothing about notes. They move only when
+            // the reviewer ticked the box that puts the summary in them.
+            if (replacedNotes) setNotes(evaluation.notes);
           }}
           onChanged={reload}
         />

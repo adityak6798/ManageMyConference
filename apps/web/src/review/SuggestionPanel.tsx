@@ -69,8 +69,13 @@ export function SuggestionPanel({
 }: {
   eventId: string;
   item: QueueItem;
-  /** Applies the accepted draft to the open scoring form, so the reviewer sees what they took. */
-  onAccepted: (evaluation: Evaluation) => void;
+  /**
+   * Applies the accepted draft to the open scoring form, so the reviewer sees what they took.
+   *
+   * `replacedNotes` says whether this acceptance touched the notes field, so the card can leave
+   * the reviewer's unsaved typing alone when it did not.
+   */
+  onAccepted: (evaluation: Evaluation, replacedNotes: boolean) => void;
   onChanged: () => Promise<void>;
   disabled: boolean;
 }) {
@@ -80,7 +85,12 @@ export function SuggestionPanel({
   const criteria: readonly Criterion[] = item.plan?.criteria ?? [];
   // Only the outstanding one. An answered suggestion is an audit record, not a thing to act on,
   // and leaving it on screen would invite a second reading of a draft already dealt with.
-  const offered = (item.suggestions ?? []).find((suggestion) => suggestion.state === "offered");
+  // The *newest* outstanding draft, not the oldest. The queue arrives oldest-first, and a reviewer
+  // who somehow has two outstanding — a stale tab, a retried request — means the later one, which
+  // is the one they just asked for.
+  const offered = (item.suggestions ?? [])
+    .filter((suggestion) => suggestion.state === "offered")
+    .at(-1);
 
   async function draft() {
     setBusy(true);
@@ -107,7 +117,7 @@ export function SuggestionPanel({
         response,
         response === "accepted" && includeSummary,
       );
-      if (result.evaluation) onAccepted(result.evaluation);
+      if (result.evaluation) onAccepted(result.evaluation, includeSummary);
       await onChanged();
       feedback.announce(
         "success",

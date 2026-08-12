@@ -226,6 +226,39 @@ describe("the assistant's draft", () => {
     expect(sent[0]?.body).toMatchObject({ response: "accepted", includeSummaryInNotes: false });
   });
 
+  it("does not throw away notes the reviewer has typed but not saved", async () => {
+    // Accepting says nothing about notes, so it must not touch them. This failed before the guard:
+    // the accepted evaluation's `notes` (empty, because nothing had been saved yet) replaced what
+    // the reviewer had typed, on an action about scores.
+    stubApi((url) => {
+      if (url.endsWith(`/suggestions/${suggestionId}/response`))
+        return jsonResponse({
+          suggestion: suggestion({ state: "accepted" }),
+          evaluation: {
+            assignmentId,
+            reviewerId: "seed-reviewer",
+            scores: [{ criterionId: "relevance", value: 4, score: 4 }],
+            notes: "",
+            state: "draft",
+            updatedAt: "2026-08-11T10:05:00.000Z",
+            source: "suggested",
+            suggestionId,
+          },
+        });
+      if (url.endsWith("/review/assignments"))
+        return jsonResponse(queue({}, { suggestions: [suggestion()] }));
+      return undefined;
+    });
+
+    render(<ReviewerWorkspace eventId={eventId} />);
+    const notes = await screen.findByLabelText("Private notes");
+    fireEvent.change(notes, { target: { value: "Halfway through my own note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Accept into my scores" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Audience fit")).toHaveValue("4"));
+    expect(screen.getByLabelText("Private notes")).toHaveValue("Halfway through my own note");
+  });
+
   it("dismisses a draft without touching the form", async () => {
     let answered = false;
     const sent = stubApi((url) => {
