@@ -100,6 +100,25 @@ shared file. Every declared path must exist, must not overlap another domain's, 
 identifier must have a normative definition in a document. A symbol registered by two domains
 fails the check with both named.
 
+## Contracts, storage and seed data
+
+Each domain owns the same three declarations outside its runtime module:
+
+- Zod contracts in `packages/contracts/src/domains/<domain>.ts`, re-exported by the stable
+  `packages/contracts/src/index.ts` entrypoint;
+- Drizzle tables in `apps/api/src/adapters/persistence/schema/<domain>.ts`, registered in
+  `schema/registry.ts` and re-exported by `schema.ts`;
+- deterministic SQL fragments under `apps/api/seed/domains/<domain>/`, listed in
+  `tools/compose-seed.mjs` in dependency-safe application order.
+
+Run `npm run seed:generate` after changing a seed fragment. The composed `seed/reset.sql` remains
+the one artifact consumed by local reset and the D1 test harness, while `npm run seed:check`
+refuses aggregate drift. Add all three domain-owned paths to `context/domains/<domain>.json`.
+
+New migrations use the domain blocks in
+[`apps/api/migrations/README.md`](../../apps/api/migrations/README.md), so parallel changes cannot
+independently claim the same globally ordered filename.
+
 ## Boundaries still apply
 
 Modularisation does not widen anything. Dependencies still point

@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "lib": ["ESNext", "DOM"],
     "noEmit": true,
     "types": ["vitest/globals", "node"]

@@ -6,7 +6,9 @@ import { test } from "node:test";
 import {
   applyMigrations,
   diffModels,
+  generateDdl,
   loadDeclaredDdl,
+  loadDeclaredSchema,
   readModel,
   selfTest,
 } from "../check-schema-drift.mjs";
@@ -87,6 +89,28 @@ test("the declared schema reproduces the migrated database", async () => {
   const migrated = new DatabaseSync(":memory:");
   applyMigrations(migrated);
   assert.deepEqual(diffModels(readModel(migrated), modelOf(await loadDeclaredDdl())), []);
+});
+
+test("the registry and public aggregate expose all 34 domain-owned tables", async () => {
+  const registry = await loadDeclaredSchema();
+  const aggregate = await import(
+    new URL("../../apps/api/src/adapters/persistence/schema.ts", import.meta.url).href
+  );
+  assert.equal(
+    generateDdl(registry).filter((statement) => statement.startsWith("CREATE TABLE")).length,
+    34,
+  );
+  assert.deepEqual(diffModels(modelOf(generateDdl(aggregate)), modelOf(generateDdl(registry))), []);
+});
+
+test("dropping a domain fragment cannot leave the schema check green", async () => {
+  const declared = await loadDeclaredSchema();
+  const withoutPublishing = Object.fromEntries(
+    Object.entries(declared).filter(([name]) => name !== "publicEventProjections"),
+  );
+  const migrated = new DatabaseSync(":memory:");
+  applyMigrations(migrated);
+  assert.ok(diffModels(readModel(migrated), modelOf(generateDdl(withoutPublishing))).length > 0);
 });
 
 test("every mutation of the declared schema is detected", async () => {

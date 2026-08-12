@@ -154,6 +154,16 @@
         "path": "apps/web/src/workspaces/registry.tsx",
         "governing": "ARC-DOM-001",
         "reason": "The console workspace registry. Listing every domain's workspace module is the whole of what it does."
+      },
+      {
+        "path": "packages/contracts/src/index.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The public contracts barrel. Re-exporting every domain contract while preserving the package import path is the whole of what it does."
+      },
+      {
+        "path": "apps/api/src/adapters/persistence/schema/registry.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The storage declaration registry. It supplies foreign-key columns to domain schema factories and composes their returned tables without reading or writing application data."
       }
     ],
     "layerPaths": {
@@ -280,7 +290,13 @@
         ".agents/skills/ship-it",
         "tools",
         ".github",
-        "packages/contracts",
+        "packages/contracts/openapi",
+        "packages/contracts/scripts",
+        "packages/contracts/openapi.json",
+        "packages/contracts/package.json",
+        "packages/contracts/src/index.ts",
+        "packages/contracts/tsconfig.json",
+        "packages/contracts/src/domains/platform.ts",
         "apps/api/src/index.ts",
         "apps/api/src/transport/http/app.ts",
         "apps/api/src/transport/http/runtime.ts",
@@ -288,6 +304,7 @@
         "apps/api/src/transport/http/routes/contract.ts",
         "apps/api/src/transport/http/routes/registry.ts",
         "apps/api/src/adapters/persistence/schema.ts",
+        "apps/api/src/adapters/persistence/schema/registry.ts",
         "apps/web/src/App.tsx",
         "apps/web/src/main.tsx",
         "apps/api/test/http.test.ts",
@@ -329,6 +346,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/identity-access.ts",
+        "apps/api/src/adapters/persistence/schema/identity-access.ts",
+        "apps/api/seed/domains/identity-access",
         "apps/api/src/application/identity",
         "apps/api/src/transport/http/routes/identity.ts",
         "apps/api/src/adapters/persistence/d1-identity-directory.ts",
@@ -350,6 +370,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/events.ts",
+        "apps/api/src/adapters/persistence/schema/events.ts",
+        "apps/api/seed/domains/events",
         "apps/api/src/domain/events",
         "apps/api/src/application/events",
         "apps/api/src/adapters/persistence/d1-event-repository.ts",
@@ -386,6 +409,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/cfp.ts",
+        "apps/api/src/adapters/persistence/schema/cfp.ts",
+        "apps/api/seed/domains/cfp",
         "apps/api/src/application/cfp",
         "apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts",
         "apps/api/src/adapters/persistence/memory-submitted-proposal-adapter.ts",
@@ -423,6 +449,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/review.ts",
+        "apps/api/src/adapters/persistence/schema/review.ts",
+        "apps/api/seed/domains/review",
         "apps/api/src/domain/review",
         "apps/api/src/application/review",
         "apps/api/src/adapters/persistence/d1-review-repository.ts",
@@ -467,6 +496,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/content.ts",
+        "apps/api/src/adapters/persistence/schema/content.ts",
+        "apps/api/seed/domains/content",
         "apps/api/src/domain/content",
         "apps/api/src/application/content",
         "apps/api/src/adapters/content/d1-speaker-conversion.ts",
@@ -506,6 +538,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/crm.ts",
+        "apps/api/src/adapters/persistence/schema/crm.ts",
+        "apps/api/seed/domains/crm",
         "apps/api/src/domain/crm",
         "apps/api/src/application/crm",
         "apps/api/src/adapters/persistence/d1-crm-repository.ts",
@@ -538,6 +573,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/agenda.ts",
+        "apps/api/src/adapters/persistence/schema/agenda.ts",
+        "apps/api/seed/domains/agenda",
         "apps/api/src/domain/agenda",
         "apps/api/src/application/agenda",
         "apps/api/src/adapters/persistence/d1-agenda-repository.ts",
@@ -573,6 +611,9 @@
         "PLAN-002"
       ],
       "paths": [
+        "packages/contracts/src/domains/communications-integrations.ts",
+        "apps/api/src/adapters/persistence/schema/communications-integrations.ts",
+        "apps/api/seed/domains/communications-integrations",
         "apps/api/src/domain/communications",
         "apps/api/src/application/communications",
         "apps/api/src/adapters/providers",
@@ -607,6 +648,9 @@
         "PLAN-003"
       ],
       "paths": [
+        "packages/contracts/src/domains/publishing.ts",
+        "apps/api/src/adapters/persistence/schema/publishing.ts",
+        "apps/api/seed/domains/publishing",
         "apps/api/src/domain/publishing",
         "apps/api/src/application/publishing",
         "apps/api/src/adapters/persistence/d1-publication-repository.ts",

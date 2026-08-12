@@ -7,6 +7,9 @@
   "acceptance": ["ACC-AGENDA"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/agenda.ts",
+    "apps/api/src/adapters/persistence/schema/agenda.ts",
+    "apps/api/seed/domains/agenda",
     "apps/api/src/domain/agenda",
     "apps/api/src/application/agenda",
     "apps/api/src/adapters/persistence/d1-agenda-repository.ts",

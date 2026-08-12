@@ -7,6 +7,9 @@
   "acceptance": ["ACC-CRM"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/crm.ts",
+    "apps/api/src/adapters/persistence/schema/crm.ts",
+    "apps/api/seed/domains/crm",
     "apps/api/src/domain/crm",
     "apps/api/src/application/crm",
     "apps/api/src/adapters/persistence/d1-crm-repository.ts",

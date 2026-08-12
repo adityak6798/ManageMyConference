@@ -7,6 +7,9 @@
   "acceptance": ["ACC-INTEGRATION"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/communications-integrations.ts",
+    "apps/api/src/adapters/persistence/schema/communications-integrations.ts",
+    "apps/api/seed/domains/communications-integrations",
     "apps/api/src/domain/communications",
     "apps/api/src/application/communications",
     "apps/api/src/adapters/providers",

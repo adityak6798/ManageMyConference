@@ -7,6 +7,9 @@
   "acceptance": ["ACC-CFP"],
   "plans": ["PLAN-002"],
   "paths": [
+    "packages/contracts/src/domains/cfp.ts",
+    "apps/api/src/adapters/persistence/schema/cfp.ts",
+    "apps/api/seed/domains/cfp",
     "apps/api/src/application/cfp",
     "apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts",
     "apps/api/src/adapters/persistence/memory-submitted-proposal-adapter.ts",
