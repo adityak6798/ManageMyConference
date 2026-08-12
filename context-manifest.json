@@ -671,7 +671,9 @@
         "apps/api/migrations/1700_delivery_rendered_message.sql",
         "apps/web/src/api/communications.ts",
         "apps/web/src/CommunicationsWorkspace.tsx",
+        "apps/web/src/communications",
         "apps/web/test/communications.test.tsx",
+        "apps/web/test/communications-compose.test.tsx",
         "apps/web/e2e/communications.spec.ts",
         "apps/api/src/transport/http/routes/communications.ts",
         "apps/web/src/workspaces/communications.tsx"

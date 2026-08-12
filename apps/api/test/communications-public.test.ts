@@ -22,7 +22,13 @@ const organizer: Actor = {
   capabilities: new Set(["communications:manage"]),
 };
 
-const harness = () => {
+const SPEAKERS = [
+  { id: "user-ada", name: "Ada Lovelace", email: "ada@example.test" },
+  { id: "user-grace", name: "Grace Hopper", email: "grace@example.test" },
+  { id: "user-unlinked", name: "Alan Turing", email: null },
+];
+
+const harness = (speakers: typeof SPEAKERS = SPEAKERS) => {
   let id = 0;
   const repository = new MemoryCommunicationsRepository();
   const service = new CommunicationsService({
@@ -31,17 +37,18 @@ const harness = () => {
       belongsToOrganization: async (candidateEventId, candidateOrganizationId) =>
         candidateEventId === eventId && candidateOrganizationId === organizationId,
     },
+    speakerDirectory: { listSpeakersForEvent: async () => speakers },
     newId: () => `id-${++id}`,
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });
   return { repository, service };
 };
 
-const seedTemplate = (service: CommunicationsService) =>
+const seedTemplate = (service: CommunicationsService, version = 1) =>
   service.createTemplate(organizer, {
     organizationId,
     key: "speaker-welcome",
-    version: 1,
+    version,
     channel: "email",
     subject: "You're speaking",
     body: "Hello {{speakerName}}",
@@ -155,5 +162,107 @@ describe("communications public enqueue interface", () => {
     expect(queries[0]).toContain("INSERT OR IGNORE INTO communication_deliveries");
     expect(bound[0]).toContain(prepared.idempotencyKey);
     expect(bound[0]).toContain(JSON.stringify(prepared.payload));
+  });
+});
+
+describe("sending a template to an event's speakers", () => {
+  it("gives every reachable speaker their own delivery and their own message", async () => {
+    const { service, repository } = harness();
+    await seedTemplate(service);
+
+    const result = await service.broadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "speaker-welcome",
+    });
+
+    expect(result.enqueued).toBe(2);
+    const deliveries = await repository.list(organizationId, eventId);
+    expect(deliveries.map((delivery) => delivery.recipientRef)).toEqual([
+      "ada@example.test",
+      "grace@example.test",
+    ]);
+    // One row per person, each addressed by name: "the send failed" is never true of an
+    // audience, only of one address at a time.
+    expect(deliveries.map((delivery) => delivery.renderedBody)).toEqual([
+      "Hello Ada Lovelace",
+      "Hello Grace Hopper",
+    ]);
+  });
+
+  it("reports the speaker it cannot reach instead of quietly sending to fewer people", async () => {
+    const { service } = harness();
+    await seedTemplate(service);
+
+    const result = await service.broadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "speaker-welcome",
+    });
+
+    expect(result.unreachable).toEqual([
+      { userId: "user-unlinked", name: "Alan Turing", address: null },
+    ]);
+  });
+
+  it("does not mail anyone twice when Send is pressed twice", async () => {
+    const { service, repository } = harness();
+    await seedTemplate(service);
+
+    const first = await service.broadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "speaker-welcome",
+    });
+    const second = await service.broadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "speaker-welcome",
+    });
+
+    expect(await repository.list(organizationId, eventId)).toHaveLength(2);
+    expect(second.deliveries.map(({ id }) => id)).toEqual(first.deliveries.map(({ id }) => id));
+  });
+
+  it("sends again for a new template version, which is how a wrong message is corrected", async () => {
+    const { service, repository } = harness();
+    await seedTemplate(service, 1);
+    await service.broadcast(organizer, { organizationId, eventId, templateKey: "speaker-welcome" });
+
+    await service.createTemplate(organizer, {
+      organizationId,
+      key: "speaker-welcome",
+      version: 2,
+      channel: "email",
+      subject: "Correction",
+      body: "Sorry {{speakerName}}, the previous note was wrong",
+    });
+    const corrected = await service.broadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "speaker-welcome",
+    });
+
+    expect(corrected.enqueued).toBe(2);
+    expect(await repository.list(organizationId, eventId)).toHaveLength(4);
+    expect(corrected.deliveries[0]?.renderedSubject).toBe("Correction");
+  });
+
+  it("refuses a template that does not exist rather than sending nothing silently", async () => {
+    const { service } = harness();
+
+    await expect(
+      service.broadcast(organizer, { organizationId, eventId, templateKey: "no-such-template" }),
+    ).rejects.toThrow(CommunicationsNotFoundError);
+  });
+
+  it("lists every immutable version so an organizer can read what was sent", async () => {
+    const { service } = harness();
+    await seedTemplate(service, 1);
+    await seedTemplate(service, 2);
+
+    const templates = await service.templates(organizer, organizationId);
+
+    expect(templates.map(({ version }) => version)).toEqual([2, 1]);
   });
 });

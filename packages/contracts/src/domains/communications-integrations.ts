@@ -63,6 +63,20 @@ export const communicationsHistoryParamsSchema = z.object({
   cursor: z.string().min(1).max(500).optional(),
 });
 export const retryDeliveryInputSchema = z.object({ organizationId: z.string().uuid() });
+export const templateListParamsSchema = z.object({ organizationId: z.string().uuid() });
+export const broadcastRecipientsParamsSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+});
+export const broadcastInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  templateKey: z.string().trim().min(1).max(80),
+  /** Omitted sends the newest version; pinning one is how a re-send repeats an older message. */
+  templateVersion: z.number().int().positive().optional(),
+  /** Values for the template's placeholders. `speakerName` is supplied per recipient. */
+  payload: z.record(z.unknown()).optional(),
+});
 export const deliveryIdParamsSchema = z.object({ deliveryId: z.string().min(1) });
 export const messageTemplateSchema = createTemplateInputSchema.extend({
   id: z.string(),
@@ -101,6 +115,23 @@ export const deliveryAttemptSchema = z.object({
   errorCode: z.string().nullable(),
 });
 export const templateResponseSchema = z.object({ template: messageTemplateSchema });
+export const templateListResponseSchema = z.object({
+  templates: z.array(messageTemplateSchema),
+});
+export const broadcastRecipientSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  /** Null when identity holds no address for this speaker. Counted, never guessed at. */
+  address: z.string().nullable(),
+});
+export const broadcastRecipientsResponseSchema = z.object({
+  recipients: z.array(broadcastRecipientSchema),
+});
+export const broadcastResponseSchema = z.object({
+  enqueued: z.number().int().nonnegative(),
+  unreachable: z.array(broadcastRecipientSchema),
+  deliveries: z.array(deliverySchema),
+});
 export const deliveryResponseSchema = z.object({ delivery: deliverySchema });
 export const communicationsHistoryResponseSchema = z.object({
   history: z.array(
@@ -109,6 +140,10 @@ export const communicationsHistoryResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type CreateTemplateInput = z.infer<typeof createTemplateInputSchema>;
+export type MessageTemplateDto = z.infer<typeof messageTemplateSchema>;
+export type BroadcastInput = z.infer<typeof broadcastInputSchema>;
+export type BroadcastRecipientDto = z.infer<typeof broadcastRecipientSchema>;
+export type BroadcastResultDto = z.infer<typeof broadcastResponseSchema>;
 export type TriggerDeliveryInput = z.infer<typeof triggerDeliveryInputSchema>;
 export type DeliveryDto = z.infer<typeof deliverySchema>;
 export type CommunicationsHistoryDto = z.infer<typeof communicationsHistoryResponseSchema>;

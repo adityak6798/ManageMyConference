@@ -185,6 +185,8 @@ export default {
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),
       eventDirectory: service,
+      // Who an event's speakers are is identity's answer, not a read of content's profiles.
+      speakerDirectory: identityDirectory,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });

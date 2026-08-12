@@ -24,6 +24,8 @@ export interface CommunicationsRepository {
     key: string,
     version?: number,
   ): Promise<MessageTemplate | null>;
+  /** Every version in the organization, newest first. Versions are immutable; none is hidden. */
+  listTemplates(organizationId: string): Promise<readonly MessageTemplate[]>;
   enqueue(delivery: Delivery): Promise<Delivery>;
   list(organizationId: string, eventId: string): Promise<readonly Delivery[]>;
   historyPage(

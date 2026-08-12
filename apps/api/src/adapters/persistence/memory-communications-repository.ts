@@ -41,6 +41,17 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     );
   }
 
+  async listTemplates(organizationId: string) {
+    return this.templates
+      .filter((template) => template.organizationId === organizationId)
+      .sort(
+        (left, right) =>
+          left.key.localeCompare(right.key) ||
+          right.version - left.version ||
+          left.id.localeCompare(right.id),
+      );
+  }
+
   async enqueue(delivery: Delivery): Promise<Delivery> {
     const existing = [...this.deliveries.values()].find(
       (item) =>

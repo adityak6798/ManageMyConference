@@ -211,6 +211,25 @@ export class D1IdentityDirectory implements IdentityDirectory {
   }
 
   /**
+   * The event's speakers and how to reach them.
+   *
+   * `LEFT JOIN` on the address: a speaker with no linked identity email is still a speaker and
+   * still belongs in the list, so the caller can say "3 of 4 are reachable" instead of silently
+   * addressing fewer people than the organizer thinks.
+   */
+  async listSpeakersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT DISTINCT u.id, u.name, e.email FROM users u JOIN event_roles r ON r.user_id = u.id LEFT JOIN identity_emails e ON e.user_id = u.id WHERE r.event_id = ? AND r.role = 'speaker' ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string; email: string | null }>();
+    if (!result.success)
+      throw new Error(`D1 failed to list event speakers: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map((row) => ({ ...row, email: row.email ?? null }));
+  }
+
+  /**
    * The event's staff. `DISTINCT` because a user may hold both roles on one event, and the
    * `event_id` predicate is what keeps the list event-scoped: a role held on another event
    * never appears here.

@@ -179,6 +179,17 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     this.ensure(result, "find template");
     return result.results?.[0] ? templateFromRow(result.results[0]) : null;
   }
+  async listTemplates(organizationId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT id, organization_id, template_key, version, channel, subject, body, created_at FROM message_templates WHERE organization_id = ? ORDER BY template_key, version DESC",
+      )
+      .bind(organizationId)
+      .all<TemplateRow>();
+    this.ensure(result, "list templates");
+    return (result.results ?? []).map(templateFromRow);
+  }
+
   async enqueue(delivery: Delivery) {
     const insert = await insertDeliveryStatement(this.database, delivery).run();
     this.ensure(insert, "enqueue delivery");

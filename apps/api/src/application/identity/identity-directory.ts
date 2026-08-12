@@ -20,6 +20,17 @@ export interface IdentityDirectory {
   isSpeakerForEvent(userId: string, eventId: string): Promise<boolean>;
   listReviewersForEvent(eventId: string): Promise<readonly { id: string; name: string }[]>;
   /**
+   * The people holding a speaker role on one event, with the address each can be reached at.
+   *
+   * Communications needs this to send to an event's speakers without reading `event_roles`,
+   * `users` or content's `speaker_profiles`. `email` is null for a speaker whose identity has no
+   * address linked — a real state in demo data and for a speaker provisioned before login — and
+   * the caller is expected to report them as unreachable rather than fabricate an address.
+   */
+  listSpeakersForEvent(
+    eventId: string,
+  ): Promise<readonly { id: string; name: string; email: string | null }[]>;
+  /**
    * The staff of one event — its organizers and reviewers, each listed once. This is the
    * authority on who may be assigned ownership of that event's work; callers must not read
    * `event_roles` or `users` themselves.

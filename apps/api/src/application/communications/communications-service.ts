@@ -23,8 +23,35 @@ export interface CommunicationsDependencies {
   eventDirectory: {
     belongsToOrganization(eventId: string, organizationId: string): Promise<boolean>;
   };
+  /**
+   * Who an event's speakers are, answered by identity-access. Communications never reads
+   * `event_roles`, `users` or content's `speaker_profiles` to find out.
+   *
+   * Optional because a composition that exercises only the outbox has no directory to give; a
+   * broadcast attempted without one is a composition bug and says so.
+   */
+  speakerDirectory?: {
+    listSpeakersForEvent(
+      eventId: string,
+    ): Promise<readonly { id: string; name: string; email: string | null }[]>;
+  };
   newId(): string;
   now(): Date;
+}
+
+/** One speaker a broadcast would reach, or the reason it would not. */
+export interface BroadcastRecipient {
+  readonly userId: string;
+  readonly name: string;
+  /** Null when identity holds no address for this speaker; they are counted, never guessed at. */
+  readonly address: string | null;
+}
+
+export interface BroadcastResult {
+  readonly enqueued: number;
+  /** Speakers with no address. Reported so a count of 3 out of 4 is visible, not silent. */
+  readonly unreachable: readonly BroadcastRecipient[];
+  readonly deliveries: readonly Delivery[];
 }
 
 export {
@@ -69,6 +96,104 @@ export class CommunicationsService implements CommunicationsEnqueue {
     };
     await this.dependencies.repository.createTemplate(template);
     return template;
+  }
+
+  /**
+   * Every version of every template in the organization, newest first.
+   *
+   * Versions are immutable, so "editing" a template is publishing a new version and the old one
+   * stays readable — a delivery sent last week names the version it used, and this is where an
+   * organizer goes to read what that version actually said.
+   */
+  async templates(
+    actor: Actor | null,
+    organizationId: string,
+  ): Promise<readonly MessageTemplate[]> {
+    this.organization(actor, organizationId);
+    return this.dependencies.repository.listTemplates(organizationId);
+  }
+
+  /** Who a broadcast would reach, for a confirmation the organizer sees before sending. */
+  async recipients(
+    actor: Actor | null,
+    organizationId: string,
+    eventId: string,
+  ): Promise<readonly BroadcastRecipient[]> {
+    const authorized = this.organization(actor, organizationId);
+    await this.event(authorized, eventId, organizationId);
+    const directory = this.dependencies.speakerDirectory;
+    if (!directory) throw new Error("Communications speaker directory is not configured");
+    return (await directory.listSpeakersForEvent(eventId)).map((speaker) => ({
+      userId: speaker.id,
+      name: speaker.name,
+      address: speaker.email,
+    }));
+  }
+
+  /**
+   * Send one template to every speaker on the event.
+   *
+   * Deliberately not a fan-out of one delivery: each speaker gets their own row, their own
+   * rendered message, their own attempt history and their own retry, because "the send failed"
+   * is never true of a whole audience — it is true of one address at a time.
+   *
+   * The idempotency key is `broadcast:{templateKey}:v{version}:{eventId}:{userId}`, so pressing
+   * Send twice, or a retried request, converges on one delivery per speaker instead of mailing
+   * them twice. Sending a *new version* of the same template is a different key and does send
+   * again, which is the intended way to correct a message that went out wrong.
+   */
+  async broadcast(
+    actor: Actor | null,
+    input: {
+      organizationId: string;
+      eventId: string;
+      templateKey: string;
+      templateVersion?: number | undefined;
+      payload?: Readonly<Record<string, unknown>> | undefined;
+    },
+  ): Promise<BroadcastResult> {
+    const authorized = this.organization(actor, input.organizationId);
+    await this.event(authorized, input.eventId, input.organizationId);
+    const template = await this.dependencies.repository.findTemplate(
+      input.organizationId,
+      input.templateKey,
+      input.templateVersion,
+    );
+    if (!template) throw new CommunicationsNotFoundError("Template version not found");
+    if (template.channel !== "email")
+      throw new CommunicationsInputError("Only email templates can be sent to speakers");
+
+    const recipients = await this.recipients(actor, input.organizationId, input.eventId);
+    const reachable = recipients.filter(
+      (recipient): recipient is BroadcastRecipient & { address: string } =>
+        recipient.address !== null,
+    );
+    const deliveries: Delivery[] = [];
+    for (const recipient of reachable) {
+      deliveries.push(
+        await this.dependencies.repository.enqueue(
+          await this.prepare(
+            {
+              organizationId: input.organizationId,
+              eventId: input.eventId,
+              idempotencyKey: `broadcast:${template.key}:v${template.version}:${input.eventId}:${recipient.userId}`,
+              triggerType: "speaker.invited",
+              channel: "email",
+              recipientRef: recipient.address,
+              payload: { ...input.payload, speakerName: recipient.name },
+              templateKey: template.key,
+              templateVersion: template.version,
+            },
+            { scopeChecked: true },
+          ),
+        ),
+      );
+    }
+    return {
+      enqueued: deliveries.length,
+      unreachable: recipients.filter((recipient) => recipient.address === null),
+      deliveries,
+    };
   }
 
   /**
