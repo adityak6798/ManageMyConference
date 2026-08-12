@@ -241,6 +241,15 @@ describe("D1ContentRepository", () => {
       versionGroupId: "80000000-0000-4000-8000-000000000002",
     };
     await repository.addAsset(slides);
+    const slidesV2 = {
+      ...slides,
+      id: "80000000-0000-4000-8000-000000000003",
+      storageKey: "event/profile/slides-v2",
+      versionNumber: 2,
+    };
+    await repository.replaceLatestAsset(slidesV2, slides);
+    await repository.deleteAsset(slidesV2.id);
+    await expect(repository.findAsset(slides.id)).resolves.toMatchObject({ isLatest: true });
     await expect(
       photoService.setProfilePhoto(organizer, managedProfile.id, slides.id),
     ).rejects.toBeInstanceOf(SpeakerPhotoInvalidError);

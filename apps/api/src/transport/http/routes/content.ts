@@ -8,34 +8,35 @@
  */
 import {
   acceptContentInputSchema,
+  addContentCommentInputSchema,
+  bulkDownloadDeliverablesInputSchema,
+  bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
+  createSpeakerResourceInputSchema,
   eventContentParamsSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
+  restoreContentRevisionInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
+  speakerCsvImportInputSchema,
+  speakerResourceParamsSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
-  uploadSpeakerAssetInputSchema,
-  createSpeakerResourceInputSchema,
   updateSpeakerResourceInputSchema,
-  speakerResourceParamsSchema,
-  bulkRequestSpeakerTaskInputSchema,
-  speakerCsvImportInputSchema,
   updateSpeakerWorkflowInputSchema,
-  addContentCommentInputSchema,
-  restoreContentRevisionInputSchema,
-  bulkDownloadDeliverablesInputSchema,
+  uploadSpeakerAssetInputSchema,
 } from "@greenroom/contracts";
+import { ContentConflictError } from "../../../application/content/content-repository";
 import {
   ResourceEmbedDeniedError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../../../application/content/content-service";
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
-import { envelope, validationFields, readJson, PUBLIC_CACHE_CONTROL } from "../runtime";
+import { envelope, PUBLIC_CACHE_CONTROL, readJson, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
@@ -642,6 +643,12 @@ export const contentRoutes: RouteModule = {
         message: error.message,
         status: 400 as const,
         fields: { embedHtml: [error.message] },
+      };
+    if (error instanceof ContentConflictError)
+      return {
+        code: "CONFLICT" as const,
+        message: error.message,
+        status: 409 as const,
       };
     return null;
   },
