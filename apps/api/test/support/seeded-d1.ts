@@ -104,6 +104,15 @@ export async function migrationFilenames(): Promise<string[]> {
   return names;
 }
 
+/** Apply one named migration, including the same statement diagnostics as the full harness. */
+export async function applyMigrationFile(database: RunnableDatabase, name: string): Promise<void> {
+  const names = await migrationFilenames();
+  if (!names.includes(name))
+    throw new Error(`applyMigrationFile("${name}") names a migration that does not exist`);
+  const sql = await readFile(new URL(name, MIGRATIONS_DIRECTORY), "utf8");
+  await applyFiles(database, [{ label: name, statements: statements(sql) }]);
+}
+
 /** One SQL file, already split, kept next to the name that will identify a failure in it. */
 interface SqlFile {
   label: string;
