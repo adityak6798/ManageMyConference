@@ -5,25 +5,25 @@ import {
   MemoryContentRepository,
   MemorySpeakerConversion,
 } from "../src/adapters/persistence/memory-content-repository";
-import { AgendaService } from "../src/application/agenda/agenda-service";
-import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
-import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
+import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
+import { AgendaService } from "../src/application/agenda/agenda-service";
 import {
   ContentService,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
+import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
+import { CapabilityDeniedError } from "../src/application/identity/actor";
+import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import {
   type AcceptedProposal,
   type AcceptedProposalQuery,
   ProposalNotAcceptedError,
   ProposalNotFoundError,
 } from "../src/application/review/public";
-import { CapabilityDeniedError } from "../src/application/identity/actor";
-import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import type { AgendaDraft } from "../src/domain/agenda/agenda";
 import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
 
@@ -582,7 +582,7 @@ describe("ContentService", () => {
   });
   it("removes an R2 object when asset metadata persistence fails", async () => {
     class FailingAssetRepository extends MemoryContentRepository {
-      override async addAsset() {
+      override async replaceLatestAsset() {
         throw new Error("metadata unavailable");
       }
     }

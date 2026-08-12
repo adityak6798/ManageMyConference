@@ -93,8 +93,8 @@ it("resumes a claimed row after profile enrichment fails and validates JSON befo
     capabilities: new Set(["content:manage"]),
     eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["content:manage"]) }],
   };
-  const csv =
-    'name,email,workflowStatus,logistics\nSam,SAM@example.test,ready,"{\"\"hotel\"\":\"\"yes\"\"}"';
+  const csv = `name,email,workflowStatus,logistics
+Sam,SAM@example.test,ready,"{""hotel"":""yes""}"`;
   const first = await service.importSpeakers(
     organizer,
     { eventId, csv, commit: true },
