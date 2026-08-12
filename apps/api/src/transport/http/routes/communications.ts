@@ -91,13 +91,15 @@ export const communicationsRoutes: RouteModule = {
           ),
           400,
         );
-      return context.json({
-        recipients: await communications.recipients(
+      // The whole result, `audienceVersion` included: the console confirms against this count
+      // and sends the version back, so a send whose audience has since changed is refused.
+      return context.json(
+        await communications.recipients(
           context.get("actor"),
           parsed.data.organizationId,
           parsed.data.eventId,
         ),
-      });
+      );
     });
     app.post("/api/communications/broadcasts", async (context) => {
       requireCapability(context.get("actor"), "communications:manage");

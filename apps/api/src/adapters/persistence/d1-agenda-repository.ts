@@ -34,12 +34,19 @@ interface AgendaDatabase {
  * window between them.
  *
  * Optional because an agenda still publishes with nothing bound — the schedule commits, and
- * only the announcement is missing. See `docs/exec-plans/tech-debt.md` (`DEBT-006`).
+ * only the announcement is missing.
+ *
+ * It may return its statements asynchronously, and the binding that closed `DEBT-006` needs
+ * that: a `communication_deliveries` row is organization-scoped, the publication carries only an
+ * event id, and resolving one from the other is a read. The alternative was a statement that
+ * joined `events` to find the organization, which would have put a read of another domain's
+ * table inside this one's insert. The read happens before the batch either way, so the
+ * publication and its event still commit or fail together.
  */
 export type PublicationEventWriter = (
   database: AgendaDatabase,
   event: SchedulePublishedEvent,
-) => readonly D1Statement[];
+) => readonly D1Statement[] | Promise<readonly D1Statement[]>;
 
 interface DraftRow {
   draft_json: string;
@@ -225,7 +232,8 @@ export class D1AgendaRepository implements AgendaRepository {
           JSON.stringify(schedule.agenda),
           schedule.commandKey ?? null,
         ),
-      ...(this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule)) ?? []),
+      ...((await this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule))) ??
+        []),
     ];
     let results: D1Result<unknown>[];
     try {

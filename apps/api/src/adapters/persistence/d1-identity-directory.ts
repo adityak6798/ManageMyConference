@@ -229,6 +229,19 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return (result.results ?? []).map((row) => ({ ...row, email: row.email ?? null }));
   }
 
+  async findRecipient(userId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT u.id, u.name, e.email FROM users u LEFT JOIN identity_emails e ON e.user_id = u.id WHERE u.id = ? LIMIT 1",
+      )
+      .bind(userId)
+      .all<{ id: string; name: string; email: string | null }>();
+    if (!result.success)
+      throw new Error(`D1 failed to find recipient: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row ? { ...row, email: row.email ?? null } : null;
+  }
+
   /**
    * The event's staff. `DISTINCT` because a user may hold both roles on one event, and the
    * `event_id` predicate is what keeps the list event-scoped: a role held on another event

@@ -1,6 +1,7 @@
 import {
   type CommunicationsRepository,
   DeliveryRecoveryConflictError,
+  TemplateVersionTakenError,
 } from "../../application/communications/ports";
 import type {
   Delivery,
@@ -24,7 +25,7 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
           item.version === template.version,
       )
     )
-      throw new Error("Template version already exists");
+      throw new TemplateVersionTakenError("Template version already exists");
     this.templates.push(template);
   }
 
@@ -41,6 +42,11 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     );
   }
 
+  async latestTemplateVersion(organizationId: string, key: string) {
+    return this.templates
+      .filter((template) => template.organizationId === organizationId && template.key === key)
+      .reduce((highest, template) => Math.max(highest, template.version), 0);
+  }
   async listTemplates(organizationId: string) {
     return this.templates
       .filter((template) => template.organizationId === organizationId)

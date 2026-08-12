@@ -57,7 +57,13 @@ export async function createTemplate(
   return (await decode(response, templateResponseSchema)).template;
 }
 
-/** Who a send would reach, so the organizer confirms against a count rather than a promise. */
+/**
+ * Who a send would reach, so the organizer confirms against a count rather than a promise.
+ *
+ * Returns the audience's version as well as its members. Carrying that back on the send is what
+ * stops a speaker added between the count and the confirmation from receiving a message under a
+ * count nobody approved.
+ */
 export async function getRecipients(
   organizationId: string,
   eventId: string,
@@ -65,11 +71,17 @@ export async function getRecipients(
 ) {
   const query = new URLSearchParams({ organizationId, eventId });
   const response = await fetcher(`/api/communications/recipients?${query}`);
-  return (await decode(response, broadcastRecipientsResponseSchema)).recipients;
+  return decode(response, broadcastRecipientsResponseSchema);
 }
 
 export async function sendToSpeakers(
-  input: { organizationId: string; eventId: string; templateKey: string; templateVersion: number },
+  input: {
+    organizationId: string;
+    eventId: string;
+    templateKey: string;
+    templateVersion: number;
+    audienceVersion?: string;
+  },
   fetcher: typeof fetch = fetch,
 ): Promise<BroadcastResultDto> {
   const response = await fetcher("/api/communications/broadcasts", {

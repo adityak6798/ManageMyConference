@@ -82,6 +82,27 @@ export class EventService {
     return this.dependencies.repository.findById(eventId, this.scope(authorized));
   }
 
+  /**
+   * Which organization owns this event, for a caller that has no actor to scope by.
+   *
+   * The system-trust sibling of `belongsToOrganization`, and it exists for the same reason: a
+   * lifecycle consequence — a speaker welcomed after acceptance, a schedule confirmation drained
+   * from the outbox on a cron tick — happens without a request, so there is no actor whose
+   * organizations could scope the lookup. Both are addressing facts rather than grants: knowing
+   * which organization owns an event confers nothing, and every caller here has already
+   * authorized the action that led to it.
+   *
+   * Null when no such event exists, which a caller must treat as "do not act" rather than as an
+   * empty string.
+   */
+  async organizationOf(eventId: string): Promise<string | null> {
+    const event = await this.dependencies.repository.findById(eventId, {
+      organizationIds: [],
+      eventIds: [eventId],
+    });
+    return event?.organizationId ?? null;
+  }
+
   async belongsToOrganization(eventId: string, organizationId: string): Promise<boolean> {
     return (
       (await this.dependencies.repository.findById(eventId, {
