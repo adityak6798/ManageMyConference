@@ -186,6 +186,23 @@
   white-space: nowrap;
 }
 
+/* The public site has its own shell and therefore owns its own keyboard bypass. */
+.pub-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #173f35;
+  transform: translateY(-200%);
+}
+
+.pub-skip-link:focus {
+  transform: translateY(0);
+}
+
 /* Compact itinerary preview: date/time rail on the left, the session on the right. */
 .pub-glance {
   display: grid;

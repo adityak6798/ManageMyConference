@@ -22,7 +22,7 @@ import {
 } from "./worktree-env.mjs";
 
 const SEED_ASSET_KEY =
-  "greenroom-assets/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001";
+  "manage-my-conf/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001";
 
 function runWrangler(args, environment) {
   const result = spawnSync("npx", ["wrangler", ...args], {
@@ -63,9 +63,9 @@ function reset(environment, { rebuild }) {
   }
   prepare(environment);
   const persist = ["--persist-to", environment.stateDir];
-  runWrangler(["d1", "migrations", "apply", "greenroom-local", "--local", ...persist], environment);
+  runWrangler(["d1", "migrations", "apply", "DB", "--local", ...persist], environment);
   runWrangler(
-    ["d1", "execute", "greenroom-local", "--local", ...persist, "--file", "seed/reset.sql"],
+    ["d1", "execute", "DB", "--local", ...persist, "--file", "seed/reset.sql"],
     environment,
   );
   runWrangler(
@@ -124,15 +124,7 @@ function main(argv) {
     assertMigrationsUsable(environment);
     prepare(environment);
     runWrangler(
-      [
-        "d1",
-        "migrations",
-        "apply",
-        "greenroom-local",
-        "--local",
-        "--persist-to",
-        environment.stateDir,
-      ],
+      ["d1", "migrations", "apply", "DB", "--local", "--persist-to", environment.stateDir],
       environment,
     );
     writeMigrationRecord(
