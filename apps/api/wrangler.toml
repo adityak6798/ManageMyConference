@@ -16,6 +16,35 @@ compatibility_date = "2026-08-08"
 # cannot be mistaken for a real mailbox and cannot receive a reply if one ever escaped.
 CALENDAR_ORGANIZER_EMAIL = "organizer@greenroom.invalid"
 
+# This deployment is a demo, and says so in the only place that can enforce it.
+#
+# `runtimeAuth` (src/index.ts) refuses `DEMO_MODE=true` unless `ENVIRONMENT=development`, and
+# refuses to boot at all without either demo mode or `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`.
+# Production authentication does not exist yet (`GAP-007`), so demo mode is the only configuration
+# that can currently sign anyone in. Local development keeps these three in a gitignored
+# `.dev.vars`; a deployed Worker cannot read that file, so the two non-secret ones live here.
+# `SESSION_SECRET` remains a Worker secret and is never written to this file.
+#
+# The cost, stated plainly: anyone who finds the deployed URL can sign in as an organizer of the
+# seeded event. That is acceptable for a demo holding only seed data and is not acceptable for
+# anything else. Graduating this deployment means issue #12 (real authentication), after which
+# `ENVIRONMENT` becomes `production` and both of these lines are deleted.
+ENVIRONMENT = "development"
+DEMO_MODE = "true"
+
+# The origin the scheduled outbox drain puts into links it sends.
+#
+# The cron handler has no request to read an origin from, so a link in a schedule confirmation
+# comes from here or it comes from nowhere. Non-secret. Must match the deployed hostname; a stale
+# value here produces messages whose links resolve to the wrong deployment rather than failing
+# visibly.
+#
+# Local development inherits this, because `.dev.vars` does not set it — so a calendar link in a
+# locally generated message points at the deployed demo rather than at localhost. That is cosmetic
+# today, since every local provider is a deterministic fake and no message leaves the machine. Set
+# `PUBLIC_BASE_URL` in `apps/api/.dev.vars` to override it if you are working on message contents.
+PUBLIC_BASE_URL = "https://project-greenroom-api.adityak6798.workers.dev"
+
 [assets]
 directory = "../web/dist"
 not_found_handling = "single-page-application"
