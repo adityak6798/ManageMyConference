@@ -24,6 +24,11 @@ test("makes the complete seeded lifecycle discoverable across every role", async
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
 
+  const taskRow = page.getByRole("row", { name: /Sam Speaker.*Confirm profile details/ });
+  await expect(taskRow).toContainText("Sam Speaker");
+  await expect(taskRow).toContainText("Confirm profile details");
+  await expect(taskRow).toContainText("Aug 20");
+
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   for (const destination of organizerDestinations) {
     await navigation.getByRole("link", { name: destination.link }).click();

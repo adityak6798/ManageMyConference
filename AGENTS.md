@@ -24,7 +24,7 @@ having been run: produce the records with `npm run gate:browser`, and re-produce
 committing, because a record names the commit it ran against. That is the point — a row saying a
 journey passes should not outlive the run it describes.
 
-- `gate:browser` (Playwright) needs a downloaded Chromium and drives the one shared local D1 fixture, so it cannot run concurrently with another agent or checkout on this machine, and it is the slowest job to repeat after a small edit.
+- `gate:browser` (Playwright) needs a downloaded Chromium and drives a local D1 fixture. Issue #28 gave each checkout derived ports and isolated state, so separate worktrees can run it concurrently; two runs in the same checkout still share that checkout's fixture. It is the slowest job to repeat after a small edit.
 - `gate:security` (`npm audit`) needs the network and changes its answer when nothing in the repository changed, so a red result is a repository-wide event rather than a signal about the change in hand.
 
 Run those two by hand (`npm run gate:browser`, `npm run gate:security`) before relying on them. CI

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:e2e": "playwright test",
-    "test:quality": "playwright test e2e/lifecycle-demo.spec.ts",
+    "test:quality": "playwright test --config playwright.quality.config.ts",
     "test": "vitest run --coverage --coverage.reporter=text --coverage.include='src/**'",
     "typecheck": "tsc --noEmit"
   },
