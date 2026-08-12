@@ -104,12 +104,22 @@ export class MemoryCrmRepository implements CrmRepository {
     const contact = this.contacts.get(contactId);
     return contact?.organizationId === organizationId ? this.project(contact) : null;
   }
+  /** Resolves through aliases, as the D1 adapter's LEFT JOIN does. */
   async findContactByEmail(organizationId: string, email: string) {
+    const live = this.ofOrganization(organizationId).filter(({ mergedIntoId }) => !mergedIntoId);
     return (
-      this.ofOrganization(organizationId).find(
-        (contact) => contact.email === email && !contact.mergedIntoId,
-      ) ?? null
+      live.find((contact) => contact.email === email) ??
+      live.find((contact) => contact.aliases.some((alias) => alias.email === email)) ??
+      null
     );
+  }
+  async findContactsByEmails(organizationId: string, emails: readonly string[]) {
+    const resolved = new Map<string, OrganizationContact>();
+    for (const email of emails) {
+      const contact = await this.findContactByEmail(organizationId, email);
+      if (contact) resolved.set(email, contact);
+    }
+    return resolved;
   }
   async createContact(contact: OrganizationContact) {
     this.contacts.set(contact.id, contact);

@@ -47,9 +47,15 @@ import { Card, EmptyState, Notice, Pill, Stat } from "./ui/primitives";
 import { useActionFeedback } from "./ui/primitives";
 
 type Dashboard = Awaited<ReturnType<typeof getContactDashboard>>;
-type ImportPreview = Awaited<ReturnType<typeof previewImport>>;
+type ImportPreview = Awaited<ReturnType<typeof previewImport>> & {
+  /** The exact input this preview describes, so the commit cannot send different bytes. */
+  reviewed: { filename: string; csv: string };
+};
 type DuplicateGroup = Awaited<ReturnType<typeof listDuplicates>>[number];
-type OutreachPreview = Awaited<ReturnType<typeof previewOutreach>>;
+type OutreachPreview = Awaited<ReturnType<typeof previewOutreach>> & {
+  /** The exact command this preview resolved, so the send cannot target a different set. */
+  reviewed: Parameters<typeof sendOutreach>[1];
+};
 
 /** The filter form's own shape: every control is a string, which is what a form can hold. */
 interface FilterForm {
@@ -193,6 +199,14 @@ export function CrmDirectoryWorkspace({
     setDuplicates(null);
     setPreview(null);
     setOutreach(null);
+    // The filters and the open saved view are organization-scoped too. Leaving them behind meant
+    // the controls described the previous organization's criteria over this one's contacts, and
+    // the next mutation reloaded with a segment id this organization does not have — a 404 from
+    // an action that had nothing to do with segments.
+    setForm(EMPTY_FILTERS);
+    setApplied({});
+    setSegmentId("");
+    setSegmentName("");
     // ERROR-INTENT: React effects cannot await; both outcomes are rendered below.
     void reload({}, "")
       .catch((reason: unknown) => {
@@ -337,19 +351,28 @@ export function CrmDirectoryWorkspace({
   async function runImportPreview(formEvent: FormEvent) {
     formEvent.preventDefault();
     await guard(async () => {
-      const result = await previewImport(organizationId, { filename, csv });
-      setPreview(result);
+      const reviewed = { filename, csv };
+      const result = await previewImport(organizationId, reviewed);
+      setPreview({ ...result, reviewed });
       return `${result.summary.create} to add, ${result.summary.update} to update, ${result.summary.skip} refused.`;
     }, directoryFeedback);
   }
 
   async function runImport() {
+    // The exact bytes the preview described, not whatever the textarea holds now. Both inputs
+    // stay editable while the table is on screen, so committing the live values meant an
+    // organizer could approve one file and import another without anything saying so.
+    const reviewed = preview?.reviewed;
+    if (!reviewed) return;
     await guard(async () => {
-      const result = await commitImport(organizationId, { filename, csv });
+      const result = await commitImport(organizationId, reviewed);
       setPreview(null);
       setCsv("");
       await reload(applied, segmentId);
-      return `Imported ${result.import.createdCount} new and updated ${result.import.updatedCount} contacts.`;
+      const refused = result.rejected.length
+        ? ` ${result.rejected.length} row${result.rejected.length === 1 ? "" : "s"} refused.`
+        : "";
+      return `Imported ${result.import.createdCount} new and updated ${result.import.updatedCount} contacts.${refused}`;
     }, directoryFeedback);
   }
 
@@ -383,26 +406,30 @@ export function CrmDirectoryWorkspace({
 
   async function runOutreachPreview() {
     await guard(async () => {
-      const result = await previewOutreach(organizationId, {
-        eventId,
-        templateKey,
-        ...outreachTarget(),
-      });
-      setOutreach(result);
+      const reviewed = { eventId, templateKey, ...outreachTarget() };
+      const result = await previewOutreach(organizationId, reviewed);
+      setOutreach({ ...result, reviewed });
       return `${result.recipients.length} recipient${result.recipients.length === 1 ? "" : "s"} would be contacted.`;
     }, directoryFeedback);
   }
 
   async function runOutreach() {
+    // The command the preview resolved, for the same reason the import commits reviewed bytes:
+    // the template box, the saved view and the row checkboxes all stay live while the recipient
+    // list is on screen, so rebuilding the command here could send to a different set entirely.
+    const reviewed = outreach?.reviewed;
+    if (!reviewed) return;
     await guard(async () => {
-      const result = await sendOutreach(organizationId, {
-        eventId,
-        templateKey,
-        ...outreachTarget(),
-      });
+      const result = await sendOutreach(organizationId, reviewed);
       setOutreach(null);
       await reload(applied, segmentId);
-      return `Queued ${result.sent.length} message${result.sent.length === 1 ? "" : "s"} through communications.`;
+      const queued = result.sent.filter(({ created }) => created !== false).length;
+      const converged = result.sent.length - queued;
+      // A repeat converges on the delivery the first send created rather than sending twice, so
+      // saying "queued" for those would claim something that did not happen.
+      return converged
+        ? `Queued ${queued}; ${converged} already had a delivery from an earlier send.`
+        : `Queued ${queued} message${queued === 1 ? "" : "s"} through communications.`;
     }, directoryFeedback);
   }
 

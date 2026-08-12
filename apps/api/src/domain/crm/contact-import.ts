@@ -35,6 +35,17 @@ export interface ParsedContactCsv {
   readonly errors: readonly string[];
 }
 
+/**
+ * The most rows one import may carry.
+ *
+ * Every row costs at least one read to classify and one statement to commit, so the megabyte
+ * the transport permits is not a useful bound on the work: a file that is almost entirely rows
+ * exhausts a Worker's query budget partway through and leaves a partial import. Refusing up
+ * front is the honest failure, and the number is here rather than in the contract because the
+ * limit is about what this domain can do, not about what a request may weigh.
+ */
+export const MAX_IMPORT_ROWS = 500;
+
 const REQUIRED_COLUMNS = ["name", "email"] as const;
 const KNOWN_COLUMNS = new Set(["name", "email", "company", "title", "notes", "tags"]);
 /** Deliberately loose: the directory stores addresses it was given, it does not deliver to them. */

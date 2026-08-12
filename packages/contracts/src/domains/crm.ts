@@ -175,31 +175,44 @@ export type OrganizationContactDto = z.infer<typeof organizationContactSchema>;
 
 const tagList = z.string().trim().min(1).max(40);
 /** The stored definition of a saved view. Every criterion optional: `{}` is "no filters". */
-export const contactFiltersSchema = z.object({
-  search: z.string().trim().min(1).max(160).optional(),
-  company: z.string().trim().min(1).max(160).optional(),
-  title: z.string().trim().min(1).max(160).optional(),
-  tags: z.array(tagList).max(20).optional(),
-  fieldKey: z.string().trim().min(1).max(60).optional(),
-  fieldValue: z.string().trim().min(1).max(300).optional(),
-  eventId: z.string().uuid().optional(),
-});
+export const contactFiltersSchema = z
+  .object({
+    search: z.string().trim().min(1).max(160).optional(),
+    company: z.string().trim().min(1).max(160).optional(),
+    title: z.string().trim().min(1).max(160).optional(),
+    tags: z.array(tagList).max(20).optional(),
+    fieldKey: z.string().trim().min(1).max(60).optional(),
+    fieldValue: z.string().trim().min(1).max(300).optional(),
+    eventId: z.string().uuid().optional(),
+  })
+  // A value with no key names nothing. Both repositories read `fieldValue` only inside the
+  // `fieldKey` branch, so one on its own was echoed back as an active criterion while matching
+  // every contact — a filter that appears to be doing something and is not.
+  .refine(
+    (value) => value.fieldValue === undefined || value.fieldKey !== undefined,
+    "Filtering by a custom field value also needs the field it belongs to",
+  );
 export type ContactFiltersDto = z.infer<typeof contactFiltersSchema>;
 /**
  * The same criteria as query parameters. `tags` arrives comma-separated because a repeated
  * parameter does not survive `context.req.query()`, and `segmentId` is offered instead of the
  * criteria so reopening a saved view sends its identity rather than a client-rebuilt copy.
  */
-export const contactListQuerySchema = z.object({
-  search: z.string().trim().min(1).max(160).optional(),
-  company: z.string().trim().min(1).max(160).optional(),
-  title: z.string().trim().min(1).max(160).optional(),
-  tags: z.string().trim().min(1).max(400).optional(),
-  fieldKey: z.string().trim().min(1).max(60).optional(),
-  fieldValue: z.string().trim().min(1).max(300).optional(),
-  eventId: z.string().uuid().optional(),
-  segmentId: z.string().uuid().optional(),
-});
+export const contactListQuerySchema = z
+  .object({
+    search: z.string().trim().min(1).max(160).optional(),
+    company: z.string().trim().min(1).max(160).optional(),
+    title: z.string().trim().min(1).max(160).optional(),
+    tags: z.string().trim().min(1).max(400).optional(),
+    fieldKey: z.string().trim().min(1).max(60).optional(),
+    fieldValue: z.string().trim().min(1).max(300).optional(),
+    eventId: z.string().uuid().optional(),
+    segmentId: z.string().uuid().optional(),
+  })
+  .refine(
+    (value) => value.fieldValue === undefined || value.fieldKey !== undefined,
+    "Filtering by a custom field value also needs the field it belongs to",
+  );
 
 export const createContactInputSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -299,6 +312,11 @@ export const contactImportRowSchema = z.object({
   action: z.enum(["create", "update", "skip"]),
   errors: z.array(z.string()),
 });
+/**
+ * The byte cap bounds the request. It does not bound the *work*: the CRM domain additionally
+ * refuses a file past `MAX_IMPORT_ROWS`, because a megabyte of valid rows costs a database read
+ * and a statement each and would exhaust a Worker's budget partway through.
+ */
 export const importContactsInputSchema = z.object({
   filename: z.string().trim().min(1).max(200),
   csv: z.string().min(1).max(1_000_000),
@@ -352,8 +370,14 @@ export const outreachRecipientSchema = z.object({
   contactId: z.string().uuid(),
   name: z.string(),
   email: z.string(),
-  /** Absent on a preview; the communications delivery this recipient's send created. */
+  /** Absent on a preview; the communications delivery this recipient's send resolved to. */
   deliveryId: z.string().optional(),
+  /**
+   * Absent on a preview. False when the send converged on a delivery that already existed —
+   * a repeat of the same campaign to the same contact, which is deduplicated by design and must
+   * not be reported as a message newly on its way.
+   */
+  created: z.boolean().optional(),
 });
 export const outreachPreviewResponseSchema = z.object({
   eventId: z.string().uuid(),

@@ -831,28 +831,33 @@ describe("D1 CRM organization directory", () => {
       .bind(adaId, priyaId)
       .run();
 
-    await repository.mergeContacts({
-      organizationId,
-      primaryId: priyaId,
-      duplicateIds: [priyaDuplicateId],
-      aliases: [
-        {
-          id: "54000000-0000-4000-8000-0000000000e1",
-          name: "Priya Raman",
-          email: "p.raman@eastwind.test",
-          mergedFromId: priyaDuplicateId,
-          mergedAt: "2026-08-11T12:00:00.000Z",
+    // And the caller is told, rather than handed back the dead primary as a successful merge:
+    // `findContact` resolves merged-away rows on purpose, so returning it reported a fold that
+    // never happened.
+    await expect(
+      repository.mergeContacts({
+        organizationId,
+        primaryId: priyaId,
+        duplicateIds: [priyaDuplicateId],
+        aliases: [
+          {
+            id: "54000000-0000-4000-8000-0000000000e1",
+            name: "Priya Raman",
+            email: "p.raman@eastwind.test",
+            mergedFromId: priyaDuplicateId,
+            mergedAt: "2026-08-11T12:00:00.000Z",
+          },
+        ],
+        activity: {
+          id: "71000000-0000-4000-8000-0000000000e1",
+          kind: "merge",
+          summary: "Merged into a primary that was already merged away",
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
         },
-      ],
-      activity: {
-        id: "71000000-0000-4000-8000-0000000000e1",
-        kind: "merge",
-        summary: "Merged into a primary that was already merged away",
-        private: false,
-        occurredAt: "2026-08-11T12:00:00.000Z",
-        actorId: "seed-organizer",
-      },
-    });
+      }),
+    ).rejects.toBeInstanceOf(ContactNotFoundError);
 
     // Nothing at all: no alias, no retired duplicate, no merge entry.
     const aliases = await database

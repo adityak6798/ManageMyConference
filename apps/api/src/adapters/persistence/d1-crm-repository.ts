@@ -124,6 +124,20 @@ interface ImportRow {
   imported_by: string;
 }
 
+/**
+ * D1 refuses a statement carrying more than about a hundred bound variables, so any query that
+ * expands a list into placeholders has a size past which it stops working rather than slowing
+ * down. Everything that hydrates a set of contacts goes through this.
+ */
+const BIND_CHUNK = 80;
+
+function chunked<T>(items: readonly T[]): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += BIND_CHUNK)
+    chunks.push(items.slice(index, index + BIND_CHUNK));
+  return chunks;
+}
+
 // @spec PRD-CRM-001
 export class D1CrmRepository implements CrmRepository {
   constructor(private readonly database: D1DatabasePort) {}
@@ -372,59 +386,74 @@ export class D1CrmRepository implements CrmRepository {
    * mistakenly skipped.
    * ------------------------------------------------------------------------------------- */
 
+  /**
+   * Reads one child table for a set of contacts, in chunks small enough to bind.
+   *
+   * The single-statement version failed outright once an organization held more than ~100
+   * contacts — and it failed for `listContacts`, which is also what the dashboard and the
+   * duplicate scan call, so the directory stopped loading rather than loading slowly.
+   */
+  private async childRows<T extends ContactChildRow>(
+    ids: readonly string[],
+    sql: (placeholders: string) => string,
+    what: string,
+  ): Promise<T[]> {
+    const results = await Promise.all(
+      chunked(ids).map((chunk) =>
+        this.database
+          .prepare(sql(chunk.map(() => "?").join(",")))
+          .bind(...chunk)
+          .all<T>(),
+      ),
+    );
+    if (results.some((result) => !result.success)) throw new Error(`D1 failed to hydrate ${what}`);
+    return results.flatMap((result) => result.results ?? []);
+  }
+
   private async hydrateContacts(
     rows: readonly OrganizationContactRow[],
   ): Promise<OrganizationContact[]> {
     if (!rows.length) return [];
     const ids = rows.map(({ id }) => id);
-    const placeholders = ids.map(() => "?").join(",");
     const [tags, fields, aliases, events, activities] = await Promise.all([
-      this.database
-        .prepare(
+      this.childRows<ContactTagRow>(
+        ids,
+        (placeholders) =>
           `SELECT contact_id, tag FROM crm_contact_tags WHERE contact_id IN (${placeholders}) ORDER BY contact_id, tag`,
-        )
-        .bind(...ids)
-        .all<ContactTagRow>(),
-      this.database
-        .prepare(
+        "contact tags",
+      ),
+      this.childRows<ContactFieldRow>(
+        ids,
+        (placeholders) =>
           `SELECT contact_id, field_key, field_value FROM crm_contact_fields WHERE contact_id IN (${placeholders}) ORDER BY contact_id, field_key`,
-        )
-        .bind(...ids)
-        .all<ContactFieldRow>(),
-      this.database
-        .prepare(
+        "contact fields",
+      ),
+      this.childRows<ContactAliasRow>(
+        ids,
+        (placeholders) =>
           `SELECT id, contact_id, name, email, merged_from_id, merged_at FROM crm_contact_aliases WHERE contact_id IN (${placeholders}) ORDER BY contact_id, merged_at, id`,
-        )
-        .bind(...ids)
-        .all<ContactAliasRow>(),
+        "contact aliases",
+      ),
       // Stage, speaker and conversion time come from the prospect on every read rather than
       // from a copy on the link, so the directory cannot claim a conversion the pipeline
       // does not have.
-      this.database
-        .prepare(
+      this.childRows<ContactEventRow>(
+        ids,
+        (placeholders) =>
           `SELECT l.contact_id, l.event_id, l.prospect_id, l.linked_at, p.stage, p.speaker_id, p.converted_at
              FROM crm_contact_events l JOIN crm_prospects p ON p.id = l.prospect_id
             WHERE l.contact_id IN (${placeholders}) ORDER BY l.contact_id, l.linked_at, l.event_id`,
-        )
-        .bind(...ids)
-        .all<ContactEventRow>(),
-      this.database
-        .prepare(
+        "contact event history",
+      ),
+      this.childRows<ContactActivityRow>(
+        ids,
+        (placeholders) =>
           `SELECT id, contact_id, kind, summary, is_private, occurred_at, actor_id FROM crm_contact_activities WHERE contact_id IN (${placeholders}) ORDER BY contact_id, occurred_at, id`,
-        )
-        .bind(...ids)
-        .all<ContactActivityRow>(),
+        "contact timelines",
+      ),
     ]);
-    if (
-      !tags.success ||
-      !fields.success ||
-      !aliases.success ||
-      !events.success ||
-      !activities.success
-    )
-      throw new Error("D1 failed to hydrate the contact directory");
-    const by = <T extends ContactChildRow>(result: { results?: T[] }) =>
-      Map.groupBy(result.results ?? [], ({ contact_id }) => contact_id);
+    const by = <T extends ContactChildRow>(rows: readonly T[]) =>
+      Map.groupBy(rows, ({ contact_id }) => contact_id);
     const tagRows = by(tags);
     const fieldRows = by(fields);
     const aliasRows = by(aliases);
@@ -541,16 +570,64 @@ export class D1CrmRepository implements CrmRepository {
     return (await this.hydrateContacts(result.results ?? []))[0] ?? null;
   }
 
+  /**
+   * Resolves an address to the live contact that owns it, following aliases.
+   *
+   * The alias half matters: after a merge, the loser's address survives only as an alias, so an
+   * address-only lookup found nothing and the next import of the same spreadsheet row created a
+   * fresh contact — recreating precisely the duplicate the merge had just resolved. Following
+   * the alias means a re-import enriches the survivor, and `requireAddressIsFree` refuses a new
+   * contact on an address a merge already accounted for.
+   */
   async findContactByEmail(organizationId: string, email: string) {
     const result = await this.database
       .prepare(
-        "SELECT * FROM crm_organization_contacts WHERE organization_id = ? AND email = ? AND merged_into_id IS NULL LIMIT 1",
+        `SELECT c.* FROM crm_organization_contacts c
+          WHERE c.organization_id = ? AND c.merged_into_id IS NULL
+            AND (c.email = ? OR EXISTS (
+                  SELECT 1 FROM crm_contact_aliases a
+                   WHERE a.contact_id = c.id AND a.email = ?))
+          ORDER BY CASE WHEN c.email = ? THEN 0 ELSE 1 END, c.id
+          LIMIT 1`,
       )
-      .bind(organizationId, email)
+      .bind(organizationId, email, email, email)
       .all<OrganizationContactRow>();
     if (!result.success)
       throw new Error(`D1 failed to resolve contact address: ${result.error ?? "unknown error"}`);
     return (await this.hydrateContacts(result.results ?? []))[0] ?? null;
+  }
+
+  async findContactsByEmails(organizationId: string, emails: readonly string[]) {
+    const resolved = new Map<string, OrganizationContact>();
+    if (!emails.length) return resolved;
+    // Chunked for the same reason the hydration is: a 500-row import would otherwise bind 500
+    // variables in one statement and fail outright.
+    for (const chunk of chunked(emails)) {
+      const placeholders = chunk.map(() => "?").join(",");
+      const result = await this.database
+        .prepare(
+          `SELECT c.*, a.email AS matched_alias FROM crm_organization_contacts c
+             LEFT JOIN crm_contact_aliases a ON a.contact_id = c.id AND a.email IN (${placeholders})
+            WHERE c.organization_id = ? AND c.merged_into_id IS NULL
+              AND (c.email IN (${placeholders}) OR a.email IS NOT NULL)`,
+        )
+        .bind(...chunk, organizationId, ...chunk)
+        .all<OrganizationContactRow & { matched_alias: string | null }>();
+      if (!result.success)
+        throw new Error(`D1 failed to resolve contact addresses: ${result.error ?? "unknown"}`);
+      const rows = result.results ?? [];
+      const hydrated = await this.hydrateContacts(rows);
+      rows.forEach((row, index) => {
+        const contact = hydrated[index];
+        if (!contact) return;
+        // Keyed by every address that found it — its own, and any alias in this chunk — so the
+        // caller can look up by exactly the address it asked about.
+        if (chunk.includes(row.email)) resolved.set(row.email, contact);
+        if (row.matched_alias && chunk.includes(row.matched_alias))
+          resolved.set(row.matched_alias, contact);
+      });
+    }
+    return resolved;
   }
 
   private insertContactStatements(contact: OrganizationContact): D1Statement[] {
@@ -884,8 +961,11 @@ export class D1CrmRepository implements CrmRepository {
       ],
       "merge contacts atomically",
     );
+    // `findContact` resolves merged-away rows on purpose, so a primary retired between the
+    // service's check and this batch would otherwise be returned as a successful merge — every
+    // statement a no-op, and the caller told the records were folded together.
     const merged = await this.findContact(organizationId, primaryId);
-    if (!merged) throw new ContactNotFoundError("Contact not found");
+    if (!merged || merged.mergedIntoId) throw new ContactNotFoundError("Contact not found");
     return merged;
   }
 

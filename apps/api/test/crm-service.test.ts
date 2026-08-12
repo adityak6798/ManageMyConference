@@ -112,9 +112,11 @@ const setup = () => {
     async (scopedEventId: string) => staffByEvent[scopedEventId] ?? [],
   );
   // Typed parameters, so the assertions below can read the message the CRM handed the port.
-  const send = vi.fn(async (_actor: Actor, _message: OutreachMessage) => ({
+  const send = vi.fn(async (_message: OutreachMessage) => ({
     deliveryId: `delivery-${send.mock.calls.length}`,
+    created: true,
   }));
+  const prepare = vi.fn(async (_message: OutreachMessage) => undefined);
   const service = new CrmService({
     repository,
     speakerConversion: { createOrLink },
@@ -122,11 +124,11 @@ const setup = () => {
     events: {
       belongsToOrganization: async (event, organization) => eventOrg[event] === organization,
     },
-    outreach: { send },
+    outreach: { prepare, send },
     newId: () => ids.shift() ?? crypto.randomUUID(),
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });
-  return { repository, service, createOrLink, listAssignableOwnersForEvent, send };
+  return { repository, service, createOrLink, listAssignableOwnersForEvent, send, prepare };
 };
 
 describe("ACC-CRM prospect lifecycle", () => {
@@ -822,6 +824,98 @@ describe("ACC-CRM organization directory", () => {
     expect(contacts[0]?.fields).toEqual([{ key: "topic", value: "second" }]);
   });
 
+  it("enriches the survivor when a merged-away address is imported again", async () => {
+    const { service } = setup();
+    // Without alias resolution the re-import created a fresh contact on the loser's address,
+    // recreating exactly the duplicate the merge had just resolved.
+    const primary = await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      company: "Northwind",
+    });
+    const duplicate = await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada.rivera@personal.test",
+      company: "Northwind",
+    });
+    await service.mergeContacts(organizer, organizationId, {
+      primaryId: primary.id,
+      duplicateIds: [duplicate.id],
+    });
+
+    const again = ["name,email,title", "Ada Rivera,ada.rivera@personal.test,Principal"].join("\n");
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "again.csv",
+      csv: again,
+    });
+    expect(preview.summary).toEqual({ create: 0, update: 1, skip: 0 });
+    await service.importContacts(organizer, organizationId, { filename: "again.csv", csv: again });
+    const { contacts } = await service.listContacts(organizer, organizationId);
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0]?.id).toBe(primary.id);
+    expect(contacts[0]?.title).toBe("Principal");
+  });
+
+  it("refuses a file with more rows than one import may carry", async () => {
+    const { service } = setup();
+    const rows = Array.from(
+      { length: 501 },
+      (_, index) => `Person ${index},person-${index}@example.test`,
+    );
+    // The refusal names the number on the field, which is where the transport renders it.
+    await expect(
+      service.previewImport(organizer, organizationId, {
+        filename: "huge.csv",
+        csv: ["name,email", ...rows].join("\n"),
+      }),
+    ).rejects.toMatchObject({
+      fields: { csv: [expect.stringMatching(/501 rows, and an import may carry 500/)] },
+    });
+  });
+
+  it("records a send once when the delivery it converged on already existed", async () => {
+    const { service, send } = setup();
+    const contact = await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      tags: ["keynote"],
+    });
+    // The dispatcher reports a reused delivery, which is what a repeat of one campaign produces.
+    send.mockImplementation(async () => ({ deliveryId: "delivery-1", created: false }));
+    const result = await service.sendOutreach(organizer, organizationId, {
+      eventId,
+      templateKey: "speaker-invite",
+      contactIds: [contact.id],
+    });
+    expect(result.sent[0]).toMatchObject({ deliveryId: "delivery-1", created: false });
+    const after = await service.getContact(organizer, organizationId, contact.id);
+    expect(after.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(0);
+  });
+
+  it("keeps the record of every message it managed to send before one failed", async () => {
+    const { service, send } = setup();
+    const first = await contactOf(service, { name: "First", email: "first@example.test" });
+    const second = await contactOf(service, { name: "Second", email: "second@example.test" });
+    let call = 0;
+    send.mockImplementation(async () => {
+      call += 1;
+      if (call === 2) throw new Error("provider refused");
+      return { deliveryId: `delivery-${call}`, created: true };
+    });
+    await expect(
+      service.sendOutreach(organizer, organizationId, {
+        eventId,
+        templateKey: "speaker-invite",
+        contactIds: [first.id, second.id],
+      }),
+    ).rejects.toThrow(/provider refused/);
+    // The first message really was queued; a batched write would have recorded neither.
+    const recorded = await service.getContact(organizer, organizationId, first.id);
+    expect(recorded.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(1);
+    const missed = await service.getContact(organizer, organizationId, second.id);
+    expect(missed.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(0);
+  });
+
   it("names both limits when a row breaks both", async () => {
     const { service, repository } = setup();
     const contact = await contactOf(service, { name: "Both", email: "both@example.test" });
@@ -975,7 +1069,7 @@ describe("ACC-CRM organization directory", () => {
       segmentId: segment.id,
     });
     expect(sent.sent[0]?.deliveryId).toBe("delivery-1");
-    expect(send.mock.calls[0]?.[1]).toMatchObject({
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
       organizationId,
       eventId,
       templateKey: "speaker-invite",
@@ -983,7 +1077,7 @@ describe("ACC-CRM organization directory", () => {
       idempotencyKey: `crm-outreach:${eventId}:${contact.id}:speaker-invite:vlatest`,
     });
     // The renderer refuses a placeholder nothing fills, so the greeting name travels with it.
-    expect(send.mock.calls[0]?.[1].payload).toMatchObject({ speakerName: "Ada Rivera" });
+    expect(send.mock.calls[0]?.[0].payload).toMatchObject({ speakerName: "Ada Rivera" });
     const after = await service.getContact(organizer, organizationId, contact.id);
     expect(after.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(1);
   });

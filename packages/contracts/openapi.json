@@ -27327,6 +27327,9 @@
                           },
                           "deliveryId": {
                             "type": "string"
+                          },
+                          "created": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -27710,6 +27713,9 @@
                           },
                           "deliveryId": {
                             "type": "string"
+                          },
+                          "created": {
+                            "type": "boolean"
                           }
                         },
                         "required": [

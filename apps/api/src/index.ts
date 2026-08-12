@@ -16,6 +16,7 @@ import { D1PublicationRepository } from "./adapters/persistence/d1-publication-r
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { CrmService } from "./application/crm/crm-service";
 import { OutreachRejectedError } from "./application/crm/public";
+import type { OutreachMessage } from "./application/crm/public";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
 import {
@@ -194,45 +195,59 @@ export default {
       now: () => new Date(),
     });
     /**
-     * Binds the CRM's outreach port to communications.
+     * Binds the CRM's outreach port to communications' published enqueue interface.
      *
      * The CRM declares the port and imports nothing of communications; this adapter is the one
      * place the two meet, and it lives in the composition root precisely so neither domain has
      * to know the other's module. It also converts communications' typed refusals into the
      * CRM's own `OutreachRejectedError`, so the CRM can report "that template does not exist"
      * to the organizer who pressed Send without importing the class that says so.
+     *
+     * `CommunicationsEnqueue` rather than `trigger`, and so without an actor: that is the
+     * surface communications publishes for other domains, and its contract puts the trust
+     * boundary in the already-authorized action that decided to send. The CRM's is authorized
+     * three ways — the organization, the event-scoped capability, and that the event belongs to
+     * the organization — before either of these is reached.
      */
+    const deliveryRequest = (message: OutreachMessage) => ({
+      organizationId: message.organizationId,
+      eventId: message.eventId,
+      idempotencyKey: message.idempotencyKey,
+      // A prospective speaker being asked to speak. Communications owns this vocabulary; the
+      // CRM picks the member that describes what it is doing.
+      triggerType: "speaker.invited" as const,
+      channel: "email" as const,
+      recipientRef: message.recipientRef,
+      payload: message.payload,
+      templateKey: message.templateKey,
+      templateVersion: message.templateVersion,
+    });
+    const asOutreachRefusal = (error: unknown) => {
+      // Caller mistakes — an unknown template, an incoherent request — become the CRM's own
+      // error so its transport can report them without importing these classes.
+      if (error instanceof CommunicationsInputError || error instanceof CommunicationsNotFoundError)
+        return new OutreachRejectedError(error.message);
+      return error;
+    };
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
       speakerConversion,
       identities: identityDirectory,
       events: service,
       outreach: {
-        async send(actor, message) {
+        async prepare(message) {
           try {
-            const delivery = await communications.trigger(actor, {
-              organizationId: message.organizationId,
-              eventId: message.eventId,
-              idempotencyKey: message.idempotencyKey,
-              // A prospective speaker being asked to speak. Communications owns this
-              // vocabulary; the CRM picks the member that describes what it is doing.
-              triggerType: "speaker.invited",
-              channel: "email",
-              recipientRef: message.recipientRef,
-              payload: message.payload,
-              templateKey: message.templateKey,
-              templateVersion: message.templateVersion,
-            });
-            return { deliveryId: delivery.id };
+            await communications.prepareEnqueue(deliveryRequest(message));
           } catch (error) {
-            // Caller mistakes — an unknown template, an incoherent request — become the CRM's
-            // own error so its transport can report them without importing these classes.
-            if (
-              error instanceof CommunicationsInputError ||
-              error instanceof CommunicationsNotFoundError
-            )
-              throw new OutreachRejectedError(error.message);
-            throw error;
+            throw asOutreachRefusal(error);
+          }
+        },
+        async send(message) {
+          try {
+            const delivery = await communications.enqueue(deliveryRequest(message));
+            return { deliveryId: delivery.id, created: delivery.created };
+          } catch (error) {
+            throw asOutreachRefusal(error);
           }
         },
       },

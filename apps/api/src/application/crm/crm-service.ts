@@ -8,7 +8,11 @@ import {
   normalizeEmail,
   type OrganizationContact,
 } from "../../domain/crm/contact";
-import { parseContactCsv, type ParsedContactRow } from "../../domain/crm/contact-import";
+import {
+  MAX_IMPORT_ROWS,
+  parseContactCsv,
+  type ParsedContactRow,
+} from "../../domain/crm/contact-import";
 import type { Prospect, ProspectActivity, ProspectStage } from "../../domain/crm/prospect";
 import {
   type Actor,
@@ -155,6 +159,8 @@ export interface OutreachRecipient {
   readonly name: string;
   readonly email: string;
   readonly deliveryId?: string;
+  /** Absent on a preview. False when this send converged on a delivery that already existed. */
+  readonly created?: boolean;
 }
 export interface ImportPreview {
   readonly filename: string;
@@ -535,6 +541,12 @@ export class CrmService {
   ): Promise<ImportPreview["rows"]> {
     const seen = new Map<string, number>();
     const rows: (ParsedContactRow & { action: "create" | "update" | "skip" })[] = [];
+    // One bulk resolve for the whole file rather than a query per row: a 500-row import was 500
+    // serial round trips before it wrote anything.
+    const existingByEmail = await this.dependencies.repository.findContactsByEmails(
+      organizationId,
+      [...new Set(parsed.filter((row) => row.errors.length === 0).map((row) => row.email))],
+    );
     for (const row of parsed) {
       // Read before overwriting: the useful half of this message is the *earlier* row that
       // already claimed the address, and setting first made it name the offending row itself.
@@ -548,9 +560,7 @@ export class CrmService {
         claimedBy === undefined
           ? row.errors
           : [...row.errors, `Line ${claimedBy} already imports ${row.email}.`];
-      const existing = errors.length
-        ? null
-        : await this.dependencies.repository.findContactByEmail(organizationId, row.email);
+      const existing = errors.length ? null : (existingByEmail.get(row.email) ?? null);
       // Capacity is decided here, where the preview is built, and not again at commit time.
       // A check that ran only in the commit made the preview promise an update the write then
       // refused — and this is the one method whose whole purpose is that those two agree.
@@ -592,6 +602,20 @@ export class CrmService {
     const parsed = parseContactCsv(input.csv);
     if (parsed.rows.length === 0 && parsed.errors.length > 0)
       throw new ContactImportInvalidError({ csv: [...parsed.errors] });
+    /*
+     * A file bigger than this is refused whole rather than started.
+     *
+     * Every row costs at least one read to classify and one statement to commit, so a megabyte
+     * of valid rows — which the byte cap alone permits — runs out of a Worker's query budget
+     * partway through, leaving a partial import nobody asked for. Refusing up front is the
+     * honest failure, and it names the number so the file can be split.
+     */
+    if (parsed.rows.length > MAX_IMPORT_ROWS)
+      throw new ContactImportInvalidError({
+        csv: [
+          `This file has ${parsed.rows.length} rows, and an import may carry ${MAX_IMPORT_ROWS}. Split it and import the parts.`,
+        ],
+      });
     const rows = await this.classify(organizationId, parsed.rows);
     return {
       filename: input.filename,
@@ -650,6 +674,8 @@ export class CrmService {
         organizationId,
         row.email,
       );
+      // Re-read rather than reused from the preview: the row is about to be written, and the
+      // directory may have moved since it was classified.
       // Classified as an update a moment ago, so it exists; a concurrent merge is the only way
       // it could not, and then the row is simply not applied rather than resurrecting a record.
       if (!existing || existing.mergedIntoId) continue;
@@ -854,9 +880,13 @@ export class CrmService {
     organizationId: string,
     command: OutreachCommand,
   ): Promise<{ eventId: string; templateKey: string; recipients: readonly OutreachRecipient[] }> {
-    // Recipients and authorization only. Confirming the template would mean asking the
-    // dispatcher, whose only entry point writes — see `OutreachDispatchPort`.
     const { contacts } = await this.resolveOutreach(actor, organizationId, command);
+    const [first] = contacts;
+    // Resolved by the dispatcher rather than assumed, now that communications publishes a call
+    // that resolves without writing: a template key that does not exist fails here, on the
+    // screen showing what will be sent, instead of after the first message is queued.
+    if (first)
+      await this.dependencies.outreach.prepare(this.message(organizationId, command, first));
     return {
       eventId: command.eventId,
       templateKey: command.templateKey,
@@ -872,26 +902,44 @@ export class CrmService {
     const { authorized, contacts } = await this.resolveOutreach(actor, organizationId, command);
     const now = this.dependencies.now().toISOString();
     const sent: OutreachRecipient[] = [];
-    const entries: { contactId: string; activity: ContactActivity }[] = [];
+    /*
+     * Recorded per recipient, as each send returns, rather than in one write at the end.
+     *
+     * A campaign is a sequence of individually durable deliveries, not one transaction: batching
+     * the timeline entries meant a failure on the fifth recipient left four messages queued in
+     * communications with nothing in the CRM saying so, which is the opposite of what a delivery
+     * log is for. Each entry lands before the next send is attempted, so whatever the loop
+     * manages before it fails is recorded.
+     */
     for (const contact of contacts) {
-      const { deliveryId } = await this.dependencies.outreach.send(
-        authorized,
+      const { deliveryId, created } = await this.dependencies.outreach.send(
         this.message(organizationId, command, contact),
       );
-      sent.push({ contactId: contact.id, name: contact.name, email: contact.email, deliveryId });
-      entries.push({
+      sent.push({
         contactId: contact.id,
-        activity: {
-          id: this.dependencies.newId(),
-          kind: "outreach",
-          summary: `Sent "${command.templateKey}" (delivery ${deliveryId})`,
-          private: false,
-          occurredAt: now,
-          actorId: authorized.id,
-        },
+        name: contact.name,
+        email: contact.email,
+        deliveryId,
+        created,
       });
+      // Only a delivery this send actually created is news. Re-running a campaign converges on
+      // the original by design, and recording that again claimed a message had been queued that
+      // had not, and put a second "Sent" line on one contact's timeline for one message.
+      if (!created) continue;
+      await this.dependencies.repository.recordContactActivities(organizationId, [
+        {
+          contactId: contact.id,
+          activity: {
+            id: this.dependencies.newId(),
+            kind: "outreach",
+            summary: `Sent "${command.templateKey}" (delivery ${deliveryId})`,
+            private: false,
+            occurredAt: now,
+            actorId: authorized.id,
+          },
+        },
+      ]);
     }
-    await this.dependencies.repository.recordContactActivities(organizationId, entries);
     return { eventId: command.eventId, templateKey: command.templateKey, sent };
   }
 
@@ -1013,14 +1061,27 @@ export class CrmService {
     const prospect = command.convert
       ? await this.convert(authorized, command.eventId, prospectId, correlationId)
       : await this.get(authorized, command.eventId, prospectId);
-    if (command.convert && prospect.speakerId && !existing?.speakerId)
+    /*
+     * Recorded once per contact and event, however many pushes race.
+     *
+     * Two concurrent pushes both read `existing.speakerId` as null; the prospect conversion
+     * converges through its own idempotency key, but the directory-side entry was appended by
+     * both, leaving one conversion claimed twice on a timeline. Re-reading the contact and
+     * checking for the entry narrows the window; the summary names the event, so a repeat is
+     * recognisable rather than merely likely-looking.
+     */
+    const conversionNote = `Converted to a speaker on event ${command.eventId}`;
+    const alreadyRecorded = (
+      await this.getContact(authorized, organizationId, contactId)
+    ).activities.some((entry) => entry.kind === "conversion" && entry.summary === conversionNote);
+    if (command.convert && prospect.speakerId && !alreadyRecorded)
       await this.dependencies.repository.recordContactActivities(organizationId, [
         {
           contactId: contact.id,
           activity: {
             id: this.dependencies.newId(),
             kind: "conversion",
-            summary: `Converted to a speaker on event ${command.eventId}`,
+            summary: conversionNote,
             private: false,
             occurredAt: this.dependencies.now().toISOString(),
             actorId: authorized.id,

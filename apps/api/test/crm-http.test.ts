@@ -34,7 +34,8 @@ const cookie = async (persona: "organizer" | "reviewer" | "speaker" | "public") 
   "content-type": "application/json",
 });
 const setup = () => {
-  const send = vi.fn(async () => ({ deliveryId: "delivery-http" }));
+  const send = vi.fn(async () => ({ deliveryId: "delivery-http", created: true }));
+  const prepare = vi.fn(async () => undefined);
   const ids = [
     "10000000-0000-4000-8000-000000000001",
     "20000000-0000-4000-8000-000000000001",
@@ -65,7 +66,7 @@ const setup = () => {
       belongsToOrganization: async (event, organization) =>
         organization === organizationId && [eventId, otherEventId].includes(event),
     },
-    outreach: { send },
+    outreach: { prepare, send },
     newId: () => ids.shift() ?? crypto.randomUUID(),
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });

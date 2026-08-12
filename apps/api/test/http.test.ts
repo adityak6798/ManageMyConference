@@ -32,7 +32,10 @@ const testCrm = () =>
     identities: { listAssignableOwnersForEvent: async () => [] },
     // Nor do they reach the organization directory, whose own suites cover both.
     events: { belongsToOrganization: async () => false },
-    outreach: { send: async () => ({ deliveryId: "unused" }) },
+    outreach: {
+      prepare: async () => undefined,
+      send: async () => ({ deliveryId: "unused", created: true }),
+    },
     newId: () => crypto.randomUUID(),
     now: () => new Date("2026-08-09T12:00:00.000Z"),
   });

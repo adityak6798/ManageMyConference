@@ -23,8 +23,22 @@ export interface CrmDirectoryRepository {
     filters: DirectoryFilters,
   ): Promise<readonly OrganizationContact[]>;
   findContact(organizationId: string, contactId: string): Promise<OrganizationContact | null>;
-  /** `email` is expected normalized; merged-away records are not resolvable by address. */
+  /**
+   * `email` is expected normalized. Resolves through aliases, so an address a merge folded away
+   * finds the survivor rather than nothing — otherwise re-importing the same sheet recreates the
+   * duplicate the merge just removed.
+   */
   findContactByEmail(organizationId: string, email: string): Promise<OrganizationContact | null>;
+  /**
+   * The same resolution for many addresses at once, keyed by the address asked for.
+   *
+   * An import classified rows one lookup at a time, which is one serial round trip per row of
+   * the file before anything is written.
+   */
+  findContactsByEmails(
+    organizationId: string,
+    emails: readonly string[],
+  ): Promise<Map<string, OrganizationContact>>;
   createContact(contact: OrganizationContact): Promise<void>;
   /**
    * Persist the contact with everything this command produced. `tags` and `fields` on the
