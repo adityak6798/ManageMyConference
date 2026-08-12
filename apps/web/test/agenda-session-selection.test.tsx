@@ -97,6 +97,10 @@ describe("choosing which sessions an assisted pass seats", () => {
     cleanup();
     vi.unstubAllGlobals();
     onError.mockReset();
+    // The board keeps the chosen view in the query string so a link is shareable, and jsdom
+    // shares one `location` across a file — so a test that switches view would otherwise decide
+    // which view every test after it opens in.
+    window.history.replaceState(null, "", "/");
   });
 
   it("sends exactly the ticked sessions, in one request", async () => {
@@ -267,6 +271,22 @@ describe("choosing which sessions an assisted pass seats", () => {
     // And focus goes to the search box the operator was using — not to the action beside it,
     // which clearing has just turned back into a whole-board "Generate draft".
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+  });
+
+  it("hands focus to the conflicts panel when that is the view without a rail", async () => {
+    stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+    await screen.findByRole("button", { name: "Generate draft" });
+
+    tick("Opening keynote");
+    fireEvent.click(screen.getByRole("tab", { name: /^Conflicts/ }));
+
+    // No rail here at all, so the toolbar carries the hatch — and the search box it would
+    // otherwise hand focus to filters a list that is not on screen.
+    const clear = screen.getByRole("button", { name: "Clear selection" });
+    fireEvent.click(clear);
+    expect(action().textContent).toContain("Generate draft");
+    expect((document.activeElement as HTMLElement | null)?.id).toBe("panel-conflicts");
   });
 
   /*
