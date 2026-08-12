@@ -144,10 +144,12 @@ describe("assisted agenda placement", () => {
   /*
    * The one path where "what this pass seated" can disagree with what exists.
    *
-   * `savePlacements` takes a planner the repository may run more than once — it plans against
-   * the revision it is about to replace, so a lost compare-and-set re-plans — and it may store
-   * fewer placements than the last plan proposed. Reporting the plan rather than the board
-   * would then tell the organizer "Placed 2 sessions" about a board holding one.
+   * `savePlacements` takes a planner the repository may run more than once: it plans against the
+   * revision it is about to replace, so a lost compare-and-set re-plans, and an attempt that
+   * lost planned placements that were never written. Both implementations of the port write the
+   * whole plan or none of it, so reading `placed` off the stored board is defence rather than a
+   * bug fix — but it is the difference between a number that follows from what exists and one
+   * that follows from an attempt, and only the first stays true if that ever changes.
    *
    * The double below drives that shape directly: the planner runs twice and the write keeps one
    * placement. It does not reproduce D1's compare-and-set itself, which belongs to the

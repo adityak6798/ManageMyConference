@@ -259,10 +259,55 @@ describe("choosing which sessions an assisted pass seats", () => {
     // undo it — and the rail no longer has a group control to hang one on.
     expect(action().textContent).toContain("Place 1 selected");
     const clear = screen.getByRole("button", { name: "Clear selection" });
+    clear.focus();
     fireEvent.click(clear);
     expect(action().textContent).toContain("Generate draft");
     // Exactly one control by that name at a time; two would be two homes for one job.
     expect(screen.queryAllByRole("button", { name: "Clear selection" })).toHaveLength(0);
+    // And focus goes to the search box the operator was using — not to the action beside it,
+    // which clearing has just turned back into a whole-board "Generate draft".
+    expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+  });
+
+  /*
+   * A refusal recovers focus; it never takes it.
+   *
+   * Moving a placed card is the caller that proves it. Unlike the assisted action it asks for
+   * no recovery-only treatment, and the card it names is still on the board after the refusal —
+   * so if the failure path honoured the caller's option instead of forcing recovery, focus would
+   * jump to that card and this test goes red.
+   */
+  it("leaves the operator's focus alone when an action is refused under them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        if (method === "GET")
+          return Promise.resolve(
+            new Response(JSON.stringify({ agenda: generated }), { status: 200 }),
+          );
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { code: "CONFLICT", message: "Nope.", correlationId: "c1" } }),
+            { status: 409 },
+          ),
+        );
+      }),
+    );
+    render(<AgendaWorkspace event={event} onError={onError} />);
+
+    // Pick the placed card up and drop it, which is the move the API then refuses.
+    const card = await screen.findByRole("button", { name: /Opening keynote\. Main stage/ });
+    fireEvent.click(card);
+    fireEvent.click(screen.getByRole("button", { name: /^Place .* in Main stage/ }));
+    // Meanwhile the operator has moved to the search box.
+    const search = screen.getByRole("searchbox") as HTMLElement;
+    search.focus();
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Nope."));
+    // The refusal moved nothing, so it has no business moving the caret: the next space types a
+    // space rather than picking up the card focus would have landed on.
+    expect(document.activeElement).toBe(search);
   });
 
   it("adds a position to a checkbox only when its title is not its own", async () => {

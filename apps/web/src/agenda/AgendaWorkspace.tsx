@@ -1396,13 +1396,20 @@ export function AgendaWorkspace({
               selection.clear();
               /*
                * This control leaves with the selection it cleared, so focus is handed on rather
-               * than dropped — to the search box, not to the action. Clearing turns that action
-               * back into "Generate draft", and parking focus on it would put a whole-board
-               * pass one space bar away from an operator who had just been narrowing one. The
-               * search box is where they were: this hatch only appears when the rail cannot
-               * carry it, which is when a search has emptied the rail.
+               * than dropped — and not to the action beside it. Clearing turns that action back
+               * into "Generate draft", so parking focus there would leave a whole-board pass one
+               * space bar away from an operator who had just been narrowing one.
+               *
+               * Where it goes depends on why this hatch is here. With the rail emptied by a
+               * search, the search box is where the operator was. In the Conflicts view there is
+               * no rail at all and that box filters something off screen, so the conflicts panel
+               * takes it. Recovery only, as everywhere else: on a platform where clicking a
+               * button never focused it, nothing was dropped and nothing should be taken.
                */
-              setPendingFocus({ id: "agenda-search" });
+              setPendingFocus({
+                id: view === "conflicts" ? `panel-${view}` : "agenda-search",
+                onlyIfDropped: true,
+              });
             }}
           >
             Clear selection

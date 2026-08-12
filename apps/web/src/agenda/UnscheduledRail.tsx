@@ -85,9 +85,9 @@ export function UnscheduledRail({
   for (const { title } of sessions) perTitle.set(title, (perTitle.get(title) ?? 0) + 1);
   // Clearing takes the control that did it off the screen, and a control that removes itself
   // leaves keyboard focus on `document.body` — which on this page means Tab restarts at the
-  // top of the console. Focus lands on the group control instead, which is why this rail
-  // offers Clear only when that control is on screen to receive it; with the list empty, the
-  // toolbar carries the escape hatch and hands focus to the action button.
+  // top of the console. Focus lands on the group control instead, which is why this rail offers
+  // Clear only when that control is on screen to receive it. With the list empty there is no
+  // such control, so the toolbar carries the hatch and chooses its own landing place.
   const group = useRef<HTMLInputElement | null>(null);
 
   return (
