@@ -1,7 +1,7 @@
 import {
+  type ApiErrorEnvelope,
   advanceReviewRoundInputSchema,
   advanceReviewRoundResponseSchema,
-  type ApiErrorEnvelope,
   assignReviewersInputSchema,
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
@@ -13,18 +13,21 @@ import {
   proposalDecisionResponseSchema,
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
-  recordProposalDecisionInputSchema,
   type ReviewerQueueDto,
+  recordProposalDecisionInputSchema,
+  respondToSuggestionInputSchema,
   reviewAssignmentRemovalResponseSchema,
   reviewAssignmentsResponseSchema,
   reviewConflictResponseSchema,
   reviewerQueueSchema,
   reviewPlanResponseSchema,
+  reviewSuggestionResponseSchema,
   type SaveEvaluationInput,
   saveEvaluationInputSchema,
+  suggestionResponseResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch, decodeResponse } from "./config";
+import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ReviewApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {
@@ -176,4 +179,35 @@ export async function saveReviewEvaluation(
     { ...json(saveEvaluationInputSchema.parse(input)), method: "PUT" },
   );
   return decode(response, evaluationResponseSchema);
+}
+/** Ask the assistant for a draft. Throws `ReviewApiError` when it is unavailable. */
+export async function requestReviewSuggestion(eventId: string, assignmentId: string) {
+  return decode(
+    await fetch(`/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`, {
+      method: "POST",
+    }),
+    reviewSuggestionResponseSchema,
+  );
+}
+/**
+ * Accept a suggestion into the reviewer's own draft, or dismiss it.
+ *
+ * `includeSummaryInNotes` is passed explicitly on every call rather than left to the schema
+ * default, so the choice is visible at the call site — the point of the flag is that model prose
+ * only reaches the reviewer's notes because they asked for it.
+ */
+export async function respondToReviewSuggestion(
+  eventId: string,
+  assignmentId: string,
+  suggestionId: string,
+  response: "accepted" | "rejected",
+  includeSummaryInNotes = false,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions/${suggestionId}/response`,
+      json(respondToSuggestionInputSchema.parse({ response, includeSummaryInNotes })),
+    ),
+    suggestionResponseResponseSchema,
+  );
 }

@@ -21,6 +21,11 @@ export const reviewAssignmentParamsSchema = z.object({
   eventId: z.string().uuid(),
   assignmentId: z.string().uuid(),
 });
+export const reviewSuggestionParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  assignmentId: z.string().uuid(),
+  suggestionId: z.string().uuid(),
+});
 export const proposalSubmitterSchema = z.object({
   name: z.string(),
   email: z.string().email(),
@@ -202,6 +207,72 @@ export const evaluationSchema = z.object({
   state: z.enum(["draft", "completed"]),
   updatedAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
+  /**
+   * Where this record's values started: written by hand, or seeded by accepting an AI suggestion.
+   * Optional so a client written before the suggestion port still parses this response; the server
+   * always sends it, and the value is never absent in storage.
+   */
+  source: z.enum(["manual", "suggested"]).optional(),
+  /** The suggestion it was seeded from. Non-null exactly when `source` is `suggested`. */
+  suggestionId: z.string().uuid().nullable().optional(),
+});
+
+// @spec PRD-AI-001 PORT-AI
+/**
+ * Which model drafted a suggestion, from which prompt, when, and against which version of the
+ * abstract. Every field is required on the wire: a suggestion whose provenance a reviewer cannot
+ * read is not one they can weigh, so there is no partial form of this object.
+ */
+export const suggestionProvenanceSchema = z.object({
+  model: z.string(),
+  promptVersion: z.string(),
+  generatedAt: z.string().datetime(),
+  proposalRevision: z.string(),
+});
+export const suggestedScoreSchema = z.object({
+  criterionId: z.string(),
+  value: z.union([z.number(), z.string()]),
+  rationale: z.string(),
+});
+export const reviewSuggestionSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  assignmentId: z.string().uuid(),
+  reviewerId: z.string(),
+  proposalId: z.string().uuid(),
+  round: z.number().int().positive(),
+  summary: z.string(),
+  scores: z.array(suggestedScoreSchema),
+  /** `offered` until the reviewer answers. Nothing else can move it. */
+  state: z.enum(["offered", "accepted", "rejected"]),
+  provenance: suggestionProvenanceSchema,
+  respondedBy: z.string().nullable(),
+  respondedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export const respondToSuggestionInputSchema = z.object({
+  response: z.enum(["accepted", "rejected"]),
+  /**
+   * Copy the drafted summary into the reviewer's private notes as part of this acceptance.
+   *
+   * Defaults to `false`, and the default is the point: model prose reaching a field organizers
+   * read as the reviewer's own opinion has to be something the reviewer asked for, once, on this
+   * acceptance — not something that happens because they pressed Accept.
+   */
+  includeSummaryInNotes: z.boolean().default(false),
+});
+export type RespondToSuggestionInput = z.infer<typeof respondToSuggestionInputSchema>;
+export const reviewSuggestionResponseSchema = z.object({
+  suggestion: reviewSuggestionSchema,
+});
+export const suggestionResponseResponseSchema = z.object({
+  suggestion: reviewSuggestionSchema,
+  /**
+   * The reviewer's own draft, when they accepted. `null` on a rejection, which writes no
+   * evaluation at all — and never a *completed* evaluation, which only the reviewer's separate
+   * Complete action produces.
+   */
+  evaluation: evaluationSchema.nullable(),
 });
 export const reviewerOptionSchema = z.object({ id: z.string(), name: z.string() });
 export const organizerReviewWorkspaceSchema = z.object({
@@ -249,8 +320,30 @@ export const reviewerQueueItemSchema = z.object({
   plan: reviewPlanSchema.nullable(),
   conflict: reviewConflictSchema.nullable(),
   evaluation: evaluationSchema.nullable(),
+  /**
+   * The digest of the abstract as it is being sent right now. Compared against a suggestion's
+   * `provenance.proposalRevision` so a draft written about text that has since been edited can be
+   * labelled as such instead of shown as current. Optional for clients written before it existed.
+   */
+  proposalRevision: z.string().optional(),
+  /**
+   * Suggestions offered to this reviewer for this assignment, oldest first. Optional so a client
+   * written against the pre-suggestion shape still parses this response, and absent rather than
+   * empty when the deployment has no assistant; the server always sends it otherwise.
+   */
+  suggestions: z.array(reviewSuggestionSchema).optional(),
 });
-export const reviewerQueueSchema = z.object({ assignments: z.array(reviewerQueueItemSchema) });
+export const reviewerQueueSchema = z.object({
+  assignments: z.array(reviewerQueueItemSchema),
+  /**
+   * Whether this deployment has a suggestion provider bound at all.
+   *
+   * The reviewer's surface offers a Draft control only when this is true, so "the whole review
+   * workflow still works with the port switched off" is a state a client can actually render
+   * rather than an assertion in a document. Optional for clients written before the port.
+   */
+  suggestionsEnabled: z.boolean().optional(),
+});
 export const reviewPlanResponseSchema = z.object({ plan: reviewPlanSchema });
 export const reviewAssignmentsResponseSchema = z.object({
   assignments: z.array(reviewAssignmentSchema),

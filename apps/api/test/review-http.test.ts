@@ -1,14 +1,15 @@
 // @acceptance ACC-REVIEW
 import { describe, expect, it, vi } from "vitest";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import {
   MemoryContentRepository,
   MemorySpeakerConversion,
 } from "../src/adapters/persistence/memory-content-repository";
-import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
+import { DeterministicSuggestionProvider } from "../src/adapters/suggestions/deterministic-suggestion-provider";
 import { AgendaService } from "../src/application/agenda/agenda-service";
 import { ContentService } from "../src/application/content/content-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
@@ -19,6 +20,7 @@ import {
 } from "../src/application/identity/demo-session";
 import { ProposalSubmitterUnavailableError } from "../src/application/review/public";
 import { ReviewService } from "../src/application/review/review-service";
+import type { ReviewSuggestionPort } from "../src/application/review/suggestion-port";
 import { createHttpApp } from "../src/transport/http/app";
 
 const secret = "review-http-secret";
@@ -39,9 +41,15 @@ const cookie = async (persona: "organizer" | "reviewer" | "speaker") => ({
 const build = ({
   acceptanceFailures = 0,
   acceptanceError,
+  suggestions,
 }: {
   acceptanceFailures?: number;
   acceptanceError?: Error;
+  /**
+   * The AI suggestion port. Omitted means the fixture; `null` means the deployment has switched
+   * the assistant off, which is a state the routes have to answer for rather than crash on.
+   */
+  suggestions?: ReviewSuggestionPort | null;
 } = {}) => {
   let id = 0;
   const ids = () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`;
@@ -67,9 +75,13 @@ const build = ({
       status: "submitted",
     },
   ]);
+  const suggestionPort =
+    suggestions === undefined ? new DeterministicSuggestionProvider() : suggestions;
   const review = new ReviewService({
     repository: new MemoryReviewRepository(),
     proposals,
+    ...(suggestionPort ? { suggestions: suggestionPort } : {}),
+    suggestionTimeoutMs: 50,
     identities: {
       isReviewerForEvent: async (userId, scopedEventId) =>
         userId === "seed-reviewer" && scopedEventId === eventId,
@@ -683,6 +695,199 @@ describe("review HTTP API", () => {
         assignments: [{ id: assignmentId }],
         outcomes: [{ proposalId, completedEvaluationCount: 1, averageScore: 4 }],
       });
+    });
+  });
+  describe("AI-assisted suggestions", () => {
+    /** A plan, an under-review abstract and one assignment to the seeded reviewer. */
+    const readyForReview = async (app: ReturnType<typeof build>["app"]) => {
+      const organizer = await cookie("organizer");
+      await app.request(`/api/events/${eventId}/review/plan`, {
+        method: "PUT",
+        headers: organizer,
+        body: JSON.stringify({
+          criteria: [
+            { id: "fit", name: "Fit", description: "Audience fit", minScore: 1, maxScore: 5 },
+          ],
+        }),
+      });
+      const created = await app.request(`/api/events/${eventId}/review/assignments`, {
+        method: "POST",
+        headers: organizer,
+        body: JSON.stringify({ proposalIds: [proposalId], reviewerId: "seed-reviewer" }),
+      });
+      const { assignments } = (await created.json()) as { assignments: { id: string }[] };
+      return assignments[0]?.id as string;
+    };
+
+    it("drafts, offers and accepts a suggestion without completing anything", async () => {
+      const { app } = build();
+      const reviewer = await cookie("reviewer");
+      const assignmentId = await readyForReview(app);
+
+      const drafted = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`,
+        { method: "POST", headers: reviewer },
+      );
+      expect(drafted.status).toBe(201);
+      const { suggestion } = (await drafted.json()) as {
+        suggestion: { id: string; state: string; provenance: Record<string, string> };
+      };
+      expect(suggestion.state).toBe("offered");
+      // Provenance is on the wire, not only in storage — a reviewer cannot weigh a draft whose
+      // origin their client never received.
+      expect(suggestion.provenance.model).toBe("fixture-suggester-v1");
+      expect(suggestion.provenance.promptVersion).toBe("review-suggestion/v1");
+      expect(suggestion.provenance.proposalRevision).toMatch(/^rev-/);
+
+      const queue = await (
+        await app.request(`/api/events/${eventId}/review/assignments`, { headers: reviewer })
+      ).json();
+      expect(queue).toMatchObject({
+        suggestionsEnabled: true,
+        assignments: [{ suggestions: [{ id: suggestion.id, state: "offered" }] }],
+      });
+
+      const answered = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions/${suggestion.id}/response`,
+        { method: "POST", headers: reviewer, body: JSON.stringify({ response: "accepted" }) },
+      );
+      expect(answered.status).toBe(200);
+      // A draft, attributable to the suggestion, and no aggregate on the organizer's board.
+      expect(await answered.json()).toMatchObject({
+        suggestion: { state: "accepted", respondedBy: "seed-reviewer" },
+        evaluation: { state: "draft", source: "suggested", suggestionId: suggestion.id },
+      });
+      expect(
+        await (
+          await app.request(`/api/events/${eventId}/review/organizer`, {
+            headers: await cookie("organizer"),
+          })
+        ).json(),
+      ).toMatchObject({ outcomes: [] });
+    });
+
+    it("reports an unavailable assistant as an upstream failure the reviewer can act on", async () => {
+      const { app } = build({ suggestions: new DeterministicSuggestionProvider("timeout") });
+      const reviewer = await cookie("reviewer");
+      const assignmentId = await readyForReview(app);
+
+      const refused = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`,
+        { method: "POST", headers: reviewer },
+      );
+
+      // Not an internal error: a model that timed out is neither our bug nor the reviewer's
+      // mistake, and the normalized code travels without any provider text behind it.
+      expect(refused.status).toBe(502);
+      const body = (await refused.json()) as {
+        error: { code: string; message: string; fieldErrors?: Record<string, string[]> };
+      };
+      expect(body.error.code).toBe("UPSTREAM_UNAVAILABLE");
+      expect(body.error.message).toContain("Score this abstract yourself");
+      expect(body.error.fieldErrors?.suggestion).toEqual(["PROVIDER_TIMEOUT"]);
+
+      // The manual path still works, which is the whole degradation design.
+      const saved = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/evaluation`,
+        {
+          method: "PUT",
+          headers: reviewer,
+          body: JSON.stringify({
+            scores: [{ criterionId: "fit", value: 4 }],
+            notes: "",
+            complete: true,
+          }),
+        },
+      );
+      expect(saved.status).toBe(200);
+    });
+
+    it("answers 404 and offers nothing when the assistant is switched off", async () => {
+      const { app } = build({ suggestions: null });
+      const reviewer = await cookie("reviewer");
+      const assignmentId = await readyForReview(app);
+
+      const refused = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`,
+        { method: "POST", headers: reviewer },
+      );
+
+      expect(refused.status).toBe(404);
+      expect(
+        await (
+          await app.request(`/api/events/${eventId}/review/assignments`, { headers: reviewer })
+        ).json(),
+      ).toMatchObject({ suggestionsEnabled: false });
+    });
+
+    it("refuses a suggestion request from anyone but the assigned reviewer", async () => {
+      const { app } = build();
+      const assignmentId = await readyForReview(app);
+
+      expect(
+        (
+          await app.request(
+            `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`,
+            { method: "POST" },
+          )
+        ).status,
+      ).toBe(401);
+      // An organizer holds `review:manage`, not `review:evaluate`: drafting is the reviewer's act.
+      expect(
+        (
+          await app.request(
+            `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`,
+            { method: "POST", headers: await cookie("organizer") },
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await app.request(
+            `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`,
+            { method: "POST", headers: await cookie("speaker") },
+          )
+        ).status,
+      ).toBe(403);
+    });
+
+    it("refuses a second answer to the same suggestion with a conflict", async () => {
+      const { app } = build();
+      const reviewer = await cookie("reviewer");
+      const assignmentId = await readyForReview(app);
+      const { suggestion } = (await (
+        await app.request(`/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`, {
+          method: "POST",
+          headers: reviewer,
+        })
+      ).json()) as { suggestion: { id: string } };
+      const answer = () =>
+        app.request(
+          `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions/${suggestion.id}/response`,
+          { method: "POST", headers: reviewer, body: JSON.stringify({ response: "rejected" }) },
+        );
+      expect((await answer()).status).toBe(200);
+
+      expect((await answer()).status).toBe(409);
+    });
+
+    it("refuses a response body that says nothing about accepting or dismissing", async () => {
+      const { app } = build();
+      const reviewer = await cookie("reviewer");
+      const assignmentId = await readyForReview(app);
+      const { suggestion } = (await (
+        await app.request(`/api/events/${eventId}/review/assignments/${assignmentId}/suggestions`, {
+          method: "POST",
+          headers: reviewer,
+        })
+      ).json()) as { suggestion: { id: string } };
+
+      const refused = await app.request(
+        `/api/events/${eventId}/review/assignments/${assignmentId}/suggestions/${suggestion.id}/response`,
+        { method: "POST", headers: reviewer, body: JSON.stringify({ response: "maybe" }) },
+      );
+
+      expect(refused.status).toBe(400);
     });
   });
 });

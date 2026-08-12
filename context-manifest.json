@@ -493,6 +493,7 @@
         "apps/api/src/application/review",
         "apps/api/src/adapters/persistence/d1-review-repository.ts",
         "apps/api/src/adapters/persistence/memory-review-repository.ts",
+        "apps/api/src/adapters/suggestions",
         "apps/api/migrations/0006_review_workflow.sql",
         "apps/api/migrations/0007_review_completion_conflict_guard.sql",
         "apps/api/migrations/0008_review_conflict_completion_guard.sql",
@@ -504,7 +505,10 @@
         "apps/api/migrations/0021_review_decisions.sql",
         "apps/api/migrations/1300_review_rounds.sql",
         "apps/api/migrations/1301_review_rounds_safe_rebuild.sql",
+        "apps/api/migrations/1310_review_suggestions.sql",
         "apps/api/test/review-service.test.ts",
+        "apps/api/test/review-suggestions.test.ts",
+        "apps/api/test/suggestion-provider.test.ts",
         "apps/api/test/review-http.test.ts",
         "apps/api/test/d1-review-repository.integration.test.ts",
         "apps/web/src/ReviewWorkspace.tsx",
@@ -516,12 +520,15 @@
         "apps/web/src/review/RubricForm.tsx",
         "apps/web/src/review/StatusForm.tsx",
         "apps/web/src/review/shared.tsx",
+        "apps/web/src/review/SuggestionPanel.tsx",
         "apps/web/src/api/review.ts",
         "apps/web/e2e/review-workflow.spec.ts",
         "apps/web/test/proposal-acceptance.test.tsx",
         "apps/web/test/review-decisions.test.tsx",
+        "apps/web/test/review-suggestions.test.tsx",
         "apps/api/src/transport/http/routes/review.ts",
-        "apps/web/src/workspaces/review.tsx"
+        "apps/web/src/workspaces/review.tsx",
+        "docs/engineering/review-suggestions.md"
       ]
     },
     {

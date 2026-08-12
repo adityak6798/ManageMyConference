@@ -125,12 +125,21 @@ feature-by-feature verdict.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #23 (production adapters); #56's
   delivery mechanism has landed and closes when an invitation has been rendered by a real client.
-- `GAP-011` **Brief feature 4 is incomplete**: review is single-round and has no AI assistance, while
-  `PRD-AI-001` and the `PORT-AI` entry in [integration architecture](../architecture/integrations.md)
-  read as though a port existed. Impact: the documentation currently claims more than the code does.
-  Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: issue #57 — either
-  a multi-round model plus an honest suggestion port with provenance and manual fallback, or the
-  removal of the AI claims from the architecture docs.
+- `GAP-011` **Brief feature 4's AI half is built but unverified against a real model.** Both named
+  differentiators now exist: multiple rounds shipped with `1300_review_rounds.sql`, and the
+  suggestion port shipped with issue #110 — draft-only by construction, with provenance the
+  reviewer reads, a deterministic credential-free fake as the default, and an `off` mode. What is
+  *not* proven is the half no amount of code can supply here: **the live adapter has never
+  exchanged a request with the Anthropic API.** No credential exists in this repository, its tests
+  stub `fetch`, the request shape comes from the Messages API's documentation rather than
+  observation, and the staging smoke in
+  [review suggestions](../engineering/review-suggestions.md#staging-smoke--required-and-not-yet-performed)
+  has not run. Impact: reviewers can use the assistant and see exactly where each draft came from,
+  and the draft-only guarantee is enforced in storage and asserted against real D1 — but the
+  quality of a *live* suggestion is unmeasured, and the request shape is the most likely thing to
+  be wrong on first contact. The same shape of gap as `GAP-012`, for the same reason.
+  Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: the staging smoke
+  run and recorded, with the date, commit and serving model written into that section.
 - `GAP-012` **Brief feature 7 is verified against nothing**: the inbound Accelevents registration
   sync now exists end to end — a typed source port, a deterministic in-repository roster as the
   default, a live HTTP client behind the credential-gated `live` switch, and an organizer surface

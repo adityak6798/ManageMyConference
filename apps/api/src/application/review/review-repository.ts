@@ -7,6 +7,7 @@ import type {
   ReviewConflict,
   ReviewOutcome,
 } from "../../domain/review/review";
+import type { ReviewSuggestion } from "../../domain/review/suggestion";
 
 export class ReviewStateConflictError extends Error {}
 
@@ -40,4 +41,45 @@ export interface ReviewRepository {
   saveDecision(decision: ProposalDecision): Promise<void>;
   findDecision(eventId: string, proposalId: string): Promise<ProposalDecision | null>;
   listDecisions(eventId: string): Promise<readonly ProposalDecision[]>;
+
+  /**
+   * Store a freshly drafted suggestion in the `offered` state.
+   *
+   * Writing it is the *only* thing that happens on the drafting path — no evaluation, no outcome,
+   * no decision. That is what makes the port safe to point at a live model: the worst a bad
+   * provider can do is put a bad draft on a screen.
+   */
+  saveSuggestion(suggestion: ReviewSuggestion): Promise<void>;
+  /** Every suggestion this reviewer has been offered in this event, oldest first. */
+  listSuggestionsForReviewer(
+    eventId: string,
+    reviewerId: string,
+  ): Promise<readonly ReviewSuggestion[]>;
+  findSuggestion(
+    eventId: string,
+    suggestionId: string,
+    reviewerId: string,
+  ): Promise<ReviewSuggestion | null>;
+  /**
+   * Mark a suggestion accepted **and** write the reviewer's draft evaluation, together.
+   *
+   * One call rather than two because the pair is the human action: a suggestion recorded as
+   * accepted with no evaluation behind it would claim a reviewer took a step they did not, and an
+   * evaluation citing an `offered` suggestion is a provenance claim storage refuses (`1310`).
+   * The evaluation is always a **draft** — completing it is a second, separate reviewer action.
+   *
+   * Implementations must refuse with `ReviewStateConflictError` when the suggestion is no longer
+   * `offered`, so a double submission cannot overwrite scores the reviewer has since edited.
+   */
+  acceptSuggestion(
+    suggestionId: string,
+    reviewerId: string,
+    respondedAt: string,
+    evaluation: Evaluation,
+  ): Promise<void>;
+  /**
+   * Record a rejection. Leaves no canonical trace beyond this row: no evaluation is written and
+   * no aggregate moves. The row survives as the audit record of what was offered and declined.
+   */
+  rejectSuggestion(suggestionId: string, reviewerId: string, respondedAt: string): Promise<void>;
 }

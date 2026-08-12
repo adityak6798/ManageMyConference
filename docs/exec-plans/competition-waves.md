@@ -118,11 +118,44 @@ integration work that has nothing to do with it.
 | Wave | Lanes | Issues |
 |---|---|---|
 | 4 | integration | **#10** alone — connects cross-domain events, reconciles prototype/docs/traceability/scorecard/known-gaps against what shipped, produces evaluator artifacts. Must be last: its job is describing the finished state. **Close #30 here** — by then ~16 PRs will have run the risk-scoped Ralph loop, which is the multi-PR trial it is waiting on. |
-| 5 | productization | #99; #100 then #101 as one lane (MCP rides on the API's auth surface); #102; #110 (AI suggestion port) |
+| 5 | productization | #99; #100 then #101 as one lane (MCP rides on the API's auth surface); #102; ~~#110 (AI suggestion port)~~ — **in flight, see below** |
 
 Also open and externally blocked, not lane work: **#12** (production-auth ADR and full session
 lifecycle) and **#61** (stays open until Cloudflare credentials exist and a deployed URL is
 recorded).
+
+## Wave 5 — #110 in flight (AI suggestion port)
+
+Closes the last gap in brief feature 4. Read this before touching the review domain or the
+`1300` migration block.
+
+- **Migration numbers inside `1300`.** The #134 lane took `1301` for its corrective rebuild of
+  `1300`. This lane starts at **`1310`** and takes nothing below it. `1310` is `CREATE`/`ADD
+  COLUMN` only — no table rebuild — so it does not depend on `PRAGMA foreign_keys` holding
+  between statements, and it applies to the table `1301` rebuilt.
+- **Merge order — done.** #134 merged as PR #140; this lane rebased onto it rather than
+  merge-resolving. Three conflicts, all trivial (a migration list, a test import, the generated
+  manifest). Two things came *back* from that lane and were adopted rather than duplicated: the
+  shared `d1-write-result.ts` row-count contract (#133), which replaced this lane's own copy of
+  the same rule, and the lesson `1301` encodes — `1310`'s header now records that
+  `review_suggestions` makes the review foreign-key chain one link longer for whoever rebuilds
+  those tables next.
+- **Files this lane did not touch**, by ruling: `apps/api/test/d1-migration-rebuild.integration.test.ts`
+  and `apps/api/test/support/seeded-d1.ts` (both #134's). New storage coverage went into
+  `d1-review-repository.integration.test.ts`, which review owns. `apps/api/src/index.ts` and
+  `table-ownership.json` were appended to only.
+
+### One decision worth carrying forward
+
+**The Anthropic SDK was tried first and put back.** `@anthropic-ai/sdk` pulls `node:fs` and
+`node:path` into the Worker bundle for its credential-chain support, which resolves only with the
+`nodejs_compat` compatibility flag — a runtime change affecting *every* route in the deployment, to
+serve one adapter that is off by default. That is the shape "fix, don't file" warns about: a small
+diff carrying a repository-wide decision made from inside one domain's PR. The adapter speaks raw
+`fetch` instead, like the three delivery adapters, and the reasoning is recorded in
+[review suggestions](../engineering/review-suggestions.md#why-raw-fetch-rather-than-the-anthropic-sdk)
+so the next person meets the answer rather than the question. Revisit if the Worker ever needs
+`nodejs_compat` for its own reasons.
 
 ## Standing rulings
 
@@ -190,6 +223,7 @@ stale.
 | D10 | **Lazy-load the two app roots in `main.tsx`** rather than raising a budget or merging files | `main.tsx` named both roots statically, so every public visitor downloaded the organizer console. The `resourceCount < 100` budget caught it only because #119's two files took the public page from 98 to 100. Fixing the cause took it to **40**; the ceiling was left untouched, so it still means what it meant and now has real headroom. Raising it would have deleted the signal; merging files would have moved the number by one and pushed against #70's decomposition. |
 | D11 | **#133 filed** for the `meta.changes` divergence, rather than four lanes patching their own copy | #116 correctly changed content to treat a missing count as an error; three other adapters still read `?? 0`. #119 was offered the same one-line change and declined for a better reason than the one on offer — the pattern is the repository's, not agenda's, and fixing one of four is less legible than the uniform reading. Platform-owned, post-competition, no live defect claimed. |
 | D12 | **#131 filed** for a NUL-byte gate | #116's own change put two literal NUL bytes into `memory-content-repository.ts`, turning it into a binary blob: `git diff` reported "Bin 11432 → 14150 bytes, 0 insertions, 0 deletions", 2.7 KB of change to a core adapter invisible to the PR view, to blame and to grep — while `npm run check` stayed green for two commits. Caught by a human reading the file in review pass 3. The gate belongs in `tools/`, which is platform, so it is an issue rather than another commit. |
+| D13 | **AI suggestions are a sibling table, not columns on `review_evaluations`** | "AI may draft but never silently changes canonical state" is only as strong as the thing enforcing it. As a nullable column it is a convention one careless `UPDATE` breaks; as `review_suggestions`, which no aggregate query joins, it is a property of the schema. Accepting writes a *draft* and completing stays a separate act, so the two human actions are structural too. |
 
 ## Known stale facts
 

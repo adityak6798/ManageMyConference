@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   check,
   index,
   integer,
@@ -8,7 +9,6 @@ import {
   sqliteTable,
   text,
   unique,
-  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 export function defineReviewSchema(references: {
@@ -129,10 +129,71 @@ export function defineReviewSchema(references: {
       state: text("state").notNull(),
       updatedAt: text("updated_at").notNull(),
       completedAt: text("completed_at"),
+      /**
+       * Whether this record started from an accepted AI suggestion or was written by hand
+       * (`1310`). Defaulted rather than nullable: every row that predates the column was written
+       * by hand, so there is no third "unknown" state for a reader to interpret.
+       */
+      source: text("source").notNull().default("manual"),
+      suggestionId: text("suggestion_id").references((): AnySQLiteColumn => reviewSuggestions.id),
     },
     (table) => [
       primaryKey({ columns: [table.assignmentId, table.reviewerId] }),
       check("review_evaluations_state", sql`${table.state} IN ('draft', 'completed')`),
+    ],
+  );
+  /**
+   * AI-drafted suggestions, deliberately a sibling of `review_evaluations` rather than columns on
+   * it.
+   *
+   * Nothing that computes `review_outcomes` joins this table, which is what makes "AI never
+   * silently changes canonical state" a property of the schema instead of a rule in a service.
+   * `state` leaves `offered` only with a named responder — the `CHECK` is in `1310`, which Drizzle
+   * cannot express as a table-level constraint referencing two columns conditionally, so it is
+   * listed in the migration and not modelled here.
+   *
+   * @spec PRD-AI-001 PORT-AI
+   */
+  const reviewSuggestions = sqliteTable(
+    "review_suggestions",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      assignmentId: text("assignment_id")
+        .notNull()
+        .references(() => reviewAssignments.id),
+      reviewerId: text("reviewer_id")
+        .notNull()
+        .references(() => references.usersId),
+      proposalId: text("proposal_id")
+        .notNull()
+        .references(() => references.cfpSubmissionsId),
+      round: integer("round").notNull().default(1),
+      summary: text("summary").notNull(),
+      scoresJson: text("scores_json").notNull(),
+      state: text("state").notNull().default("offered"),
+      provenanceModel: text("provenance_model").notNull(),
+      provenancePromptVersion: text("provenance_prompt_version").notNull(),
+      provenanceGeneratedAt: text("provenance_generated_at").notNull(),
+      provenanceProposalRevision: text("provenance_proposal_revision").notNull(),
+      respondedBy: text("responded_by").references(() => references.usersId),
+      respondedAt: text("responded_at"),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [
+      check("review_suggestions_round", sql`${table.round} > 0`),
+      check("review_suggestions_state", sql`${table.state} IN ('offered', 'accepted', 'rejected')`),
+      check(
+        "review_suggestions_responder",
+        sql`${table.state} = 'offered' OR (${table.respondedBy} IS NOT NULL AND ${table.respondedAt} IS NOT NULL)`,
+      ),
+      index("review_suggestions_assignment_idx").on(
+        table.assignmentId,
+        table.reviewerId,
+        table.createdAt,
+      ),
     ],
   );
   const reviewOutcomes = sqliteTable(
@@ -213,6 +274,7 @@ export function defineReviewSchema(references: {
     reviewAssignmentCaps,
     reviewConflicts,
     reviewEvaluations,
+    reviewSuggestions,
     reviewOutcomes,
     reviewDecisions,
     reviewEvents,

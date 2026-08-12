@@ -14,7 +14,7 @@ import { declareReviewConflict, saveReviewEvaluation } from "../api/review";
 import "../styles/review.css";
 import { IconCheck, IconWarning } from "../ui/icons";
 import { Card, Notice, Pill, useActionFeedback } from "../ui/primitives";
-
+import { SuggestionPanel } from "./SuggestionPanel";
 import { message } from "./shared";
 
 type QueueItem = ReviewerQueueDto["assignments"][number];
@@ -22,10 +22,13 @@ export function EvaluationCard({
   eventId,
   item,
   reload,
+  suggestionsEnabled,
 }: {
   eventId: string;
   item: QueueItem;
   reload: () => Promise<void>;
+  /** Whether this deployment has an assistant at all. False hides the panel entirely. */
+  suggestionsEnabled: boolean;
 }) {
   const [notes, setNotes] = useState(item.evaluation?.notes ?? "");
   const [scores, setScores] = useState<Record<string, number | string>>(() =>
@@ -163,6 +166,40 @@ export function EvaluationCard({
           The organizer has not configured an evaluation plan yet, so this abstract cannot be
           scored.
         </Notice>
+      ) : null}
+
+      {/*
+       * Above the form, because a draft is something to read before scoring rather than something
+       * to discover afterwards — and withheld entirely when there is no assistant, so a deployment
+       * with the port off shows exactly the surface it showed before this feature existed.
+       *
+       * Accepting writes the reviewer's draft on the server and hands it back here, and the values
+       * are pushed into the open form rather than waiting for a reload: the reviewer should see
+       * what they just took, in the fields they are about to submit.
+       */}
+      {suggestionsEnabled && item.plan ? (
+        <SuggestionPanel
+          eventId={eventId}
+          item={item}
+          disabled={busy}
+          onAccepted={(evaluation, appendToNotes) => {
+            setScores(
+              Object.fromEntries(
+                evaluation.scores.flatMap(({ criterionId, value, score }) => {
+                  const stored = value ?? score;
+                  return stored === undefined ? [] : [[criterionId, stored]];
+                }),
+              ),
+            );
+            // Scores are what the reviewer asked for, so they land. Notes are never *replaced*:
+            // the server's copy is composed from the notes it had stored, and anything typed
+            // since exists only here — taking its version would delete that. When the reviewer
+            // asked for the summary, it is appended to what is actually on screen.
+            if (appendToNotes)
+              setNotes((current) => [current, appendToNotes].filter(Boolean).join("\n\n"));
+          }}
+          onChanged={reload}
+        />
       ) : null}
 
       <form

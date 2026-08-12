@@ -46,6 +46,9 @@ import { PublicationService } from "./application/publishing/publication-service
 import { ReviewService } from "./application/review/review-service";
 import type { ReviewNotificationPort } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
+import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
+import type { ReviewSuggestionPort } from "./application/review/suggestion-port";
+import { SuggestionUnavailableError } from "./application/review/suggestion-port";
 
 export interface Environment {
   DB: D1DatabasePort;
@@ -103,6 +106,20 @@ export interface Environment {
    */
   GREENROOM_WORKTREE_ROOT?: string;
   GREENROOM_COMMIT?: string;
+  /**
+   * `fixture` (the default), `live`, or `off` — the AI review suggestion port (#110).
+   *
+   * Its own switch rather than a share of `COMMUNICATIONS_PROVIDERS`, because it is a different
+   * domain with a different credential and a different failure: a deployment can perfectly
+   * reasonably send real mail while drafting suggestions with the fixture, or the reverse.
+   * `off` withdraws the assistant entirely and the rest of review is unchanged.
+   * See docs/engineering/review-suggestions.md.
+   */
+  REVIEW_AI_PROVIDER?: string;
+  /** Anthropic API key. A Worker **secret**; required by `live` and by nothing else. */
+  REVIEW_AI_API_KEY?: string;
+  /** Pins the model `live` drafts with. Non-secret; a var. Defaults in the adapter. */
+  REVIEW_AI_MODEL?: string;
 }
 
 const communicationsRepository = (environment: Environment) =>
@@ -419,12 +436,47 @@ export default {
         }));
       },
     };
+    /*
+     * The AI suggestion port (#110), resolved once per request and never able to take review down.
+     *
+     * Three outcomes, and the middle one is the interesting one:
+     *
+     * - `off` — no port. The queue offers no Draft control and review behaves as it did before
+     *   this feature existed.
+     * - misconfigured `live` — a port that refuses on use. Resolution throws naming the missing
+     *   binding, and that throw is caught *here* rather than allowed to escape, because a
+     *   reviewer's queue must not go dark because the assistant's key is absent. The binding name
+     *   goes to the log; the reviewer is told the assistant is unavailable and scores by hand.
+     * - otherwise — the fixture or the live adapter.
+     *
+     * This is deliberately the opposite trade from `resolveProviders`, which lets a misconfigured
+     * `live` throw into the scheduled drain. There, throwing is how a deployment avoids believing
+     * it has sent mail. Here, nothing is claimed to have happened at all if the port never
+     * answers, so the safe direction is to keep the rest of review working.
+     */
+    const suggestions: ReviewSuggestionPort | undefined = (() => {
+      try {
+        return resolveSuggestionProvider(environment) ?? undefined;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return {
+          suggest() {
+            // ERROR-INTENT: the configuration message names bindings, not values, and belongs in
+            // the operator's log rather than in a reviewer's response. The reviewer gets the
+            // normalized code and the manual path.
+            logger.error({ detail }, "review.suggestions.misconfigured");
+            return Promise.reject(new SuggestionUnavailableError("PROVIDER_UNCONFIGURED"));
+          },
+        };
+      }
+    })();
     const reviewService = new ReviewService({
       repository: new D1ReviewRepository(environment.DB),
       proposals: new D1SubmittedProposalAdapter(environment.DB),
       identities: identityDirectory,
       events: service,
       notifications: reviewNotifications,
+      ...(suggestions ? { suggestions } : {}),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });

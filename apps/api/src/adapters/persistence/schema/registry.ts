@@ -109,6 +109,7 @@ export const {
   reviewEvents,
   reviewOutcomes,
   reviewPlans,
+  reviewSuggestions,
   speakerAssets,
   speakerConversionClaims,
   speakerConversionSources,

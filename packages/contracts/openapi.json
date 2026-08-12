@@ -16414,6 +16414,18 @@
                                       "completedAt": {
                                         "type": "string",
                                         "format": "date-time"
+                                      },
+                                      "source": {
+                                        "type": "string",
+                                        "enum": [
+                                          "manual",
+                                          "suggested"
+                                        ]
+                                      },
+                                      "suggestionId": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "format": "uuid"
                                       }
                                     },
                                     "required": [
@@ -21140,6 +21152,18 @@
                               "completedAt": {
                                 "type": "string",
                                 "format": "date-time"
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "manual",
+                                  "suggested"
+                                ]
+                              },
+                              "suggestionId": {
+                                "type": "string",
+                                "nullable": true,
+                                "format": "uuid"
                               }
                             },
                             "required": [
@@ -21150,6 +21174,133 @@
                               "state",
                               "updatedAt"
                             ]
+                          },
+                          "proposalRevision": {
+                            "type": "string"
+                          },
+                          "suggestions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "eventId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "assignmentId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "reviewerId": {
+                                  "type": "string"
+                                },
+                                "proposalId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "round": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "exclusiveMinimum": true
+                                },
+                                "summary": {
+                                  "type": "string"
+                                },
+                                "scores": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "criterionId": {
+                                        "type": "string"
+                                      },
+                                      "value": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      },
+                                      "rationale": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "criterionId",
+                                      "value",
+                                      "rationale"
+                                    ]
+                                  }
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "offered",
+                                    "accepted",
+                                    "rejected"
+                                  ]
+                                },
+                                "provenance": {
+                                  "type": "object",
+                                  "properties": {
+                                    "model": {
+                                      "type": "string"
+                                    },
+                                    "promptVersion": {
+                                      "type": "string"
+                                    },
+                                    "generatedAt": {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    "proposalRevision": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "model",
+                                    "promptVersion",
+                                    "generatedAt",
+                                    "proposalRevision"
+                                  ]
+                                },
+                                "respondedBy": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "respondedAt": {
+                                  "type": "string",
+                                  "nullable": true,
+                                  "format": "date-time"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "eventId",
+                                "assignmentId",
+                                "reviewerId",
+                                "proposalId",
+                                "round",
+                                "summary",
+                                "scores",
+                                "state",
+                                "provenance",
+                                "respondedBy",
+                                "respondedAt",
+                                "createdAt"
+                              ]
+                            }
                           }
                         },
                         "required": [
@@ -21160,6 +21311,9 @@
                           "evaluation"
                         ]
                       }
+                    },
+                    "suggestionsEnabled": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -22595,6 +22749,18 @@
                         "completedAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "suggested"
+                          ]
+                        },
+                        "suggestionId": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "uuid"
                         }
                       },
                       "required": [
@@ -22723,6 +22889,1164 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/review/assignments/{assignmentId}/suggestions": {
+      "post": {
+        "description": "Drafts an AI suggestion for this assignment: a summary and one value per rubric criterion, each with a rationale, stored with the model, prompt version, time and abstract revision it came from. The suggestion is a draft and nothing else — it is not an evaluation, it is counted in no aggregate, and it becomes part of the reviewer's record only through the response route below. The proposal crosses the provider boundary with its submitter masked, exactly as the reviewer sees it. 404 when the deployment has no assistant configured; 502 when the provider was slow, throttled or unusable, in which case the reviewer scores by hand and may try again.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "assignmentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Drafted suggestion, with its provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "suggestion": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "assignmentId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "reviewerId": {
+                          "type": "string"
+                        },
+                        "proposalId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "round": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "scores": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "criterionId": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "rationale": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "criterionId",
+                              "value",
+                              "rationale"
+                            ]
+                          }
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "offered",
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string"
+                            },
+                            "promptVersion": {
+                              "type": "string"
+                            },
+                            "generatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "proposalRevision": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "model",
+                            "promptVersion",
+                            "generatedAt",
+                            "proposalRevision"
+                          ]
+                        },
+                        "respondedBy": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "respondedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "eventId",
+                        "assignmentId",
+                        "reviewerId",
+                        "proposalId",
+                        "round",
+                        "summary",
+                        "scores",
+                        "state",
+                        "provenance",
+                        "respondedBy",
+                        "respondedAt",
+                        "createdAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "suggestion"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/review/assignments/{assignmentId}/suggestions/{suggestionId}/response": {
+      "post": {
+        "description": "Records the reviewer's answer to a suggestion. Accepting writes their own evaluation as a **draft** carrying `source: \"suggested\"` and the suggestion's id — completing it remains a separate reviewer action, and only that action moves an aggregate. Rejecting writes no evaluation at all and leaves only the suggestion row, marked rejected with the reviewer's name, as the audit record. Refused with 400 when the drafted values do not satisfy the rubric, naming the criteria the reviewer must score themselves, and with 409 once the suggestion has already been answered.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "assignmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "suggestionId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "response": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "rejected"
+                    ]
+                  },
+                  "includeSummaryInNotes": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "response"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answered suggestion, and the reviewer's draft when they accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "suggestion": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "assignmentId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "reviewerId": {
+                          "type": "string"
+                        },
+                        "proposalId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "round": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "scores": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "criterionId": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "rationale": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "criterionId",
+                              "value",
+                              "rationale"
+                            ]
+                          }
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "offered",
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string"
+                            },
+                            "promptVersion": {
+                              "type": "string"
+                            },
+                            "generatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "proposalRevision": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "model",
+                            "promptVersion",
+                            "generatedAt",
+                            "proposalRevision"
+                          ]
+                        },
+                        "respondedBy": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "respondedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "eventId",
+                        "assignmentId",
+                        "reviewerId",
+                        "proposalId",
+                        "round",
+                        "summary",
+                        "scores",
+                        "state",
+                        "provenance",
+                        "respondedBy",
+                        "respondedAt",
+                        "createdAt"
+                      ]
+                    },
+                    "evaluation": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "assignmentId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "reviewerId": {
+                          "type": "string"
+                        },
+                        "scores": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "criterionId": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "score": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "criterionId"
+                            ]
+                          }
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "draft",
+                            "completed"
+                          ]
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "completedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "suggested"
+                          ]
+                        },
+                        "suggestionId": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "assignmentId",
+                        "reviewerId",
+                        "scores",
+                        "notes",
+                        "state",
+                        "updatedAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "suggestion",
+                    "evaluation"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {
@@ -23879,6 +25203,18 @@
                           "completedAt": {
                             "type": "string",
                             "format": "date-time"
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "manual",
+                              "suggested"
+                            ]
+                          },
+                          "suggestionId": {
+                            "type": "string",
+                            "nullable": true,
+                            "format": "uuid"
                           }
                         },
                         "required": [

@@ -57,6 +57,8 @@ export const UNMODELLED_OBJECTS = [
   "trigger:review_conflict_rejects_completion",
   "trigger:review_plan_lock",
   "trigger:review_assignment_cap",
+  "trigger:review_evaluation_source_insert",
+  "trigger:review_evaluation_source_update",
   "trigger:public_event_projections_slug_reservation_insert",
   "trigger:public_event_projections_slug_reservation_update",
 ];
