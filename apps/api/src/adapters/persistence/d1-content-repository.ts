@@ -22,31 +22,20 @@ import type {
   SpeakerResource,
   SpeakerTask,
 } from "../../domain/content/content";
-
-/**
- * How many rows a statement actually touched.
- *
- * Load-bearing rather than diagnostic: a conditional write that matched nothing is a *success*
- * in D1, so without this an `UPDATE … WHERE <no longer true>` and a real write are the same
- * answer — which is how a write that changed nothing gets reported as one that did.
- */
-interface D1Meta {
-  changes?: number;
-}
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 interface D1Result<T = unknown> {
   results?: T[];
   success: boolean;
   error?: string;
-  meta?: D1Meta;
 }
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
-  run<T = unknown>(): Promise<D1Result<T>>;
+  run<T = unknown>(): Promise<D1WriteResult & { results?: T[] }>;
   all<T>(): Promise<D1Result<T>>;
 }
 export interface ContentDatabasePort {
   prepare(query: string): D1Statement;
-  batch<T = unknown>(statements: D1Statement[]): Promise<Array<D1Result<T>>>;
+  batch<T = unknown>(statements: D1Statement[]): Promise<Array<D1WriteResult & { results?: T[] }>>;
 }
 
 /** A `WHERE` clause and the values it binds, so a guard can be shared by two statements. */
@@ -697,10 +686,9 @@ export class D1ContentRepository
       // a retry. Reading a missing count as zero would send a write that *did* land back around
       // the loop to be attempted a second time under the same revision id — reporting an edit
       // that succeeded as a primary-key fault. Silence about the count is not evidence of none.
-      const changes = results.map((result) => result.meta?.changes);
-      if (changes.some((count) => typeof count !== "number"))
-        return { failure: "D1 reported no row count for a content revision batch" };
-      return { changes: changes as number[] };
+      return {
+        changes: results.map((result) => changedRows(result, "write content revision batch")),
+      };
     } catch (error) {
       // ERROR-INTENT: returned to the caller, which decides between a retry and a throw; the
       // driver's message is carried whole into whichever it picks.

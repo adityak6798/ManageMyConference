@@ -10,18 +10,15 @@ import type {
   MessageTemplate,
   ProjectionState,
 } from "../../domain/communications/delivery";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 interface Statement {
   bind(...values: unknown[]): Statement;
-  run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
+  run(): Promise<D1WriteResult>;
   all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
 }
 type Database = {
   prepare(query: string): Statement;
-  // `meta.changes` is what tells a conditional upsert apart from one whose WHERE guard declined
-  // it: both are successful statements, and only the row count distinguishes them.
-  batch(
-    statements: Statement[],
-  ): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }[]>;
+  batch(statements: Statement[]): Promise<D1WriteResult[]>;
 };
 type TemplateRow = {
   id: string;
@@ -499,13 +496,12 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     // The upsert changed no row exactly when its version guard refused it. Without a projection
     // there is nothing to be stale, so nothing to report.
     //
-    // A missing `meta` defaults to *applied*. D1 and miniflare both return it, so this is the
-    // "driver told us nothing" case, and the safe default for an alarm is silence: reading absence
-    // as a refusal would report a stale external projection on every projection delivery, which
-    // would train an operator to ignore the one signal that is supposed to be rare.
+    if (projectionStatement < 0) return { projectionApplied: true };
+    const projectionResult = results[projectionStatement];
+    if (!projectionResult)
+      throw new Error("D1 returned no result while attempting to record outbound projection");
     return {
-      projectionApplied:
-        projectionStatement < 0 || (results[projectionStatement]?.meta?.changes ?? 1) > 0,
+      projectionApplied: changedRows(projectionResult, "record outbound projection") > 0,
     };
   }
   async retry(deliveryId: string, organizationId: string, now: string) {
@@ -516,7 +512,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       .bind(now, now, deliveryId, organizationId)
       .run();
     this.ensure(result, "retry delivery");
-    if ((result.meta?.changes ?? 0) !== 1)
+    if (changedRows(result, "retry delivery") !== 1)
       throw new DeliveryRecoveryConflictError("Delivery is not recoverable");
     const delivery = await this.get(deliveryId);
     if (!delivery || delivery.organizationId !== organizationId || delivery.state !== "queued")

@@ -553,6 +553,7 @@ describe("D1ContentRepository revisions", () => {
       batch: async (statements) =>
         statements.map(() => ({
           success: false,
+          meta: { changes: 0 },
           error:
             "UNIQUE constraint failed: content_revisions.entity_type, content_revisions.entity_id, content_revisions.revision_number",
         })),

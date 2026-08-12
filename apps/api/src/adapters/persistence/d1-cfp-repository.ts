@@ -1,14 +1,10 @@
 import type { CfpRepository } from "../../application/cfp/cfp-repository";
 import type { CfpForm, ProposalSubmission } from "../../domain/cfp/cfp";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 export interface D1CfpDatabasePort {
   prepare(query: string): {
     bind(...values: unknown[]): ReturnType<D1CfpDatabasePort["prepare"]>;
-    run<T = unknown>(): Promise<{
-      results?: T[];
-      success: boolean;
-      error?: string;
-      meta?: { changes?: number };
-    }>;
+    run<T = unknown>(): Promise<D1WriteResult & { results?: T[] }>;
     all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
   };
 }
@@ -112,7 +108,7 @@ export class D1CfpRepository implements CfpRepository {
       .run();
     if (!result.success)
       throw new Error(`D1 failed to save CFP: ${result.error ?? "unknown error"}`);
-    return (result.meta?.changes ?? 0) === 1;
+    return changedRows(result, "save CFP") === 1;
   }
   async savePublished(form: CfpForm, updateEditable: boolean, expectedVersion: number) {
     const result = await this.database
@@ -141,7 +137,7 @@ export class D1CfpRepository implements CfpRepository {
       .run();
     if (!result.success)
       throw new Error(`D1 failed to publish CFP: ${result.error ?? "unknown error"}`);
-    return (result.meta?.changes ?? 0) === 1;
+    return changedRows(result, "publish CFP") === 1;
   }
   async findSubmission(eventId: string, key: string) {
     const result = await this.database
