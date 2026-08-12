@@ -17,6 +17,7 @@ import {
   listAssignedEvents,
   requestLoginCode,
   startDemoSession,
+  updateEvent,
   verifyLoginCode,
 } from "./api/events";
 import { OverviewPage } from "./OverviewPage";
@@ -106,7 +107,9 @@ export function App() {
   const [session, setSession] = useState<SessionDto | null>(null);
   const [events, setEvents] = useState<EventDto[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
-  const [name, setName] = useState("");
+  const [createName, setCreateName] = useState("");
+  const [settingsName, setSettingsName] = useState("");
+  const [settingsTimezone, setSettingsTimezone] = useState("");
   // The shell reports its own failures and no one else's: signing in, switching identity,
   // creating an event. It starts and finishes each of those, so it can keep the message
   // accurate by itself. A workspace that is mounted owns its failures — it renders them
@@ -163,6 +166,11 @@ export function App() {
 
   const selectedEvent = events.find(({ id }) => id === selectedEventId);
   const query = selectedEventId ? `?event=${selectedEventId}` : "";
+
+  useEffect(() => {
+    setSettingsName(selectedEvent?.name ?? "");
+    setSettingsTimezone(selectedEvent?.timezone ?? "");
+  }, [selectedEvent]);
 
   const activeRole = useMemo<Persona>(() => {
     if (!session) return "public";
@@ -275,7 +283,7 @@ export function App() {
     try {
       const created = await createEvent({
         organizationId,
-        name,
+        name: createName,
         timezone: "America/Los_Angeles",
       });
       const [refreshedSession, refreshedEvents] = await Promise.all([
@@ -288,7 +296,25 @@ export function App() {
       // carrying the previous event silently undoes the switch on the next reload or when
       // the link is shared. There is one way to select an event, and this is it.
       selectEvent(created.id);
-      setName("");
+      setCreateName("");
+    } catch (reason: unknown) {
+      setError(readableError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitSettings(formEvent: FormEvent) {
+    formEvent.preventDefault();
+    if (!selectedEvent) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateEvent(selectedEvent.id, {
+        name: settingsName,
+        timezone: settingsTimezone,
+      });
+      setEvents((current) => current.map((event) => (event.id === updated.id ? updated : event)));
     } catch (reason: unknown) {
       setError(readableError(reason));
     } finally {
@@ -488,6 +514,35 @@ export function App() {
             title="Event settings"
             subtitle={`${selectedEvent.name} · ${selectedEvent.timezone}`}
           />
+          {activeEventCapabilities.includes("events:settings:update") ? (
+            <Card title="Current event" labelledBy="current-event-title">
+              <form onSubmit={submitSettings}>
+                <div className="field">
+                  <label htmlFor="settings-event-name">Current event name</label>
+                  <input
+                    id="settings-event-name"
+                    value={settingsName}
+                    onChange={(changeEvent) => setSettingsName(changeEvent.target.value)}
+                    required
+                    maxLength={120}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="settings-event-timezone">Event timezone</label>
+                  <input
+                    id="settings-event-timezone"
+                    value={settingsTimezone}
+                    onChange={(changeEvent) => setSettingsTimezone(changeEvent.target.value)}
+                    placeholder="America/Los_Angeles"
+                    required
+                  />
+                </div>
+                <button type="submit" disabled={busy}>
+                  {busy ? "Saving…" : "Save event settings"}
+                </button>
+              </form>
+            </Card>
+          ) : null}
           {session?.capabilities.includes("events:create") ? (
             <Card title="Create an event" labelledBy="create-title">
               <form onSubmit={submit}>
@@ -496,8 +551,8 @@ export function App() {
                   <div className="form-row">
                     <input
                       id="event-name"
-                      value={name}
-                      onChange={(changeEvent) => setName(changeEvent.target.value)}
+                      value={createName}
+                      onChange={(changeEvent) => setCreateName(changeEvent.target.value)}
                       placeholder="Greenroom Summit"
                       required
                       maxLength={120}

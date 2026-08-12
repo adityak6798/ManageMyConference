@@ -348,6 +348,47 @@ describe("D1PublicationRepository", () => {
     expect(republished?.published).toEqual(seeded.published);
   });
 
+  it("recomposes an event rename into the draft and waits for publish before changing public", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-event-rename" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { events, publicationRepository, publishing } = publishingFor(database as never);
+    const organizer = await resolveSeededDemoActor("organizer");
+    const before = await publicationRepository.findPublicBySlug(DEMO_SLUG);
+
+    await events.update(organizer, DEMO_EVENT, {
+      name: "Greenroom Renamed Summit",
+      timezone: "America/New_York",
+    });
+
+    const preview = await publishing.preview(organizer, DEMO_EVENT);
+    expect(preview?.draft.event).toMatchObject({
+      name: "Greenroom Renamed Summit",
+      timezone: "America/New_York",
+      slug: DEMO_SLUG,
+    });
+    expect(
+      (await publicationRepository.findPublicBySlug(DEMO_SLUG))?.published?.event,
+    ).toMatchObject({
+      name: before?.published?.event.name,
+      timezone: before?.published?.event.timezone,
+      slug: DEMO_SLUG,
+    });
+
+    await publishing.publish(organizer, DEMO_EVENT);
+    expect(
+      (await publicationRepository.findPublicBySlug(DEMO_SLUG))?.published?.event,
+    ).toMatchObject({
+      name: "Greenroom Renamed Summit",
+      timezone: "America/New_York",
+      slug: DEMO_SLUG,
+    });
+  });
+
   it("serves the seeded headshot to an anonymous reader and withdraws it on unpublish", async () => {
     runtime = new Miniflare({
       modules: true,

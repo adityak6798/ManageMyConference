@@ -4,11 +4,17 @@ import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
   requireCapability,
+  requireEventCapability,
 } from "../identity/actor";
 import type { EventRepository } from "./event-repository";
 
 export interface CreateEventCommand {
   readonly organizationId: string;
+  readonly name: string;
+  readonly timezone: string;
+}
+
+export interface UpdateEventCommand {
   readonly name: string;
   readonly timezone: string;
 }
@@ -48,6 +54,15 @@ export class EventService {
     await this.dependencies.repository.create(event);
     await this.dependencies.grantOrganizer?.(event.id, authorized.id);
     return event;
+  }
+
+  async update(
+    actor: Actor | null,
+    eventId: string,
+    command: UpdateEventCommand,
+  ): Promise<Event | null> {
+    requireEventCapability(actor, eventId, "events:settings:update");
+    return this.dependencies.repository.update(eventId, command.name, command.timezone);
   }
   listAssigned(actor: Actor | null): Promise<readonly Event[]> {
     if (!actor) throw new AuthenticationRequiredError("Authentication is required");
