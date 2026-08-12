@@ -1,7 +1,7 @@
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
-import { DeterministicProvider } from "./adapters/providers/deterministic-provider";
+import { resolveProviders } from "./adapters/providers/configuration";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { AgendaService } from "./application/agenda/agenda-service";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
@@ -33,6 +33,20 @@ export interface Environment {
   INITIAL_ORGANIZER_EMAIL?: string;
   ENVIRONMENT?: string;
   /**
+   * `fixture` (the default) or `live`. Everything below is required by `live` and must be set as
+   * Worker secrets, never as plaintext vars. See docs/engineering/communications-providers.md.
+   */
+  COMMUNICATIONS_PROVIDERS?: string;
+  EMAIL_API_ENDPOINT?: string;
+  EMAIL_API_TOKEN?: string;
+  EMAIL_SENDER?: string;
+  AIRTABLE_BASE_ID?: string;
+  AIRTABLE_TABLE_ID?: string;
+  AIRTABLE_TOKEN?: string;
+  AIRTABLE_REFERENCE_FIELD?: string;
+  ACCELEVENTS_API_ENDPOINT?: string;
+  ACCELEVENTS_TOKEN?: string;
+  /**
    * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
    * can say which checkout and commit it belongs to. Absent in a deployment.
    */
@@ -46,11 +60,21 @@ const communicationsRepository = (environment: Environment) =>
   );
 
 export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
-  const provider = new DeterministicProvider();
   const worker = new OutboxWorker(
     communicationsRepository(environment),
-    { email: provider, airtable: provider, accelevents: provider },
+    // Throws rather than falling back if `live` is half-configured, so a scheduled drain that
+    // believes it is sending mail cannot quietly be appending to an in-memory array.
+    resolveProviders(environment),
     { newId: () => crypto.randomUUID(), now: () => new Date() },
+    {
+      // What the provider did, per attempt: enough to correlate a delivery with a provider's own
+      // logs and to see rate limiting as it happens. Never the recipient, the message, the
+      // payload or any credential — this line is emitted to a shared log sink.
+      attempt(record) {
+        // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+        console.info(JSON.stringify({ level: "info", message: "delivery.attempt", ...record }));
+      },
+    },
   );
   let processed = 0;
   while (processed < limit && (await worker.runOne())) processed += 1;

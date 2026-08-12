@@ -97,6 +97,32 @@ describe("communications outbox", () => {
     expect(first).toMatchObject({ state: "queued", templateVersion: 1 });
   });
 
+  it("hands the provider the rendered message, and logs the attempt without it", async () => {
+    const test = harness();
+    const records: Record<string, unknown>[] = [];
+    const worker = new OutboxWorker(
+      test.repository,
+      { email: test.provider, airtable: test.provider, accelevents: test.provider },
+      { newId: () => crypto.randomUUID(), now: () => new Date("2026-08-10T12:00:00.000Z") },
+      { attempt: (record) => records.push({ ...record }) },
+    );
+    const delivery = await templateAndTrigger(test, {
+      recipientRef: "ada@example.test",
+      payload: { speaker: "Ada" },
+    });
+
+    await worker.runOne();
+
+    // What a human would receive reached the provider — not just the template id.
+    expect(test.provider.calls[0]?.renderedSubject).toBe("You're invited");
+    expect(test.provider.calls[0]?.renderedBody).toBe("Hello Ada");
+    // The operational log correlates and nothing more: no recipient, no message, no payload.
+    const [record] = records;
+    expect(record).toMatchObject({ deliveryId: delivery.id, outcome: "succeeded", sequence: 1 });
+    expect(JSON.stringify(record)).not.toContain("ada@example.test");
+    expect(JSON.stringify(record)).not.toContain("Hello Ada");
+  });
+
   it("refuses a trigger whose payload cannot fill the template it names", async () => {
     const test = harness();
     await test.service.createTemplate(organizer, {

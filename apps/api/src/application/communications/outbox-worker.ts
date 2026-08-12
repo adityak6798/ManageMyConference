@@ -3,12 +3,37 @@ import type { CommunicationsRepository } from "./ports";
 
 const retryDelayMs = (attempt: number) => Math.min(60_000, 1_000 * 2 ** Math.max(0, attempt - 1));
 
-// @spec PRD-COM-001 PRD-INT-001
+/**
+ * What one provider call did, for the operational log.
+ *
+ * Deliberately made of identifiers and normalized codes only. A delivery's recipient, its
+ * rendered message and its payload are all absent: this line goes to a shared sink, and an
+ * outbox that leaks a speaker's address into it every minute is a worse problem than the one
+ * the telemetry solves. `deliveryId` and `idempotencyKey` are enough to find the row, and the
+ * row holds the rest under the same authorization as the history view.
+ */
+export interface DeliveryAttemptRecord {
+  readonly deliveryId: string;
+  readonly idempotencyKey: string;
+  readonly channel: string;
+  readonly triggerType: string;
+  readonly sequence: number;
+  readonly outcome: string;
+  readonly errorCode: string | null;
+  readonly providerReference: string | null;
+}
+
+export interface OutboxTelemetry {
+  attempt(record: DeliveryAttemptRecord): void;
+}
+
+// @spec PRD-COM-001 PRD-INT-001 ARC-OBS-001
 export class OutboxWorker {
   constructor(
     private readonly repository: CommunicationsRepository,
     private readonly providers: Record<"email" | "airtable" | "accelevents", DeliveryProvider>,
     private readonly dependencies: { newId(): string; now(): Date },
+    private readonly telemetry?: OutboxTelemetry,
   ) {}
 
   async runOne(): Promise<boolean> {
@@ -58,28 +83,29 @@ export class OutboxWorker {
       result.kind === "retryable"
         ? new Date(this.dependencies.now().getTime() + retryDelayMs(sequence)).toISOString()
         : completedAt;
+    const attempt = {
+      id: this.dependencies.newId(),
+      deliveryId: delivery.id,
+      sequence,
+      startedAt,
+      completedAt,
+      outcome:
+        result.kind === "success"
+          ? ("succeeded" as const)
+          : result.kind === "retryable" && !retryExhausted
+            ? ("retryable_failure" as const)
+            : ("terminal_failure" as const),
+      providerReference: result.kind === "success" ? result.providerReference : null,
+      errorCode:
+        result.kind === "success"
+          ? null
+          : retryExhausted
+            ? `RETRY_EXHAUSTED:${result.code}`
+            : result.code,
+    };
     await this.repository.complete(
       leaseToken,
-      {
-        id: this.dependencies.newId(),
-        deliveryId: delivery.id,
-        sequence,
-        startedAt,
-        completedAt,
-        outcome:
-          result.kind === "success"
-            ? "succeeded"
-            : result.kind === "retryable" && !retryExhausted
-              ? "retryable_failure"
-              : "terminal_failure",
-        providerReference: result.kind === "success" ? result.providerReference : null,
-        errorCode:
-          result.kind === "success"
-            ? null
-            : retryExhausted
-              ? `RETRY_EXHAUSTED:${result.code}`
-              : result.code,
-      },
+      attempt,
       { state, nextAttemptAt, updatedAt: completedAt },
       result.kind === "success" &&
         delivery.channel !== "email" &&
@@ -94,6 +120,18 @@ export class OutboxWorker {
           }
         : undefined,
     );
+    // Emitted after the attempt is durable, so the log never claims an outcome the database
+    // does not hold.
+    this.telemetry?.attempt({
+      deliveryId: delivery.id,
+      idempotencyKey: delivery.idempotencyKey,
+      channel: delivery.channel,
+      triggerType: delivery.triggerType,
+      sequence,
+      outcome: attempt.outcome,
+      errorCode: attempt.errorCode,
+      providerReference: attempt.providerReference,
+    });
     return true;
   }
 }

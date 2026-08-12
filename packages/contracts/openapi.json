@@ -1037,6 +1037,14 @@
                             "nullable": true
                           }
                         },
+                        "renderedSubject": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "renderedBody": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "projectionVersion": {
                           "type": "integer",
                           "nullable": true,
@@ -1084,6 +1092,8 @@
                         "templateVersion",
                         "recipientRef",
                         "payload",
+                        "renderedSubject",
+                        "renderedBody",
                         "projectionVersion",
                         "state",
                         "attemptCount",
@@ -1460,6 +1470,14 @@
                             "nullable": true
                           }
                         },
+                        "renderedSubject": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "renderedBody": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "projectionVersion": {
                           "type": "integer",
                           "nullable": true,
@@ -1507,6 +1525,8 @@
                         "templateVersion",
                         "recipientRef",
                         "payload",
+                        "renderedSubject",
+                        "renderedBody",
                         "projectionVersion",
                         "state",
                         "attemptCount",
@@ -1962,6 +1982,14 @@
                                   "nullable": true
                                 }
                               },
+                              "renderedSubject": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "renderedBody": {
+                                "type": "string",
+                                "nullable": true
+                              },
                               "projectionVersion": {
                                 "type": "integer",
                                 "nullable": true,
@@ -2009,6 +2037,8 @@
                               "templateVersion",
                               "recipientRef",
                               "payload",
+                              "renderedSubject",
+                              "renderedBody",
                               "projectionVersion",
                               "state",
                               "attemptCount",
