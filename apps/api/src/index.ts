@@ -7,7 +7,10 @@ import {
 } from "./adapters/content/sanitize-resource-html";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
-import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
+import {
+  D1CommunicationsRepository,
+  preparedDeliveryWriter,
+} from "./adapters/persistence/d1-communications-repository";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
@@ -187,8 +190,55 @@ export default {
       new D1SubmittedProposalAdapter(environment.DB),
     );
     const now = () => new Date();
+    const communications = new CommunicationsService({
+      repository: communicationsRepository(environment),
+      eventDirectory: service,
+      // Who an event's speakers are is identity's answer, not a read of content's profiles.
+      speakerDirectory: identityDirectory,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    /**
+     * Closes `DEBT-006`: the writer that makes a schedule publication and its announcement one
+     * durable operation (issue #22).
+     *
+     * The agenda derived an `EVT-SCHEDULE-PUBLISHED` payload on every commit and dropped it,
+     * because nothing could be bound here — the outbox modelled a delivery to a provider, and
+     * routing a domain event through it would have queued a fabricated Airtable push. The
+     * `event` channel added for this is what makes the binding expressible.
+     *
+     * `prepareEnqueue` resolves the row and writes nothing; `preparedDeliveryWriter` renders it
+     * into statements the agenda appends to the batch its publication was already running. So
+     * the SQL and the column names stay inside communications, the agenda never learns either,
+     * and a failure on one side leaves neither row.
+     *
+     * The idempotency key is the event's own derived id, so a retried publish command that lands
+     * on the same version produces exactly one record — and republishing after an edit allocates
+     * a new version, a new key, and a new record, which is what a second publication means.
+     */
+    const writePublicationEvent = preparedDeliveryWriter(
+      environment.DB as Parameters<typeof preparedDeliveryWriter>[0],
+    );
     const agenda = new AgendaService(
-      new D1AgendaRepository(environment.DB, now),
+      new D1AgendaRepository(environment.DB, now, async (_database, event) => {
+        const organizationId = await service.organizationOf(event.eventId);
+        // A publication whose event has no owning organization cannot be announced to anyone.
+        // Throwing fails the batch, so the publication does not commit either — which is the
+        // point of sharing one: a schedule nobody can be told about is not a published schedule.
+        if (!organizationId)
+          throw new Error(`Event ${event.eventId} has no owning organization to announce to`);
+        return writePublicationEvent(
+          await communications.prepareEnqueue({
+            organizationId,
+            eventId: event.eventId,
+            idempotencyKey: event.id,
+            triggerType: "schedule.published",
+            channel: "event",
+            recipientRef: `event:${event.eventId}`,
+            payload: { ...event },
+          }),
+        );
+      }),
       now,
       contentRepository,
       async (actor, eventId) => {
@@ -210,14 +260,6 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
-    const communications = new CommunicationsService({
-      repository: communicationsRepository(environment),
-      eventDirectory: service,
-      // Who an event's speakers are is identity's answer, not a read of content's profiles.
-      speakerDirectory: identityDirectory,
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
-    });
     /**
      * Turns a lifecycle fact into a queued delivery, and never lets that failure become the
      * lifecycle action's failure.

@@ -3,7 +3,13 @@ import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMigratedDatabase } from "./support/seeded-d1";
-import { D1CommunicationsRepository } from "../src/adapters/persistence/d1-communications-repository";
+import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
+import {
+  D1CommunicationsRepository,
+  preparedDeliveryWriter,
+} from "../src/adapters/persistence/d1-communications-repository";
+import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
+import { CommunicationsService } from "../src/application/communications/communications-service";
 import apiWorker, { type Environment } from "../src/index";
 
 const statements = (sql: string) =>
@@ -157,5 +163,205 @@ describe("D1CommunicationsRepository", () => {
       )
       .first<{ state: string; attempt_count: number }>();
     expect(row).toEqual({ state: "succeeded", attempt_count: 1 });
+  });
+});
+
+/**
+ * `#22`'s remaining criterion, against real D1: every committed publication has exactly one
+ * durable `EVT-SCHEDULE-PUBLISHED` record, and a failed publication has none.
+ *
+ * PR #113 delivered the atomic versions, the transaction and the command-key idempotency, and
+ * could not deliver this: the outbox modelled a delivery to a provider and had no channel for a
+ * domain event, so the payload was derived on every commit and dropped (`DEBT-006`). These
+ * exercise the binding that closes it — the same `prepareEnqueue` + `preparedDeliveryWriter`
+ * pair `index.ts` wires, over the same SQL, in one batch with the publication.
+ */
+describe("a schedule publication and the record announcing it", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  const eventId = "00000000-0000-4000-8000-000000000001";
+  const organizationId = "00000000-0000-4000-8000-000000000010";
+
+  const snapshot = (version: number, commandKey?: string): PublishedSchedule => ({
+    eventId,
+    version,
+    publishedAt: "2026-08-11T10:00:00.000Z",
+    publishedBy: "seed-organizer",
+    ...(commandKey ? { commandKey } : {}),
+    agenda: {
+      eventId,
+      rooms: [{ id: "room-main", name: "Main stage" }],
+      tracks: [],
+      slots: [
+        {
+          id: "slot-0900",
+          startsAt: "2026-09-01T16:00:00.000Z",
+          endsAt: "2026-09-01T17:00:00.000Z",
+        },
+      ],
+      sessions: [{ id: "20000000-0000-4000-8000-000000000001", title: "Opening", speakerIds: [] }],
+      placements: [
+        {
+          id: "placement-opening",
+          sessionId: "20000000-0000-4000-8000-000000000001",
+          roomId: "room-main",
+          slotId: "slot-0900",
+        },
+      ],
+    },
+  });
+
+  /** The composition root's binding, over the test database. */
+  const publishing = (
+    database: Parameters<typeof preparedDeliveryWriter>[0] & {
+      prepare(query: string): { bind(...values: unknown[]): unknown };
+    },
+    options: { organizationOf?: (eventId: string) => Promise<string | null> } = {},
+  ) => {
+    const communications = new CommunicationsService({
+      repository: new D1CommunicationsRepository(database),
+      eventDirectory: {
+        belongsToOrganization: async (candidate, organization) =>
+          candidate === eventId && organization === organizationId,
+      },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date("2026-08-11T10:00:00.000Z"),
+    });
+    const write = preparedDeliveryWriter(database);
+    const resolve = options.organizationOf ?? (async () => organizationId);
+    return new D1AgendaRepository(
+      database as never,
+      () => new Date("2026-08-11T10:00:00.000Z"),
+      async (_database, event) => {
+        const owner = await resolve(event.eventId);
+        if (!owner) throw new Error("Event has no owning organization to announce to");
+        return write(
+          await communications.prepareEnqueue({
+            organizationId: owner,
+            eventId: event.eventId,
+            idempotencyKey: event.id,
+            triggerType: "schedule.published",
+            channel: "event",
+            recipientRef: `event:${event.eventId}`,
+            payload: { ...event },
+          }),
+        ) as never[];
+      },
+    );
+  };
+
+  const records = (database: {
+    prepare(query: string): { all<T>(): Promise<{ results?: T[] }> };
+  }) =>
+    database
+      .prepare(
+        "SELECT idempotency_key, channel, trigger_type, payload_json, state FROM communication_deliveries WHERE trigger_type = 'schedule.published' ORDER BY idempotency_key",
+      )
+      .all<{
+        idempotency_key: string;
+        channel: string;
+        trigger_type: string;
+        payload_json: string;
+        state: string;
+      }>();
+
+  it("writes exactly one record per committed publication, carrying the event id and version", async () => {
+    const migrated = await createMigratedDatabase({ label: "publication-event", seed: true });
+    runtime = migrated.runtime;
+
+    expect(await publishing(migrated.database).publish(snapshot(2))).toBe("committed");
+
+    const stored = (await records(migrated.database)).results ?? [];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      idempotency_key: `EVT-SCHEDULE-PUBLISHED:${eventId}:2`,
+      channel: "event",
+      state: "queued",
+    });
+    // The criterion is the payload, not just the row: a consumer must learn which event and
+    // which publication without reading agenda's tables.
+    expect(JSON.parse(stored[0]?.payload_json ?? "{}")).toMatchObject({
+      type: "EVT-SCHEDULE-PUBLISHED",
+      version: 1,
+      eventId,
+      publicationVersion: 2,
+    });
+  });
+
+  it("leaves neither a publication nor a record when the announcement cannot be written", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "publication-event-rollback",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+
+    // An event whose organization cannot be resolved: there is nobody to announce the
+    // publication to, so it must not commit either.
+    await expect(
+      publishing(migrated.database, { organizationOf: async () => null }).publish(snapshot(2)),
+    ).rejects.toThrow(/owning organization/);
+
+    expect((await records(migrated.database)).results ?? []).toHaveLength(0);
+    const published = await migrated.database
+      .prepare("SELECT version FROM agenda_publications WHERE event_id = ? ORDER BY version DESC")
+      .bind(eventId)
+      .first<{ version: number }>();
+    // The seed publishes version 1; version 2 must not exist.
+    expect(published?.version).toBe(1);
+  });
+
+  it("produces one record, not two, when the same publish command is replayed", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "publication-event-replay",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const repository = publishing(migrated.database);
+
+    expect(await repository.publish(snapshot(2, "command-abc"))).toBe("committed");
+    // The client never saw the first response and sent the identical command again.
+    expect(await repository.publish(snapshot(3, "command-abc"))).toBe("command-replayed");
+
+    expect((await records(migrated.database)).results ?? []).toHaveLength(1);
+  });
+
+  it("announces a genuinely new publication separately from the one before it", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "publication-event-second",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const repository = publishing(migrated.database);
+
+    expect(await repository.publish(snapshot(2))).toBe("committed");
+    expect(await repository.publish(snapshot(3))).toBe("committed");
+
+    // Republishing after an edit is a different schedule, so its speakers hear about it again.
+    expect(
+      ((await records(migrated.database)).results ?? []).map((row) => row.idempotency_key),
+    ).toEqual([`EVT-SCHEDULE-PUBLISHED:${eventId}:2`, `EVT-SCHEDULE-PUBLISHED:${eventId}:3`]);
+  });
+
+  it("drains into one schedule confirmation per reachable speaker", async () => {
+    const migrated = await createMigratedDatabase({ label: "publication-event-drain", seed: true });
+    runtime = migrated.runtime;
+
+    expect(await publishing(migrated.database).publish(snapshot(2))).toBe("committed");
+    await apiWorker.scheduled({}, { DB: migrated.database } as Environment);
+
+    const confirmations = await migrated.database
+      .prepare(
+        "SELECT recipient_ref, rendered_body FROM communication_deliveries WHERE trigger_type = 'speaker.scheduled' AND idempotency_key LIKE ?",
+      )
+      .bind(`schedule:${eventId}:v2:%`)
+      .all<{ recipient_ref: string; rendered_body: string }>();
+    // Sam has an address on their identity; Jordan Bell does not, and is not written to rather
+    // than being written to at a guessed address.
+    expect((confirmations.results ?? []).map((row) => row.recipient_ref)).toEqual([
+      "speaker@greenroom.test",
+    ]);
+    expect(confirmations.results?.[0]?.rendered_body).toContain("Sam Speaker");
+    expect(confirmations.results?.[0]?.rendered_body).not.toContain("{{");
   });
 });
