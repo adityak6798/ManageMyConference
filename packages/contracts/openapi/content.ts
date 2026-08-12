@@ -132,6 +132,11 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: {
+          ...errorResponse,
+          description:
+            "The selected deliverables exceed the 50 MB archive limit. The request is well formed and the caller is entitled to every file in it; there are simply too many bytes to return in one archive. Select fewer.",
+        },
         500: errorResponse,
       },
     });
