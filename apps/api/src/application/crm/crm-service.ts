@@ -1,5 +1,5 @@
 import type { Prospect, ProspectActivity, ProspectStage } from "../../domain/crm/prospect";
-import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
+import { type Actor, requireEventCapability } from "../identity/actor";
 import type { AssignableOwner, IdentityDirectory } from "../identity/identity-directory";
 import type { SpeakerConversionPort } from "../content/speaker-conversion";
 import type { CrmRepository, ProspectFilters } from "./crm-repository";
@@ -49,16 +49,7 @@ export class CrmService {
   ) {}
 
   private authorize(actor: Actor | null, eventId: string): Actor {
-    const authorized = requireCapability(actor, "crm:manage");
-    // Any grant on the event may carry the capability; matching only the first entry denied
-    // an organizer who also reviews for the event, depending on directory order (`ARC-AUTH-001`).
-    if (
-      !authorized.eventAccess.some(
-        (access) => access.eventId === eventId && access.capabilities.has("crm:manage"),
-      )
-    )
-      throw new CapabilityDeniedError("Event CRM access denied");
-    return authorized;
+    return requireEventCapability(actor, eventId, "crm:manage");
   }
 
   /**

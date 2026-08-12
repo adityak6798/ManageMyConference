@@ -7,7 +7,12 @@ import {
   type SpeakerTask,
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
-import { type Actor, CapabilityDeniedError, requireCapability } from "../identity/actor";
+import {
+  type Actor,
+  CapabilityDeniedError,
+  requireCapability,
+  requireEventCapability,
+} from "../identity/actor";
 import type { AcceptedProposalQuery } from "../review/public";
 import type { SpeakerConversionPort } from "./speaker-conversion";
 import {
@@ -196,9 +201,7 @@ export class ContentService {
     correlationId: string,
     conflictRetries = 2,
   ): Promise<ContentWorkspaceView> {
-    const authorized = requireCapability(actor, "content:manage");
-    if (!hasEventRole(authorized, command.eventId, "organizer"))
-      throw new CapabilityDeniedError("Organizer event access required");
+    const authorized = requireEventCapability(actor, command.eventId, "content:manage");
     // Throws a typed 4xx for unknown, foreign, undecided, or identity-less proposals.
     const accepted = await this.dependencies.proposals.acceptedProposal(
       command.eventId,
@@ -311,7 +314,7 @@ export class ContentService {
   }
 
   async workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspaceView> {
-    const authorized = requireCapability(actor, "content:read");
+    const authorized = requireEventCapability(actor, eventId, "content:read");
     const isOrganizer = hasEventRole(authorized, eventId, "organizer");
     const isSpeaker = hasEventRole(authorized, eventId, "speaker");
     if (!isOrganizer && !isSpeaker)
@@ -324,8 +327,9 @@ export class ContentService {
     profileId: string,
     input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization">,
   ): Promise<SpeakerProfile> {
-    const authorized = requireCapability(actor, "content:read");
     const profile = await this.dependencies.repository.findProfile(profileId);
+    if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
+    const authorized = requireEventCapability(actor, profile.eventId, "content:read");
     if (
       !profile ||
       !hasEventRole(authorized, profile.eventId, "speaker") ||
@@ -398,14 +402,13 @@ export class ContentService {
     actor: Actor | null,
     profileId: string,
   ): Promise<SpeakerProfile> {
-    const authorized = requireCapability(actor, "content:read");
     const profile = await this.dependencies.repository.findProfile(profileId);
+    if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
+    const authorized = requireEventCapability(actor, profile.eventId, "content:read");
     const isOwner = Boolean(
-      profile &&
-        profile.userId === authorized.id &&
-        hasEventRole(authorized, profile.eventId, "speaker"),
+      profile.userId === authorized.id && hasEventRole(authorized, profile.eventId, "speaker"),
     );
-    if (!profile || (!isOwner && !hasEventRole(authorized, profile.eventId, "organizer")))
+    if (!isOwner && !hasEventRole(authorized, profile.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker profile access denied");
     return profile;
   }
@@ -415,7 +418,7 @@ export class ContentService {
     taskId: string,
     eventId: string,
   ): Promise<ContentWorkspaceView> {
-    const authorized = requireCapability(actor, "content:read");
+    const authorized = requireEventCapability(actor, eventId, "content:read");
     if (!hasEventRole(authorized, eventId, "speaker"))
       throw new CapabilityDeniedError("Speaker task access denied");
     const workspace = await this.dependencies.repository.workspace(eventId, authorized.id);
@@ -433,10 +436,9 @@ export class ContentService {
     actor: Actor | null,
     input: { profileId: string; title: string; dueAt: string },
   ) {
-    const authorized = requireCapability(actor, "content:manage");
     const profile = await this.dependencies.repository.findProfile(input.profileId);
-    if (!profile || !hasEventRole(authorized, profile.eventId, "organizer"))
-      throw new CapabilityDeniedError("Organizer speaker access denied");
+    if (!profile) throw new CapabilityDeniedError("Organizer speaker access denied");
+    requireEventCapability(actor, profile.eventId, "content:manage");
     const task: SpeakerTask = {
       id: this.dependencies.newId(),
       eventId: profile.eventId,
@@ -450,10 +452,9 @@ export class ContentService {
   }
 
   async recordMessage(actor: Actor | null, input: { profileId: string; subject: string }) {
-    const authorized = requireCapability(actor, "content:manage");
     const profile = await this.dependencies.repository.findProfile(input.profileId);
-    if (!profile || !hasEventRole(authorized, profile.eventId, "organizer"))
-      throw new CapabilityDeniedError("Organizer speaker access denied");
+    if (!profile) throw new CapabilityDeniedError("Organizer speaker access denied");
+    requireEventCapability(actor, profile.eventId, "content:manage");
     const message = {
       id: this.dependencies.newId(),
       eventId: profile.eventId,
@@ -473,10 +474,9 @@ export class ContentService {
       "title" | "abstract" | "format" | "speakerProfileIds" | "tags" | "tracks" | "publicationState"
     >,
   ) {
-    const authorized = requireCapability(actor, "content:manage");
     const session = await this.dependencies.repository.findSession(sessionId);
-    if (!session || !hasEventRole(authorized, session.eventId, "organizer"))
-      throw new CapabilityDeniedError("Organizer session access denied");
+    if (!session) throw new CapabilityDeniedError("Organizer session access denied");
+    const authorized = requireEventCapability(actor, session.eventId, "content:manage");
     const profiles = await Promise.all(
       input.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
     );
@@ -507,10 +507,9 @@ export class ContentService {
    * page at the next publish, which is what the confirmation says.
    */
   async withdrawSession(actor: Actor | null, sessionId: string): Promise<ContentWorkspaceView> {
-    const authorized = requireCapability(actor, "content:manage");
     const session = await this.dependencies.repository.findSession(sessionId);
-    if (!session || !hasEventRole(authorized, session.eventId, "organizer"))
-      throw new CapabilityDeniedError("Organizer session access denied");
+    if (!session) throw new CapabilityDeniedError("Organizer session access denied");
+    const authorized = requireEventCapability(actor, session.eventId, "content:manage");
     await this.dependencies.agenda.unscheduleSession(authorized, session.eventId, session.id);
     await this.dependencies.repository.deleteSession(session.id);
     return this.projected(session.eventId);
@@ -597,10 +596,9 @@ export class ContentService {
     assetId: string,
     visibility: SpeakerAsset["visibility"],
   ) {
-    const authorized = requireCapability(actor, "content:manage");
     const asset = await this.dependencies.repository.findAsset(assetId);
-    if (!asset || !hasEventRole(authorized, asset.eventId, "organizer"))
-      throw new CapabilityDeniedError("Organizer asset access denied");
+    if (!asset) throw new CapabilityDeniedError("Organizer asset access denied");
+    requireEventCapability(actor, asset.eventId, "content:manage");
     const updated: SpeakerAsset = { ...asset, visibility };
     await this.dependencies.repository.updateAsset(updated);
     return updated;
@@ -616,8 +614,9 @@ export class ContentService {
    * at this asset is cleared first, so no public projection is left advertising a dead URL.
    */
   async deleteAsset(actor: Actor | null, assetId: string): Promise<void> {
-    const authorized = requireCapability(actor, "content:read");
     const asset = await this.dependencies.repository.findAsset(assetId);
+    if (!asset) throw new CapabilityDeniedError("Speaker asset access denied");
+    const authorized = requireEventCapability(actor, asset.eventId, "content:read");
     const profile = asset
       ? await this.dependencies.repository.findProfile(asset.speakerProfileId)
       : null;
@@ -626,7 +625,7 @@ export class ContentService {
         profile.userId === authorized.id &&
         hasEventRole(authorized, profile.eventId, "speaker"),
     );
-    if (!asset || (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer")))
+    if (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker asset access denied");
     if (profile?.photoAssetId === asset.id) {
       const { photoAssetId: _removed, ...withoutPhoto } = profile;
@@ -645,13 +644,10 @@ export class ContentService {
       bytes: Uint8Array;
     },
   ): Promise<SpeakerAsset> {
-    const authorized = requireCapability(actor, "content:read");
     const profile = await this.dependencies.repository.findProfile(input.profileId);
-    if (
-      !profile ||
-      !hasEventRole(authorized, profile.eventId, "speaker") ||
-      profile.userId !== authorized.id
-    )
+    if (!profile) throw new CapabilityDeniedError("Speaker asset access denied");
+    const authorized = requireEventCapability(actor, profile.eventId, "content:read");
+    if (!hasEventRole(authorized, profile.eventId, "speaker") || profile.userId !== authorized.id)
       throw new CapabilityDeniedError("Speaker asset access denied");
     const id = this.dependencies.newId();
     const key = `${profile.eventId}/${profile.id}/${id}`;

@@ -1,5 +1,9 @@
 import type { Actor } from "../identity/actor";
-import { CapabilityDeniedError, requireCapability } from "../identity/actor";
+import {
+  CapabilityDeniedError,
+  requireCapability,
+  requireEventCapability,
+} from "../identity/actor";
 import type {
   Delivery,
   DeliveryChannel,
@@ -39,10 +43,7 @@ export class CommunicationsService {
   }
 
   private async event(actor: Actor, eventId: string, organizationId: string): Promise<void> {
-    if (
-      !actor.eventAccess.some((access) => access.eventId === eventId && access.role === "organizer")
-    )
-      throw new CapabilityDeniedError("Event access denied");
+    requireEventCapability(actor, eventId, "communications:manage");
     if (!(await this.dependencies.eventDirectory.belongsToOrganization(eventId, organizationId)))
       throw new CapabilityDeniedError("Event organization access denied");
   }

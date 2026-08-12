@@ -15,7 +15,9 @@ const actor: Actor = {
   persona: "organizer",
   organizations: [],
   capabilities: new Set(),
-  eventAccess: [{ eventId, role: "organizer", capabilities: new Set() }],
+  eventAccess: [
+    { eventId, role: "organizer", capabilities: new Set(["events:settings:update" as const]) },
+  ],
 };
 const fields = [
   {

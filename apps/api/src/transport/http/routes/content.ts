@@ -24,7 +24,7 @@ import {
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../../../application/content/content-service";
-import { requireCapability } from "../../../application/identity/actor";
+import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
 import { envelope, validationFields, readJson, PUBLIC_CACHE_CONTROL } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -53,24 +53,24 @@ export const contentRoutes: RouteModule = {
   register(app: HttpApp, dependencies: HttpDependencies) {
     const { content } = dependencies;
     app.get("/api/events/:eventId/content", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const parsed = eventContentParamsSchema.safeParse(context.req.param());
       if (!parsed.success)
         return context.json(
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
+      requireEventCapability(context.get("actor"), parsed.data.eventId, "content:read");
       if (!content) throw new Error("Content service is unavailable");
       return context.json(await content.workspace(context.get("actor"), parsed.data.eventId));
     });
     app.post("/api/events/:eventId/content/accept", async (context) => {
-      requireCapability(context.get("actor"), "content:manage");
       const params = eventContentParamsSchema.safeParse(context.req.param());
       if (!params.success)
         return context.json(
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
+      requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
       const parsed = acceptContentInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(
@@ -176,7 +176,6 @@ export const contentRoutes: RouteModule = {
       });
     });
     app.post("/api/events/:eventId/tasks/:taskId/complete", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const eventParams = eventContentParamsSchema.safeParse(context.req.param());
       const taskParams = taskParamsSchema.safeParse(context.req.param());
       if (!eventParams.success || !taskParams.success)
@@ -188,6 +187,7 @@ export const contentRoutes: RouteModule = {
           ),
           400,
         );
+      requireEventCapability(context.get("actor"), eventParams.data.eventId, "content:read");
       if (!content) throw new Error("Content service is unavailable");
       return context.json(
         await content.completeTask(
@@ -399,13 +399,13 @@ export const contentRoutes: RouteModule = {
       );
     });
     app.get("/api/events/:eventId/speaker-calendar.ics", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const parsed = eventContentParamsSchema.safeParse(context.req.param());
       if (!parsed.success)
         return context.json(
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
+      requireEventCapability(context.get("actor"), parsed.data.eventId, "content:read");
       if (!content) throw new Error("Content service is unavailable");
       const document = await content.calendar(context.get("actor"), parsed.data.eventId);
       // RFC 5545 section 3.4 requires at least one component, so a speaker with nothing scheduled

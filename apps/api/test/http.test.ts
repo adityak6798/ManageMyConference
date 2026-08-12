@@ -9,6 +9,7 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
+import { createEventToken } from "../src/application/identity/real-auth";
 import type { Actor, Capability } from "../src/application/identity/actor";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import { createHttpApp, type StructuredLogger } from "../src/transport/http/app";
@@ -419,6 +420,84 @@ describe("events HTTP transport", () => {
     expect((await app.request("/api/demo-session", { method: "POST", body: "{}" })).status).toBe(
       404,
     );
+  });
+
+  it("authenticates a production identity with an emailed code", async () => {
+    const service = new EventService({
+      repository: new MemoryEventRepository(),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const actor = await resolveSeededDemoActor("organizer");
+    let deliveredCode = "";
+    let savedChallenge: { id: string; email: string; codeProof: string; expiresAt: number } | null =
+      null;
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: false,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: async (userId) => (userId === actor.id ? actor : null),
+        resolveEmail: async (email) => (email === "organizer@greenroom.test" ? actor : null),
+        sendLoginCode: async (_email, code) => {
+          deliveredCode = code;
+        },
+        saveLoginChallenge: async (challenge) => {
+          savedChallenge = challenge;
+        },
+        consumeLoginChallenge: async (id, proof, now) => {
+          const saved = savedChallenge;
+          if (!saved || saved.id !== id || saved.codeProof !== proof || saved.expiresAt <= now)
+            return null;
+          savedChallenge = null;
+          return saved.email;
+        },
+      },
+      testCrm(),
+    );
+    const requested = await app.request("/api/auth/code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "organizer@greenroom.test" }),
+    });
+    expect(requested.status).toBe(202);
+    const challenge = ((await requested.json()) as { challenge: string }).challenge;
+    const verified = await app.request("/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challenge, code: deliveredCode }),
+    });
+    expect(verified.status).toBe(200);
+    const cookie = verified.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect((await app.request("/api/session", { headers: { cookie } })).status).toBe(200);
+    const tokenRequest = JSON.stringify({ eventId: "00000000-0000-4000-8000-000000000001" });
+    expect(
+      (
+        await app.request("/api/auth/tokens", {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: tokenRequest,
+        })
+      ).status,
+    ).toBe(201);
+    const bearer = await createEventToken(
+      actor.id,
+      "00000000-0000-4000-8000-000000000001",
+      secret,
+      2_000,
+    );
+    expect(
+      (
+        await app.request("/api/auth/tokens", {
+          method: "POST",
+          headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
+          body: tokenRequest,
+        })
+      ).status,
+    ).toBe(401);
   });
 
   it("returns the standard envelope for unknown routes", async () => {

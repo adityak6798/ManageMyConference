@@ -16,7 +16,7 @@ import {
   AgendaNotFoundError,
   AgendaResourceInUseError,
 } from "../../../application/agenda/public";
-import { requireCapability } from "../../../application/identity/actor";
+import { requireEventCapability } from "../../../application/identity/actor";
 import { envelope, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -47,7 +47,6 @@ export const agendaRoutes: RouteModule = {
     });
     app.put("/api/events/:eventId/agenda/resources", async (context) => {
       if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
-      requireCapability(context.get("actor"), "agenda:manage");
       const params = agendaIdParamsSchema.safeParse(context.req.param());
       const body = agendaResourcesSchema.safeParse(await readJson(context.req));
       if (!params.success || !body.success)
@@ -60,13 +59,13 @@ export const agendaRoutes: RouteModule = {
           ),
           400,
         );
+      requireEventCapability(context.get("actor"), params.data.eventId, "agenda:manage");
       return context.json({
         agenda: await agenda.configure(context.get("actor"), params.data.eventId, body.data),
       });
     });
     app.put("/api/events/:eventId/agenda/placements/:placementId", async (context) => {
       if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
-      requireCapability(context.get("actor"), "agenda:manage");
       const params = agendaIdParamsSchema.safeParse(context.req.param());
       const body = agendaPlacementSchema.safeParse(await readJson(context.req));
       if (!params.success || !body.success || body.data.id !== context.req.param("placementId"))
@@ -74,6 +73,7 @@ export const agendaRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Placement is invalid.", context.get("correlationId")),
           400,
         );
+      requireEventCapability(context.get("actor"), params.data.eventId, "agenda:manage");
       return context.json({
         agenda: await agenda.place(context.get("actor"), params.data.eventId, body.data),
       });

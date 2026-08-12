@@ -5,8 +5,8 @@ Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-
 ## What this demo is, and is not
 
 It runs locally, from a deterministic seed, with development-only signed demo identities. The built
-frontend is served by the Worker with a configurable API origin, but there is no production
-authentication (`GAP-007`), so the product still cannot be handed over as an organizer URL. Local
+frontend is served by the Worker with a configurable API origin. Production emailed-code
+authentication exists; the remaining lifecycle work is tracked by `GAP-007`. Local
 delivery, uploads, and every provider are deterministic fakes: no message leaves the machine, and
 the Accelevents integration the brief names does not exist (`GAP-012`). The honest
 feature-by-feature picture is in [competition traceability](product/competition-traceability.md);
@@ -131,9 +131,9 @@ compatible browser CORS and credential policy. The documented Worker deployment 
 boundary and needs no override.
 
 Once the D1 and R2 bindings in `apps/api/wrangler.toml` point at provisioned Cloudflare resources,
-set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, then run `npm run deploy`. Wrangler prints
-the resulting Worker URL. No hosted URL is recorded yet because production authentication remains
-unimplemented (`GAP-007`); enabling demo mode in production is explicitly refused by the runtime.
+set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, configure a unique SESSION_SECRET plus
+AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN, then run `npm run deploy`. Wrangler prints the resulting
+Worker URL. Enabling demo mode in production is explicitly refused by the runtime.
 
 On either the local or deployed Worker, open `/docs` for the browsable API reference or
 `/openapi.json` for the generated source document. Both are public discovery routes; they expose the

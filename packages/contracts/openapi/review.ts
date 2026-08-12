@@ -34,7 +34,7 @@ export const reviewPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/review/organizer",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: reviewEventParamsSchema, query: reviewOrganizerQuerySchema },
       responses: {
         200: {
@@ -50,7 +50,7 @@ export const reviewPaths: OpenApiFragment = {
     registry.registerPath({
       method: "put",
       path: "/api/events/{eventId}/review/plan",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewEventParamsSchema,
         body: { required: true, content: json(configureReviewPlanInputSchema) },
@@ -66,7 +66,7 @@ export const reviewPaths: OpenApiFragment = {
     registry.registerPath({
       method: "put",
       path: "/api/events/{eventId}/review/statuses",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewEventParamsSchema,
         body: { required: true, content: json(configureProposalStatusesInputSchema) },
@@ -85,7 +85,7 @@ export const reviewPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/review/assignments",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewEventParamsSchema,
         body: { required: true, content: json(assignReviewersInputSchema) },
@@ -107,7 +107,7 @@ export const reviewPaths: OpenApiFragment = {
       path: "/api/events/{eventId}/review/transitions",
       description:
         "Atomically transitions every named proposal or applies none. The reserved decision statuses are refused here: reaching `accepted`/`declined` is the effect of a recorded decision, so `POST /api/events/{eventId}/review/decisions` is what records one.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewEventParamsSchema,
         body: { required: true, content: json(bulkProposalTransitionInputSchema) },
@@ -129,7 +129,7 @@ export const reviewPaths: OpenApiFragment = {
       path: "/api/events/{eventId}/review/decisions",
       description:
         "Records an accept/decline decision and moves the proposal to the matching reserved status. For an accepted outcome the same request also creates the session, because the recorded decision is what authorizes it; `acceptances` reports which half happened per proposal. A `decision_only` entry means the decision is durable and the session was refused, so re-posting the identical decision retries it.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewEventParamsSchema,
         body: { required: true, content: json(recordProposalDecisionInputSchema) },
@@ -150,7 +150,7 @@ export const reviewPaths: OpenApiFragment = {
       method: "get",
       path: "/api/events/{eventId}/review/assignments",
       description: "Reviewer-owned assignment queue; aggregate outcomes are intentionally absent.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: reviewEventParamsSchema },
       responses: {
         200: { description: "Assigned reviewer queue", content: json(reviewerQueueSchema) },
@@ -165,7 +165,7 @@ export const reviewPaths: OpenApiFragment = {
       path: "/api/events/{eventId}/review/assignments/{assignmentId}",
       description:
         "Removes a review assignment, together with any draft evaluation or declared conflict hanging off it. This is how a mis-assignment is corrected and how the evaluation rubric — locked while any assignment exists — is unlocked again. Refused with 400 once that reviewer has completed their evaluation, because the score is already counted in the abstract's aggregate.",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: reviewAssignmentParamsSchema },
       responses: {
         200: {
@@ -182,7 +182,7 @@ export const reviewPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/review/assignments/{assignmentId}/conflict",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewAssignmentParamsSchema,
         body: { required: true, content: json(declareConflictInputSchema) },
@@ -201,7 +201,7 @@ export const reviewPaths: OpenApiFragment = {
     registry.registerPath({
       method: "put",
       path: "/api/events/{eventId}/review/assignments/{assignmentId}/evaluation",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: reviewAssignmentParamsSchema,
         body: { required: true, content: json(saveEvaluationInputSchema) },

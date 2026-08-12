@@ -35,6 +35,7 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
     "events:read",
     "events:settings:read",
     "events:settings:update",
+    "communications:manage",
     "agenda:manage",
     "crm:manage",
     "content:read",
@@ -48,6 +49,50 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
 
 // @spec PRD-IAM-001 PRD-EVT-001
 export class D1IdentityDirectory implements IdentityDirectory {
+  async linkEmail(userId: string, email: string): Promise<void> {
+    const result = await this.database
+      .prepare(
+        "INSERT INTO identity_emails (user_id,email) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email",
+      )
+      .bind(userId, email)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to link identity email: ${result.error ?? "unknown error"}`);
+  }
+  async saveLoginChallenge(challenge: {
+    id: string;
+    email: string;
+    codeProof: string;
+    expiresAt: number;
+  }) {
+    const cleanup = await this.database
+      .prepare("DELETE FROM identity_login_challenges WHERE expires_at <= ?")
+      .bind(challenge.expiresAt - 600_000)
+      .run();
+    if (!cleanup.success)
+      throw new Error(`D1 failed to clean login challenges: ${cleanup.error ?? "unknown error"}`);
+    const result = await this.database
+      .prepare(
+        "INSERT INTO identity_login_challenges (id,email,code_proof,expires_at,attempts) VALUES (?,?,?,?,0)",
+      )
+      .bind(challenge.id, challenge.email, challenge.codeProof, challenge.expiresAt)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to save login challenge: ${result.error ?? "unknown error"}`);
+  }
+
+  async consumeLoginChallenge(id: string, codeProof: string, now: number): Promise<string | null> {
+    const result = await this.database
+      .prepare(
+        "UPDATE identity_login_challenges SET attempts=attempts+1, consumed_at=CASE WHEN code_proof=? THEN ? ELSE consumed_at END WHERE id=? AND consumed_at IS NULL AND expires_at>? AND attempts<5 RETURNING email, code_proof",
+      )
+      .bind(codeProof, now, id, now)
+      .all<{ email: string; code_proof: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to consume login challenge: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row?.code_proof === codeProof ? row.email : null;
+  }
   constructor(private readonly database: IdentityDatabasePort) {}
 
   async findByPersona(persona: DemoPersona): Promise<Actor | null> {
@@ -58,9 +103,32 @@ export class D1IdentityDirectory implements IdentityDirectory {
     if (!users.success)
       throw new Error(`D1 failed to resolve identity: ${users.error ?? "unknown error"}`);
     if (!users.results?.length) return null;
-    const user = users.results[0];
-    if (!user) return null;
+    return users.results?.[0] ? this.resolve(users.results[0]) : null;
+  }
 
+  async findByUserId(userId: string): Promise<Actor | null> {
+    const users = await this.database
+      .prepare("SELECT id, name, persona FROM users WHERE id = ? LIMIT 1")
+      .bind(userId)
+      .all<UserRow>();
+    if (!users.success)
+      throw new Error(`D1 failed to resolve identity: ${users.error ?? "unknown error"}`);
+    return users.results?.[0] ? this.resolve(users.results[0]) : null;
+  }
+
+  async findByEmail(email: string): Promise<Actor | null> {
+    const users = await this.database
+      .prepare(
+        "SELECT u.id, u.name, u.persona FROM users u JOIN identity_emails e ON e.user_id = u.id WHERE e.email = ? LIMIT 1",
+      )
+      .bind(email.trim().toLowerCase())
+      .all<UserRow>();
+    if (!users.success)
+      throw new Error(`D1 failed to resolve identity email: ${users.error ?? "unknown error"}`);
+    return users.results?.[0] ? this.resolve(users.results[0]) : null;
+  }
+
+  private async resolve(user: UserRow): Promise<Actor> {
     const [organizations, roles] = await Promise.all([
       this.database
         .prepare(

@@ -5,7 +5,7 @@ import {
   type ProposalSubmission,
 } from "../../domain/cfp/cfp";
 import type { Actor } from "../identity/actor";
-import { AuthenticationRequiredError, CapabilityDeniedError } from "../identity/actor";
+import { CapabilityDeniedError, requireEventCapability } from "../identity/actor";
 import type { CfpRepository } from "./cfp-repository";
 import type { SubmittedProposalReference } from "./public";
 
@@ -17,11 +17,13 @@ export class CfpValidationError extends Error {
   }
 }
 const organizerFor = (actor: Actor | null, eventId: string) => {
-  if (!actor) throw new AuthenticationRequiredError("Authentication is required");
-  if (
-    !actor.eventAccess.some((access) => access.eventId === eventId && access.role === "organizer")
-  )
-    throw new CapabilityDeniedError("Organizer event access denied");
+  try {
+    requireEventCapability(actor, eventId, "events:settings:update");
+  } catch (error) {
+    if (error instanceof CapabilityDeniedError)
+      throw new CapabilityDeniedError("Organizer event access denied");
+    throw error;
+  }
 };
 
 // @spec PRD-CFP-001 PRD-CFP-002

@@ -90,7 +90,9 @@
 - `test` / `repository-fact`: [tools/tests/worktree-env.test.mjs](../../tools/tests/worktree-env.test.mjs)
 
 ### `ACC-IDENTITY-EVENTS`
+- `test` / `repository-fact`: [apps/api/test/actor.test.ts](../../apps/api/test/actor.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-identity-directory.integration.test.ts](../../apps/api/test/d1-identity-directory.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/real-auth.test.ts](../../apps/api/test/real-auth.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

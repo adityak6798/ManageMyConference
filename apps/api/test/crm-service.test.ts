@@ -129,7 +129,11 @@ describe("ACC-CRM prospect lifecycle", () => {
   it("rejects unauthenticated, unauthorized, cross-event, and contactless conversion", async () => {
     const { repository, service } = setup();
     expect(() => service.list(null, eventId, {})).toThrow();
-    const reviewer: Actor = { ...organizer, capabilities: new Set<Capability>() };
+    const reviewer: Actor = {
+      ...organizer,
+      capabilities: new Set<Capability>(),
+      eventAccess: [{ eventId, role: "reviewer", capabilities: new Set(["events:read"]) }],
+    };
     expect(() => service.list(reviewer, eventId, {})).toThrow(CapabilityDeniedError);
     await repository.create({
       id: "50000000-0000-4000-8000-000000000001",
@@ -175,7 +179,14 @@ describe("ACC-CRM prospect ownership", () => {
     expect(listAssignableOwnersForEvent).toHaveBeenCalledWith(eventId);
     // Listing owners is CRM work: it needs the same event capability as the pipeline itself.
     expect(() =>
-      service.listOwners({ ...organizer, capabilities: new Set<Capability>() }, eventId),
+      service.listOwners(
+        {
+          ...organizer,
+          capabilities: new Set<Capability>(),
+          eventAccess: [{ eventId, role: "reviewer", capabilities: new Set(["events:read"]) }],
+        },
+        eventId,
+      ),
     ).toThrow(CapabilityDeniedError);
   });
 

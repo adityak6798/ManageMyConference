@@ -32,6 +32,11 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
   in: "cookie",
   name: "greenroom_session",
 });
+registry.registerComponent("securitySchemes", "eventBearer", {
+  type: "http",
+  scheme: "bearer",
+  bearerFormat: "Greenroom event token",
+});
 
 // A path claimed by two fragments would silently produce one merged entry, so the domains
 // are checked against each other before anything is generated.

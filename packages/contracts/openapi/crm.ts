@@ -22,7 +22,7 @@ export const crmPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/prospects",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventIdParamsSchema, query: prospectListQuerySchema },
       responses: {
         200: { description: "Event prospect pipeline", content: json(prospectListResponseSchema) },
@@ -35,7 +35,7 @@ export const crmPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/prospects",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: eventIdParamsSchema,
         body: { required: true, content: json(createProspectInputSchema) },
@@ -51,7 +51,7 @@ export const crmPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/prospects/owners",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventIdParamsSchema },
       responses: {
         200: {
@@ -67,7 +67,7 @@ export const crmPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/prospects/{prospectId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: prospectPathSchema },
       responses: {
         200: {
@@ -84,7 +84,7 @@ export const crmPaths: OpenApiFragment = {
     registry.registerPath({
       method: "patch",
       path: "/api/events/{eventId}/prospects/{prospectId}",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: {
         params: prospectPathSchema,
         body: { required: true, content: json(updateProspectInputSchema) },
@@ -102,7 +102,7 @@ export const crmPaths: OpenApiFragment = {
     registry.registerPath({
       method: "post",
       path: "/api/events/{eventId}/prospects/{prospectId}/convert",
-      security: [{ sessionCookie: [] }],
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: prospectPathSchema },
       responses: {
         200: {

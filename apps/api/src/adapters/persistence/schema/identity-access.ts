@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   primaryKey,
   sqliteTable,
   text,
@@ -45,6 +46,33 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
+  const identityEmails = sqliteTable(
+    "identity_emails",
+    {
+      userId: text("user_id")
+        .primaryKey()
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+      email: text("email").notNull().unique(),
+    },
+    (table) => [check("identity_emails_lowercase", sql`${table.email} = lower(${table.email})`)],
+  );
+  const identityLoginChallenges = sqliteTable(
+    "identity_login_challenges",
+    {
+      id: text("id").primaryKey().notNull(),
+      email: text("email").notNull(),
+      codeProof: text("code_proof").notNull(),
+      expiresAt: integer("expires_at").notNull(),
+      attempts: integer("attempts").notNull().default(0),
+      consumedAt: integer("consumed_at"),
+    },
+    (table) => [
+      check("identity_login_challenges_attempts", sql`${table.attempts} BETWEEN 0 AND 5`),
+      index("identity_login_challenges_expiry_idx").on(table.expiresAt),
+    ],
+  );
+
   const eventRoles = sqliteTable(
     "event_roles",
     {
@@ -66,5 +94,5 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
-  return { users, organizationMemberships, eventRoles };
+  return { users, identityEmails, identityLoginChallenges, organizationMemberships, eventRoles };
 }

@@ -1,10 +1,13 @@
 import {
   type ApiErrorEnvelope,
   apiErrorEnvelopeSchema,
+  authConfigResponseSchema,
   type CreateEventInput,
   createEventInputSchema,
   createEventResponseSchema,
   demoSessionResponseSchema,
+  loginCodeRequestResponseSchema,
+  loginCodeVerifyResponseSchema,
   type EventDto,
   eventListResponseSchema,
   type SessionDto,
@@ -39,6 +42,39 @@ export async function startDemoSession(
     body: JSON.stringify({ persona }),
   });
   await decode(response, demoSessionResponseSchema);
+}
+
+export async function getAuthConfig(fetcher: typeof fetch = fetch) {
+  const response = await fetcher("/api/auth/config");
+  // A stacked frontend may briefly run against the preceding demo-only API while deploys roll.
+  if (response.status === 404) return { demoMode: true } as const;
+  return decode(response, authConfigResponseSchema);
+}
+
+export async function requestLoginCode(email: string, fetcher: typeof fetch = fetch) {
+  return decode(
+    await fetcher("/api/auth/code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    }),
+    loginCodeRequestResponseSchema,
+  );
+}
+
+export async function verifyLoginCode(
+  challenge: string,
+  code: string,
+  fetcher: typeof fetch = fetch,
+) {
+  await decode(
+    await fetcher("/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challenge, code }),
+    }),
+    loginCodeVerifyResponseSchema,
+  );
 }
 
 export async function getSession(fetcher: typeof fetch = fetch): Promise<SessionDto> {
