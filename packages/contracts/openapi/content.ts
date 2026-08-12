@@ -7,22 +7,34 @@
 import { z } from "zod";
 import {
   acceptContentInputSchema,
+  addContentCommentInputSchema,
+  bulkDownloadDeliverablesInputSchema,
+  bulkRequestSpeakerTaskInputSchema,
+  contentCommentSchema,
   contentSessionParamsSchema,
   contentSessionSchema,
   contentWorkspaceSchema,
+  createSpeakerResourceInputSchema,
   eventContentParamsSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
+  restoreContentRevisionInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
   speakerAssetSchema,
+  speakerCsvImportInputSchema,
+  speakerCsvImportResultSchema,
   speakerMessageSchema,
   speakerProfileSchema,
+  speakerResourceParamsSchema,
+  speakerResourceSchema,
   speakerTaskSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
+  updateSpeakerResourceInputSchema,
+  updateSpeakerWorkflowInputSchema,
   uploadSpeakerAssetInputSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
@@ -40,6 +52,153 @@ export const contentPaths: OpenApiFragment = {
           description: "Organizer or speaker-scoped content workspace",
           content: json(contentWorkspaceSchema),
         },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-resources",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(createSpeakerResourceInputSchema) } },
+      responses: {
+        201: {
+          description: "Sanitized speaker resource",
+          content: json(z.object({ resource: speakerResourceSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-imports",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(speakerCsvImportInputSchema) } },
+      responses: {
+        200: {
+          description: "Speaker import preview or result",
+          content: json(speakerCsvImportResultSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-comments",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(addContentCommentInputSchema) } },
+      responses: {
+        201: {
+          description: "Attributed asset comment",
+          content: json(z.object({ comment: contentCommentSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-deliverables/bulk-download",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(bulkDownloadDeliverablesInputSchema) } },
+      responses: {
+        200: {
+          description: "Deterministic ZIP containing exactly the latest selected deliverables",
+          content: { "application/zip": { schema: { type: "string", format: "binary" } } },
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-revisions/restore",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(restoreContentRevisionInputSchema) } },
+      responses: {
+        200: {
+          description: "Workspace after restoring the selected revision",
+          content: json(contentWorkspaceSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-tasks/bulk",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(bulkRequestSpeakerTaskInputSchema) } },
+      responses: {
+        201: {
+          description: "Tasks assigned to selected speakers",
+          content: json(z.object({ tasks: z.array(speakerTaskSchema) })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/speaker-profiles/{profileId}/workflow",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: profileParamsSchema,
+        body: { required: true, content: json(updateSpeakerWorkflowInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "Updated workflow and logistics fields",
+          content: json(z.object({ profile: speakerProfileSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/speaker-resources/{resourceId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: speakerResourceParamsSchema,
+        body: { required: true, content: json(updateSpeakerResourceInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "Updated sanitized speaker resource",
+          content: json(z.object({ resource: speakerResourceSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/speaker-resources/{resourceId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: speakerResourceParamsSchema },
+      responses: {
+        204: { description: "Resource deleted" },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,

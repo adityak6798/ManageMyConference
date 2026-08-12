@@ -152,7 +152,10 @@
 
 ### `ACC-SPEAKER`
 - `test` / `repository-fact`: [apps/api/test/content-calendar-publication.test.ts](../../apps/api/test/content-calendar-publication.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-csv-import.test.ts](../../apps/api/test/content-csv-import.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-deliverables.test.ts](../../apps/api/test/content-deliverables.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-resource-sanitizer.test.ts](../../apps/api/test/content-resource-sanitizer.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-service.test.ts](../../apps/api/test/content-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-content-repository.integration.test.ts](../../apps/api/test/d1-content-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/event-scoped-loading.spec.ts](../../apps/web/e2e/event-scoped-loading.spec.ts)

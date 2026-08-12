@@ -226,6 +226,8 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await page.goto(PORTAL);
+  await expect(page.getByRole("heading", { name: "Speaker resources" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Speaker handbook" })).toBeVisible();
 
   // The two seeded onboarding tasks plus the one the organizer just requested; the count
   // reads as a sentence, so the singular form has to be correct on the last one.

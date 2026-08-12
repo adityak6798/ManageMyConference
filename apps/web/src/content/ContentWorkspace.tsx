@@ -129,7 +129,8 @@ export function ContentWorkspace({ eventId, role }: Props) {
 
   if (!workspace) return <LoadingWorkspace />;
 
-  if (role === "organizer") return <OrganizerView workspace={workspace} busy={busy} run={run} />;
+  if (role === "organizer")
+    return <OrganizerView eventId={eventId} workspace={workspace} busy={busy} run={run} />;
 
   const profile = workspace.speakers[0];
   if (!profile)

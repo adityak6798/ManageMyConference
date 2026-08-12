@@ -27,6 +27,8 @@ import { Card, EmptyState, Notice, Pill, Stat, Tabs, useActionFeedback } from ".
 
 import { SessionEditor } from "./SessionEditor";
 import { SpeakerOutreach } from "./SpeakerOutreach";
+import { ResourceEditor } from "./ResourceEditor";
+import { ContentOperations } from "./ContentOperations";
 import {
   daysUntil,
   isImageAsset,
@@ -49,10 +51,12 @@ import {
 // it would create the presentational-fragment forest issue #70 forbids. SessionEditor is extracted
 // because it owns an independent form lifecycle; shared calculations live in shared.tsx.
 export function OrganizerView({
+  eventId,
   workspace,
   busy,
   run,
 }: {
+  eventId: string;
   workspace: Workspace;
   busy: boolean;
   run: Run;
@@ -193,6 +197,8 @@ export function OrganizerView({
 
   return (
     <div className="content-workspace">
+      <ResourceEditor eventId={eventId} workspace={workspace} busy={busy} run={run} />
+      <ContentOperations eventId={eventId} workspace={workspace} busy={busy} run={run} />
       <dl className="grid-auto">
         <Stat
           label="Accepted sessions"

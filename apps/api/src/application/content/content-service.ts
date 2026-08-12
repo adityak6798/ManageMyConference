@@ -1,9 +1,10 @@
 import {
-  canBeProfilePhoto,
   type ContentSession,
   type ContentWorkspace,
+  canBeProfilePhoto,
   type SpeakerAsset,
   type SpeakerProfile,
+  type SpeakerResource,
   type SpeakerTask,
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
@@ -14,13 +15,13 @@ import {
   requireEventCapability,
 } from "../identity/actor";
 import type { AcceptedProposalQuery } from "../review/public";
-import type { SpeakerConversionPort } from "./speaker-conversion";
 import {
   type AssetStoragePort,
   ContentConflictError,
   type ContentRepository,
   type EventPublicationQuery,
 } from "./content-repository";
+import type { SpeakerConversionPort } from "./speaker-conversion";
 
 /**
  * Acceptance carries a proposal reference and nothing else.
@@ -54,6 +55,7 @@ export class SpeakerPhotoInvalidError extends Error {
     super("This file cannot be used as a profile photo");
   }
 }
+export class ResourceEmbedDeniedError extends Error {}
 
 /**
  * A session as content projects it: the stored session plus where the agenda puts it.
@@ -107,6 +109,20 @@ export interface ContentServiceDependencies {
   eventPublication?: EventPublicationQuery;
   newId: () => string;
   now: () => Date;
+  /** Hosts organizers may embed into portal resources. Deployment configuration may narrow this. */
+  sanitizeResourceHtml?: (input: string) => string;
+  sanitizeResourceEmbed?: (input: string, allowedHosts: readonly string[]) => string;
+  parseSpeakerCsv?: (csv: string) => {
+    rows: {
+      name: string;
+      email: string;
+      workflowStatus?: string | undefined;
+      logistics?: string | undefined;
+      customFields?: string | undefined;
+    }[];
+    errors: { row: number; message: string }[];
+  };
+  createDeliverablesZip?: (files: readonly { name: string; bytes: Uint8Array }[]) => Uint8Array;
 }
 
 function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
@@ -188,6 +204,226 @@ function calendarDateTime(value: string) {
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export class ContentService {
   constructor(private readonly dependencies: ContentServiceDependencies) {}
+
+  async importSpeakers(
+    actor: Actor | null,
+    input: { eventId: string; csv: string; commit: boolean },
+    correlationId: string,
+  ) {
+    const authorized = requireEventCapability(actor, input.eventId, "content:manage");
+    const parsed = this.dependencies.parseSpeakerCsv?.(input.csv) ?? {
+      rows: [],
+      errors: [{ row: 1, message: "CSV parser is unavailable" }],
+    };
+    const existing = await this.dependencies.repository.workspace(input.eventId);
+    const known = new Set(existing.speakers.map(({ email }) => email.toLowerCase()));
+    const parserErrors = new Map<number, string[]>();
+    for (const error of parsed.errors)
+      parserErrors.set(error.row, [...(parserErrors.get(error.row) ?? []), error.message]);
+    const seen = new Set<string>();
+    const rows = parsed.rows.map((row, index) => {
+      const normalizedEmail = row.email.trim().toLowerCase();
+      const rowNumber = index + 2;
+      const errors = [...(parserErrors.get(rowNumber) ?? [])];
+      if (!row.name) errors.push("Name is required");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errors.push("Valid email is required");
+      if (
+        row.workflowStatus &&
+        !["invited", "onboarding", "ready", "blocked"].includes(row.workflowStatus)
+      )
+        errors.push("Workflow status is invalid");
+      for (const [label, value] of [
+        ["Logistics", row.logistics],
+        ["Custom fields", row.customFields],
+      ] as const) {
+        if (!value) continue;
+        try {
+          const parsedFields = JSON.parse(value);
+          if (!parsedFields || Array.isArray(parsedFields) || typeof parsedFields !== "object")
+            errors.push(`${label} must be a JSON object`);
+          else if (Object.values(parsedFields).some((field) => typeof field !== "string"))
+            errors.push(`${label} values must be strings`);
+        } catch {
+          // ERROR-INTENT: malformed optional JSON is a row validation disposition, not an exception that aborts preview.
+          errors.push(`${label} must be valid JSON`);
+        }
+      }
+      const duplicate = known.has(normalizedEmail) || seen.has(normalizedEmail);
+      if (duplicate) errors.push("Duplicate email");
+      seen.add(normalizedEmail);
+      return { row: rowNumber, ...row, email: normalizedEmail, duplicate, errors };
+    });
+    let imported = 0;
+    if (input.commit)
+      for (const row of rows) {
+        const importState = await this.dependencies.repository.findSpeakerImport(
+          input.eventId,
+          row.email,
+        );
+        if (importState === "pending") {
+          const duplicateIndex = row.errors.indexOf("Duplicate email");
+          if (duplicateIndex >= 0) row.errors.splice(duplicateIndex, 1);
+          row.duplicate = false;
+        }
+        if (row.errors.length || importState === "complete") continue;
+        try {
+          await this.dependencies.repository.beginSpeakerImport(input.eventId, row.email);
+          const { speakerId } = await this.dependencies.speakerConversion.createOrLink({
+            eventId: input.eventId,
+            source: { kind: "csv", id: row.email },
+            name: row.name,
+            email: row.email,
+            actorId: authorized.id,
+            occurredAt: this.dependencies.now().toISOString(),
+            correlationId,
+            idempotencyKey: `content-csv:${input.eventId}:${row.email}`,
+          });
+          const profile = await this.dependencies.repository.findProfile(speakerId);
+          if (profile) {
+            const parseFields = (value?: string) =>
+              value ? (JSON.parse(value) as Record<string, string>) : {};
+            await this.dependencies.repository.updateProfile({
+              ...profile,
+              workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
+                row.workflowStatus ?? "",
+              )
+                ? row.workflowStatus
+                : "onboarding") as SpeakerProfile["workflowStatus"],
+              logistics: parseFields(row.logistics),
+              customFields: parseFields(row.customFields),
+            });
+          }
+          await this.dependencies.repository.completeSpeakerImport(input.eventId, row.email);
+          imported += 1;
+        } catch {
+          // ERROR-INTENT: imports are idempotent per normalized email; expose the failed row so a retry is explicit and safe.
+          row.errors.push("Import failed; retry this row safely");
+        }
+      }
+    return {
+      preview: !input.commit,
+      total: rows.length,
+      valid: rows.filter(({ errors }) => errors.length === 0).length,
+      imported,
+      invalid: rows.filter(({ errors }) => errors.length > 0 && !errors.includes("Duplicate email"))
+        .length,
+      duplicates: rows.filter(({ duplicate }) => duplicate).length,
+      rows,
+    };
+  }
+
+  async updateSpeakerWorkflow(
+    actor: Actor | null,
+    profileId: string,
+    input: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
+  ) {
+    const profile = await this.dependencies.repository.findProfile(profileId);
+    if (!profile) throw new CapabilityDeniedError();
+    const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
+    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
+    const updated = { ...profile, ...input };
+    await this.dependencies.repository.updateProfile(updated);
+    return updated;
+  }
+
+  async requestTasks(
+    actor: Actor | null,
+    input: {
+      profileIds: string[];
+      title: string;
+      dueAt: string;
+      type: "general" | "file-request";
+      instructions: string;
+      sessionId?: string | undefined;
+    },
+  ) {
+    const profiles = await Promise.all(
+      input.profileIds.map((id) => this.dependencies.repository.findProfile(id)),
+    );
+    if (profiles.some((profile) => !profile)) throw new CapabilityDeniedError();
+    const eventId = profiles[0]?.eventId ?? "";
+    if (profiles.some((profile) => profile?.eventId !== eventId)) throw new CapabilityDeniedError();
+    requireEventCapability(actor, eventId, "content:manage");
+    if (input.sessionId) {
+      const session = await this.dependencies.repository.findSession(input.sessionId);
+      if (!session || session.eventId !== eventId) throw new CapabilityDeniedError();
+    }
+    const tasks: SpeakerTask[] = [];
+    for (const profile of profiles) {
+      if (!profile) continue;
+      const task: SpeakerTask = {
+        id: this.dependencies.newId(),
+        eventId,
+        speakerProfileId: profile.id,
+        title: input.title,
+        dueAt: input.dueAt,
+        status: "open",
+        type: input.type,
+        instructions: input.instructions,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      };
+      tasks.push(task);
+    }
+    await this.dependencies.repository.addTasks(tasks);
+    return tasks;
+  }
+
+  async createResource(
+    actor: Actor | null,
+    input: Omit<SpeakerResource, "id" | "bodyHtml" | "embedHtml"> & {
+      bodyHtml: string;
+      embedHtml: string;
+      embedAllowedHosts: string[];
+    },
+  ) {
+    requireEventCapability(actor, input.eventId, "content:manage");
+    const { embedAllowedHosts, ...storedInput } = input;
+    if (!this.dependencies.sanitizeResourceHtml || !this.dependencies.sanitizeResourceEmbed)
+      throw new Error("Resource sanitizer is unavailable");
+    const resource: SpeakerResource = {
+      ...storedInput,
+      id: this.dependencies.newId(),
+      bodyHtml: this.dependencies.sanitizeResourceHtml(input.bodyHtml),
+      embedHtml: this.dependencies.sanitizeResourceEmbed(input.embedHtml, embedAllowedHosts),
+    };
+    await this.dependencies.repository.addResource(resource);
+    return resource;
+  }
+
+  async updateResource(
+    actor: Actor | null,
+    resourceId: string,
+    input: Omit<SpeakerResource, "id" | "eventId" | "bodyHtml" | "embedHtml"> & {
+      bodyHtml: string;
+      embedHtml: string;
+      embedAllowedHosts: string[];
+    },
+  ) {
+    const existing = await this.dependencies.repository.findResource(resourceId);
+    if (!existing) throw new CapabilityDeniedError();
+    requireEventCapability(actor, existing.eventId, "content:manage");
+    if (!this.dependencies.sanitizeResourceHtml || !this.dependencies.sanitizeResourceEmbed)
+      throw new Error("Resource sanitizer is unavailable");
+    const { embedAllowedHosts, ...storedInput } = input;
+    const resource: SpeakerResource = {
+      ...existing,
+      ...storedInput,
+      bodyHtml: this.dependencies.sanitizeResourceHtml(input.bodyHtml),
+      embedHtml:
+        input.embedHtml === existing.embedHtml && embedAllowedHosts.length === 0
+          ? existing.embedHtml
+          : this.dependencies.sanitizeResourceEmbed(input.embedHtml, embedAllowedHosts),
+    };
+    await this.dependencies.repository.updateResource(resource);
+    return resource;
+  }
+
+  async deleteResource(actor: Actor | null, resourceId: string) {
+    const existing = await this.dependencies.repository.findResource(resourceId);
+    if (!existing) throw new CapabilityDeniedError();
+    requireEventCapability(actor, existing.eventId, "content:manage");
+    await this.dependencies.repository.deleteResource(resourceId);
+  }
 
   /**
    * Turn an accepted proposal into program content.
@@ -337,6 +573,7 @@ export class ContentService {
     )
       throw new CapabilityDeniedError("Speaker profile access denied");
     const updated = { ...profile, ...input };
+    await this.recordRevision(authorized, "profile", profile.id, profile.eventId, profile);
     await this.dependencies.repository.updateProfile(updated);
     return updated;
   }
@@ -483,6 +720,7 @@ export class ContentService {
     if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
       throw new CapabilityDeniedError("Session speaker access denied");
     const updated = { ...session, ...input };
+    await this.recordRevision(authorized, "session", session.id, session.eventId, session);
     await this.dependencies.repository.updateSession(updated);
     return updated;
   }
@@ -642,12 +880,47 @@ export class ContentService {
       name: string;
       contentType: string;
       bytes: Uint8Array;
+      taskId?: string | undefined;
+      sessionId?: string | undefined;
+      versionGroupId?: string | undefined;
     },
   ): Promise<SpeakerAsset> {
     const profile = await this.dependencies.repository.findProfile(input.profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker asset access denied");
     const authorized = requireEventCapability(actor, profile.eventId, "content:read");
     if (!hasEventRole(authorized, profile.eventId, "speaker") || profile.userId !== authorized.id)
+      throw new CapabilityDeniedError("Speaker asset access denied");
+    const workspace = await this.dependencies.repository.workspace(profile.eventId);
+    const previous = input.versionGroupId
+      ? workspace.assets
+          .filter(
+            (asset) =>
+              asset.versionGroupId === input.versionGroupId &&
+              asset.speakerProfileId === profile.id,
+          )
+          .toSorted((a, b) => (b.versionNumber ?? 1) - (a.versionNumber ?? 1))[0]
+      : input.taskId
+        ? workspace.assets.filter(
+            (asset) =>
+              asset.taskId === input.taskId &&
+              asset.speakerProfileId === profile.id &&
+              asset.isLatest !== false,
+          )[0]
+        : undefined;
+    if (
+      input.taskId &&
+      !workspace.tasks.some(
+        (task) => task.id === input.taskId && task.speakerProfileId === profile.id,
+      )
+    )
+      throw new CapabilityDeniedError("Speaker asset access denied");
+    if (
+      input.sessionId &&
+      !workspace.sessions.some(
+        (session) =>
+          session.id === input.sessionId && session.speakerProfileIds.includes(profile.id),
+      )
+    )
       throw new CapabilityDeniedError("Speaker asset access denied");
     const id = this.dependencies.newId();
     const key = `${profile.eventId}/${profile.id}/${id}`;
@@ -665,9 +938,16 @@ export class ContentService {
       storageKey: stored.key,
       visibility: "private",
       uploadedAt: this.dependencies.now().toISOString(),
+      ...(input.taskId || previous?.taskId ? { taskId: input.taskId ?? previous?.taskId } : {}),
+      ...(input.sessionId || previous?.sessionId
+        ? { sessionId: input.sessionId ?? previous?.sessionId }
+        : {}),
+      versionGroupId: previous?.versionGroupId ?? previous?.id ?? input.versionGroupId ?? id,
+      versionNumber: (previous?.versionNumber ?? 0) + 1,
+      isLatest: true,
     };
     try {
-      await this.dependencies.repository.addAsset(asset);
+      await this.dependencies.repository.replaceLatestAsset(asset, previous);
     } catch (metadataError) {
       try {
         await this.dependencies.assetStorage.delete(stored.key);
@@ -680,6 +960,132 @@ export class ContentService {
       throw metadataError;
     }
     return asset;
+  }
+
+  private async recordRevision(
+    actor: Actor,
+    entityType: "profile" | "session",
+    entityId: string,
+    eventId: string,
+    snapshot: unknown,
+    restoredFromRevisionId?: string,
+  ) {
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    const revisionNumber =
+      Math.max(
+        0,
+        ...(workspace.revisions ?? [])
+          .filter(
+            (revision) => revision.entityType === entityType && revision.entityId === entityId,
+          )
+          .map(({ revisionNumber }) => revisionNumber),
+      ) + 1;
+    await this.dependencies.repository.addRevision({
+      id: this.dependencies.newId(),
+      eventId,
+      entityType,
+      entityId,
+      revisionNumber,
+      snapshotJson: JSON.stringify(snapshot),
+      actorId: actor.id,
+      createdAt: this.dependencies.now().toISOString(),
+      ...(restoredFromRevisionId ? { restoredFromRevisionId } : {}),
+    });
+  }
+
+  async addAssetComment(actor: Actor | null, assetId: string, body: string) {
+    const asset = await this.dependencies.repository.findAsset(assetId);
+    if (!asset || !(await this.mayReadPrivately(actor, asset))) throw new CapabilityDeniedError();
+    const authorized = requireEventCapability(actor, asset.eventId, "content:read");
+    const comment = {
+      id: this.dependencies.newId(),
+      eventId: asset.eventId,
+      assetId,
+      authorId: authorized.id,
+      authorName: authorized.name,
+      body,
+      createdAt: this.dependencies.now().toISOString(),
+    };
+    await this.dependencies.repository.addComment(comment);
+    return comment;
+  }
+
+  async bulkDownload(actor: Actor | null, eventId: string, assetIds: readonly string[]) {
+    requireEventCapability(actor, eventId, "content:manage");
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    const selected = workspace.assets.filter(
+      (asset) => assetIds.includes(asset.id) && asset.isLatest !== false,
+    );
+    if (selected.length !== new Set(assetIds).size)
+      throw new CapabilityDeniedError("Deliverable selection is unavailable");
+    const files: { name: string; bytes: Uint8Array }[] = [];
+    const maximumArchiveBytes = 50 * 1024 * 1024;
+    let totalBytes = 0;
+    const used = new Set<string>();
+    for (const asset of selected.toSorted((a, b) => a.id.localeCompare(b.id))) {
+      const stored = await this.dependencies.assetStorage.get(asset.storageKey);
+      if (!stored) throw new CapabilityDeniedError("Deliverable selection is unavailable");
+      totalBytes += stored.bytes.byteLength;
+      if (totalBytes > maximumArchiveBytes)
+        throw new ContentConflictError("Selected deliverables exceed the 50 MB ZIP limit");
+      const safe =
+        asset.name.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "") || "deliverable";
+      let name = safe;
+      let suffix = 1;
+      while (used.has(name)) {
+        const dot = safe.lastIndexOf(".");
+        const stem = dot > 0 ? safe.slice(0, dot) : safe;
+        const extension = dot > 0 ? safe.slice(dot) : "";
+        name = `${stem}-${asset.speakerProfileId}-${suffix}${extension}`;
+        suffix += 1;
+      }
+      used.add(name);
+      files.push({ name, bytes: stored.bytes });
+    }
+    return this.dependencies.createDeliverablesZip?.(files) ?? new Uint8Array();
+  }
+
+  async restoreRevision(actor: Actor | null, revisionId: string) {
+    const revision = await this.dependencies.repository.findRevision(revisionId);
+    if (!revision) throw new CapabilityDeniedError();
+    const authorized = requireEventCapability(actor, revision.eventId, "content:manage");
+    if (revision.entityType === "profile") {
+      const current = await this.dependencies.repository.findProfile(revision.entityId);
+      if (!current) throw new CapabilityDeniedError();
+      await this.recordRevision(
+        authorized,
+        "profile",
+        current.id,
+        current.eventId,
+        current,
+        revision.id,
+      );
+      const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
+      await this.dependencies.repository.updateProfile({
+        ...snapshot,
+        id: current.id,
+        eventId: current.eventId,
+        userId: current.userId,
+      });
+    } else {
+      const current = await this.dependencies.repository.findSession(revision.entityId);
+      if (!current) throw new CapabilityDeniedError();
+      await this.recordRevision(
+        authorized,
+        "session",
+        current.id,
+        current.eventId,
+        current,
+        revision.id,
+      );
+      const snapshot = JSON.parse(revision.snapshotJson) as ContentSession;
+      await this.dependencies.repository.updateSession({
+        ...snapshot,
+        id: current.id,
+        eventId: current.eventId,
+      });
+    }
+    return this.projected(revision.eventId);
   }
 
   /**

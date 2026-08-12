@@ -1,9 +1,12 @@
 import type {
+  ContentComment,
+  ContentRevision,
   ContentSession,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerMessage,
   SpeakerProfile,
+  SpeakerResource,
   SpeakerTask,
 } from "../../domain/content/content";
 
@@ -25,13 +28,25 @@ export interface ContentRepository {
   deleteSession(sessionId: string): Promise<void>;
   updateAsset(asset: SpeakerAsset): Promise<void>;
   addAsset(asset: SpeakerAsset): Promise<void>;
+  replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset): Promise<void>;
   deleteAsset(assetId: string): Promise<void>;
   addTask(task: SpeakerTask): Promise<void>;
+  addTasks(tasks: readonly SpeakerTask[]): Promise<void>;
   addMessage(message: SpeakerMessage): Promise<void>;
   findProfile(profileId: string): Promise<SpeakerProfile | null>;
   findSession(sessionId: string): Promise<ContentSession | null>;
   findAsset(assetId: string): Promise<SpeakerAsset | null>;
   findProfileBySource(eventId: string, sourcePersonId: string): Promise<SpeakerProfile | null>;
+  addResource(resource: SpeakerResource): Promise<void>;
+  updateResource(resource: SpeakerResource): Promise<void>;
+  deleteResource(resourceId: string): Promise<void>;
+  findResource(resourceId: string): Promise<SpeakerResource | null>;
+  addComment(comment: ContentComment): Promise<void>;
+  addRevision(revision: ContentRevision): Promise<void>;
+  findRevision(revisionId: string): Promise<ContentRevision | null>;
+  findSpeakerImport(eventId: string, email: string): Promise<"pending" | "complete" | null>;
+  beginSpeakerImport(eventId: string, email: string): Promise<void>;
+  completeSpeakerImport(eventId: string, email: string): Promise<void>;
 }
 
 export class ContentConflictError extends Error {}

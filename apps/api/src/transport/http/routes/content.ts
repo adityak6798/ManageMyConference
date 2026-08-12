@@ -8,24 +8,35 @@
  */
 import {
   acceptContentInputSchema,
+  addContentCommentInputSchema,
+  bulkDownloadDeliverablesInputSchema,
+  bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
+  createSpeakerResourceInputSchema,
   eventContentParamsSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
+  restoreContentRevisionInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
+  speakerCsvImportInputSchema,
+  speakerResourceParamsSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
+  updateSpeakerResourceInputSchema,
+  updateSpeakerWorkflowInputSchema,
   uploadSpeakerAssetInputSchema,
 } from "@greenroom/contracts";
+import { ContentConflictError } from "../../../application/content/content-repository";
 import {
+  ResourceEmbedDeniedError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../../../application/content/content-service";
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
-import { envelope, validationFields, readJson, PUBLIC_CACHE_CONTROL } from "../runtime";
+import { envelope, PUBLIC_CACHE_CONTROL, readJson, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
@@ -45,6 +56,15 @@ const routes = [
   "DELETE /api/speaker-assets/:assetId",
   "POST /api/speaker-assets",
   "GET /api/events/:eventId/speaker-calendar.ics",
+  "POST /api/speaker-resources",
+  "PATCH /api/speaker-resources/:resourceId",
+  "DELETE /api/speaker-resources/:resourceId",
+  "POST /api/speaker-imports",
+  "POST /api/speaker-tasks/bulk",
+  "PATCH /api/speaker-profiles/:profileId/workflow",
+  "POST /api/content-comments",
+  "POST /api/content-revisions/restore",
+  "POST /api/content-deliverables/bulk-download",
 ] as const;
 
 export const contentRoutes: RouteModule = {
@@ -424,6 +444,183 @@ export const contentRoutes: RouteModule = {
         "content-disposition": 'attachment; filename="greenroom-sessions.ics"',
       });
     });
+    app.post("/api/speaker-imports", async (context) => {
+      const parsed = speakerCsvImportInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker CSV import is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        await content.importSpeakers(
+          context.get("actor"),
+          parsed.data,
+          context.get("correlationId"),
+        ),
+      );
+    });
+    app.post("/api/speaker-tasks/bulk", async (context) => {
+      const parsed = bulkRequestSpeakerTaskInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Bulk task request is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        { tasks: await content.requestTasks(context.get("actor"), parsed.data) },
+        201,
+      );
+    });
+    app.patch("/api/speaker-profiles/:profileId/workflow", async (context) => {
+      const params = profileParamsSchema.safeParse(context.req.param());
+      const parsed = updateSpeakerWorkflowInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker workflow is invalid.",
+            context.get("correlationId"),
+            parsed.success ? undefined : validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        profile: await content.updateSpeakerWorkflow(
+          context.get("actor"),
+          params.data.profileId,
+          parsed.data,
+        ),
+      });
+    });
+    app.post("/api/speaker-resources", async (context) => {
+      const parsed = createSpeakerResourceInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker resource is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        { resource: await content.createResource(context.get("actor"), parsed.data) },
+        201,
+      );
+    });
+    app.post("/api/content-comments", async (context) => {
+      const parsed = addContentCommentInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Comment is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        {
+          comment: await content.addAssetComment(
+            context.get("actor"),
+            parsed.data.assetId,
+            parsed.data.body,
+          ),
+        },
+        201,
+      );
+    });
+    app.post("/api/content-deliverables/bulk-download", async (context) => {
+      const parsed = bulkDownloadDeliverablesInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Deliverable selection is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      const archive = await content.bulkDownload(
+        context.get("actor"),
+        parsed.data.eventId,
+        parsed.data.assetIds,
+      );
+      return context.body(archive as unknown as ArrayBuffer, 200, {
+        "content-type": "application/zip",
+        "content-disposition": 'attachment; filename="speaker-deliverables.zip"',
+        "content-length": String(archive.byteLength),
+      });
+    });
+    app.post("/api/content-revisions/restore", async (context) => {
+      const parsed = restoreContentRevisionInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Revision is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        await content.restoreRevision(context.get("actor"), parsed.data.revisionId),
+      );
+    });
+    app.patch("/api/speaker-resources/:resourceId", async (context) => {
+      const params = speakerResourceParamsSchema.safeParse(context.req.param());
+      const parsed = updateSpeakerResourceInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker resource is invalid.",
+            context.get("correlationId"),
+            parsed.success ? undefined : validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        resource: await content.updateResource(
+          context.get("actor"),
+          params.data.resourceId,
+          parsed.data,
+        ),
+      });
+    });
+    app.delete("/api/speaker-resources/:resourceId", async (context) => {
+      const params = speakerResourceParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Resource ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      await content.deleteResource(context.get("actor"), params.data.resourceId);
+      return context.body(null, 204);
+    });
   },
   translateError(error: unknown) {
     if (error instanceof SpeakerIdentityUnavailableError)
@@ -439,6 +636,19 @@ export const contentRoutes: RouteModule = {
         message: "That file cannot be used as a profile photo.",
         status: 400 as const,
         fields: error.fields,
+      };
+    if (error instanceof ResourceEmbedDeniedError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+        fields: { embedHtml: [error.message] },
+      };
+    if (error instanceof ContentConflictError)
+      return {
+        code: "CONFLICT" as const,
+        message: error.message,
+        status: 409 as const,
       };
     return null;
   },
