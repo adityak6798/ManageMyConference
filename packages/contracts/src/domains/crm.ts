@@ -278,6 +278,13 @@ export const segmentListResponseSchema = z.object({ segments: z.array(contactSeg
  * `fields` included: the client decodes non-strictly, so a field missing here is silently
  * dropped on the way to the screen, and an organizer would have approved a preview that did not
  * mention the notes and custom columns the commit was about to write.
+ *
+ * Deliberately unbounded, and `fields` deliberately *not* `contactCustomFieldSchema`. This is a
+ * report of what a file contained, not a contact: the rows most worth describing are exactly
+ * the ones that broke a bound, and validating the echo against the bounds they broke made the
+ * message explaining the refusal undecodable — so a file with one over-long cell showed a
+ * decode failure instead of naming the cell. What may be *stored* is bounded by
+ * `createContactInputSchema` and by the parser, which is where the limit belongs.
  */
 export const contactImportRowSchema = z.object({
   line: z.number().int().positive(),
@@ -287,7 +294,7 @@ export const contactImportRowSchema = z.object({
   title: z.string().nullable(),
   notes: z.string().nullable(),
   tags: z.array(z.string()),
-  fields: z.array(contactCustomFieldSchema),
+  fields: z.array(z.object({ key: z.string(), value: z.string() })),
   /** What committing this file would do with this row, decided against the live directory. */
   action: z.enum(["create", "update", "skip"]),
   errors: z.array(z.string()),

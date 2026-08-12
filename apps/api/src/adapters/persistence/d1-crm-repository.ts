@@ -238,12 +238,7 @@ export class D1CrmRepository implements CrmRepository {
           .bind(contact.id, prospect.id, contact.name, contact.email, contact.isPrimary ? 1 : 0),
       ),
     ];
-    const results = await this.database.batch(statements);
-    const failed = results.find((result) => !result.success);
-    if (failed)
-      throw new Error(
-        `D1 failed to create prospect atomically: ${failed.error ?? "unknown error"}`,
-      );
+    await this.runBatch(statements, "create prospect atomically");
   }
   async update(
     prospect: Prospect,
@@ -312,12 +307,7 @@ export class D1CrmRepository implements CrmRepository {
           ),
       );
     }
-    const results = await this.database.batch(statements);
-    const failed = results.find((item) => !item.success);
-    if (failed)
-      throw new Error(
-        `D1 failed to update prospect atomically: ${failed.error ?? "unknown error"}`,
-      );
+    await this.runBatch(statements, "update prospect atomically");
     const current = await this.findById(prospect.eventId, prospect.id);
     if (current?.speakerId)
       throw new ProspectAlreadyConvertedError("Converted prospects cannot be updated");
@@ -364,15 +354,10 @@ export class D1CrmRepository implements CrmRepository {
         "UPDATE crm_prospects SET stage='converted', speaker_id=?, converted_at=?, updated_at=? WHERE id=? AND event_id=? AND speaker_id IS NULL",
       )
       .bind(speakerId, activity.occurredAt, activity.occurredAt, prospectId, eventId);
-    const results = await this.database.batch([
-      update,
-      this.activityStatement(prospectId, activity),
-    ]);
-    const failed = results.find((result) => !result.success);
-    if (failed)
-      throw new Error(
-        `D1 failed to record conversion atomically: ${failed.error ?? "unknown error"}`,
-      );
+    await this.runBatch(
+      [update, this.activityStatement(prospectId, activity)],
+      "record conversion atomically",
+    );
     const current = await this.findById(eventId, prospectId);
     if (!current) throw new Error("Prospect not found");
     return current;
@@ -587,32 +572,61 @@ export class D1CrmRepository implements CrmRepository {
           contact.updatedAt,
         ),
       ...this.childStatements(contact),
-      ...contact.activities.map((activity) => this.contactActivityStatement(contact.id, activity)),
+      ...contact.activities.map((activity) =>
+        this.contactActivityStatement(contact.id, activity, contact.organizationId),
+      ),
     ];
   }
 
+  /**
+   * `AND EXISTS (… id = ? AND organization_id = ?)`, appended to a statement that would
+   * otherwise reach a row by contact id alone.
+   *
+   * A child table carries no organization of its own, so a statement keyed only on
+   * `contact_id` matches a contact anywhere. That is how the tag and field writes below came to
+   * delete and replace another organization's data while the contact row's own UPDATE, which
+   * was scoped, quietly changed nothing — the same one-sided shape the merge batch had, except
+   * that this one destroys rather than moves.
+   */
+  private static readonly OWNED =
+    "EXISTS (SELECT 1 FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?)";
+
   /** Tags and fields are replaced wholesale, so a removed one disappears rather than lingering. */
   private childStatements(contact: OrganizationContact): D1Statement[] {
+    const owns = [contact.id, contact.organizationId];
     return [
       ...contact.tags.map((tag) =>
         this.database
-          .prepare("INSERT OR IGNORE INTO crm_contact_tags (contact_id,tag) VALUES (?,?)")
-          .bind(contact.id, tag),
+          .prepare(
+            `INSERT OR IGNORE INTO crm_contact_tags (contact_id,tag) SELECT ?,? WHERE ${D1CrmRepository.OWNED}`,
+          )
+          .bind(contact.id, tag, ...owns),
       ),
       ...contact.fields.map((field) =>
         this.database
           .prepare(
-            "INSERT INTO crm_contact_fields (contact_id,field_key,field_value) VALUES (?,?,?) ON CONFLICT(contact_id,field_key) DO UPDATE SET field_value=excluded.field_value",
+            `INSERT INTO crm_contact_fields (contact_id,field_key,field_value) SELECT ?,?,? WHERE ${D1CrmRepository.OWNED} ON CONFLICT(contact_id,field_key) DO UPDATE SET field_value=excluded.field_value`,
           )
-          .bind(contact.id, field.key, field.value),
+          .bind(contact.id, field.key, field.value, ...owns),
       ),
     ];
   }
 
-  private contactActivityStatement(contactId: string, activity: ContactActivity) {
+  /**
+   * An activity insert scoped to the contact's organization.
+   *
+   * `organizationId` is required rather than optional on purpose: every caller has one, and an
+   * optional guard is a guard somebody forgets. Within a batch the preceding statements are
+   * visible, so this is satisfied by a contact the same batch has just inserted.
+   */
+  private contactActivityStatement(
+    contactId: string,
+    activity: ContactActivity,
+    organizationId: string,
+  ) {
     return this.database
       .prepare(
-        "INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) VALUES (?,?,?,?,?,?,?)",
+        `INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,?,?,?,?,?,? WHERE ${D1CrmRepository.OWNED}`,
       )
       .bind(
         activity.id,
@@ -622,6 +636,8 @@ export class D1CrmRepository implements CrmRepository {
         activity.private ? 1 : 0,
         activity.occurredAt,
         activity.actorId,
+        contactId,
+        organizationId,
       );
   }
 
@@ -701,24 +717,35 @@ export class D1CrmRepository implements CrmRepository {
           contact.id,
           contact.organizationId,
         ),
+      // Both DELETEs are gated on the organization as well as the contact. Keyed on the contact
+      // alone they matched a contact anywhere, so replacing this contact's tags wholesale
+      // deleted another organization's — the destructive half of the same asymmetry the merge
+      // batch had.
       this.database
         .prepare(
           `DELETE FROM crm_contact_tags WHERE contact_id=?${
             contact.tags.length ? ` AND tag NOT IN (${contact.tags.map(() => "?").join(",")})` : ""
-          }`,
+          } AND ${D1CrmRepository.OWNED}`,
         )
-        .bind(contact.id, ...contact.tags),
+        .bind(contact.id, ...contact.tags, contact.id, contact.organizationId),
       this.database
         .prepare(
           `DELETE FROM crm_contact_fields WHERE contact_id=?${
             contact.fields.length
               ? ` AND field_key NOT IN (${contact.fields.map(() => "?").join(",")})`
               : ""
-          }`,
+          } AND ${D1CrmRepository.OWNED}`,
         )
-        .bind(contact.id, ...contact.fields.map(({ key }) => key)),
+        .bind(
+          contact.id,
+          ...contact.fields.map(({ key }) => key),
+          contact.id,
+          contact.organizationId,
+        ),
       ...this.childStatements(contact),
-      ...activities.map((activity) => this.contactActivityStatement(contact.id, activity)),
+      ...activities.map((activity) =>
+        this.contactActivityStatement(contact.id, activity, contact.organizationId),
+      ),
     ];
   }
 
@@ -841,22 +868,9 @@ export class D1CrmRepository implements CrmRepository {
             organizationId,
           ),
         // Likewise: an ungated insert here wrote an activity row onto another organization's
-        // contact, which is a cross-tenant write rather than a cross-tenant read.
-        this.database
-          .prepare(
-            "INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?)",
-          )
-          .bind(
-            input.activity.id,
-            primaryId,
-            input.activity.kind,
-            input.activity.summary,
-            input.activity.private ? 1 : 0,
-            input.activity.occurredAt,
-            input.activity.actorId,
-            primaryId,
-            organizationId,
-          ),
+        // contact, which is a cross-tenant write rather than a cross-tenant read. The shared
+        // helper now carries that guard for every caller.
+        this.contactActivityStatement(primaryId, input.activity, organizationId),
       ],
       "merge contacts atomically",
     );
@@ -961,11 +975,22 @@ export class D1CrmRepository implements CrmRepository {
     activity: ContactActivity;
   }) {
     const { contact, prospect } = input;
+    /*
+     * Every statement carries the same guard, the pipeline rows included.
+     *
+     * Gating only the link left the prospect behind when the guard refused: a row in the
+     * event's pipeline that no directory link points at. That is reachable without a hostile
+     * caller — a contact merged away between the service's read and this batch takes the same
+     * path — and it produced a timeline claiming a sourcing that did not happen. Either the
+     * whole sourcing lands or none of it does.
+     */
+    const live = `EXISTS (SELECT 1 FROM crm_organization_contacts WHERE id=? AND organization_id=? AND merged_into_id IS NULL)`;
+    const owns = [contact.id, contact.organizationId];
     await this.runBatch(
       [
         this.database
           .prepare(
-            "INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            `INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE ${live}`,
           )
           .bind(
             prospect.id,
@@ -977,29 +1002,37 @@ export class D1CrmRepository implements CrmRepository {
             prospect.nextActionAt,
             prospect.createdAt,
             prospect.updatedAt,
+            ...owns,
           ),
         ...prospect.contacts.map((item) =>
           this.database
             .prepare(
-              "INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) VALUES (?,?,?,?,?)",
+              `INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) SELECT ?,?,?,?,? WHERE ${live}`,
             )
-            .bind(item.id, prospect.id, item.name, item.email, item.isPrimary ? 1 : 0),
+            .bind(item.id, prospect.id, item.name, item.email, item.isPrimary ? 1 : 0, ...owns),
         ),
-        // Scoped through the contact's organization, so a link cannot be written between an
-        // event and a contact that belongs somewhere else.
         this.database
           .prepare(
-            "INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_organization_contacts WHERE id=? AND organization_id=? AND merged_into_id IS NULL)",
+            `INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE ${live}`,
+          )
+          .bind(contact.id, prospect.eventId, prospect.id, input.activity.occurredAt, ...owns),
+        // `live`, not the shared helper's ownership guard. The other statements here refuse a
+        // contact that has been merged away, and an activity written under a weaker condition
+        // than the act it records is a timeline entry for something that did not happen.
+        this.database
+          .prepare(
+            `INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,?,?,?,?,?,? WHERE ${live}`,
           )
           .bind(
+            input.activity.id,
             contact.id,
-            prospect.eventId,
-            prospect.id,
+            input.activity.kind,
+            input.activity.summary,
+            input.activity.private ? 1 : 0,
             input.activity.occurredAt,
-            contact.id,
-            contact.organizationId,
+            input.activity.actorId,
+            ...owns,
           ),
-        this.contactActivityStatement(contact.id, input.activity),
       ],
       "source the contact into the event atomically",
       // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,

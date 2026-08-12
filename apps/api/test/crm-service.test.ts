@@ -1,5 +1,5 @@
 // @acceptance ACC-CRM
-import { contactListResponseSchema } from "@greenroom/contracts";
+import { contactListResponseSchema, importPreviewResponseSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
 import { CrmService } from "../src/application/crm/crm-service";
@@ -685,6 +685,21 @@ describe("ACC-CRM organization directory", () => {
     expect(contacts.map(({ email }) => email)).toEqual(["fine@example.test"]);
     // The stored row satisfies the published read schema, which is the property that broke.
     expect(() => contactListResponseSchema.parse({ contacts, filters: {} })).not.toThrow();
+    // And so does the message that explains the refusal. The rejected rows are echoed back
+    // carrying the very values that broke a bound, so a response contract applying those same
+    // bounds to the echo made the preview undecodable exactly when it had something to say.
+    const rejected = await service.previewImport(organizer, organizationId, {
+      filename: "overlong.csv",
+      csv: [overlong, unnamedField.split("\n")[1]].join("\n"),
+    });
+    expect(() =>
+      importPreviewResponseSchema.parse({
+        filename: rejected.filename,
+        rows: rejected.rows,
+        notices: rejected.notices,
+        summary: rejected.summary,
+      }),
+    ).not.toThrow();
   });
 
   it("names the earlier row when one file imports an address twice", async () => {

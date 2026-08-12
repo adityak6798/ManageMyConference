@@ -23604,14 +23604,10 @@
                               "type": "object",
                               "properties": {
                                 "key": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 60
+                                  "type": "string"
                                 },
                                 "value": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 300
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -23972,14 +23968,10 @@
                               "type": "object",
                               "properties": {
                                 "key": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 60
+                                  "type": "string"
                                 },
                                 "value": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 300
+                                  "type": "string"
                                 }
                               },
                               "required": [

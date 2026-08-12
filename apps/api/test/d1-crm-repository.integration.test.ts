@@ -593,6 +593,124 @@ describe("D1 CRM organization directory", () => {
     expect(outside?.activities).toEqual([]);
   });
 
+  it("will not edit, strip or annotate a contact belonging to another organization", async () => {
+    const migrated = await migratedRuntime("crm-update-foreign");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    /*
+     * The contact row's own UPDATE was organization-scoped from the start, but its tags, custom
+     * fields and timeline are child rows keyed on `contact_id` alone — so replacing this
+     * contact's tags wholesale reached across and *deleted* another organization's. The same
+     * asymmetry as the merge batch, and the destructive version of it.
+     */
+    const foreignId = "51000000-0000-4000-8000-0000000000f9";
+    await repository.createContact(
+      contactAt(foreignId, {
+        organizationId: otherOrganizationId,
+        name: "Outside Person",
+        email: "outside-person@outside.test",
+        tags: ["board", "confidential"],
+        fields: [{ key: "clearance", value: "top" }],
+      }),
+    );
+    const before = await repository.findContact(otherOrganizationId, foreignId);
+
+    // The organization is overstated; every statement must refuse it, not just the first.
+    await repository.updateContact(
+      {
+        ...contactAt(foreignId, {
+          organizationId,
+          name: "Renamed by an outsider",
+          email: "outside-person@outside.test",
+          tags: ["hijacked"],
+          fields: [{ key: "hijacked", value: "yes" }],
+        }),
+      },
+      [
+        {
+          id: "71000000-0000-4000-8000-0000000000f9",
+          kind: "note",
+          summary: "Written from another organization",
+          private: true,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      ],
+    );
+
+    const after = await repository.findContact(otherOrganizationId, foreignId);
+    expect(after?.name).toBe("Outside Person");
+    expect(after?.tags).toEqual(before?.tags);
+    expect(after?.fields).toEqual(before?.fields);
+    expect(after?.activities).toEqual([]);
+  });
+
+  it("writes no pipeline row when the directory link is refused", async () => {
+    const migrated = await migratedRuntime("crm-link-refused");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * Gating only the link left a prospect behind that no link pointed at. Reachable without a
+     * hostile caller: a contact merged away between the service's read and this batch takes the
+     * same path, and the timeline then claimed a sourcing that never happened.
+     */
+    const merged = await repository.findContact(organizationId, priyaDuplicateId);
+    if (!merged) throw new Error("The seeded contact is missing");
+    await database
+      .prepare("UPDATE crm_organization_contacts SET merged_into_id = ? WHERE id = ?")
+      .bind(priyaId, priyaDuplicateId)
+      .run();
+
+    const prospectId = "50000000-0000-4000-8000-0000000000fa";
+    await repository.linkContactToEvent({
+      contact: merged,
+      prospect: {
+        id: prospectId,
+        eventId,
+        name: "Priya Raman",
+        stage: "identified",
+        ownerId: "seed-organizer",
+        nextAction: null,
+        nextActionAt: null,
+        contacts: [
+          {
+            id: "60000000-0000-4000-8000-0000000000fa",
+            name: "Priya Raman",
+            email: "p.raman@eastwind.test",
+            isPrimary: true,
+          },
+        ],
+        activities: [],
+        speakerId: null,
+        convertedAt: null,
+        createdAt: "2026-08-11T12:00:00.000Z",
+        updatedAt: "2026-08-11T12:00:00.000Z",
+      },
+      activity: {
+        id: "71000000-0000-4000-8000-0000000000fa",
+        kind: "note",
+        summary: "Sourced into an event",
+        private: false,
+        occurredAt: "2026-08-11T12:00:00.000Z",
+        actorId: "seed-organizer",
+      },
+    });
+
+    // Either the whole sourcing lands or none of it does: no orphan prospect, no contact row
+    // for it, and no timeline entry claiming it happened.
+    await expect(repository.findById(eventId, prospectId)).resolves.toBeNull();
+    const orphans = await database
+      .prepare("SELECT id FROM crm_contacts WHERE prospect_id = ?")
+      .bind(prospectId)
+      .all();
+    expect(orphans.results ?? []).toHaveLength(0);
+    // The contact keeps the history it already had, and gains no entry claiming a sourcing
+    // that was refused.
+    const timeline = (await repository.findContact(organizationId, priyaDuplicateId))?.activities;
+    expect(timeline?.map(({ summary }) => summary)).toEqual(["Imported from speakers-2026.csv"]);
+  });
+
   it("keeps both links when the merged records were sourced into the same event", async () => {
     const migrated = await migratedRuntime("crm-merge-same-event");
     runtime = migrated.runtime;

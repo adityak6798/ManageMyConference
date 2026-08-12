@@ -584,11 +584,15 @@ export class CrmService {
         title: row.title ?? existing.title,
         // An import enriches; it never silently erases a note somebody typed here.
         notes: existing.notes ?? row.notes,
-        tags: [...new Set([...existing.tags, ...row.tags])],
+        // Capped at the same counts a single contact may carry. An import enriches, and each
+        // file's row is bounded, but successive imports of disjoint keys against one address
+        // accumulate — and every tag and field is a bound SQL variable on the write, so an
+        // uncapped union eventually met D1's variable limit as an opaque failure.
+        tags: [...new Set([...existing.tags, ...row.tags])].slice(0, 20),
         fields: [
           ...existing.fields.filter(({ key }) => !row.fields.some((field) => field.key === key)),
           ...row.fields,
-        ],
+        ].slice(0, 30),
         activities: [...existing.activities, activity(`Updated by import ${input.filename}`)],
         updatedAt: now,
       });
