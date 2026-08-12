@@ -8,13 +8,23 @@ const secondSession = "Accessible by default";
 const openingPlacement = "placement-opening";
 // The board names a placement it creates after the session it holds, so a session the
 // tests below schedule from scratch is always addressable by this id.
-const keyboardPlacement = `placement-${openingSession}`;
 const secondPlacement = `placement-${secondSessionId}`;
 
-/** The board is a shared fixture, so every test hands it back the way it found it. */
+/**
+ * The board is a shared fixture, so every test hands it back the way it found it.
+ *
+ * Every placement that is not the seed's is removed, rather than a list of the ids the tests
+ * below happen to create. Assisted placement can add one per unscheduled session, so a named
+ * list would silently stop cleaning up the moment the seed gained a session (`DEBT-007`).
+ */
 async function restoreSeedPlacement(page: Page) {
-  for (const placementId of [keyboardPlacement, secondPlacement, "placement-clash"])
-    await page.request.delete(`/api/events/${demoEventId}/agenda/placements/${placementId}`);
+  const board = await page.request.get(`/api/events/${demoEventId}/agenda`);
+  if (board.ok()) {
+    const { agenda } = (await board.json()) as { agenda: { placements: { id: string }[] } };
+    for (const { id } of agenda.placements)
+      if (id !== openingPlacement)
+        await page.request.delete(`/api/events/${demoEventId}/agenda/placements/${id}`);
+  }
   const restored = await page.request.put(
     `/api/events/${demoEventId}/agenda/placements/${openingPlacement}`,
     {
@@ -375,4 +385,45 @@ test("switches views and keeps the chosen view in a shareable URL", async ({ pag
   await page.getByRole("tab", { name: /^Track/ }).click();
   await expect(page.getByRole("heading", { name: "Platform" })).toBeVisible();
   await expect(page).toHaveURL(/view=track/);
+});
+
+/*
+ * `AIA-08`: one action fills the board, and the result is an ordinary draft.
+ *
+ * The last two assertions are the ones that matter most. A generated draft that survives a
+ * reload but cannot be edited afterwards would be a wizard's output rather than a starting
+ * point, and one that reached the public schedule without the explicit publish step would
+ * break the rule the whole domain is built on.
+ */
+test("generates a conflict-free draft in one action and keeps it editable", async ({ page }) => {
+  await openAgenda(page);
+
+  const scheduledBefore = await page.getByText(/\d+ of \d+ scheduled/).innerText();
+  await page.getByRole("button", { name: "Generate draft" }).click();
+
+  const announced = page
+    .getByRole("status")
+    .filter({ hasText: /Placed \d+ session/ })
+    .first();
+  await expect(announced).toBeVisible();
+  await expect(page.getByText(/\d+ of \d+ scheduled/)).not.toHaveText(scheduledBefore);
+
+  // A generated draft is publishable, which is the whole promise: no room or speaker clash.
+  await page.getByRole("tab", { name: /^Conflicts/ }).click();
+  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
+  await page.getByRole("tab", { name: /^Room/ }).click();
+
+  // It survives a reload, so it is real draft state rather than something held on screen.
+  await returnToAgenda(page);
+  const afterReload = await page.getByText(/\d+ of \d+ scheduled/).innerText();
+  expect(afterReload).not.toEqual(scheduledBefore);
+
+  // And it is still an ordinary board: a session the pass placed can be sent back with the
+  // same control that removes a hand-placed one, through the same list view.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
 });

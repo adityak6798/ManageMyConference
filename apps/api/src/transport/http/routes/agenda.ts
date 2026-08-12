@@ -7,6 +7,7 @@
  * @spec PRD-AGD-001
  */
 import {
+  agendaAutoPlaceSchema,
   agendaIdParamsSchema,
   agendaPlacementSchema,
   agendaResourcesSchema,
@@ -25,6 +26,7 @@ const routes = [
   "GET /api/events/:eventId/agenda",
   "PUT /api/events/:eventId/agenda/resources",
   "PUT /api/events/:eventId/agenda/placements/:placementId",
+  "POST /api/events/:eventId/agenda/assisted-placements",
   "DELETE /api/events/:eventId/agenda/placements/:placementId",
   "POST /api/events/:eventId/agenda/publications",
 ] as const;
@@ -77,6 +79,47 @@ export const agendaRoutes: RouteModule = {
       requireEventCapability(context.get("actor"), params.data.eventId, "agenda:manage");
       return context.json({
         agenda: await agenda.place(context.get("actor"), params.data.eventId, body.data),
+      });
+    });
+    /*
+     * Generating a draft is a placement edit, not a publication: it writes the same draft rows
+     * a drag writes, needs the same `agenda:manage`, and reaches no public surface. It is a
+     * POST because it is not idempotent in the HTTP sense — the board it produces depends on
+     * the board it starts from — though re-running it converges rather than duplicating,
+     * because each session's assisted placement keeps the same id.
+     */
+    app.post("/api/events/:eventId/agenda/assisted-placements", async (context) => {
+      if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+      const params = agendaIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      // Authorized before the body is read, so an unauthenticated caller is told it is
+      // unauthenticated rather than being handed a critique of a payload it may not send.
+      requireEventCapability(context.get("actor"), params.data.eventId, "agenda:manage");
+      // "Place everything" is the natural meaning of this action, so an absent body means it.
+      // A body that is present but not JSON is still a caller mistake and still fails.
+      const body = agendaAutoPlaceSchema.safeParse(
+        context.req.raw.body === null ? {} : ((await readJson(context.req)) ?? {}),
+      );
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Assisted placement request is invalid.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        agenda: await agenda.autoPlace(
+          context.get("actor"),
+          params.data.eventId,
+          body.data.sessionIds,
+        ),
       });
     });
     app.delete("/api/events/:eventId/agenda/placements/:placementId", async (context) => {

@@ -71,6 +71,24 @@ export const agendaDraftSchema = z.object({
 });
 export type AgendaDraftDto = z.infer<typeof agendaDraftSchema>;
 /**
+ * Which sessions the assisted pass should seat. Omitting `sessionIds` means every unscheduled
+ * session, which is the "generate a draft" case; naming them is the "place these" case.
+ */
+export const agendaAutoPlaceSchema = z.object({
+  sessionIds: z.array(z.string().min(1)).min(1).optional(),
+});
+/**
+ * The board after an assisted pass, plus what it could not seat and why.
+ *
+ * `unplaced` is part of the result rather than an error: a pass that seats eleven of twelve
+ * sessions succeeded, and the twelfth needs an explanation the organizer can act on, not a
+ * failed request.
+ */
+export const agendaAssistedDraftSchema = agendaDraftSchema.extend({
+  unplaced: z.array(z.object({ sessionId: z.string(), title: z.string(), reason: z.string() })),
+});
+export type AgendaAssistedDraftDto = z.infer<typeof agendaAssistedDraftSchema>;
+/**
  * Optional idempotency key for the publish command.
  *
  * Supplying it means "this is a retry of one intent": the same key returns the publication the

@@ -16,17 +16,6 @@ export interface PublishedSchedule {
   readonly commandKey?: string | undefined;
 }
 
-/**
- * What happened to a publication attempt, and what the caller should do next.
- *
- * The two refusals need telling apart or the retry loop misreads one as the other. A taken
- * *version* means another publication got this number first: allocate the next and try again.
- * A taken *command key* means this very command already committed: stop, and answer with what
- * it produced. Retrying the second would allocate versions forever, since the key can never
- * become free.
- */
-export type PublishOutcome = "committed" | "version-taken" | "command-replayed";
-
 export interface AgendaRepository {
   getDraft(eventId: string): Promise<AgendaDraft | null>;
   saveDraft(draft: AgendaDraft): Promise<void>;
@@ -35,15 +24,33 @@ export interface AgendaRepository {
     resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">,
   ): Promise<boolean>;
   savePlacement(eventId: string, placement: Placement): Promise<AgendaDraft | null>;
+  /**
+   * Apply many placements as one revision, planned against the revision actually being written.
+   *
+   * Not a loop over `savePlacement`: that would cost a read and a write per session, which is
+   * the per-placement round-trip cost issue #69 removed and which a bulk action is exactly the
+   * place to reintroduce. One optimistic revision covers the whole set.
+   *
+   * `plan` rather than a fixed list because a plan is only conflict-free with respect to the
+   * board it was computed from. Handing over placements chosen from an earlier read lets a
+   * placement committed in between take one of the chosen cells, and the merge would then write
+   * the overlap the plan existed to avoid. Re-planning inside the compare-and-set means a lost
+   * revision re-plans instead of merging a stale answer, and it costs nothing extra when
+   * uncontended because the callback runs against a draft the retry loop had already read.
+   */
+  savePlacements(
+    eventId: string,
+    plan: (draft: AgendaDraft) => readonly Placement[],
+  ): Promise<AgendaDraft | null>;
   removePlacement(eventId: string, placementId: string): Promise<void>;
   /**
    * Commit one immutable publication, and with it the event announcing it.
    *
-   * Reports a taken version — rather than throwing — because it is the ordinary outcome of two
-   * organizers publishing at once rather than an error either of them can act on. The caller
-   * allocates the next version and retries; that loop is what makes concurrent publications
-   * distinct and monotonic without a lost publication or an overwritten snapshot. A replayed
-   * command key is reported separately and must not be retried at all.
+   * Returns `false` — rather than throwing — when `schedule.version` was already taken, which
+   * is the ordinary outcome of two organizers publishing at once rather than an error either
+   * of them can act on. The caller allocates the next version and retries; that loop is what
+   * makes concurrent publications distinct and monotonic without a lost publication or an
+   * overwritten snapshot.
    *
    * The publication and its `EVT-SCHEDULE-PUBLISHED` record are one durable operation. A
    * failure anywhere in it leaves neither, so no consumer can observe a published schedule
@@ -61,3 +68,14 @@ export interface AgendaRepository {
 }
 
 export type PublicSchedule = Omit<PublishedSchedule, "publishedBy">;
+
+/**
+ * What happened to a publication attempt, and what the caller should do next.
+ *
+ * The two refusals need telling apart or the retry loop misreads one as the other. A taken
+ * *version* means another publication got this number first: allocate the next and try again.
+ * A taken *command key* means this very command already committed: stop, and answer with what
+ * it produced. Retrying the second would allocate versions forever, since the key can never
+ * become free.
+ */
+export type PublishOutcome = "committed" | "version-taken" | "command-replayed";

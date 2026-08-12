@@ -6,6 +6,7 @@ import type { PublishedSchedule } from "../src/application/agenda/agenda-reposit
 import { AgendaService } from "../src/application/agenda/agenda-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { Actor } from "../src/application/identity/actor";
+import { conflictsFor } from "../src/domain/agenda/agenda";
 import { createMigratedDatabase } from "./support/seeded-d1";
 
 const organizer: Actor = {
@@ -196,25 +197,6 @@ describe("D1AgendaRepository publication transaction", () => {
     expect(events.results ?? []).toEqual([]);
   });
 
-  it("refuses a replayed command key, and keeps unkeyed publications independent", async () => {
-    const migrated = await createMigratedDatabase({ label: "agenda-idempotent", seed: true });
-    runtime = migrated.runtime;
-    const repository = new D1AgendaRepository(migrated.database, () => new Date());
-
-    expect(await repository.publish({ ...snapshot(2), commandKey: "cmd-1" })).toBe("committed");
-    // Same key, next version: the partial unique index refuses it, and the refusal must read
-    // as a replay rather than as a taken version, or the caller would retry it forever.
-    expect(await repository.publish({ ...snapshot(3), commandKey: "cmd-1" })).toBe(
-      "command-replayed",
-    );
-    expect((await repository.findByCommandKey(eventId, "cmd-1"))?.version).toBe(2);
-
-    // Two publications with no key must not collide with each other: NULLs are not duplicates.
-    expect(await repository.publish(snapshot(3))).toBe("committed");
-    expect(await repository.publish(snapshot(4))).toBe("committed");
-    expect((await repository.getPublished(eventId))?.version).toBe(4);
-  });
-
   it("gives concurrent publications distinct, increasing versions", async () => {
     const migrated = await createMigratedDatabase({ label: "agenda-versions", seed: true });
     runtime = migrated.runtime;
@@ -248,5 +230,67 @@ describe("D1AgendaRepository publication transaction", () => {
       .bind(eventId)
       .all<{ version: number }>();
     expect(rows.results?.map((row: { version: number }) => row.version)).toEqual([1, 2, 3, 4]);
+  });
+
+  /**
+   * The assisted pass plans inside the compare-and-set, so a placement that commits between the
+   * request's read and its write is already on the board when cells are chosen.
+   *
+   * Driven against real D1 because the property under test is what the optimistic revision does
+   * when it loses: an in-memory double would have to fake the losing attempt.
+   */
+  it("refuses a replayed command key, and keeps unkeyed publications independent", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-idempotent", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    expect(await repository.publish({ ...snapshot(2), commandKey: "cmd-1" })).toBe("committed");
+    // Same key, next version: the partial unique index refuses it, and the refusal must read
+    // as a replay rather than as a taken version, or the caller would retry it forever.
+    expect(await repository.publish({ ...snapshot(3), commandKey: "cmd-1" })).toBe(
+      "command-replayed",
+    );
+    expect((await repository.findByCommandKey(eventId, "cmd-1"))?.version).toBe(2);
+
+    // Two publications with no key must not collide with each other: NULLs are not duplicates.
+    expect(await repository.publish(snapshot(3))).toBe("committed");
+    expect(await repository.publish(snapshot(4))).toBe("committed");
+    expect((await repository.getPublished(eventId))?.version).toBe(4);
+  });
+
+  it("plans against the revision it writes, so a concurrent placement cannot be overlapped", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-replan", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+    const sessions = [
+      { id: "20000000-0000-4000-8000-000000000001", title: "Opening", speakerIds: [] },
+      { id: "rival-session", title: "Rival", speakerIds: [] },
+    ];
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-11T10:00:00.000Z"),
+      new FixtureSchedulableContentQuery(new Map([[eventId, sessions]])),
+    );
+    await repository.removePlacement(eventId, "placement-opening");
+
+    // An assisted pass and a hand placement race for the board's free cells.
+    const [assisted] = await Promise.all([
+      service.autoPlace(organizer, eventId),
+      repository.savePlacement(eventId, {
+        id: "rival",
+        sessionId: "rival-session",
+        roomId: "room-main",
+        trackId: "track-platform",
+        slotId: "slot-0900",
+      }),
+    ]);
+
+    // Whichever order they land in, the board that results holds both and clashes in neither:
+    // the plan was computed against the revision it actually wrote.
+    const final = await repository.getDraft(eventId);
+    if (!final) throw new Error("Agenda fixture is required");
+    expect(final.placements.map(({ id }) => id)).toContain("rival");
+    expect(conflictsFor({ ...final, sessions })).toEqual([]);
+    expect(assisted.conflicts).toEqual([]);
   });
 });

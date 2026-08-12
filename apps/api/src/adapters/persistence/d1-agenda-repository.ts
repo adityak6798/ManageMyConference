@@ -90,8 +90,8 @@ function uniquenessFailureOn(error: unknown, column: string): boolean {
 /**
  * The version was taken, rather than anything else.
  *
- * Named by column, not merely by table, because this table has two uniqueness constraints and
- * they call for opposite responses: a taken version is retried with the next one, a taken
+ * Named by column, not merely by table, because this table now has two uniqueness constraints
+ * and they call for opposite responses: a taken version is retried with the next one, a taken
  * command key must never be. Matching the table alone would make a replayed command retry
  * until it exhausted its attempts and then report contention that does not exist.
  */
@@ -135,6 +135,22 @@ export class D1AgendaRepository implements AgendaRepository {
       ...draft,
       placements: [...draft.placements.filter(({ id }) => id !== placement.id), placement],
     }));
+  }
+  async savePlacements(eventId: string, plan: (draft: AgendaDraft) => readonly Placement[]) {
+    // Kept so a plan that seats nothing can answer with the board the retry loop already read,
+    // rather than refusing (which would read as "no agenda") or costing a second read.
+    let seen: AgendaDraft | null = null;
+    const updated = await this.updateDraft(eventId, (draft) => {
+      seen = draft;
+      const placements = plan(draft);
+      if (!placements.length) return null;
+      const replaced = new Set(placements.map(({ id }) => id));
+      return {
+        ...draft,
+        placements: [...draft.placements.filter(({ id }) => !replaced.has(id)), ...placements],
+      };
+    });
+    return updated ?? seen;
   }
   async saveResources(eventId: string, resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">) {
     if (!(await this.getDraftRow(eventId))) {

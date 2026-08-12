@@ -5,6 +5,10 @@ import {
   type PlacedSessionTime,
   type Placement,
 } from "../../domain/agenda/agenda";
+import {
+  planAssistedPlacements,
+  type AssistedPlacementPlan,
+} from "../../domain/agenda/assisted-placement";
 import { type Actor, requireEventCapability } from "../identity/actor";
 import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
 import type { AgendaContentQuery } from "../content/public";
@@ -48,15 +52,31 @@ export class AgendaService implements ContentAgendaInterface {
   }
 
   private async readDraft(eventId: string) {
+    return (await this.readSchedulingContext(eventId)).draft;
+  }
+
+  /**
+   * The board plus the track each session declares.
+   *
+   * Assisted placement needs the declared tracks, and the draft projection deliberately does not
+   * carry them: a track is a fact the content domain owns about a session, not part of the
+   * published snapshot's shape. Reading both here keeps the cost at one draft read and one
+   * schedulable-content read whether the caller wants the tracks or not.
+   */
+  private async readSchedulingContext(eventId: string) {
     const draft = await this.repository.getDraft(eventId);
     if (!draft) throw new AgendaNotFoundError("Agenda not found");
-    const sessions = (await this.content.listSchedulableSessions(eventId)).map((session) => ({
+    const schedulable = await this.content.listSchedulableSessions(eventId);
+    const sessions = schedulable.map((session) => ({
       id: session.id,
       title: session.title,
       speakerIds: session.speakerProfileIds,
     }));
     const composed = { ...draft, sessions };
-    return { ...composed, conflicts: conflictsFor(composed) };
+    return {
+      draft: { ...composed, conflicts: conflictsFor(composed) },
+      trackHints: new Map(schedulable.map((session) => [session.id, session.tracks])),
+    };
   }
 
   async place(actor: Actor | null, eventId: string, placement: Placement) {
@@ -77,6 +97,48 @@ export class AgendaService implements ContentAgendaInterface {
       sessions: draft.sessions,
     };
     return { ...placed, conflicts: conflictsFor(placed) };
+  }
+
+  /**
+   * Seat every unscheduled session in one action, and say what could not be seated.
+   *
+   * The result is draft state and nothing more: the placements are ordinary placements, the
+   * board keeps its existing conflict panel, manual moves and removals still apply, and the
+   * schedule reaches the public surface only through the explicit publish command. Nothing
+   * about generating a draft publishes it.
+   *
+   * Costs the same two reads and one write as placing a single session by hand, regardless of
+   * how many sessions it seats — the planning is a pure function over a board already in hand,
+   * and the whole set commits as one revision (issue #69).
+   */
+  async autoPlace(actor: Actor | null, eventId: string, sessionIds?: readonly string[]) {
+    await this.organizer(actor, eventId);
+    const { draft, trackHints } = await this.readSchedulingContext(eventId);
+    const unknown = sessionIds?.filter(
+      (id) => !draft.sessions.some((session) => session.id === id),
+    );
+    if (unknown?.length) throw new AgendaNotFoundError("Session not found");
+    /*
+     * Planned inside the write, not before it. The repository runs this against the revision it
+     * is about to replace, so a placement another organizer committed since this request read
+     * the board is already present when cells are chosen — and a lost compare-and-set re-plans
+     * rather than merging an answer computed from a board that no longer exists.
+     *
+     * `sessions` is safe to close over: it came from the content domain at the top of this
+     * request and is not part of the stored draft, so re-reading the draft cannot change it.
+     */
+    let unplaced: AssistedPlacementPlan["unplaced"] = [];
+    const persisted = await this.repository.savePlacements(eventId, (current) => {
+      const plan = planAssistedPlacements(
+        { ...current, sessions: draft.sessions },
+        { ...(sessionIds ? { sessionIds } : {}), trackHints },
+      );
+      unplaced = plan.unplaced;
+      return plan.placements;
+    });
+    if (!persisted) throw new AgendaNotFoundError("Agenda not found");
+    const placed = { ...persisted, sessions: draft.sessions };
+    return { ...placed, conflicts: conflictsFor(placed), unplaced };
   }
 
   async configure(
