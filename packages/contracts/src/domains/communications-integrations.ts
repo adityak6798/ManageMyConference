@@ -65,7 +65,14 @@ export const triggerChannels: Record<
 export const createTemplateInputSchema = z.object({
   organizationId: z.string().uuid(),
   key: z.string().trim().min(1).max(80),
-  version: z.number().int().positive(),
+  /**
+   * Omit to have the server allocate the next version, which is what a console should do.
+   *
+   * It used to be required, so the caller computed the next number from the list it last read;
+   * two organizers publishing the same key at once proposed the same number and the loser got a
+   * `500`. Naming one explicitly still works and a taken one is now a `409`.
+   */
+  version: z.number().int().positive().optional(),
   // Not `deliveryChannelSchema`: there is no such thing as a template for the `event` channel,
   // which carries a payload no human reads. `message_templates`' own CHECK says the same.
   channel: requestChannelSchema,
@@ -125,10 +132,17 @@ export const broadcastInputSchema = z.object({
   templateVersion: z.number().int().positive().optional(),
   /** Values for the template's placeholders. `speakerName` is supplied per recipient. */
   payload: z.record(z.unknown()).optional(),
+  /**
+   * The `audienceVersion` the organizer confirmed against. A mismatch is `409 CONFLICT` and
+   * nothing is sent. Optional so an API caller that never saw a count is not made to invent one.
+   */
+  audienceVersion: z.string().min(1).max(100).optional(),
 });
 export const deliveryIdParamsSchema = z.object({ deliveryId: z.string().min(1) });
 export const messageTemplateSchema = createTemplateInputSchema.extend({
   id: z.string(),
+  // Required on a stored template even though the request may omit it: the server allocated one.
+  version: z.number().int().positive(),
   createdAt: z.string().datetime(),
 });
 export const deliverySchema = z.object({
@@ -175,6 +189,12 @@ export const broadcastRecipientSchema = z.object({
 });
 export const broadcastRecipientsResponseSchema = z.object({
   recipients: z.array(broadcastRecipientSchema),
+  /**
+   * Names this exact audience. Send it back with a broadcast and a send whose audience has since
+   * changed is refused rather than reaching a different set of people than the count on screen.
+   * A change detector, not a token: it authorizes nothing and is re-resolved server-side.
+   */
+  audienceVersion: z.string(),
 });
 export const broadcastResponseSchema = z.object({
   /** Deliveries this send created. Never counts one an earlier send already wrote. */

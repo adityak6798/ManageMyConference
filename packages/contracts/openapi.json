@@ -929,6 +929,11 @@
                     "additionalProperties": {
                       "nullable": true
                     }
+                  },
+                  "audienceVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
                   }
                 },
                 "required": [
@@ -2920,10 +2925,14 @@
                           "address"
                         ]
                       }
+                    },
+                    "audienceVersion": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "recipients"
+                    "recipients",
+                    "audienceVersion"
                   ]
                 }
               }
@@ -3197,7 +3206,6 @@
                 "required": [
                   "organizationId",
                   "key",
-                  "version",
                   "channel",
                   "subject",
                   "body"

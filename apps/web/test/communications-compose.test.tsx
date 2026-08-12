@@ -48,6 +48,9 @@ const recipients = [
   { userId: "user-alan", name: "Alan Turing", address: null },
 ];
 
+/** The server's name for the audience above; the panel sends it back with a broadcast. */
+const audience = "3-fixture";
+
 const json = (body: unknown, status = 200) =>
   Promise.resolve(new Response(JSON.stringify(body), { status }));
 
@@ -68,11 +71,20 @@ function harness({ templates = [template], sendFails }: HarnessOptions = {}) {
     if (url.includes("/api/communications/templates") && init?.method === "POST") {
       const body = JSON.parse(String(init.body));
       created.push(body);
-      stored = [...stored, { ...template, ...body, id: `template-${stored.length + 1}` }];
+      // The server allocates the version, so the fixture does too: the panel names none, and
+      // what comes back is the number storage chose. A stub that echoed a version the panel
+      // sent would have kept passing after allocation moved to the server.
+      const version =
+        Math.max(
+          0,
+          ...stored.filter((held) => held.key === body.key).map((held) => held.version as number),
+        ) + 1;
+      stored = [...stored, { ...template, ...body, version, id: `template-${stored.length + 1}` }];
       return json({ template: stored.at(-1) }, 201);
     }
     if (url.includes("/api/communications/templates")) return json({ templates: stored });
-    if (url.includes("/api/communications/recipients")) return json({ recipients });
+    if (url.includes("/api/communications/recipients"))
+      return json({ recipients, audienceVersion: audience });
     if (url.includes("/api/communications/broadcasts")) {
       if (sendFails) return json({ error: { code: "VALIDATION_FAILED", ...sendFails } }, 400);
       sends.push(JSON.parse(String(init?.body)));
@@ -165,6 +177,9 @@ describe("sending a message to speakers from the console", () => {
       eventId,
       templateKey: "speaker-welcome",
       templateVersion: 1,
+      // The audience the confirmation described, carried back so the server can refuse a send
+      // whose speakers changed between the count and the click.
+      audienceVersion: audience,
     });
   });
 
@@ -217,8 +232,11 @@ describe("sending a message to speakers from the console", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save template version" }));
 
     await waitFor(() => expect(created).toHaveLength(1));
-    // Version 2 of the same key: the message that already went out stays readable.
-    expect(created[0]).toMatchObject({ key: "speaker-welcome", version: 2, channel: "email" });
+    // The request names no version at all. The panel used to compute one from the list it last
+    // read, which is what made two organizers publishing the same key collide; allocation is
+    // the server's, next to the constraint that arbitrates it (issue #52's review follow-up).
+    expect(created[0]).toMatchObject({ key: "speaker-welcome", channel: "email" });
+    expect(created[0]).not.toHaveProperty("version");
     const compose = screen.getByRole("region", { name: "Send to speakers" });
     await waitFor(() =>
       expect(within(compose).getByRole("status")).toHaveTextContent(
@@ -304,7 +322,10 @@ describe("sending a message to speakers from the console", () => {
       if (url.endsWith("/api/events/assigned")) return json({ events });
       if (url.includes("/api/communications/templates")) return json({ templates: [template] });
       if (url.includes("/api/communications/recipients"))
-        return json({ recipients: [{ userId: "u", name: "Alan Turing", address: null }] });
+        return json({
+          recipients: [{ userId: "u", name: "Alan Turing", address: null }],
+          audienceVersion: "1-unreachable",
+        });
       if (url.includes("/api/communications/history"))
         return json({ history: [], nextCursor: null });
       return json({ error: { code: "NOT_FOUND", message: "no", correlationId: "x" } }, 404);

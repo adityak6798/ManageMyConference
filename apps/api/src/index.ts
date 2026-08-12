@@ -31,6 +31,7 @@ import {
 } from "./application/communications/public";
 import type { DeliveryRequest } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
+import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
 import { ContentService } from "./application/content/content-service";
 import type { SpeakerNotificationPort } from "./application/content/content-service";
 import { CrmService } from "./application/crm/crm-service";
@@ -105,20 +106,46 @@ const speakerCalendarUrl = (environment: Environment) => (eventId: string) =>
     ? `${environment.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/events/${eventId}/speaker-calendar.ics`
     : "your event's schedule page";
 
-export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
-  // The drain is not a request, so it builds its own composition. Only the enqueue surface is
-  // used — the schedule fan-out calls `enqueue`, which takes no actor by design.
-  const communications = new CommunicationsService({
-    repository: communicationsRepository(environment),
-    eventDirectory: new EventService({
-      repository: new D1EventRepository(environment.DB),
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
-    }),
-    speakerDirectory: new D1IdentityDirectory(environment.DB),
+/**
+ * The composition the cron tick uses. Not a request, so it builds its own.
+ *
+ * Only the enqueue surface is reached, which takes no actor by design — a cron tick has none.
+ */
+const scheduledCommunications = (environment: Environment) => {
+  const events = new EventService({
+    repository: new D1EventRepository(environment.DB),
     newId: () => crypto.randomUUID(),
     now: () => new Date(),
   });
+  return {
+    events,
+    service: new CommunicationsService({
+      repository: communicationsRepository(environment),
+      eventDirectory: events,
+      speakerDirectory: new D1IdentityDirectory(environment.DB),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    }),
+  };
+};
+
+/** Queue a reminder for every open speaker task now inside the reminder window (issue #52). */
+export async function remindDueSpeakerTasks(environment: Environment) {
+  const { events, service } = scheduledCommunications(environment);
+  return enqueueDueTaskReminders({
+    work: new D1ContentRepository(environment.DB),
+    enqueue: service,
+    organizationOf: (eventId) => events.organizationOf(eventId),
+    now: () => new Date(),
+    onFailure(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(JSON.stringify({ level: "warn", message: "task.reminder.failed", ...fields }));
+    },
+  });
+}
+
+export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
+  const communications = scheduledCommunications(environment).service;
   const worker = new OutboxWorker(
     communicationsRepository(environment),
     // Throws rather than falling back if `live` is half-configured, so a scheduled drain that
@@ -546,7 +573,15 @@ export default {
     );
     return Promise.resolve(app.fetch(request));
   },
-  scheduled(_controller: unknown, environment: Environment): Promise<void> {
-    return drainOutbox(environment).then(() => undefined);
+  /**
+   * The one-minute tick: decide what to send, then send what is queued.
+   *
+   * Reminders run first so a reminder queued this minute goes out this minute rather than next,
+   * and their failures cannot stop the drain — `enqueueDueTaskReminders` reports rather than
+   * throws, precisely so a broken template on one task does not stall every queued delivery.
+   */
+  async scheduled(_controller: unknown, environment: Environment): Promise<void> {
+    await remindDueSpeakerTasks(environment);
+    await drainOutbox(environment);
   },
 };

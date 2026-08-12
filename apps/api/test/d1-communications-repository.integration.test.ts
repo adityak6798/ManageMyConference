@@ -192,7 +192,7 @@ describe("a schedule publication and the record announcing it", () => {
     agenda: {
       eventId,
       rooms: [{ id: "room-main", name: "Main stage" }],
-      tracks: [],
+      tracks: [{ id: "track-platform", name: "Platform", color: "#6257d9" }],
       slots: [
         {
           id: "slot-0900",
@@ -206,6 +206,7 @@ describe("a schedule publication and the record announcing it", () => {
           id: "placement-opening",
           sessionId: "20000000-0000-4000-8000-000000000001",
           roomId: "room-main",
+          trackId: "track-platform",
           slotId: "slot-0900",
         },
       ],
@@ -303,11 +304,10 @@ describe("a schedule publication and the record announcing it", () => {
     ).rejects.toThrow(/owning organization/);
 
     expect((await records(migrated.database)).results ?? []).toHaveLength(0);
-    const published = await migrated.database
-      .prepare("SELECT version FROM agenda_publications WHERE event_id = ? ORDER BY version DESC")
-      .bind(eventId)
-      .first<{ version: number }>();
-    // The seed publishes version 1; version 2 must not exist.
+    // Read through agenda's own reader rather than its table: this suite belongs to
+    // communications, and querying `agenda_publications` here would cross the boundary the
+    // whole design exists to keep. The seed publishes version 1; version 2 must not exist.
+    const published = await publishing(migrated.database).getPublished(eventId);
     expect(published?.version).toBe(1);
   });
 
@@ -358,9 +358,10 @@ describe("a schedule publication and the record announcing it", () => {
       .all<{ recipient_ref: string; rendered_body: string }>();
     // Sam has an address on their identity; Jordan Bell does not, and is not written to rather
     // than being written to at a guessed address.
-    expect((confirmations.results ?? []).map((row) => row.recipient_ref)).toEqual([
-      "speaker@greenroom.test",
-    ]);
+    const reached = (confirmations.results ?? []).map(
+      (row: { recipient_ref: string }) => row.recipient_ref,
+    );
+    expect(reached).toEqual(["speaker@greenroom.test"]);
     expect(confirmations.results?.[0]?.rendered_body).toContain("Sam Speaker");
     expect(confirmations.results?.[0]?.rendered_body).not.toContain("{{");
   });

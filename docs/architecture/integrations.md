@@ -53,6 +53,26 @@ The alternative this replaces was to model the publication as an `airtable` deli
 have queued a fabricated push to somebody's base and written projection state claiming the
 schedule had been sent there.
 
+## Time-based reminders
+
+The same one-minute tick that drains the outbox first asks content for open speaker tasks falling
+due within the reminder window, and queues one reminder each. There is no bookkeeping table and no
+"last reminded at" column: the key `task-reminder:{taskId}:d{offsetDays}` *is* the record, so the
+next tick prepares the same key, the organization-scoped unique index returns the first delivery,
+and nothing is written or sent. Anything less than that would mail a speaker every sixty seconds
+the first time a crash landed between deciding to remind and recording it.
+
+Overdue tasks are included rather than filtered out — a task whose window passed while nothing was
+running is exactly the one worth a reminder — and each task is reminded about once. An escalating
+series is not implemented: each step would need its own key and somebody has to decide when
+nagging stops.
+
+A tick is bounded, so the first run after this shipped works through a backlog over several ticks,
+oldest first, instead of one invocation exhausting its subrequest budget and retrying the same
+doomed batch every minute. One task whose reminder cannot be built is reported and skipped rather
+than thrown, because this runs beside the drain and a broken template must not stall every queued
+delivery.
+
 ## Delivery lifecycle and recovery
 
 `communications-integrations` owns immutable template versions, idempotently enqueued deliveries, immutable attempts, and outbound projection state. A trigger supplies organization/event scope, a stable idempotency key, a typed trigger, a recipient/resource reference, and a snapshot payload. Email triggers resolve and retain the exact template version; projection triggers retain their monotonically versioned payload. Reusing an organization-scoped idempotency key returns the original delivery.

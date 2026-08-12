@@ -1,6 +1,7 @@
 import {
   type CommunicationsRepository,
   DeliveryRecoveryConflictError,
+  TemplateVersionTakenError,
 } from "../../application/communications/ports";
 import type { PreparedDeliveryWriter } from "../../application/communications/public";
 import type {
@@ -157,6 +158,27 @@ export const preparedDeliveryWriter =
   (database: Database): PreparedDeliveryWriter<Statement> =>
   (prepared) => [insertDeliveryStatement(database, prepared)];
 
+/**
+ * The `(organization, key, version)` uniqueness on `message_templates`, and nothing else.
+ *
+ * Narrowed to this table's own columns on purpose: the caller's response to `true` is either to
+ * read again and claim the next version, or to report a conflict to the organizer. Retrying is
+ * the wrong answer to any other constraint, and a broader test would turn a foreign-key failure
+ * on `organization_id` into an allocation loop that never explains itself.
+ *
+ * SQLite words the two forms differently, and D1 puts the message on the error while Miniflare
+ * sometimes puts it only on the cause; all four combinations are covered here.
+ */
+const isTemplateVersionTaken = (error: unknown): boolean => {
+  const text =
+    error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : String(error ?? "");
+  if (!text.includes("UNIQUE constraint failed") && !text.includes("PRIMARY KEY must be unique"))
+    return false;
+  return (
+    text.includes("message_templates.version") || text.includes("message_templates.template_key")
+  );
+};
+
 export class D1CommunicationsRepository implements CommunicationsRepository {
   constructor(private readonly database: Database) {}
   private ensure(result: { success: boolean; error?: string }, operation: string) {
@@ -164,7 +186,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       throw new Error(`D1 failed to ${operation}: ${result.error ?? "unknown error"}`);
   }
   async createTemplate(template: MessageTemplate) {
-    const result = await this.database
+    const insert = this.database
       .prepare(
         "INSERT INTO message_templates (id, organization_id, template_key, version, channel, subject, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
@@ -177,9 +199,38 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
         template.subject,
         template.body,
         template.createdAt,
-      )
-      .run();
+      );
+    /*
+     * The uniqueness failure is told apart from every other storage failure, because it is the
+     * ordinary outcome of two organizers publishing the same key at once rather than a fault.
+     * Before this it reached the transport as a 500.
+     *
+     * D1 raises it as a rejected promise in some paths and as an unsuccessful result in others,
+     * so both are checked. Matching on the message is unavoidable — D1 exposes no error code —
+     * and it is narrowed to this table's constraint so a different uniqueness failure is not
+     * silently reported as a version collision.
+     */
+    let result: { success: boolean; error?: string };
+    try {
+      result = await insert.run();
+    } catch (error) {
+      if (isTemplateVersionTaken(error))
+        throw new TemplateVersionTakenError("Template version already exists");
+      throw error;
+    }
+    if (isTemplateVersionTaken(result.error))
+      throw new TemplateVersionTakenError("Template version already exists");
     this.ensure(result, "create template");
+  }
+  async latestTemplateVersion(organizationId: string, key: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT MAX(version) AS latest FROM message_templates WHERE organization_id = ? AND template_key = ?",
+      )
+      .bind(organizationId, key)
+      .all<{ latest: number | null }>();
+    this.ensure(result, "read the latest template version");
+    return result.results?.[0]?.latest ?? 0;
   }
   async findTemplate(organizationId: string, key: string, version?: number) {
     const result = await this.database

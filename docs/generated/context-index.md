@@ -344,8 +344,10 @@
 - `code` / `repository-fact`: [apps/api/src/application/communications/ports.ts](../../apps/api/src/application/communications/ports.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/public.ts](../../apps/api/src/application/communications/public.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/schedule-published-consumer.ts](../../apps/api/src/application/communications/schedule-published-consumer.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/task-reminders.ts](../../apps/api/src/application/communications/task-reminders.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/communications/audience.ts](../../apps/api/src/domain/communications/audience.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/delivery.ts](../../apps/api/src/domain/communications/delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/template.ts](../../apps/api/src/domain/communications/template.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/communications.ts](../../apps/api/src/transport/http/routes/communications.ts)
@@ -483,6 +485,7 @@
 ### `PRD-SPK-002`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/content.ts](../../apps/api/src/adapters/persistence/schema/content.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/storage/r2-asset-storage.ts](../../apps/api/src/adapters/storage/r2-asset-storage.ts)
+- `code` / `repository-fact`: [apps/api/src/application/communications/task-reminders.ts](../../apps/api/src/application/communications/task-reminders.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/content.ts](../../apps/api/src/transport/http/routes/content.ts)
 - `code` / `repository-fact`: [apps/web/src/content/ContentWorkspace.tsx](../../apps/web/src/content/ContentWorkspace.tsx)

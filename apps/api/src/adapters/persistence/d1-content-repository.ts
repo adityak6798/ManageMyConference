@@ -3,7 +3,11 @@ import {
   ContentConflictError,
   type ContentRepository,
 } from "../../application/content/content-repository";
-import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
+import type {
+  AgendaContentQuery,
+  CommunicationsContentQuery,
+  PublishingContentQuery,
+} from "../../application/content/public";
 import type {
   ContentComment,
   ContentRevision,
@@ -32,9 +36,47 @@ type Row = Record<string, string | null>;
 const parse = <T>(value: string | null | undefined) => JSON.parse(value ?? "[]") as T;
 
 export class D1ContentRepository
-  implements ContentRepository, AgendaContentQuery, PublishingContentQuery
+  implements
+    ContentRepository,
+    AgendaContentQuery,
+    PublishingContentQuery,
+    CommunicationsContentQuery
 {
   constructor(private readonly database: ContentDatabasePort) {}
+  /**
+   * Open speaker tasks falling due at or before `dueBefore`, across every event.
+   *
+   * `CommunicationsContentQuery`; the reminder rules in issue #52 are the only caller, and they
+   * run from a cron tick with no event in hand. Ordered by `due_at` so that a `limit` short of
+   * the whole backlog reminds about the most overdue work first rather than an arbitrary slice,
+   * and bounded because a cron invocation has a finite subrequest budget.
+   *
+   * The join drops a task whose profile carries no address: there is nobody to remind.
+   */
+  async listOpenSpeakerWork(dueBefore: string, limit: number) {
+    return (
+      await this.rows(
+        `SELECT t.id AS task_id, t.event_id, t.speaker_profile_id, t.title, t.due_at,
+                p.user_id, p.name, p.email
+           FROM speaker_tasks t
+           JOIN speaker_profiles p ON p.id = t.speaker_profile_id
+          WHERE t.status = 'open' AND t.due_at <= ? AND p.email <> ''
+          ORDER BY t.due_at, t.id
+          LIMIT ?`,
+        dueBefore,
+        limit,
+      )
+    ).map((row) => ({
+      eventId: String(row.event_id),
+      profileId: String(row.speaker_profile_id),
+      userId: String(row.user_id),
+      speakerName: String(row.name),
+      email: String(row.email),
+      taskId: String(row.task_id),
+      title: String(row.title),
+      dueAt: String(row.due_at),
+    }));
+  }
   async findSpeakerImport(eventId: string, email: string) {
     const row = (
       await this.rows(

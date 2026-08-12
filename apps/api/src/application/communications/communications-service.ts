@@ -5,6 +5,7 @@ import {
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
+import { audienceVersion } from "../../domain/communications/audience";
 import {
   type Delivery,
   type MessageTemplate,
@@ -21,7 +22,11 @@ import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
 } from "./errors";
-import { type CommunicationsRepository, DeliveryRecoveryConflictError } from "./ports";
+import {
+  type CommunicationsRepository,
+  DeliveryRecoveryConflictError,
+  TemplateVersionTakenError,
+} from "./ports";
 import type { CommunicationsEnqueue, DeliveryRequest, EnqueuedDelivery } from "./public";
 
 export interface CommunicationsDependencies {
@@ -77,6 +82,14 @@ export interface BroadcastResult {
  */
 export const MAX_BROADCAST_RECIPIENTS = 500;
 
+/**
+ * How many times an allocation will read-and-try before reporting contention.
+ *
+ * Five is enough to absorb a handful of organizers publishing at the same instant and few enough
+ * that sustained contention surfaces as a conflict rather than a request that never returns.
+ */
+export const TEMPLATE_ALLOCATION_ATTEMPTS = 5;
+
 export {
   CommunicationsConflictError,
   CommunicationsInputError,
@@ -106,19 +119,72 @@ export class CommunicationsService implements CommunicationsEnqueue {
       throw new CapabilityDeniedError("Event organization access denied");
   }
 
-  // @spec PRD-COM-001
+  /**
+   * Publish a template version.
+   *
+   * `version` is optional, and omitting it is the right way to use this. The console used to
+   * compute the next number from the template list it last read and send it — so two organizers
+   * publishing the same key at once proposed the same number, the loser's insert failed the
+   * unique constraint, and the transport answered `500`. Allocation belongs on the server, next
+   * to the constraint that arbitrates it.
+   *
+   * Allocated by attempt rather than reserved, the same shape agenda publication uses: read the
+   * version in force, try to claim the next, and on losing the race read again and try the one
+   * after. A read cannot reserve — two callers can read the same number — so the unique index is
+   * the arbiter and the retry is the allocation loop. Exhausting the attempts is reported as a
+   * conflict rather than looping, because sustained contention is something an organizer should
+   * see rather than wait on.
+   *
+   * Naming a `version` explicitly still works and now fails honestly: a taken one is a typed
+   * conflict the transport answers `409`, not a `500`.
+   *
+   * @spec PRD-COM-001
+   */
   async createTemplate(
     actor: Actor | null,
-    input: Omit<MessageTemplate, "id" | "createdAt">,
+    input: Omit<MessageTemplate, "id" | "createdAt" | "version"> & {
+      version?: number | undefined;
+    },
   ): Promise<MessageTemplate> {
     this.organization(actor, input.organizationId);
-    const template = {
-      ...input,
-      id: this.dependencies.newId(),
-      createdAt: this.dependencies.now().toISOString(),
+    const write = async (version: number) => {
+      const template = {
+        ...input,
+        version,
+        id: this.dependencies.newId(),
+        createdAt: this.dependencies.now().toISOString(),
+      };
+      await this.dependencies.repository.createTemplate(template);
+      return template;
     };
-    await this.dependencies.repository.createTemplate(template);
-    return template;
+    if (input.version !== undefined) {
+      try {
+        return await write(input.version);
+      } catch (error) {
+        if (error instanceof TemplateVersionTakenError)
+          throw new CommunicationsConflictError(
+            `Version ${input.version} of "${input.key}" already exists. Publishing a correction means publishing the next version, because a version somebody may already have been sent cannot change.`,
+          );
+        throw error;
+      }
+    }
+    for (let attempt = 0; attempt < TEMPLATE_ALLOCATION_ATTEMPTS; attempt += 1) {
+      const latest = await this.dependencies.repository.latestTemplateVersion(
+        input.organizationId,
+        input.key,
+      );
+      try {
+        return await write(latest + 1);
+      } catch (error) {
+        // ERROR-INTENT: a taken version is the ordinary outcome of two organizers publishing at
+        // once, not a fault. It is absorbed here and the next number is tried; every other
+        // failure propagates.
+        if (!(error instanceof TemplateVersionTakenError)) throw error;
+      }
+    }
+    throw new CommunicationsConflictError(
+      "Another organizer is publishing versions of this template right now. Nothing was saved; try again in a moment.",
+    );
   }
 
   /**
@@ -136,8 +202,23 @@ export class CommunicationsService implements CommunicationsEnqueue {
     return this.dependencies.repository.listTemplates(organizationId);
   }
 
-  /** Who a broadcast would reach, for a confirmation the organizer sees before sending. */
+  /**
+   * Who a broadcast would reach, for a confirmation the organizer sees before sending.
+   *
+   * Issued with a version naming this exact audience. A send may carry it back, and one whose
+   * audience has since changed is refused rather than reaching a different set of people than
+   * the count on screen described. See `audienceVersion`.
+   */
   async recipients(
+    actor: Actor | null,
+    organizationId: string,
+    eventId: string,
+  ): Promise<{ recipients: readonly BroadcastRecipient[]; audienceVersion: string }> {
+    const recipients = await this.resolveRecipients(actor, organizationId, eventId);
+    return { recipients, audienceVersion: audienceVersion(recipients) };
+  }
+
+  private async resolveRecipients(
     actor: Actor | null,
     organizationId: string,
     eventId: string,
@@ -173,6 +254,11 @@ export class CommunicationsService implements CommunicationsEnqueue {
       templateKey: string;
       templateVersion?: number | undefined;
       payload?: Readonly<Record<string, unknown>> | undefined;
+      /**
+       * The version of the audience the organizer confirmed against. Optional so an API caller
+       * that never saw a count is not forced to invent one, but the console always sends it.
+       */
+      audienceVersion?: string | undefined;
     },
   ): Promise<BroadcastResult> {
     const authorized = this.organization(actor, input.organizationId);
@@ -186,7 +272,14 @@ export class CommunicationsService implements CommunicationsEnqueue {
     if (template.channel !== "email")
       throw new CommunicationsInputError("Only email templates can be sent to speakers");
 
-    const recipients = await this.recipients(actor, input.organizationId, input.eventId);
+    const recipients = await this.resolveRecipients(actor, input.organizationId, input.eventId);
+    // Refused *before* anything is written, so a stale confirmation costs nothing and the
+    // organizer re-confirms against a count that is true rather than un-sending a message.
+    const current = audienceVersion(recipients);
+    if (input.audienceVersion !== undefined && input.audienceVersion !== current)
+      throw new CommunicationsConflictError(
+        `This event's speakers changed since you confirmed: it now has ${recipients.length} ${recipients.length === 1 ? "speaker" : "speakers"}. Nothing was sent. Check the list and confirm again.`,
+      );
     const reachable = recipients.filter(
       (recipient): recipient is BroadcastRecipient & { address: string } =>
         recipient.address !== null,

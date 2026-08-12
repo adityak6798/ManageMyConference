@@ -12,6 +12,16 @@ export type ProviderResult =
 
 export class DeliveryRecoveryConflictError extends Error {}
 
+/**
+ * Another template version with this `(organization, key, version)` already exists.
+ *
+ * Named rather than left as the raw uniqueness failure because the two callers want opposite
+ * things from it: the allocator treats it as "somebody took that number, read again and try the
+ * next", while an organizer who pinned a version explicitly needs it reported as a conflict.
+ * Before this, both produced a 500.
+ */
+export class TemplateVersionTakenError extends Error {}
+
 export interface DeliveryProvider {
   deliver(delivery: Delivery): Promise<ProviderResult>;
 }
@@ -39,6 +49,14 @@ export interface CommunicationsRepository {
   ): Promise<MessageTemplate | null>;
   /** Every version in the organization, by key, newest version first. None is hidden. */
   listTemplates(organizationId: string): Promise<readonly MessageTemplate[]>;
+  /**
+   * The highest version stored for this key, or 0 when the key is new.
+   *
+   * Read immediately before the insert that claims the next one. The read is not a reservation
+   * and cannot be — two organizers can read the same number — so the insert's unique constraint
+   * is the arbiter and `TemplateVersionTakenError` is how the loser is told to try again.
+   */
+  latestTemplateVersion(organizationId: string, key: string): Promise<number>;
   /** The delivery already holding this key, if a previous enqueue wrote one. */
   findByIdempotencyKey(organizationId: string, idempotencyKey: string): Promise<Delivery | null>;
   enqueue(delivery: Delivery): Promise<Delivery>;

@@ -18,7 +18,9 @@ const composeFixture = (url: string): Promise<Response> | null => {
   if (url.includes("/api/communications/templates"))
     return Promise.resolve(new Response(JSON.stringify({ templates: [] })));
   if (url.includes("/api/communications/recipients"))
-    return Promise.resolve(new Response(JSON.stringify({ recipients: [] })));
+    return Promise.resolve(
+      new Response(JSON.stringify({ recipients: [], audienceVersion: "0-empty" })),
+    );
   return null;
 };
 
