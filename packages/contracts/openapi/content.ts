@@ -42,6 +42,15 @@ import type { OpenApiFragment } from "./contract";
 export const contentPaths: OpenApiFragment = {
   domain: "content",
   register(registry, { json, errorResponse }) {
+    /**
+     * Two organizers edited the same speaker or session at the same moment, repeatedly.
+     *
+     * Contention rather than a malformed request, and the only 4xx here a client should answer
+     * by reloading and trying again: every profile and session edit records an attributed
+     * revision in the same transaction, and a writer that loses the revision number five times
+     * running stops rather than writing from a copy the record has moved past.
+     */
+    const revisionConflictResponse = errorResponse;
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/content",
@@ -135,6 +144,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -170,6 +180,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -244,6 +255,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -397,6 +409,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });

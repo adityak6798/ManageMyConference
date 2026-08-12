@@ -622,7 +622,7 @@ export class ContentService {
         assetId: [`“${asset.name}” is not an image. A profile photo must be a PNG or JPEG.`],
       });
     const updated: SpeakerProfile = { ...profile, photoAssetId: asset.id };
-    await this.dependencies.repository.updateProfile(updated);
+    await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id);
     return updated;
   }
 
@@ -636,7 +636,7 @@ export class ContentService {
   async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
     const profile = await this.requireProfileSteward(actor, profileId);
     const { photoAssetId: _removed, ...withoutPhoto } = profile;
-    await this.dependencies.repository.updateProfile(withoutPhoto);
+    await this.dependencies.repository.updateProfilePhoto(profile.id, null);
     return withoutPhoto;
   }
 
@@ -874,10 +874,8 @@ export class ContentService {
     );
     if (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker asset access denied");
-    if (profile?.photoAssetId === asset.id) {
-      const { photoAssetId: _removed, ...withoutPhoto } = profile;
-      await this.dependencies.repository.updateProfile(withoutPhoto);
-    }
+    if (profile?.photoAssetId === asset.id)
+      await this.dependencies.repository.updateProfilePhoto(profile.id, null);
     await this.dependencies.assetStorage.delete(asset.storageKey);
     await this.dependencies.repository.deleteAsset(asset.id);
   }
@@ -1047,20 +1045,32 @@ export class ContentService {
     if (!revision) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, revision.eventId, "content:manage");
     // A restore is an edit like any other, and takes the same indivisible path: the state it
-    // replaces is recorded by whatever writes the replacement, or neither happens. The identity
-    // columns are taken from the row being restored *into*, never from the snapshot, so a
-    // revision cannot move a profile to another event or hand it to another user.
+    // replaces is recorded by whatever writes the replacement, or neither happens.
+    //
+    // It restores the fields an edit can change and nothing else, named one by one rather than
+    // spread from the snapshot. Identity — which event a session belongs to, which user a
+    // profile is — is never restorable, so a revision cannot move an entity between events or
+    // hand it to somebody else. Nor are the fields no edit writes: `email` and `sourcePersonId`
+    // come from speaker conversion, and a snapshot carrying an older one must not appear to put
+    // it back when no repository would have stored it.
     const draft = this.draftRevision(authorized, revision.eventId, revision.id);
     if (revision.entityType === "profile") {
       const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
       const restored = await this.dependencies.repository.reviseProfile(
         revision.entityId,
         draft,
-        (current) => ({
-          ...snapshot,
-          id: current.id,
-          eventId: current.eventId,
-          userId: current.userId,
+        ({ photoAssetId: _replaced, ...current }) => ({
+          ...current,
+          name: snapshot.name,
+          bio: snapshot.bio,
+          pronouns: snapshot.pronouns,
+          organization: snapshot.organization,
+          // Restored exactly as the snapshot held it, absence included: a revision taken before
+          // the speaker chose a headshot puts the profile back to having none.
+          ...(snapshot.photoAssetId ? { photoAssetId: snapshot.photoAssetId } : {}),
+          workflowStatus: snapshot.workflowStatus,
+          logistics: snapshot.logistics,
+          customFields: snapshot.customFields,
         }),
       );
       if (!restored) throw new CapabilityDeniedError();
@@ -1069,7 +1079,16 @@ export class ContentService {
       const restored = await this.dependencies.repository.reviseSession(
         revision.entityId,
         draft,
-        (current) => ({ ...snapshot, id: current.id, eventId: current.eventId }),
+        (current) => ({
+          ...current,
+          title: snapshot.title,
+          abstract: snapshot.abstract,
+          format: snapshot.format,
+          speakerProfileIds: snapshot.speakerProfileIds,
+          tags: snapshot.tags,
+          tracks: snapshot.tracks,
+          publicationState: snapshot.publicationState,
+        }),
       );
       if (!restored) throw new CapabilityDeniedError();
     }

@@ -192,6 +192,13 @@ export class MemoryContentRepository
   async updateProfile(profile: SpeakerProfile) {
     this.speakers = this.speakers.map((item) => (item.id === profile.id ? profile : item));
   }
+  async updateProfilePhoto(profileId: string, assetId: string | null) {
+    this.speakers = this.speakers.map((item) => {
+      if (item.id !== profileId) return item;
+      const { photoAssetId: _replaced, ...withoutPhoto } = item;
+      return assetId ? { ...withoutPhoto, photoAssetId: assetId } : withoutPhoto;
+    });
+  }
   async updateTask(task: SpeakerTask) {
     this.tasks = this.tasks.map((item) => (item.id === task.id ? task : item));
   }
@@ -270,6 +277,9 @@ export class MemoryContentRepository
   ): T | null {
     if (!current) return null;
     const next = edit(current);
+    const existing = this.revisions.filter(
+      (revision) => revision.entityType === entityType && revision.entityId === current.id,
+    );
     this.revisions = [
       ...this.revisions,
       {
@@ -277,19 +287,14 @@ export class MemoryContentRepository
         eventId: draft.eventId,
         entityType,
         entityId: current.id,
-        revisionNumber:
-          Math.max(
-            0,
-            ...this.revisions
-              .filter(
-                (revision) =>
-                  revision.entityType === entityType && revision.entityId === current.id,
-              )
-              .map(({ revisionNumber }) => revisionNumber),
-          ) + 1,
+        revisionNumber: Math.max(0, ...existing.map(({ revisionNumber }) => revisionNumber)) + 1,
         snapshotJson: JSON.stringify(current),
         actorId: draft.actorId,
-        createdAt: draft.createdAt,
+        // Never earlier than the revision it follows, matching D1. See `D1ContentRepository`.
+        createdAt: existing.reduce(
+          (latest, { createdAt }) => (createdAt > latest ? createdAt : latest),
+          draft.createdAt,
+        ),
         ...(draft.restoredFromRevisionId
           ? { restoredFromRevisionId: draft.restoredFromRevisionId }
           : {}),

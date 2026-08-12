@@ -5016,6 +5016,59 @@
               }
             }
           },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Standard error envelope",
             "content": {
@@ -5365,6 +5418,59 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {
@@ -40059,6 +40165,59 @@
               }
             }
           },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Standard error envelope",
             "content": {
@@ -41035,6 +41194,59 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {

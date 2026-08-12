@@ -49,6 +49,15 @@ export interface ContentRepository {
   accept(content: AcceptedContent): Promise<void>;
   workspace(eventId: string, userId?: string): Promise<ContentWorkspace>;
   updateProfile(profile: SpeakerProfile): Promise<void>;
+  /**
+   * Point a profile at one of its uploads, or at none — and touch nothing else.
+   *
+   * Narrow on purpose. `updateProfile` rewrites every mutable column from whatever the caller
+   * last read, so choosing a headshot through it would put a bio, a workflow status and a
+   * logistics field back the way they were at that read, silently undoing an organizer's edit
+   * that landed in between. A speaker choosing a picture should write the picture.
+   */
+  updateProfilePhoto(profileId: string, assetId: string | null): Promise<void>;
   updateTask(task: SpeakerTask): Promise<void>;
   updateSession(session: ContentSession): Promise<void>;
   /** Remove a withdrawn session. Its speaker, their tasks, and their uploads are untouched. */

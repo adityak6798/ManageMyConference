@@ -18,17 +18,64 @@ import type {
   SpeakerTask,
 } from "../../domain/content/content";
 
+/**
+ * How many rows a statement actually touched.
+ *
+ * Load-bearing rather than diagnostic: a conditional write that matched nothing is a *success*
+ * in D1, so without this an `UPDATE … WHERE <no longer true>` and a real write are the same
+ * answer — which is how a write that changed nothing gets reported as one that did.
+ */
+interface D1Meta {
+  changes?: number;
+}
+interface D1Result<T = unknown> {
+  results?: T[];
+  success: boolean;
+  error?: string;
+  meta?: D1Meta;
+}
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
-  run<T = unknown>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
-  all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
+  run<T = unknown>(): Promise<D1Result<T>>;
+  all<T>(): Promise<D1Result<T>>;
 }
 export interface ContentDatabasePort {
   prepare(query: string): D1Statement;
-  batch<T = unknown>(
-    statements: D1Statement[],
-  ): Promise<Array<{ results?: T[]; success: boolean; error?: string }>>;
+  batch<T = unknown>(statements: D1Statement[]): Promise<Array<D1Result<T>>>;
 }
+
+/** A `WHERE` clause and the values it binds, so a guard can be shared by two statements. */
+interface RowGuard {
+  sql: string;
+  values: unknown[];
+}
+
+/**
+ * Exactly the columns `profileWrite` and `sessionWrite` rewrite.
+ *
+ * These lists are what a revised edit compares against to decide whether the row moved under
+ * it. A column added to one of those writes and not to the list here is a column a concurrent
+ * writer can change without this noticing, so the two belong next to each other.
+ */
+const PROFILE_WRITTEN_COLUMNS = [
+  "name",
+  "bio",
+  "pronouns",
+  "organization",
+  "photo_asset_id",
+  "workflow_status",
+  "logistics_json",
+  "custom_fields_json",
+] as const;
+const SESSION_WRITTEN_COLUMNS = [
+  "title",
+  "abstract",
+  "format",
+  "speaker_profile_ids",
+  "tags",
+  "tracks",
+  "publication_state",
+] as const;
 
 type Row = Record<string, string | null>;
 const parse = <T>(value: string | null | undefined) => JSON.parse(value ?? "[]") as T;
@@ -315,10 +362,10 @@ export class D1ContentRepository
         ).map((row) => this.revision(row));
     return { sessions, speakers, tasks, assets, messages, resources, comments, revisions };
   }
-  private profileWrite(profile: SpeakerProfile): D1Statement {
+  private profileWrite(profile: SpeakerProfile, where?: RowGuard): D1Statement {
     return this.database
       .prepare(
-        "UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
+        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE ${where?.sql ?? "id=?"}`,
       )
       .bind(
         profile.name,
@@ -329,13 +376,16 @@ export class D1ContentRepository
         profile.workflowStatus ?? "onboarding",
         JSON.stringify(profile.logistics ?? {}),
         JSON.stringify(profile.customFields ?? {}),
-        profile.id,
+        ...(where?.values ?? [profile.id]),
       );
   }
   async updateProfile(profile: SpeakerProfile) {
     const result = await this.profileWrite(profile).run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
+  }
+  async updateProfilePhoto(profileId: string, assetId: string | null) {
+    await this.run("UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?", assetId, profileId);
   }
   async updateTask(task: SpeakerTask) {
     await this.run(
@@ -345,10 +395,10 @@ export class D1ContentRepository
       task.id,
     );
   }
-  private sessionWrite(session: ContentSession): D1Statement {
+  private sessionWrite(session: ContentSession, where?: RowGuard): D1Statement {
     return this.database
       .prepare(
-        "UPDATE content_sessions SET title=?,abstract=?,format=?,speaker_profile_ids=?,tags=?,tracks=?,publication_state=? WHERE id=?",
+        `UPDATE content_sessions SET title=?,abstract=?,format=?,speaker_profile_ids=?,tags=?,tracks=?,publication_state=? WHERE ${where?.sql ?? "id=?"}`,
       )
       .bind(
         session.title,
@@ -358,7 +408,7 @@ export class D1ContentRepository
         JSON.stringify(session.tags),
         JSON.stringify(session.tracks),
         session.publicationState,
-        session.id,
+        ...(where?.values ?? [session.id]),
       );
   }
   async updateSession(session: ContentSession) {
@@ -577,31 +627,64 @@ export class D1ContentRepository
    * retried, from "the canonical write is invalid", which is not. Both arrive as a message, so
    * both leave as one.
    */
-  private async batchFailure(statements: D1Statement[]): Promise<string | null> {
+  private async batch(
+    statements: D1Statement[],
+  ): Promise<{ failure: string } | { changes: number[] }> {
     try {
       const results = await this.database.batch(statements);
-      return results.find((result) => !result.success)?.error ?? null;
+      const failed = results.find((result) => !result.success);
+      // A failure the driver did not describe is still a failure. Reading `error` alone would
+      // turn `{ success: false }` into "nothing went wrong" and hand back a write that never
+      // landed, which is the class of defect this whole operation exists to remove.
+      if (failed) return { failure: failed.error ?? "unknown error" };
+      return { changes: results.map((result) => result.meta?.changes ?? 0) };
     } catch (error) {
       // ERROR-INTENT: returned to the caller, which decides between a retry and a throw; the
       // driver's message is carried whole into whichever it picks.
-      return error instanceof Error ? error.message : String(error);
+      return { failure: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  /**
+   * `WHERE` clause matching a row only while every column this repository rewrites still holds
+   * the value the caller just read.
+   *
+   * Built from the raw row rather than the mapped entity on purpose: `logistics_json` is
+   * compared as the bytes SQLite stores, so re-serializing a parsed object with different key
+   * order cannot read as a change that did not happen. `IS` rather than `=` so a `NULL` column
+   * — an absent headshot — compares equal to itself instead of to nothing.
+   */
+  private unchanged(columns: readonly string[], row: Row): RowGuard {
+    return {
+      sql: `id=?${columns.map((column) => ` AND ${column} IS ?`).join("")}`,
+      values: [row.id ?? null, ...columns.map((column) => row[column] ?? null)],
+    };
   }
 
   /**
    * Append the revision and apply the edit in one D1 batch, which is one transaction.
    *
-   * Neither write can outlive the other: a canonical update that violates a constraint takes
-   * its revision down with it, which is what stops history from claiming an edit that never
+   * Neither write can outlive the other: a canonical update a constraint rejects takes its
+   * revision down with it, which is what stops history from claiming an edit that never
    * happened.
    *
-   * The revision number comes from a single read of the row *and* its highest existing number,
-   * so a concurrent editor cannot slip between the two. If one does, its insert takes the
-   * number first and this batch fails the `UNIQUE(entity_type, entity_id, revision_number)`
-   * guard — which rolls back the canonical write too, so the retry re-reads a row that already
-   * carries the other edit and lands on top of it rather than reverting it. Both edits keep
-   * attributed history. Only a writer that loses this race repeatedly gives up, and it says so
-   * with a conflict rather than a silent no-op.
+   * Both statements carry the same guard — this row, still exactly as it was read — so the pair
+   * is a compare-and-swap, and three different losses collapse into one answer of "nothing
+   * happened, look again":
+   *
+   * - the row was **deleted** after the read. Without the guard the `UPDATE` would match no
+   *   rows, which D1 reports as success, and the revision would survive describing an edit to
+   *   something that no longer exists.
+   * - the row was **changed by a writer that records no revision** — a headshot, an import.
+   *   Without the guard this write would put every column back the way it read them, silently
+   *   reverting that change, and the snapshot would name a state the row had already left.
+   * - the row was **changed by another revised edit**, which also took the next revision number
+   *   and so trips `UNIQUE(entity_type, entity_id, revision_number)` as well.
+   *
+   * Each is retried against a re-read row, so the losing edit lands on top of the winner rather
+   * than reverting it, and both keep attributed history. A row that has genuinely gone answers
+   * `null` on the next read. Only a writer that loses five times running gives up, and it says
+   * so with a conflict rather than a silent no-op.
    */
   private async revise<T>(
     entityType: ContentRevision["entityType"],
@@ -609,13 +692,16 @@ export class D1ContentRepository
     draft: ContentRevisionDraft,
     edit: ContentEdit<T>,
     table: string,
+    guarded: readonly string[],
     read: (row: Row) => T,
-    write: (next: T) => D1Statement,
+    write: (next: T, where: RowGuard) => D1Statement,
   ): Promise<T | null> {
+    let lastFailure = "";
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const row = (
         await this.rows(
-          `SELECT owned.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type=? AND entity_id=owned.id) AS latest_revision FROM ${table} AS owned WHERE owned.id=? LIMIT 1`,
+          `SELECT owned.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type=? AND entity_id=owned.id) AS latest_revision, (SELECT MAX(created_at) FROM content_revisions WHERE entity_type=? AND entity_id=owned.id) AS latest_created_at FROM ${table} AS owned WHERE owned.id=? LIMIT 1`,
+          entityType,
           entityType,
           entityId,
         )
@@ -623,10 +709,11 @@ export class D1ContentRepository
       if (!row) return null;
       const current = read(row);
       const next = edit(current);
-      const failure = await this.batchFailure([
+      const where = this.unchanged(guarded, row);
+      const result = await this.batch([
         this.database
           .prepare(
-            "INSERT INTO content_revisions (id,event_id,entity_type,entity_id,revision_number,snapshot_json,actor_id,created_at,restored_from_revision_id) VALUES (?,?,?,?,?,?,?,?,?)",
+            `INSERT INTO content_revisions (id,event_id,entity_type,entity_id,revision_number,snapshot_json,actor_id,created_at,restored_from_revision_id) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM ${table} WHERE ${where.sql})`,
           )
           .bind(
             draft.id,
@@ -636,17 +723,33 @@ export class D1ContentRepository
             Number(row.latest_revision ?? 0) + 1,
             JSON.stringify(current),
             draft.actorId,
-            draft.createdAt,
+            // Never earlier than the revision it follows. The draft is stamped when the actor
+            // asked, which a retry does not change, so two editors a millisecond apart could
+            // otherwise leave the history reading out of order in the console that lists it.
+            row.latest_created_at && row.latest_created_at > draft.createdAt
+              ? row.latest_created_at
+              : draft.createdAt,
             draft.restoredFromRevisionId ?? null,
+            ...where.values,
           ),
-        write(next),
+        write(next, where),
       ]);
-      if (!failure) return next;
-      if (!/UNIQUE constraint failed: content_revisions\b/.test(failure))
-        throw new Error(`D1 content revision failed: ${failure}`);
+      if ("changes" in result) {
+        if (result.changes[0] === 1) return next;
+        continue;
+      }
+      lastFailure = result.failure;
+      // The composite guard names all three of its columns; the primary key names only `id`, so
+      // a duplicated revision id is a fault to report rather than contention to retry.
+      if (!/UNIQUE constraint failed:[^\n]*content_revisions\.revision_number/.test(lastFailure))
+        throw new Error(`D1 content revision failed: ${lastFailure}`);
     }
     throw new ContentConflictError(
       "This record is being edited by someone else. Reload and try again.",
+      // ERROR-INTENT: the driver's own message is kept as the cause. The message above is the
+      // one a 409 shows an organizer, and it must not leak SQL; an operator still needs to see
+      // which guard did the refusing.
+      lastFailure ? { cause: new Error(lastFailure) } : undefined,
     );
   }
 
@@ -661,8 +764,9 @@ export class D1ContentRepository
       draft,
       edit,
       "speaker_profiles",
+      PROFILE_WRITTEN_COLUMNS,
       (row) => this.profile(row),
-      (next) => this.profileWrite(next),
+      (next, where) => this.profileWrite(next, where),
     );
   }
 
@@ -677,8 +781,9 @@ export class D1ContentRepository
       draft,
       edit,
       "content_sessions",
+      SESSION_WRITTEN_COLUMNS,
       (row) => this.session(row),
-      (next) => this.sessionWrite(next),
+      (next, where) => this.sessionWrite(next, where),
     );
   }
   async findRevision(revisionId: string) {

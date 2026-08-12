@@ -18,6 +18,7 @@ import {
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { AgendaService } from "../src/application/agenda/agenda-service";
+import { ContentConflictError } from "../src/application/content/content-repository";
 import type { SpeakerProfile } from "../src/domain/content/content";
 import {
   ContentService,
@@ -275,6 +276,31 @@ describe("D1ContentRepository revisions", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
 
+  /**
+   * The database, with one writer let in between a revised edit's read and its batch.
+   *
+   * The window this closes is invisible to two callers racing through the public API, because
+   * nothing there lets a test say "now, while that edit is deciding what to write". Wrapping
+   * the port does: `interleave` runs once, immediately before the first batch, which is exactly
+   * the instant the guard exists to survive. It is a test seam, not a production hook — the
+   * repository under test is the real one and sees the real database.
+   */
+  function withWriterBetweenReadAndWrite(
+    database: ContentDatabasePort,
+    interleave: () => Promise<unknown>,
+  ): ContentDatabasePort {
+    let pending: (() => Promise<unknown>) | null = interleave;
+    return {
+      prepare: (query) => database.prepare(query),
+      batch: async (statements) => {
+        const run = pending;
+        pending = null;
+        if (run) await run();
+        return database.batch(statements);
+      },
+    };
+  }
+
   /** A migrated, seeded database with a repository and a `ContentService` factory over it. */
   async function fixture(label: string) {
     const migrated = await createMigratedDatabase({ label, seed: true });
@@ -308,8 +334,15 @@ describe("D1ContentRepository revisions", () => {
       ((await repository.workspace(eventId)).revisions ?? []).toSorted(
         (left, right) => left.revisionNumber - right.revisionNumber,
       );
-    return { repository, service, revisions };
+    return { database: database as ContentDatabasePort, repository, service, revisions };
   }
+
+  const draft = (id: string) => ({
+    id,
+    eventId,
+    actorId: "seed-organizer",
+    createdAt: "2026-08-10T12:00:00.000Z",
+  });
 
   it("writes no revision when the canonical update is refused", async () => {
     const { repository, revisions } = await fixture("content-revision-atomicity");
@@ -321,12 +354,7 @@ describe("D1ContentRepository revisions", () => {
     await expect(
       repository.reviseProfile(
         profileId,
-        {
-          id: "a0000000-0000-4000-8000-000000000001",
-          eventId,
-          actorId: "seed-organizer",
-          createdAt: "2026-08-10T12:00:00.000Z",
-        },
+        draft("a0000000-0000-4000-8000-000000000001"),
         (current) => ({
           ...current,
           workflowStatus: "not-a-status" as SpeakerProfile["workflowStatus"],
@@ -409,5 +437,108 @@ describe("D1ContentRepository revisions", () => {
         ? original
         : { ...original, ...edit, publicationState: "draft" },
     );
+  });
+
+  it("writes nothing and answers null when the row is deleted mid-edit", async () => {
+    const { database, repository, revisions } = await fixture("content-revision-deleted");
+    const withdrawn = new D1ContentRepository(
+      withWriterBetweenReadAndWrite(database, () => repository.deleteSession(sessionId)),
+    );
+
+    // The organizer's edit read a session another organizer withdrew a moment later. A
+    // zero-row `UPDATE` is a *success* in D1, so without the guard this would answer the
+    // caller with an edited session and leave a revision describing an edit to a session that
+    // no longer exists.
+    await expect(
+      withdrawn.reviseSession(
+        sessionId,
+        draft("a0000000-0000-4000-8000-000000000002"),
+        (current) => ({
+          ...current,
+          title: "Edited after withdrawal",
+        }),
+      ),
+    ).resolves.toBeNull();
+    expect(await revisions()).toEqual([]);
+    expect(await repository.findSession(sessionId)).toBeNull();
+  });
+
+  it("neither reverts a concurrent headshot nor claims a state the row had already left", async () => {
+    const { database, repository, revisions } = await fixture("content-revision-interleaved");
+    const headshot = {
+      id: "80000000-0000-4000-8000-000000000009",
+      eventId,
+      speakerProfileId: profileId,
+      name: "sam-portrait.png",
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/80000000-0000-4000-8000-000000000009`,
+      visibility: "private" as const,
+      uploadedAt: "2026-08-10T11:00:00.000Z",
+      versionGroupId: "80000000-0000-4000-8000-000000000009",
+      versionNumber: 1,
+      isLatest: true,
+    };
+    await repository.addAsset(headshot);
+    // `setProfilePhoto` records no revision, so the uniqueness guard on revision numbers cannot
+    // see it coming. It is the writer most likely to be in flight during an organizer's edit,
+    // because it is the speaker working on their own profile at the same time.
+    const chooseHeadshot = () =>
+      database
+        .prepare("UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?")
+        .bind(headshot.id, profileId)
+        .run();
+    const organizerEdit = new D1ContentRepository(
+      withWriterBetweenReadAndWrite(database, chooseHeadshot),
+    );
+
+    const updated = await organizerEdit.reviseProfile(
+      profileId,
+      draft("a0000000-0000-4000-8000-000000000003"),
+      (current) => ({ ...current, workflowStatus: "ready" as const }),
+    );
+
+    // The organizer's edit read a profile with no headshot. Writing every column back from that
+    // read would have erased the speaker's choice while they were making it.
+    expect(updated).toMatchObject({ workflowStatus: "ready", photoAssetId: headshot.id });
+    expect(await repository.findProfile(profileId)).toMatchObject({
+      workflowStatus: "ready",
+      photoAssetId: headshot.id,
+    });
+    // And the revision says what was actually there when it was written, not what the edit had
+    // read a moment earlier — the whole point of recording it.
+    const history = await revisions();
+    expect(history).toHaveLength(1);
+    expect(JSON.parse(history[0]?.snapshotJson ?? "{}")).toMatchObject({
+      photoAssetId: headshot.id,
+      workflowStatus: "onboarding",
+    });
+  });
+
+  it("refuses with a conflict rather than a silent no-op when it never wins the row", async () => {
+    const { database, repository, revisions } = await fixture("content-revision-conflict");
+    const before = await repository.findProfile(profileId);
+    const contended = new D1ContentRepository({
+      prepare: (query) => database.prepare(query),
+      batch: async (statements) =>
+        statements.map(() => ({
+          success: false,
+          error:
+            "UNIQUE constraint failed: content_revisions.entity_type, content_revisions.entity_id, content_revisions.revision_number",
+        })),
+    });
+
+    await expect(
+      contended.reviseProfile(
+        profileId,
+        draft("a0000000-0000-4000-8000-000000000004"),
+        (current) => ({
+          ...current,
+          organization: "Never lands",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    // The 409 an organizer sees is contention, and it leaves the record exactly as it found it.
+    expect(await revisions()).toEqual([]);
+    expect(await repository.findProfile(profileId)).toEqual(before);
   });
 });
