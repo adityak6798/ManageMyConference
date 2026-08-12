@@ -53,4 +53,7 @@ npm run deploy
 The production runtime deliberately does not enable `DEMO_MODE`; issue #12 owns a deployable
 credential path. Do not publish a demo signing secret as a substitute.
 
+The running Worker serves its generated API contract at `/openapi.json` and a self-contained,
+browsable reference at `/docs`. The docs page loads no third-party runtime assets.
+
 Run `npm run check` before opening a pull request; it runs the same three gates CI's `integrity`, `test-build`, and `d1` jobs run, including the production builds. It deliberately does **not** run the `browser` and `security` gates — [AGENTS.md](AGENTS.md#the-handoff-gate-is-not-the-whole-merge-gate) says why, and `npm run gate:browser` / `npm run gate:security` run them by hand. Product behavior and the implementation roadmap live under `docs/`; this README is only an entrypoint.

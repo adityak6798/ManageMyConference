@@ -135,6 +135,10 @@ set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, then run `npm run deploy
 the resulting Worker URL. No hosted URL is recorded yet because production authentication remains
 unimplemented (`GAP-007`); enabling demo mode in production is explicitly refused by the runtime.
 
+On either the local or deployed Worker, open `/docs` for the browsable API reference or
+`/openapi.json` for the generated source document. Both are public discovery routes; they expose the
+already-checked contract and introduce no authentication mechanism.
+
 ## Reproduce the evidence
 
 ```bash

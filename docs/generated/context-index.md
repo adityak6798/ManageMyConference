@@ -64,6 +64,7 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-HARNESS`
+- `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-harness.integration.test.ts](../../apps/api/test/d1-harness.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/demo-session.test.ts](../../apps/api/test/demo-session.test.ts)
@@ -151,6 +152,7 @@
 ### `ARC-001`
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/contract.ts](../../apps/api/src/transport/http/routes/contract.ts)
+- `code` / `repository-fact`: [apps/api/src/transport/http/routes/platform.ts](../../apps/api/src/transport/http/routes/platform.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/registry.ts](../../apps/api/src/transport/http/routes/registry.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/runtime.ts](../../apps/api/src/transport/http/runtime.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/contract.ts](../../apps/web/src/workspaces/contract.ts)
@@ -170,6 +172,7 @@
 - `specification` / `normative`: [docs/engineering/registering-a-domain.md](../../docs/engineering/registering-a-domain.md)
 
 ### `ENG-CI-001`
+- `code` / `repository-fact`: [apps/api/src/transport/http/routes/platform.ts](../../apps/api/src/transport/http/routes/platform.ts)
 - `specification` / `normative`: [docs/engineering/ci-and-release.md](../../docs/engineering/ci-and-release.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/openapi/contract.ts](../../packages/contracts/openapi/contract.ts)

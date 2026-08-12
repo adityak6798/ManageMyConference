@@ -17,10 +17,12 @@ import type { RouteModule } from "./contract";
 import { crmRoutes } from "./crm";
 import { eventsRoutes } from "./events";
 import { identityRoutes } from "./identity";
+import { platformRoutes } from "./platform";
 import { publishingRoutes } from "./publishing";
 import { reviewRoutes } from "./review";
 
 export const routeModules: readonly RouteModule[] = [
+  platformRoutes,
   publishingRoutes,
   identityRoutes,
   eventsRoutes,
