@@ -15,9 +15,14 @@ import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { CrmService } from "./application/crm/crm-service";
+import { OutreachRejectedError } from "./application/crm/public";
 import { EventService } from "./application/events/event-service";
 import { ReviewService } from "./application/review/review-service";
-import { CommunicationsService } from "./application/communications/communications-service";
+import {
+  CommunicationsInputError,
+  CommunicationsNotFoundError,
+  CommunicationsService,
+} from "./application/communications/communications-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { OutboxWorker } from "./application/communications/outbox-worker";
 import { createHttpApp } from "./transport/http/app";
@@ -100,13 +105,6 @@ export default {
       () => crypto.randomUUID(),
       () => new Date(),
     );
-    const crm = new CrmService({
-      repository: new D1CrmRepository(environment.DB),
-      speakerConversion,
-      identities: identityDirectory,
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
-    });
     const now = () => new Date();
     const agenda = new AgendaService(
       new D1AgendaRepository(environment.DB, now),
@@ -161,6 +159,52 @@ export default {
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),
       eventDirectory: service,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    /**
+     * Binds the CRM's outreach port to communications.
+     *
+     * The CRM declares the port and imports nothing of communications; this adapter is the one
+     * place the two meet, and it lives in the composition root precisely so neither domain has
+     * to know the other's module. It also converts communications' typed refusals into the
+     * CRM's own `OutreachRejectedError`, so the CRM can report "that template does not exist"
+     * to the organizer who pressed Send without importing the class that says so.
+     */
+    const crm = new CrmService({
+      repository: new D1CrmRepository(environment.DB),
+      speakerConversion,
+      identities: identityDirectory,
+      events: service,
+      outreach: {
+        async send(actor, message) {
+          try {
+            const delivery = await communications.trigger(actor, {
+              organizationId: message.organizationId,
+              eventId: message.eventId,
+              idempotencyKey: message.idempotencyKey,
+              // A prospective speaker being asked to speak. Communications owns this
+              // vocabulary; the CRM picks the member that describes what it is doing.
+              triggerType: "speaker.invited",
+              channel: "email",
+              recipientRef: message.recipientRef,
+              payload: message.payload,
+              templateKey: message.templateKey,
+              templateVersion: message.templateVersion,
+            });
+            return { deliveryId: delivery.id };
+          } catch (error) {
+            // Caller mistakes — an unknown template, an incoherent request — become the CRM's
+            // own error so its transport can report them without importing these classes.
+            if (
+              error instanceof CommunicationsInputError ||
+              error instanceof CommunicationsNotFoundError
+            )
+              throw new OutreachRejectedError(error.message);
+            throw error;
+          }
+        },
+      },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });

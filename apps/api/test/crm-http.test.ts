@@ -1,4 +1,16 @@
 // @acceptance ACC-CRM
+import {
+  contactDashboardResponseSchema,
+  contactListResponseSchema,
+  duplicateListResponseSchema,
+  importContactsResponseSchema,
+  importPreviewResponseSchema,
+  organizationContactSchema,
+  outreachPreviewResponseSchema,
+  outreachResponseSchema,
+  pushContactToEventResponseSchema,
+  segmentResponseSchema,
+} from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
@@ -12,11 +24,17 @@ import { createHttpApp } from "../src/transport/http/app";
 
 const secret = "crm-http-secret",
   eventId = "00000000-0000-4000-8000-000000000001";
+/** The demo organization the seeded organizer belongs to, and its second event. */
+const organizationId = "00000000-0000-4000-8000-000000000010";
+const otherEventId = "00000000-0000-4000-8000-000000000002";
+const outsideOrganizationId = "00000000-0000-4000-8000-000000000020";
+const directory = (path: string) => `/api/organizations/${organizationId}/crm/${path}`;
 const cookie = async (persona: "organizer" | "reviewer" | "speaker" | "public") => ({
   cookie: `greenroom_session=${await createDemoSession(persona, secret, 2_000)}`,
   "content-type": "application/json",
 });
 const setup = () => {
+  const send = vi.fn(async () => ({ deliveryId: "delivery-http" }));
   const ids = [
     "10000000-0000-4000-8000-000000000001",
     "20000000-0000-4000-8000-000000000001",
@@ -27,8 +45,9 @@ const setup = () => {
     speakerConversion: {
       createOrLink: async () => ({ speakerId: "40000000-0000-4000-8000-000000000001" }),
     },
-    // The seeded staff of event one, exactly as the identity directory reports them: the
-    // speaker persona is absent, and nobody from another event appears.
+    // The seeded staff, exactly as the identity directory reports them: the speaker persona is
+    // absent, the reviewer staffs event one alone, and no event outside the organization has
+    // anybody this organizer could name.
     identities: {
       listAssignableOwnersForEvent: async (scopedEventId) =>
         scopedEventId === eventId
@@ -36,8 +55,17 @@ const setup = () => {
               { id: "seed-organizer", name: "Olivia Organizer" },
               { id: "seed-reviewer", name: "Ravi Reviewer" },
             ]
-          : [],
+          : scopedEventId === otherEventId
+            ? [{ id: "seed-organizer", name: "Olivia Organizer" }]
+            : [],
     },
+    // The events domain's answer, as the CRM consumes it: the two seeded events belong to the
+    // demo organization and the outside event does not.
+    events: {
+      belongsToOrganization: async (event, organization) =>
+        organization === organizationId && [eventId, otherEventId].includes(event),
+    },
+    outreach: { send },
     newId: () => ids.shift() ?? crypto.randomUUID(),
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });
@@ -245,5 +273,266 @@ describe("ACC-CRM HTTP", () => {
         })
       ).status,
     ).toBe(403);
+  });
+});
+
+describe("ACC-CRM organization directory HTTP", () => {
+  it("serves the directory, its filters, and a contact profile through validated contracts", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    const created = await app.request(directory("contacts"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Ada Rivera",
+        email: "ADA@Example.test",
+        company: "Northwind",
+        title: "Principal Engineer",
+        tags: ["keynote", "ai"],
+        fields: [{ key: "topic", value: "accessibility" }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const contact = organizationContactSchema.parse((await created.json()).contact);
+    expect(contact.email).toBe("ada@example.test");
+
+    const listed = await app.request(`${directory("contacts")}?tags=keynote,ai`, { headers });
+    expect(listed.status).toBe(200);
+    const body = contactListResponseSchema.parse(await listed.json());
+    expect(body.contacts.map(({ id }) => id)).toEqual([contact.id]);
+    // The echoed filters are what makes "no matches" distinguishable from "no filter".
+    expect(body.filters).toEqual({ tags: ["keynote", "ai"] });
+
+    const narrowed = await app.request(`${directory("contacts")}?company=Southwind`, { headers });
+    expect((await narrowed.json()).contacts).toHaveLength(0);
+
+    const noted = await app.request(`${directory(`contacts/${contact.id}`)}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        notes: "Prefers a morning slot",
+        activity: { kind: "note", summary: "Met at the meetup", private: true },
+      }),
+    });
+    expect(noted.status).toBe(200);
+    const profile = organizationContactSchema.parse((await noted.json()).contact);
+    expect(profile.notes).toBe("Prefers a morning slot");
+    expect(profile.activities.map(({ kind }) => kind)).toEqual(["note"]);
+
+    // A second live contact on one address is a conflict the caller can act on, named on the
+    // field, rather than a unique-index failure surfacing as a 500.
+    const clash = await app.request(directory("contacts"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "A. Rivera", email: "ada@example.test" }),
+    });
+    expect(clash.status).toBe(409);
+    await expect(clash.json()).resolves.toMatchObject({
+      error: { code: "CONFLICT", fieldErrors: { email: expect.any(Array) } },
+    });
+  });
+
+  it("imports a file, merges the near duplicate it creates, and reports the dashboard", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    const csv = [
+      "name,email,company",
+      "Ada Rivera,ada@example.test,Northwind",
+      "Ada Rivera,ada.rivera@personal.test,Northwind",
+    ].join("\n");
+
+    const preview = await app.request(directory("imports/preview"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ filename: "speakers.csv", csv }),
+    });
+    expect(importPreviewResponseSchema.parse(await preview.json()).summary).toEqual({
+      create: 2,
+      update: 0,
+      skip: 0,
+    });
+    const imported = await app.request(directory("imports"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ filename: "speakers.csv", csv }),
+    });
+    expect(imported.status).toBe(201);
+    expect(importContactsResponseSchema.parse(await imported.json()).import.createdCount).toBe(2);
+
+    const duplicates = duplicateListResponseSchema.parse(
+      await (await app.request(directory("duplicates"), { headers })).json(),
+    );
+    expect(duplicates.groups).toHaveLength(1);
+    const [group] = duplicates.groups;
+    const merged = await app.request(directory("merges"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        primaryId: group?.suggestedPrimaryId,
+        duplicateIds: group?.contactIds.filter((id) => id !== group.suggestedPrimaryId),
+      }),
+    });
+    expect(merged.status).toBe(200);
+    expect(organizationContactSchema.parse((await merged.json()).contact).aliases).toHaveLength(1);
+
+    const dashboard = contactDashboardResponseSchema.parse(
+      await (await app.request(directory("dashboard"), { headers })).json(),
+    );
+    // Counted over what was stored, not asserted as a constant: two rows arrived, one merged.
+    expect(dashboard.contacts).toBe(1);
+    expect(dashboard.imported).toBe(1);
+    expect(dashboard.topCompanies).toEqual([{ company: "Northwind", contacts: 1 }]);
+  });
+
+  it("sources a contact into an event and sends segmented outreach", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    const contact = organizationContactSchema.parse(
+      (
+        await (
+          await app.request(directory("contacts"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              name: "Ada Rivera",
+              email: "ada@example.test",
+              tags: ["keynote"],
+            }),
+          })
+        ).json()
+      ).contact,
+    );
+
+    const pushed = await app.request(directory(`contacts/${contact.id}/events`), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ eventId, ownerId: "seed-organizer", convert: true }),
+    });
+    expect(pushed.status).toBe(201);
+    const result = pushContactToEventResponseSchema.parse(await pushed.json());
+    expect(result.prospect.speakerId).not.toBeNull();
+    expect(result.contact.events.map(({ eventId: id }) => id)).toEqual([eventId]);
+
+    const segment = segmentResponseSchema.parse(
+      await (
+        await app.request(directory("segments"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: "Keynote shortlist", filters: { tags: ["keynote"] } }),
+        })
+      ).json(),
+    );
+    const previewed = outreachPreviewResponseSchema.parse(
+      await (
+        await app.request(directory("outreach/preview"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            eventId,
+            templateKey: "speaker-invite",
+            segmentId: segment.segment.id,
+          }),
+        })
+      ).json(),
+    );
+    expect(previewed.recipients.map(({ email }) => email)).toEqual(["ada@example.test"]);
+
+    const sent = outreachResponseSchema.parse(
+      await (
+        await app.request(directory("outreach"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            eventId,
+            templateKey: "speaker-invite",
+            segmentId: segment.segment.id,
+          }),
+        })
+      ).json(),
+    );
+    expect(sent.sent[0]?.deliveryId).toBe("delivery-http");
+  });
+
+  it("refuses the directory to every identity outside this organization's CRM", async () => {
+    const app = setup();
+    expect((await app.request(directory("contacts"))).status).toBe(401);
+    // Reviewer and speaker are staffed on this organization's event and hold no `crm:manage`;
+    // the route refuses before the service is reached.
+    for (const persona of ["reviewer", "speaker", "public"] as const)
+      expect(
+        (await app.request(directory("contacts"), { headers: await cookie(persona) })).status,
+      ).toBe(403);
+    // The organizer holds `crm:manage` and belongs to one organization. Naming another is not a
+    // 404 that leaks whether it exists — it is a refusal.
+    expect(
+      (
+        await app.request(`/api/organizations/${outsideOrganizationId}/crm/contacts`, {
+          headers: await cookie("organizer"),
+        })
+      ).status,
+    ).toBe(403);
+  });
+
+  it("refuses to source a contact into an event outside the organization", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    const contact = organizationContactSchema.parse(
+      (
+        await (
+          await app.request(directory("contacts"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ name: "Ada Rivera", email: "ada@example.test" }),
+          })
+        ).json()
+      ).contact,
+    );
+    // `seed-organizer` organizes both seeded events, so this reaches the organization check
+    // rather than stopping at the capability one: event 2 is in the organization, event 99 is
+    // not, and only the second is refused here.
+    expect(
+      (
+        await app.request(directory(`contacts/${contact.id}/events`), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ eventId: otherEventId, ownerId: "seed-organizer" }),
+        })
+      ).status,
+    ).toBe(201);
+    const outside = await app.request(directory(`contacts/${contact.id}/events`), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        eventId: "00000000-0000-4000-8000-000000000099",
+        ownerId: "seed-organizer",
+      }),
+    });
+    expect(outside.status).toBe(403);
+  });
+
+  it("answers a malformed directory request as a refusal rather than a crash", async () => {
+    const app = setup(),
+      headers = await cookie("organizer");
+    expect(
+      (await app.request("/api/organizations/not-a-uuid/crm/contacts", { headers })).status,
+    ).toBe(400);
+    const unknown = await app.request(directory("contacts/00000000-0000-4000-8000-0000000000ff"), {
+      headers,
+    });
+    expect(unknown.status).toBe(404);
+    const emptyPatch = await app.request(
+      directory("contacts/00000000-0000-4000-8000-0000000000ff"),
+      { method: "PATCH", headers, body: JSON.stringify({}) },
+    );
+    expect(emptyPatch.status).toBe(400);
+    const badFile = await app.request(directory("imports/preview"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ filename: "wrong.csv", csv: "first,last\nAda,Rivera" }),
+    });
+    expect(badFile.status).toBe(400);
+    await expect(badFile.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { csv: expect.any(Array) } },
+    });
   });
 });

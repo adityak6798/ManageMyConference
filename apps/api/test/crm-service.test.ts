@@ -6,6 +6,7 @@ import {
   ProspectContactRequiredError,
   ProspectOwnerNotEligibleError,
 } from "../src/application/crm/errors";
+import type { OutreachMessage } from "../src/application/crm/outreach-dispatch";
 import {
   CapabilityDeniedError,
   type Actor,
@@ -14,11 +15,61 @@ import {
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const otherEventId = "00000000-0000-4000-8000-000000000002";
+/** An event of a different organization entirely. */
+const outsideEventId = "00000000-0000-4000-8000-000000000099";
+const organizationId = "00000000-0000-4000-8000-000000000010";
+const otherOrganizationId = "00000000-0000-4000-8000-000000000020";
 const organizer: Actor = {
   id: "organizer",
   name: "Organizer",
   persona: "organizer",
-  organizations: [],
+  organizations: [{ id: organizationId }],
+  capabilities: new Set(["crm:manage"]),
+  eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["crm:manage"]) }],
+};
+/**
+ * The same identity, staffing both of the organization's events.
+ *
+ * Deliberately a second actor rather than an extra grant on `organizer`: the prospect suites
+ * above rely on `organizer` holding exactly one event, and that cross-event negative is the
+ * property they exist to prove.
+ */
+const organizerOfBothEvents: Actor = {
+  ...organizer,
+  eventAccess: [
+    ...organizer.eventAccess,
+    { eventId: otherEventId, role: "organizer", capabilities: new Set(["crm:manage"]) },
+  ],
+};
+/** Staff on an event of this organization, but with no CRM capability anywhere. */
+const reviewer: Actor = {
+  id: "reviewer",
+  name: "Ravi Reviewer",
+  persona: "reviewer",
+  organizations: [{ id: organizationId }],
+  capabilities: new Set(["review:evaluate"] as Capability[]),
+  eventAccess: [{ eventId, role: "reviewer", capabilities: new Set(["review:evaluate"]) }],
+};
+/** Runs another organization's event. Holds a perfectly good actor-wide `crm:manage`. */
+const outsideOrganizer: Actor = {
+  id: "outside-organizer",
+  name: "Olive Outsider",
+  persona: "organizer",
+  organizations: [{ id: otherOrganizationId }],
+  capabilities: new Set(["crm:manage"]),
+  eventAccess: [
+    { eventId: outsideEventId, role: "organizer", capabilities: new Set(["crm:manage"]) },
+  ],
+};
+/**
+ * The mixed-role case `#27` was opened for: `crm:manage` earned by organizing an event of one
+ * organization, membership held of a second, and no CRM role inside that second one.
+ */
+const borrowedCapability: Actor = {
+  id: "borrower",
+  name: "Bo Borrower",
+  persona: "organizer",
+  organizations: [{ id: otherOrganizationId }],
   capabilities: new Set(["crm:manage"]),
   eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["crm:manage"]) }],
 };
@@ -39,6 +90,17 @@ const staffByEvent: Record<string, readonly { id: string; name: string }[]> = {
     { id: "reviewer", name: "Ravi Reviewer" },
   ],
   [otherEventId]: [{ id: "other-organizer", name: "Otto Organizer" }],
+  [outsideEventId]: [{ id: "outside-organizer", name: "Olive Outsider" }],
+};
+/**
+ * Which organization owns which event, as the events domain answers it. Both in-house events
+ * belong to one organization and `outsideEventId` to another, which is what makes the
+ * cross-organization negatives below distinguishable from cross-event ones.
+ */
+const eventOrg: Record<string, string> = {
+  [eventId]: organizationId,
+  [otherEventId]: organizationId,
+  [outsideEventId]: otherOrganizationId,
 };
 const setup = () => {
   const repository = new MemoryCrmRepository();
@@ -48,14 +110,22 @@ const setup = () => {
   const listAssignableOwnersForEvent = vi.fn(
     async (scopedEventId: string) => staffByEvent[scopedEventId] ?? [],
   );
+  // Typed parameters, so the assertions below can read the message the CRM handed the port.
+  const send = vi.fn(async (_actor: Actor, _message: OutreachMessage) => ({
+    deliveryId: `delivery-${send.mock.calls.length}`,
+  }));
   const service = new CrmService({
     repository,
     speakerConversion: { createOrLink },
     identities: { listAssignableOwnersForEvent },
+    events: {
+      belongsToOrganization: async (event, organization) => eventOrg[event] === organization,
+    },
+    outreach: { send },
     newId: () => ids.shift() ?? crypto.randomUUID(),
     now: () => new Date("2026-08-10T12:00:00.000Z"),
   });
-  return { repository, service, createOrLink, listAssignableOwnersForEvent };
+  return { repository, service, createOrLink, listAssignableOwnersForEvent, send };
 };
 
 describe("ACC-CRM prospect lifecycle", () => {
@@ -314,5 +384,424 @@ describe("ACC-CRM stage history", () => {
         .filter(({ kind }) => kind === "stage-change")
         .map(({ summary }) => summary),
     ).toEqual(["identified → contacted", "contacted → engaged"]);
+  });
+});
+
+const csv = [
+  "name,email,company,title,tags,field:topic",
+  "Ada Rivera,ADA@Example.test,Northwind,Principal Engineer,keynote;ai,accessibility",
+  "Morgan Chen,morgan@example.test,Southwind,Staff Engineer,workshop,platform",
+  ",broken@example.test,,,,",
+].join("\n");
+
+const contactOf = (
+  service: CrmService,
+  input: { name: string; email: string; company?: string; title?: string; tags?: string[] },
+) => service.createContact(organizer, organizationId, input);
+
+describe("ACC-CRM organization directory authorization", () => {
+  it("admits an organizer of this organization and refuses every neighbouring identity", async () => {
+    const { service } = setup();
+    await expect(service.listContacts(organizer, organizationId)).resolves.toEqual({
+      contacts: [],
+      filters: {},
+    });
+
+    // Staffed on this organization's event, but the directory is not something event staffing
+    // grants: a reviewer holds no `crm:manage` anywhere.
+    await expect(service.listContacts(reviewer, organizationId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // Runs another organization's events. The actor-wide capability is real and irrelevant.
+    await expect(service.listContacts(outsideOrganizer, organizationId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // Membership of one organization plus a capability earned inside another is access to
+    // neither: this identity passes a naive `requireCapability` + membership test, and must not
+    // pass this one.
+    await expect(
+      service.listContacts(borrowedCapability, otherOrganizationId),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(service.listContacts(null, organizationId)).rejects.toThrow();
+  });
+
+  it("keeps one organization's contacts invisible to the other", async () => {
+    const { service } = setup();
+    await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    // `outsideOrganizer` is a legitimate organizer of their own organization, which has none.
+    await expect(service.listContacts(outsideOrganizer, otherOrganizationId)).resolves.toEqual({
+      contacts: [],
+      filters: {},
+    });
+  });
+});
+
+describe("ACC-CRM organization directory", () => {
+  it("holds a contact once across two events, with both event histories", async () => {
+    const { service } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+
+    await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: "organizer", convert: false },
+      "correlation-one",
+    );
+    await service.pushContactToEvent(
+      organizerOfBothEvents,
+      organizationId,
+      contact.id,
+      { eventId: otherEventId, ownerId: "other-organizer", convert: false },
+      "correlation-two",
+    );
+
+    const { contacts } = await service.listContacts(organizer, organizationId);
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0]?.events.map(({ eventId: id }) => id)).toEqual([eventId, otherEventId]);
+    // Each event's pipeline still sees only its own prospect.
+    expect(await service.list(organizer, eventId, {})).toHaveLength(1);
+    expect(await service.list(organizerOfBothEvents, otherEventId, {})).toHaveLength(1);
+  });
+
+  it("converts a pushed contact exactly once and keeps the prospect provenance", async () => {
+    const { service, createOrLink } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    const first = await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: "organizer", convert: true },
+      "correlation-one",
+    );
+    expect(first.prospect.speakerId).toBe("40000000-0000-4000-8000-000000000001");
+    expect(first.prospect.activities.map(({ kind }) => kind)).toContain("conversion");
+    // The conversion crossed the boundary as the existing command, with the existing key.
+    expect(createOrLink).toHaveBeenCalledTimes(1);
+    expect(createOrLink.mock.calls[0]?.[0]).toMatchObject({
+      eventId,
+      source: { kind: "crm-prospect", id: first.prospect.id },
+      idempotencyKey: `crm-conversion:${eventId}:${first.prospect.id}`,
+    });
+
+    const again = await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: "organizer", convert: true },
+      "correlation-two",
+    );
+    expect(again.prospect.id).toBe(first.prospect.id);
+    expect(createOrLink).toHaveBeenCalledTimes(1);
+    expect(again.contact.events).toHaveLength(1);
+    expect(again.contact.activities.filter(({ kind }) => kind === "conversion")).toHaveLength(1);
+  });
+
+  it("refuses to source a contact into an event outside the organization or outside its reach", async () => {
+    const { service } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    // The organizer holds no `crm:manage` on the outside event, so this is refused as a
+    // capability failure before the organization mismatch is even reached.
+    await expect(
+      service.pushContactToEvent(
+        organizer,
+        organizationId,
+        contact.id,
+        { eventId: outsideEventId, ownerId: "outside-organizer", convert: false },
+        "correlation",
+      ),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    // And the outside organizer cannot reach this organization's contact at all.
+    await expect(
+      service.pushContactToEvent(
+        outsideOrganizer,
+        organizationId,
+        contact.id,
+        { eventId: outsideEventId, ownerId: "outside-organizer", convert: false },
+        "correlation",
+      ),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+  });
+
+  it("filters on company, title, tags and custom fields, and clears back to everybody", async () => {
+    const { service } = setup();
+    await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      company: "Northwind",
+      title: "Principal Engineer",
+      tags: ["keynote", "ai"],
+    });
+    await contactOf(service, {
+      name: "Morgan Chen",
+      email: "morgan@example.test",
+      company: "Southwind",
+      title: "Staff Engineer",
+      tags: ["workshop"],
+    });
+
+    const names = async (query: Parameters<typeof service.listContacts>[2]) =>
+      (await service.listContacts(organizer, organizationId, query)).contacts.map(
+        ({ name }) => name,
+      );
+    expect(await names({ company: "northwind" })).toEqual(["Ada Rivera"]);
+    expect(await names({ title: "Staff Engineer" })).toEqual(["Morgan Chen"]);
+    // Every named tag, not any of them.
+    expect(await names({ tags: ["keynote", "ai"] })).toEqual(["Ada Rivera"]);
+    expect(await names({ tags: ["keynote", "workshop"] })).toEqual([]);
+    expect(await names({ search: "morgan@" })).toEqual(["Morgan Chen"]);
+    expect(await names({})).toEqual(["Ada Rivera", "Morgan Chen"]);
+  });
+
+  it("reopens a saved segment by its definition, not by a frozen membership list", async () => {
+    const { service } = setup();
+    await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      company: "Northwind",
+      tags: ["keynote"],
+    });
+    const segment = await service.createSegment(organizer, organizationId, {
+      name: "Keynote shortlist",
+      filters: { tags: ["keynote"] },
+    });
+    await expect(
+      service.createSegment(organizer, organizationId, {
+        name: "keynote shortlist",
+        filters: {},
+      }),
+    ).rejects.toThrow(/segment with this name already exists/i);
+
+    // Somebody who matches the definition but did not exist when it was saved.
+    await contactOf(service, {
+      name: "Zoe Kim",
+      email: "zoe@example.test",
+      company: "Eastwind",
+      tags: ["keynote"],
+    });
+    const reopened = await service.listContacts(organizer, organizationId, {
+      segmentId: segment.id,
+    });
+    expect(reopened.filters).toEqual({ tags: ["keynote"] });
+    expect(reopened.contacts.map(({ name }) => name)).toEqual(["Ada Rivera", "Zoe Kim"]);
+    // Another organization cannot open it, and its id is not a way in.
+    await expect(
+      service.listContacts(outsideOrganizer, otherOrganizationId, { segmentId: segment.id }),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("previews an import, then commits it durably without erasing typed notes", async () => {
+    const { service } = setup();
+    const preview = await service.previewImport(organizer, organizationId, {
+      filename: "speakers.csv",
+      csv,
+    });
+    expect(preview.summary).toEqual({ create: 2, update: 0, skip: 1 });
+    expect(preview.rows.at(-1)?.errors).toEqual(["A name is required."]);
+
+    const first = await service.importContacts(organizer, organizationId, {
+      filename: "speakers.csv",
+      csv,
+    });
+    expect(first.record.createdCount).toBe(2);
+    expect(first.rejected).toHaveLength(1);
+    const { contacts } = await service.listContacts(organizer, organizationId);
+    expect(contacts.map(({ name }) => name)).toEqual(["Ada Rivera", "Morgan Chen"]);
+    // The address is normalized on the way in, so a case-varied re-import is the same person.
+    expect(contacts[0]?.email).toBe("ada@example.test");
+    expect(contacts[0]?.fields).toEqual([{ key: "topic", value: "accessibility" }]);
+
+    const typed = await service.updateContact(organizer, organizationId, contacts[0]?.id ?? "", {
+      notes: "Prefers a morning slot",
+    });
+    const second = await service.previewImport(organizer, organizationId, {
+      filename: "speakers.csv",
+      csv,
+    });
+    expect(second.summary).toEqual({ create: 0, update: 2, skip: 1 });
+    await service.importContacts(organizer, organizationId, { filename: "speakers.csv", csv });
+    const after = await service.getContact(organizer, organizationId, typed.id);
+    expect(after.notes).toBe("Prefers a morning slot");
+    expect(after.activities.map(({ kind }) => kind)).toContain("import");
+    // Re-importing the same file updates rather than duplicating.
+    expect((await service.listContacts(organizer, organizationId)).contacts).toHaveLength(2);
+  });
+
+  it("detects near duplicates and merges them into an explicit primary, keeping history", async () => {
+    const { service } = setup();
+    const primary = await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      company: "Northwind",
+      tags: ["keynote"],
+    });
+    const duplicate = await contactOf(service, {
+      name: "ada  rivera",
+      email: "ada.rivera@personal.test",
+      company: "NORTHWIND",
+      tags: ["ai"],
+    });
+    await service.pushContactToEvent(
+      organizerOfBothEvents,
+      organizationId,
+      duplicate.id,
+      { eventId: otherEventId, ownerId: "other-organizer", convert: false },
+      "correlation",
+    );
+    await service.updateContact(organizer, organizationId, duplicate.id, {
+      activity: { kind: "call", summary: "Spoke at the meetup", private: true },
+    });
+
+    const groups = await service.duplicates(organizer, organizationId);
+    expect(groups).toHaveLength(1);
+    // Matched on the name and company despite the different addresses and the stray casing and
+    // spacing — an exact address collision is impossible among live contacts.
+    expect(groups[0]?.reason).toBe("name-company");
+    expect([...(groups[0]?.contactIds ?? [])].sort()).toEqual([primary.id, duplicate.id].sort());
+    // The group offers a primary, and it is a member of the group. Which one it is falls to the
+    // id tie-break here, because this fixture's clock makes both records the same age.
+    expect(groups[0]?.contactIds).toContain(groups[0]?.suggestedPrimaryId);
+
+    await expect(
+      service.mergeContacts(organizer, organizationId, {
+        primaryId: primary.id,
+        duplicateIds: [primary.id],
+      }),
+    ).rejects.toThrow(/cannot also be a duplicate/);
+
+    const merged = await service.mergeContacts(organizer, organizationId, {
+      primaryId: primary.id,
+      duplicateIds: [duplicate.id],
+    });
+    // Nothing is lost: the loser's address survives as an alias, its history and its event link
+    // move across, and its tags are absorbed.
+    expect(merged.aliases.map(({ email }) => email)).toEqual(["ada.rivera@personal.test"]);
+    expect(merged.events.map(({ eventId: id }) => id)).toEqual([otherEventId]);
+    expect(merged.activities.map(({ summary }) => summary)).toContain("Spoke at the meetup");
+    expect([...merged.tags].sort()).toEqual(["ai", "keynote"]);
+    // And the directory now holds one person, searchable under the merged-away address.
+    const live = await service.listContacts(organizer, organizationId);
+    expect(live.contacts).toHaveLength(1);
+    expect(
+      (await service.listContacts(organizer, organizationId, { search: "ada.rivera@personal" }))
+        .contacts,
+    ).toHaveLength(1);
+    // A merge cannot be undone by a second merge.
+    await expect(
+      service.mergeContacts(organizer, organizationId, {
+        primaryId: duplicate.id,
+        duplicateIds: [primary.id],
+      }),
+    ).rejects.toThrow(/already been merged away/);
+  });
+
+  it("sends segmented outreach through the dispatch port and logs it on each contact", async () => {
+    const { service, send } = setup();
+    const contact = await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      tags: ["keynote"],
+    });
+    const segment = await service.createSegment(organizer, organizationId, {
+      name: "Keynote shortlist",
+      filters: { tags: ["keynote"] },
+    });
+
+    const preview = await service.previewOutreach(organizer, organizationId, {
+      eventId,
+      templateKey: "speaker-invite",
+      segmentId: segment.id,
+    });
+    expect(preview.recipients).toEqual([
+      { contactId: contact.id, name: "Ada Rivera", email: "ada@example.test" },
+    ]);
+    // A preview writes nothing.
+    expect(send).not.toHaveBeenCalled();
+
+    const sent = await service.sendOutreach(organizer, organizationId, {
+      eventId,
+      templateKey: "speaker-invite",
+      segmentId: segment.id,
+    });
+    expect(sent.sent[0]?.deliveryId).toBe("delivery-1");
+    expect(send.mock.calls[0]?.[1]).toMatchObject({
+      organizationId,
+      eventId,
+      templateKey: "speaker-invite",
+      recipientRef: `crm-contact:${contact.id}`,
+      idempotencyKey: `crm-outreach:${eventId}:${contact.id}:speaker-invite:vlatest`,
+    });
+    // The renderer refuses a placeholder nothing fills, so the greeting name travels with it.
+    expect(send.mock.calls[0]?.[1].payload).toMatchObject({ speakerName: "Ada Rivera" });
+    const after = await service.getContact(organizer, organizationId, contact.id);
+    expect(after.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(1);
+  });
+
+  it("refuses outreach that would reach nobody, or that names another organization's event", async () => {
+    const { service, send } = setup();
+    await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    const empty = await service.createSegment(organizer, organizationId, {
+      name: "Nobody",
+      filters: { tags: ["nonexistent"] },
+    });
+    await expect(
+      service.sendOutreach(organizer, organizationId, {
+        eventId,
+        templateKey: "speaker-invite",
+        segmentId: empty.id,
+      }),
+    ).rejects.toThrow(/matches no contacts/);
+    await expect(
+      service.sendOutreach(organizer, organizationId, {
+        eventId: outsideEventId,
+        templateKey: "speaker-invite",
+        contactIds: ["missing"],
+      }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("derives dashboard metrics from stored contacts rather than constants", async () => {
+    const { service } = setup();
+    const empty = await service.dashboard(organizer, organizationId);
+    expect(empty).toMatchObject({ contacts: 0, convertedContacts: 0, byStage: [] });
+
+    const contact = await contactOf(service, {
+      name: "Ada Rivera",
+      email: "ada@example.test",
+      company: "Northwind",
+    });
+    await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: "organizer", convert: true },
+      "correlation",
+    );
+    await service.pushContactToEvent(
+      organizerOfBothEvents,
+      organizationId,
+      contact.id,
+      { eventId: otherEventId, ownerId: "other-organizer", convert: false },
+      "correlation",
+    );
+
+    const populated = await service.dashboard(organizer, organizationId);
+    expect(populated.contacts).toBe(1);
+    expect(populated.contactsInMultipleEvents).toBe(1);
+    expect(populated.convertedContacts).toBe(1);
+    expect(populated.topCompanies).toEqual([{ company: "Northwind", contacts: 1 }]);
+    expect(populated.byStage).toEqual([
+      { stage: "converted", contacts: 1 },
+      { stage: "identified", contacts: 1 },
+    ]);
+  });
+
+  it("refuses a second live contact on one address and points at the merge instead", async () => {
+    const { service } = setup();
+    await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    await expect(
+      contactOf(service, { name: "A. Rivera", email: "ADA@example.test" }),
+    ).rejects.toThrow(/contact with this email already exists/i);
   });
 });

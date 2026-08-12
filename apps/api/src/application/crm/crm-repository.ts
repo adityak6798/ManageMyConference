@@ -1,4 +1,5 @@
 import type { Prospect, ProspectActivity, ProspectContact } from "../../domain/crm/prospect";
+import type { CrmDirectoryRepository } from "./contact-repository";
 
 export interface ProspectFilters {
   readonly stage?: Prospect["stage"] | undefined;
@@ -6,7 +7,15 @@ export interface ProspectFilters {
   readonly overdueBefore?: string | undefined;
 }
 
-export interface CrmRepository {
+/**
+ * One store for the domain, not two.
+ *
+ * Sourcing a directory contact into an event writes a prospect, its contact row and the
+ * directory link together, so splitting these across two repositories would put a boundary
+ * through the middle of a single durable operation. The interfaces stay in separate files
+ * because they describe two different nouns; the implementation is one adapter.
+ */
+export interface CrmRepository extends CrmDirectoryRepository {
   list(eventId: string, filters: ProspectFilters): Promise<readonly Prospect[]>;
   findById(eventId: string, prospectId: string): Promise<Prospect | null>;
   create(prospect: Prospect): Promise<void>;

@@ -27,6 +27,7 @@ const reviewSchema = defineReviewSchema({
 });
 const crmSchema = defineCrmSchema({
   eventsId: eventsSchema.events.id,
+  organizationsId: eventsSchema.organizations.id,
   speakerProfilesId: contentSchema.speakerProfiles.id,
   usersId: identityAccessSchema.users.id,
 });
@@ -75,7 +76,15 @@ export const {
   communicationDeliveries,
   contentSessions,
   crmActivities,
+  crmContactActivities,
+  crmContactAliases,
+  crmContactEvents,
+  crmContactFields,
+  crmContactImports,
   crmContacts,
+  crmContactSegments,
+  crmContactTags,
+  crmOrganizationContacts,
   crmProspects,
   eventRoles,
   events,

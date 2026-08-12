@@ -244,3 +244,374 @@ describe("D1 CRM persistence", () => {
     ).rejects.toThrow();
   });
 });
+
+const organizationId = "00000000-0000-4000-8000-000000000010";
+const otherOrganizationId = "00000000-0000-4000-8000-000000000020";
+const adaId = "51000000-0000-4000-8000-000000000001";
+const priyaId = "51000000-0000-4000-8000-000000000003";
+const priyaDuplicateId = "51000000-0000-4000-8000-000000000004";
+
+const contactAt = (id: string, overrides: Record<string, unknown> = {}) => ({
+  id,
+  organizationId,
+  name: "Directory Person",
+  email: `${id}@example.test`,
+  company: null,
+  title: null,
+  notes: null,
+  source: "manual" as const,
+  mergedIntoId: null,
+  tags: [] as string[],
+  fields: [] as { key: string; value: string }[],
+  aliases: [],
+  events: [],
+  activities: [],
+  createdAt: "2026-08-10T12:00:00.000Z",
+  updatedAt: "2026-08-10T12:00:00.000Z",
+  ...overrides,
+});
+
+describe("D1 CRM organization directory", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("returns the seeded directory scoped to its organization, one row per person", async () => {
+    const migrated = await migratedRuntime("crm-directory");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+
+    const contacts = await repository.listContacts(organizationId, {});
+    // Ordered by name, then id — the two Priyas are the seeded near-duplicate pair.
+    expect(contacts.map(({ email }) => email)).toEqual([
+      "ada@example.test",
+      "morgan@example.test",
+      "priya@example.test",
+      "p.raman@eastwind.test",
+    ]);
+    // The person courted for two events appears once, carrying both histories, and each link's
+    // stage is read from that event's prospect rather than from a copy on the link.
+    const ada = contacts.find(({ id }) => id === adaId);
+    expect(ada?.events.map(({ eventId: id, stage }) => [id, stage])).toEqual([
+      [eventId, "contacted"],
+      [otherEventId, "identified"],
+    ]);
+    expect(ada?.tags).toEqual(["accessibility", "keynote"]);
+    expect(ada?.fields).toEqual([
+      { key: "timezone", value: "America/Los_Angeles" },
+      { key: "topic", value: "Inclusive event design" },
+    ]);
+
+    // The other organization's directory is empty, and asking for it by id returns nothing
+    // rather than somebody else's row.
+    await expect(repository.listContacts(otherOrganizationId, {})).resolves.toEqual([]);
+    await expect(repository.findContact(otherOrganizationId, adaId)).resolves.toBeNull();
+    await expect(
+      repository.findContactByEmail(otherOrganizationId, "ada@example.test"),
+    ).resolves.toBeNull();
+  });
+
+  it("filters in SQL the way the domain filters in memory", async () => {
+    const migrated = await migratedRuntime("crm-filters");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const names = async (filters: Parameters<typeof repository.listContacts>[1]) =>
+      (await repository.listContacts(organizationId, filters)).map(({ name }) => name);
+
+    expect(await names({ company: "northwind access" })).toEqual(["Dr. Ada Rivera"]);
+    expect(await names({ title: "Design Lead" })).toEqual(["Priya Raman", "Priya Raman"]);
+    expect(await names({ tags: ["keynote"] })).toEqual(["Dr. Ada Rivera"]);
+    // Every named tag, not any of them.
+    expect(await names({ tags: ["keynote", "design"] })).toEqual([]);
+    expect(await names({ fieldKey: "topic", fieldValue: "Responsible AI" })).toEqual([
+      "Morgan Chen",
+    ]);
+    expect(await names({ eventId: otherEventId })).toEqual(["Dr. Ada Rivera"]);
+    expect(await names({ search: "morgan@" })).toEqual(["Morgan Chen"]);
+  });
+
+  it("refuses a second live contact on one address, and admits one after the merge", async () => {
+    const migrated = await migratedRuntime("crm-unique-email");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    // The partial unique index, not a service-level check, is what makes "one row per person"
+    // true of the stored data.
+    await expect(
+      repository.createContact(
+        contactAt("51000000-0000-4000-8000-0000000000a1", { email: "ada@example.test" }),
+      ),
+    ).rejects.toThrow();
+
+    await repository.mergeContacts({
+      organizationId,
+      primaryId: priyaId,
+      duplicateIds: [priyaDuplicateId],
+      aliases: [
+        {
+          id: "54000000-0000-4000-8000-000000000001",
+          name: "Priya Raman",
+          email: "p.raman@eastwind.test",
+          mergedFromId: priyaDuplicateId,
+          mergedAt: "2026-08-11T12:00:00.000Z",
+        },
+      ],
+      activity: {
+        id: "71000000-0000-4000-8000-0000000000a1",
+        kind: "merge",
+        summary: "Merged p.raman@eastwind.test into this contact",
+        private: false,
+        occurredAt: "2026-08-11T12:00:00.000Z",
+        actorId: "seed-organizer",
+      },
+    });
+    // The merged-away row keeps its address and leaves the index, so the address becomes
+    // reusable — and the survivor is still findable under it.
+    await expect(
+      repository.createContact(
+        contactAt("51000000-0000-4000-8000-0000000000a2", { email: "p.raman@eastwind.test" }),
+      ),
+    ).resolves.toBeUndefined();
+    expect(
+      (await repository.listContacts(organizationId, { search: "p.raman@eastwind" })).map(
+        ({ id }) => id,
+      ),
+    ).toContain(priyaId);
+  });
+
+  it("moves history, tags and event links onto the primary and leaves nothing deleted", async () => {
+    const migrated = await migratedRuntime("crm-merge");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    // Give the loser a pipeline row and a link to it, so the merge has something structural to
+    // move rather than only history.
+    const loserProspectId = "50000000-0000-4000-8000-0000000000d1";
+    await database
+      .prepare(
+        "INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES (?,?,?,?,?,NULL,NULL,?,?)",
+      )
+      .bind(
+        loserProspectId,
+        eventId,
+        "Priya Raman",
+        "identified",
+        "seed-organizer",
+        "2026-08-04T12:00:00.000Z",
+        "2026-08-04T12:00:00.000Z",
+      )
+      .run();
+    await database
+      .prepare(
+        "INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) VALUES (?,?,?,?)",
+      )
+      .bind(priyaDuplicateId, eventId, loserProspectId, "2026-08-04T12:00:00.000Z")
+      .run();
+
+    const merged = await repository.mergeContacts({
+      organizationId,
+      primaryId: priyaId,
+      duplicateIds: [priyaDuplicateId],
+      aliases: [
+        {
+          id: "54000000-0000-4000-8000-000000000002",
+          name: "Priya Raman",
+          email: "p.raman@eastwind.test",
+          mergedFromId: priyaDuplicateId,
+          mergedAt: "2026-08-11T12:00:00.000Z",
+        },
+      ],
+      activity: {
+        id: "71000000-0000-4000-8000-0000000000a2",
+        kind: "merge",
+        summary: "Merged p.raman@eastwind.test into this contact",
+        private: false,
+        occurredAt: "2026-08-11T12:00:00.000Z",
+        actorId: "seed-organizer",
+      },
+    });
+    expect(merged.aliases.map(({ email }) => email)).toEqual(["p.raman@eastwind.test"]);
+    expect(merged.events.map(({ eventId: id }) => id)).toEqual([eventId]);
+    expect(merged.activities.map(({ kind }) => kind)).toEqual(["import", "import", "merge"]);
+    expect(merged.tags).toEqual(["design"]);
+
+    // Nothing was deleted: the loser's row survives, pointing at its primary, and is out of the
+    // directory rather than out of the database.
+    const loser = await repository.findContact(organizationId, priyaDuplicateId);
+    expect(loser?.mergedIntoId).toBe(priyaId);
+    expect((await repository.listContacts(organizationId, {})).map(({ id }) => id)).not.toContain(
+      priyaDuplicateId,
+    );
+  });
+
+  it("refuses a merge, a link and an activity that reach across organizations", async () => {
+    const migrated = await migratedRuntime("crm-cross-organization");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    const activity = {
+      id: "71000000-0000-4000-8000-0000000000a3",
+      kind: "merge" as const,
+      summary: "Merged from another organization",
+      private: false,
+      occurredAt: "2026-08-11T12:00:00.000Z",
+      actorId: "seed-organizer",
+    };
+    // Every directory statement carries the organization, so naming the wrong one folds nothing
+    // away even though both ids exist.
+    await expect(
+      repository.mergeContacts({
+        organizationId: otherOrganizationId,
+        primaryId: priyaId,
+        duplicateIds: [priyaDuplicateId],
+        aliases: [],
+        activity,
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await repository.findContact(organizationId, priyaDuplicateId))?.mergedIntoId,
+    ).toBeNull();
+
+    await repository.recordContactActivities(otherOrganizationId, [
+      {
+        contactId: adaId,
+        activity: { ...activity, id: "71000000-0000-4000-8000-0000000000a4", kind: "note" },
+      },
+    ]);
+    expect((await repository.findContact(organizationId, adaId))?.activities).toHaveLength(2);
+  });
+
+  it("writes the prospect, its contact and the directory link in one durable operation", async () => {
+    const migrated = await migratedRuntime("crm-link");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    const contact = await repository.findContact(organizationId, priyaId);
+    const prospect = {
+      id: "50000000-0000-4000-8000-0000000000b1",
+      eventId,
+      name: "Priya Raman",
+      stage: "identified" as const,
+      ownerId: "seed-organizer",
+      nextAction: "Confirm interest for this event",
+      nextActionAt: null,
+      contacts: [
+        {
+          id: "60000000-0000-4000-8000-0000000000b1",
+          name: "Priya Raman",
+          email: "priya@example.test",
+          isPrimary: true,
+        },
+      ],
+      activities: [],
+      speakerId: null,
+      convertedAt: null,
+      createdAt: "2026-08-11T12:00:00.000Z",
+      updatedAt: "2026-08-11T12:00:00.000Z",
+    };
+    const activity = {
+      id: "71000000-0000-4000-8000-0000000000b1",
+      kind: "note" as const,
+      summary: `Sourced into event ${eventId}`,
+      private: false,
+      occurredAt: "2026-08-11T12:00:00.000Z",
+      actorId: "seed-organizer",
+    };
+    if (!contact) throw new Error("The seeded contact is missing");
+
+    await database
+      .prepare(
+        "CREATE TRIGGER fail_contact_link BEFORE INSERT ON crm_contact_events BEGIN SELECT RAISE(FAIL, 'injected link failure'); END",
+      )
+      .run();
+    await expect(repository.linkContactToEvent({ contact, prospect, activity })).rejects.toThrow();
+    // The prospect must not survive a link that failed, or the pipeline would hold a row the
+    // directory has no record of.
+    await expect(repository.findById(eventId, prospect.id)).resolves.toBeNull();
+    await database.prepare("DROP TRIGGER fail_contact_link").run();
+
+    await repository.linkContactToEvent({ contact, prospect, activity });
+    const linked = await repository.findContact(organizationId, priyaId);
+    expect(linked?.events).toEqual([
+      expect.objectContaining({ eventId, prospectId: prospect.id, stage: "identified" }),
+    ]);
+    // And one prospect belongs to at most one contact.
+    await expect(
+      database
+        .prepare(
+          "INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) VALUES (?,?,?,?)",
+        )
+        .bind(priyaDuplicateId, eventId, prospect.id, "2026-08-11T12:00:00.000Z")
+        .run(),
+    ).rejects.toThrow();
+  });
+
+  it("commits an import as one operation and replaces a contact's tags rather than accreting them", async () => {
+    const migrated = await migratedRuntime("crm-import");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const created = contactAt("51000000-0000-4000-8000-0000000000c1", {
+      name: "Imported Person",
+      email: "imported@example.test",
+      source: "import",
+      tags: ["keynote", "ai"],
+      fields: [{ key: "topic", value: "Platform" }],
+      activities: [
+        {
+          id: "71000000-0000-4000-8000-0000000000c1",
+          kind: "import",
+          summary: "Imported from speakers.csv",
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      ],
+    });
+    await repository.commitImport(
+      {
+        id: "53000000-0000-4000-8000-0000000000c1",
+        organizationId,
+        filename: "speakers.csv",
+        rowCount: 1,
+        createdCount: 1,
+        updatedCount: 0,
+        skippedCount: 0,
+        importedAt: "2026-08-11T12:00:00.000Z",
+        importedBy: "seed-organizer",
+      },
+      [created],
+      [],
+    );
+    const stored = await repository.findContact(organizationId, created.id);
+    expect(stored?.tags).toEqual(["ai", "keynote"]);
+    expect(await repository.listImports(organizationId)).toHaveLength(2);
+
+    // Tags and fields are replaced wholesale, so removing one removes it.
+    await repository.updateContact({ ...created, tags: ["keynote"], fields: [] });
+    const updated = await repository.findContact(organizationId, created.id);
+    expect(updated?.tags).toEqual(["keynote"]);
+    expect(updated?.fields).toEqual([]);
+  });
+
+  it("stores a segment as its definition and keeps it inside its organization", async () => {
+    const migrated = await migratedRuntime("crm-segments");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const segments = await repository.listSegments(organizationId);
+    expect(segments).toEqual([
+      expect.objectContaining({ name: "Design shortlist", filters: { tags: ["design"] } }),
+    ]);
+    const [design] = segments;
+    await expect(repository.findSegment(otherOrganizationId, design?.id ?? "")).resolves.toBeNull();
+    await expect(repository.listSegments(otherOrganizationId)).resolves.toEqual([]);
+    // One name per organization.
+    await expect(
+      repository.createSegment({
+        id: "52000000-0000-4000-8000-0000000000d1",
+        organizationId,
+        name: "Design shortlist",
+        filters: {},
+        createdAt: "2026-08-11T12:00:00.000Z",
+        createdBy: "seed-organizer",
+      }),
+    ).rejects.toThrow();
+  });
+});

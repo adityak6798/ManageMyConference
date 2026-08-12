@@ -1,8 +1,21 @@
 import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
+import { ContactNotFoundError } from "../../application/crm/errors";
+import {
+  type ContactActivity,
+  type ContactAlias,
+  type ContactImport,
+  type ContactSegment,
+  type DirectoryFilters,
+  matchesFilters,
+  type OrganizationContact,
+} from "../../domain/crm/contact";
 import type { Prospect, ProspectActivity, ProspectContact } from "../../domain/crm/prospect";
 
 export class MemoryCrmRepository implements CrmRepository {
   private readonly prospects = new Map<string, Prospect>();
+  private readonly contacts = new Map<string, OrganizationContact>();
+  private readonly segments = new Map<string, ContactSegment>();
+  private readonly imports: ContactImport[] = [];
   async list(eventId: string, filters: ProspectFilters): Promise<readonly Prospect[]> {
     return [...this.prospects.values()].filter(
       (item) =>
@@ -51,5 +64,164 @@ export class MemoryCrmRepository implements CrmRepository {
     };
     this.prospects.set(prospectId, converted);
     return converted;
+  }
+
+  /* The organization-wide directory. */
+
+  /** Event links project the prospect's live stage, exactly as the D1 adapter's join does. */
+  private project(contact: OrganizationContact): OrganizationContact {
+    return {
+      ...contact,
+      events: contact.events.map((link) => {
+        const prospect = this.prospects.get(link.prospectId);
+        return prospect
+          ? {
+              ...link,
+              stage: prospect.stage,
+              speakerId: prospect.speakerId,
+              convertedAt: prospect.convertedAt,
+            }
+          : link;
+      }),
+    };
+  }
+
+  private ofOrganization(organizationId: string): OrganizationContact[] {
+    return [...this.contacts.values()]
+      .filter((contact) => contact.organizationId === organizationId)
+      .map((contact) => this.project(contact))
+      .sort(
+        (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+      );
+  }
+
+  async listContacts(organizationId: string, filters: DirectoryFilters) {
+    return this.ofOrganization(organizationId).filter((contact) =>
+      matchesFilters(contact, filters),
+    );
+  }
+  async findContact(organizationId: string, contactId: string) {
+    const contact = this.contacts.get(contactId);
+    return contact?.organizationId === organizationId ? this.project(contact) : null;
+  }
+  async findContactByEmail(organizationId: string, email: string) {
+    return (
+      this.ofOrganization(organizationId).find(
+        (contact) => contact.email === email && !contact.mergedIntoId,
+      ) ?? null
+    );
+  }
+  async createContact(contact: OrganizationContact) {
+    this.contacts.set(contact.id, contact);
+  }
+  async updateContact(contact: OrganizationContact, _activities: readonly ContactActivity[] = []) {
+    this.contacts.set(contact.id, contact);
+  }
+  async commitImport(
+    record: ContactImport,
+    created: readonly OrganizationContact[],
+    updated: readonly OrganizationContact[],
+  ) {
+    this.imports.push(record);
+    for (const contact of [...created, ...updated]) this.contacts.set(contact.id, contact);
+  }
+  async mergeContacts(input: {
+    organizationId: string;
+    primaryId: string;
+    duplicateIds: readonly string[];
+    aliases: readonly ContactAlias[];
+    activity: ContactActivity;
+  }) {
+    const primary = this.contacts.get(input.primaryId);
+    if (!primary || primary.organizationId !== input.organizationId)
+      throw new ContactNotFoundError("Contact not found");
+    const moved: OrganizationContact["events"][number][] = [];
+    const activities: ContactActivity[] = [];
+    const tags = new Set(primary.tags);
+    const fields = new Map(primary.fields.map(({ key, value }) => [key, value]));
+    for (const duplicateId of input.duplicateIds) {
+      const duplicate = this.contacts.get(duplicateId);
+      if (!duplicate || duplicate.organizationId !== input.organizationId) continue;
+      // The same-event collision the D1 adapter's `UPDATE OR IGNORE` leaves behind: the primary
+      // already holds that event, so the loser's link stays on the merged-away record.
+      for (const link of duplicate.events)
+        if (!primary.events.some(({ eventId }) => eventId === link.eventId)) moved.push(link);
+      activities.push(...duplicate.activities);
+      for (const tag of duplicate.tags) tags.add(tag);
+      for (const field of duplicate.fields)
+        if (!fields.has(field.key)) fields.set(field.key, field.value);
+      this.contacts.set(duplicateId, {
+        ...duplicate,
+        mergedIntoId: input.primaryId,
+        events: duplicate.events.filter((link) => !moved.includes(link)),
+        activities: [],
+        updatedAt: input.activity.occurredAt,
+      });
+    }
+    const merged: OrganizationContact = {
+      ...primary,
+      tags: [...tags],
+      fields: [...fields].map(([key, value]) => ({ key, value })),
+      aliases: [...primary.aliases, ...input.aliases],
+      events: [...primary.events, ...moved],
+      activities: [...primary.activities, ...activities, input.activity].sort((left, right) =>
+        left.occurredAt.localeCompare(right.occurredAt),
+      ),
+      updatedAt: input.activity.occurredAt,
+    };
+    this.contacts.set(merged.id, merged);
+    return this.project(merged);
+  }
+  async listSegments(organizationId: string) {
+    return [...this.segments.values()]
+      .filter((segment) => segment.organizationId === organizationId)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+  async findSegment(organizationId: string, segmentId: string) {
+    const segment = this.segments.get(segmentId);
+    return segment?.organizationId === organizationId ? segment : null;
+  }
+  async createSegment(segment: ContactSegment) {
+    this.segments.set(segment.id, segment);
+  }
+  async listImports(organizationId: string) {
+    return this.imports.filter((record) => record.organizationId === organizationId);
+  }
+  async recordContactActivities(
+    organizationId: string,
+    entries: readonly { contactId: string; activity: ContactActivity }[],
+  ) {
+    for (const { contactId, activity } of entries) {
+      const contact = this.contacts.get(contactId);
+      if (!contact || contact.organizationId !== organizationId) continue;
+      this.contacts.set(contactId, {
+        ...contact,
+        activities: [...contact.activities, activity],
+      });
+    }
+  }
+  async linkContactToEvent(input: {
+    contact: OrganizationContact;
+    prospect: Prospect;
+    activity: ContactActivity;
+  }) {
+    const contact = this.contacts.get(input.contact.id);
+    if (!contact) throw new ContactNotFoundError("Contact not found");
+    this.prospects.set(input.prospect.id, input.prospect);
+    this.contacts.set(contact.id, {
+      ...contact,
+      events: [
+        ...contact.events,
+        {
+          eventId: input.prospect.eventId,
+          prospectId: input.prospect.id,
+          stage: input.prospect.stage,
+          speakerId: null,
+          convertedAt: null,
+          linkedAt: input.activity.occurredAt,
+        },
+      ],
+      activities: [...contact.activities, input.activity],
+    });
   }
 }

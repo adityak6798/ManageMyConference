@@ -286,10 +286,26 @@ def production_layer_problems(relative_path: str, manifest: dict[str, Any]) -> l
     return []
 
 
+# A static `import`/`export … from` statement, anchored to the start of a line because that is
+# the only place one can legally appear. The anchor is what keeps an ordinary string literal
+# from being read as a dependency: a domain whose vocabulary contains the word — `"import"` as a
+# CRM contact source, say — used to be reported as importing a package named `, `, because the
+# previous pattern accepted the keyword anywhere, including inside quotes. The clause between
+# the keyword and `from` may span lines but never a quote, a semicolon or a parenthesis, none of
+# which occur in an import clause and all of which mean the match has run past the statement.
+STATIC_IMPORT = re.compile(
+    r"""(?mx)
+    ^[^\S\n]*(?:import|export)\b
+    (?: [^'";()]*? \bfrom[^\S\n]* | [^\S\n]* )
+    ["']([^"']+)["']
+    """
+)
+
+
 def module_specifiers(content: str) -> set[str]:
     """Extract supported static, dynamic, and CommonJS literal dependencies."""
     return set(
-        re.findall(r'(?:from\s+|import\s*)["\']([^"\']+)["\']', content)
+        STATIC_IMPORT.findall(content)
         + re.findall(r'\bimport\s*\(\s*["\']([^"\']+)["\']\s*\)', content)
         + re.findall(r'\brequire\s*\(\s*["\']([^"\']+)["\']\s*\)', content)
     )
