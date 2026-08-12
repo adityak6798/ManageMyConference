@@ -65,6 +65,9 @@ describe("D1EventRepository", () => {
       repository.findById(event.id, { organizationIds: [event.organizationId], eventIds: [] }),
     ).resolves.toEqual(event);
     await expect(
+      repository.update(event.id, "Renamed Summit", "America/New_York"),
+    ).resolves.toEqual({ ...event, name: "Renamed Summit", timezone: "America/New_York" });
+    await expect(
       repository.findById(event.id, {
         organizationIds: ["00000000-0000-4000-8000-000000000099"],
         eventIds: [],

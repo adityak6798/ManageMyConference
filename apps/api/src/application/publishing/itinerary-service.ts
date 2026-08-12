@@ -11,6 +11,10 @@ export class ItineraryNotFoundError extends Error {}
 
 /** 32 bytes. Guessing one is not a threat model anybody needs to reason about further. */
 const TOKEN_BYTES = 32;
+/** An empty mint has no attendee value; one day is enough to survive an interrupted first visit. */
+export const EMPTY_ITINERARY_RETENTION_MS = 24 * 60 * 60 * 1_000;
+/** Keep ended-event plans for at least one full UTC day so timezone edges cannot prune mid-event. */
+export const ENDED_EVENT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 const base64url = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))
@@ -52,6 +56,15 @@ export class ItineraryService {
     private readonly randomBytes: (length: number) => Uint8Array = (length) =>
       crypto.getRandomValues(new Uint8Array(length)),
   ) {}
+
+  /** Apply the bounded anonymous-data policy from PRD-PUB-001. Called by the Worker cron. */
+  prune(): Promise<void> {
+    const now = this.now();
+    return this.itineraries.prune(
+      new Date(now.getTime() - EMPTY_ITINERARY_RETENTION_MS).toISOString(),
+      new Date(now.getTime() - ENDED_EVENT_RETENTION_MS).toISOString().slice(0, 10),
+    );
+  }
 
   /** The published projection's session slugs, or null when the event is not public. */
   private async publishedSlugs(eventSlug: string): Promise<{ eventId: string; slugs: string[] }> {

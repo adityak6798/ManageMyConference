@@ -747,6 +747,7 @@
         "apps/web/src/workspaces/publishing.tsx",
         "apps/api/src/adapters/persistence/d1-itinerary-repository.ts",
         "apps/api/migrations/1800_attendee_itineraries.sql",
+        "apps/api/migrations/1801_itinerary_retention.sql",
         "apps/api/test/itinerary.test.ts",
         "apps/web/src/api/itinerary.ts",
         "apps/web/src/public-event/itinerary.tsx",

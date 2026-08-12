@@ -11,6 +11,9 @@ import {
   eventListResponseSchema,
   type SessionDto,
   sessionResponseSchema,
+  type UpdateEventInput,
+  updateEventInputSchema,
+  updateEventResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
 import { apiFetch as fetch, decodeResponse } from "./config";
@@ -100,4 +103,18 @@ export async function createEvent(
     body: JSON.stringify(validated),
   });
   return (await decode(response, createEventResponseSchema)).event;
+}
+
+export async function updateEvent(
+  eventId: string,
+  input: UpdateEventInput,
+  fetcher: typeof fetch = fetch,
+): Promise<EventDto> {
+  const validated = updateEventInputSchema.parse(input);
+  const response = await fetcher(`/api/events/${encodeURIComponent(eventId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(validated),
+  });
+  return (await decode(response, updateEventResponseSchema)).event;
 }

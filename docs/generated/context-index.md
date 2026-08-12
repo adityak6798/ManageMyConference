@@ -134,6 +134,7 @@
 - `test` / `repository-fact`: [apps/web/test/publishing.test.tsx](../../apps/web/test/publishing.test.tsx)
 - `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
 - `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
@@ -442,10 +443,10 @@
 - `code` / `repository-fact`: [apps/web/src/api/publication.ts](../../apps/web/src/api/publication.ts)
 - `code` / `repository-fact`: [apps/web/src/public-event/PublicEventApp.tsx](../../apps/web/src/public-event/PublicEventApp.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/publishing.tsx](../../apps/web/src/workspaces/publishing.tsx)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/interfaces/README.md](../../docs/interfaces/README.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/publishing.ts](../../packages/contracts/src/domains/publishing.ts)
 
 ### `PRD-REV-001`
