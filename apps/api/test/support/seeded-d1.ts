@@ -3,6 +3,12 @@ import { Miniflare } from "miniflare";
 
 interface RunnableDatabase {
   prepare(query: string): { run(): Promise<unknown> };
+  /**
+   * Present on a real D1 database, absent on the synchronous `node:sqlite` handle the schema
+   * drift tool builds its schema in. Everything here works either way; `batch` only decides how
+   * many round trips it costs.
+   */
+  batch?(prepared: unknown[]): Promise<unknown>;
 }
 
 type D1Database = Awaited<ReturnType<Miniflare["getD1Database"]>>;
@@ -98,22 +104,132 @@ export async function migrationFilenames(): Promise<string[]> {
   return names;
 }
 
-/** Run one file's statements, naming the file and the statement if any of them fails. */
-async function runFile(database: RunnableDatabase, label: string, sql: string): Promise<void> {
-  for (const [index, statement] of statements(sql).entries()) {
+/** One SQL file, already split, kept next to the name that will identify a failure in it. */
+interface SqlFile {
+  label: string;
+  statements: string[];
+}
+
+/** Run one file's statements one at a time, naming the file and the statement if any fails. */
+async function runFileSequentially(database: RunnableDatabase, file: SqlFile): Promise<void> {
+  for (const [index, statement] of file.statements.entries()) {
     try {
       await database.prepare(statement).run();
     } catch (cause) {
       // ERROR-INTENT: rethrown with the file and statement named. The bare driver error says
       // only "no such table", which in a 22-migration replay is the one thing you already knew.
       throw new Error(
-        `${label}: statement ${index + 1} failed\n${statement}\n${
+        `${file.label}: statement ${index + 1} failed\n${statement}\n${
           cause instanceof Error ? cause.message : String(cause)
         }`,
         { cause },
       );
     }
   }
+}
+
+/** Every message in an error's `cause` chain, which is where a fetch failure hides its reason. */
+function causeChain(error: unknown): string {
+  const seen: string[] = [];
+  let current = error;
+  while (current instanceof Error && seen.length < 10) {
+    seen.push(current.message);
+    const nested: unknown = (current as { cause?: unknown }).cause;
+    current = nested;
+  }
+  return seen.join(" | ");
+}
+
+/**
+ * Whether a failure came from the connection rather than from the SQL.
+ *
+ * This decides whether it is safe to replay the statements one at a time, and getting it wrong
+ * is expensive in one direction only: replaying under port exhaustion issues ~180 more
+ * connections at the moment connections are the thing that ran out, which is the failure this
+ * whole change exists to remove. So the test is deliberately broad — anything that smells of the
+ * transport is treated as transport, and only an error that looks like neither is replayed.
+ */
+function isTransportFailure(error: unknown): boolean {
+  return /fetch failed|Server is not running|EADDR|ECONN|EPIPE|ETIMEDOUT|socket|network/i.test(
+    causeChain(error),
+  );
+}
+
+/**
+ * Apply a set of SQL files in one round trip where the database can take one.
+ *
+ * Every statement used to be its own call, and on a real D1 database every call is an HTTP
+ * request to the workerd process over its own TCP connection. Measured on one machine, per
+ * database built: a migrated database cost 179 sockets and a seeded one 264, and the suite
+ * exhausted macOS's whole ephemeral range (16,384 ports between 49152 and 65535) before it
+ * finished, so its later tests failed on `EADDRNOTAVAIL` with messages that read like schema
+ * faults (`GAP-017`). One batch costs 1 socket, and 471ms against 1460ms.
+ *
+ * A database without `batch` takes the sequential path; nothing else here depends on which.
+ */
+async function applyFiles(database: RunnableDatabase, files: SqlFile[]): Promise<void> {
+  const flat = files.flatMap((file) => file.statements);
+  if (typeof database.batch !== "function" || flat.length === 0) {
+    for (const file of files) await runFileSequentially(database, file);
+    return;
+  }
+
+  let batchFailure: unknown;
+  try {
+    await database.batch(flat.map((statement) => database.prepare(statement)));
+    return;
+  } catch (cause) {
+    // ERROR-INTENT: held for one decision and then always surfaced — rethrown as-is just below
+    // when it came from the transport, and carried into the replay's message otherwise.
+    batchFailure = cause;
+  }
+
+  /*
+   * A batch reports one error for the whole transaction and cannot say which statement caused
+   * it, so naming the statement means running them one at a time. That is worth ~180 extra
+   * connections when a statement is genuinely wrong — the run is failing anyway and the name is
+   * what makes it fixable — and it is precisely the wrong move when the connection is what
+   * failed, because it spends the resource that just ran out. So a transport failure is reported
+   * as itself rather than investigated.
+   */
+  if (isTransportFailure(batchFailure))
+    // Named rather than rethrown bare. The original is kept as the cause, so nothing is lost,
+    // but a reader who meets `TypeError: fetch failed` in the middle of a migration run should
+    // not have to know that it means the connection: this entry exists because messages of that
+    // shape got read as schema faults.
+    throw new Error(
+      "the database connection failed while applying migrations, so nothing was applied and no " +
+        `statement is at fault — locally this is usually the machine running out of ephemeral ` +
+        `ports (\`GAP-017\`): ${causeChain(batchFailure)}`,
+      { cause: batchFailure },
+    );
+
+  try {
+    for (const file of files) await runFileSequentially(database, file);
+  } catch (replayFailure) {
+    // The replay found the statement. Both errors reach the reader: the named one it threw, and
+    // the batch's own message, which is otherwise lost because the replay's `cause` is the
+    // statement error rather than the batch.
+    throw new Error(
+      `${replayFailure instanceof Error ? replayFailure.message : String(replayFailure)}\n\n` +
+        `The batch containing it failed with: ${causeChain(batchFailure)}`,
+      { cause: replayFailure },
+    );
+  }
+
+  /*
+   * Every statement applied on its own, so none of them is wrong and the database now holds the
+   * schema. What failed was sending them as one transaction, and why is not something this
+   * harness can establish — a refused transaction and a connection dropped mid-batch look the
+   * same from here. It reports what it observed rather than diagnosing, and fails rather than
+   * continuing, because a database built the long way round is not the one the harness says it
+   * builds and the difference should be somebody's decision rather than a silent fallback.
+   */
+  throw new Error(
+    "the statements applied one at a time but the batch containing them did not: " +
+      causeChain(batchFailure),
+    { cause: batchFailure },
+  );
 }
 
 /**
@@ -134,21 +250,25 @@ export async function applyMigrations(
         `applyMigrations({ ${option}: "${value}" }) names a migration that does not exist`,
       );
   const applied: string[] = [];
+  const files: SqlFile[] = [];
   let started = options.from === undefined;
   for (const name of names) {
     if (name === options.from) started = true;
     if (started) {
-      await runFile(database, name, await readFile(new URL(name, MIGRATIONS_DIRECTORY), "utf8"));
+      const sql = await readFile(new URL(name, MIGRATIONS_DIRECTORY), "utf8");
+      files.push({ label: name, statements: statements(sql) });
       applied.push(name);
     }
     if (options.through === name) break;
   }
+  await applyFiles(database, files);
   return applied;
 }
 
 /** Apply `seed/reset.sql`, the same deterministic fixture `npm run reset` writes. */
 export async function applySeedData(database: RunnableDatabase): Promise<void> {
-  await runFile(database, "seed/reset.sql", await readFile(SEED_FILE, "utf8"));
+  const sql = await readFile(SEED_FILE, "utf8");
+  await applyFiles(database, [{ label: "seed/reset.sql", statements: statements(sql) }]);
 }
 
 /**

@@ -152,7 +152,50 @@ feature-by-feature verdict.
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
   commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
   contributor can burn an afternoon on it; conversely the crash could mask a real failure behind
-  noise. Owner: platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails
-  with a diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between
-  spec files, or a Playwright global setup that fails fast when the API stops answering — and the
-  wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
+  noise.
+
+  **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
+  ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
+  its own TCP connection, and `apps/api/test/support/seeded-d1.ts` ran every migration statement
+  as its own call — one socket each. Measured on one macOS machine, from a drained socket table:
+
+  | | statements | sockets | time |
+  |---|---|---|---|
+  | a migrated database, before | 179 | 179 | — |
+  | a seeded database, before | 264 | 264 | 1460ms |
+  | either, after | — | **1** | 471ms |
+
+  Against an ephemeral range of 16,384 (`net.inet.ip.portrange`, 49152–65535) a suite of eighty
+  such databases cannot fit, and `npm run gate:d1` did not: cold, solo and with nothing else
+  running, it failed 35 of 79 tests and ended at 16,358 sockets. The failures land as
+  `fetch failed` / `Server is not running` / `EADDRNOTAVAIL` on whichever tests run last, which
+  reads as a mass regression in whatever domain that happens to be. It also broke unrelated
+  network calls on the same machine, `git push` among them. Sending the statements as one `batch`
+  fixes it: the same suite now passes — 85 tests in 20s, against ~1,600 sockets rather than the
+  16,384 it could not fit into. (The counts differ between measurements because the suite grew
+  while this was being diagnosed: 79 tests when it was failing, 85 with the tests below added.)
+
+  Two properties are pinned by tests against a double, both checked by mutation. The statements
+  go in one batch. And a batch that fails on the *connection* is reported rather than replayed —
+  replaying to find the offending statement is right when a statement is wrong, and is exactly
+  the wrong move when sockets are what ran out, since it spends ~180 more of them at the moment
+  there are none.
+
+  Two notes from the diagnosis, and the first is **retired rather than advice**. While the suite
+  did not fit, it could be run in chunks small enough that it did (a second lane ran its own
+  81-test branch that way, all passing), and a
+  red local `gate:d1` could be told from a real defect by reproducing it on `origin/main`. Neither
+  should be needed again, and neither is a substitute for a green gate: if a run has to be chunked
+  to pass, the ceiling is back and that is the finding, not the workaround. The second note stands
+  on its own — a cold `wrangler` command with no network prints the same `fetch failed` for an
+  unrelated reason, its telemetry dispatcher, which `WRANGLER_SEND_METRICS=false` fixes and which
+  has nothing to do with the exhaustion above.
+
+  **What remains open is the original entry:** the runtime still dies rather than degrading, and
+  a suite that loses it still fails with misleading assertion errors instead of a diagnosis.
+  Ports were one way to provoke that; they were not the only one, and the browser-job crash of
+  hosted run `31498844956` had no port pressure behind it. Owner: platform. Governing ID:
+  `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a diagnosis rather than 22
+  misleading assertion errors — a `webServer` health probe between spec files, or a Playwright
+  global setup that fails fast when the API stops answering — and the wrangler crash itself is
+  reported upstream with the log from `apps/api/.wrangler/wrangler.log`.

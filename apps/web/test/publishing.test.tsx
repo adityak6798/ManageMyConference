@@ -389,6 +389,13 @@ describe("PublishingWorkspace", () => {
   describe("public details", () => {
     const settingsForm = async () => {
       await screen.findByLabelText("Summary");
+      // The form renders before the publication it is populated from has arrived, and a late
+      // response resets the fields. Waiting for the server copy to be *in* a field is what makes
+      // a subsequent edit a real edit: without it, a change can be reverted before the assertion,
+      // leaving Save disabled — so the click does nothing and no request is ever sent.
+      await waitFor(() =>
+        expect(screen.getByLabelText<HTMLInputElement>("Venue")).toHaveValue("Bay Pavilion"),
+      );
       return {
         summary: screen.getByLabelText<HTMLTextAreaElement>("Summary"),
         venue: screen.getByLabelText<HTMLInputElement>("Venue"),
