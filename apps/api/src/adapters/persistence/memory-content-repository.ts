@@ -1,7 +1,7 @@
 import {
-  type ContentRepository,
   type AcceptedContent,
   ContentConflictError,
+  type ContentRepository,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -9,9 +9,12 @@ import type {
   SpeakerConversionPort,
 } from "../../application/content/speaker-conversion";
 import type {
+  ContentComment,
+  ContentRevision,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerProfile,
+  SpeakerResource,
   SpeakerTask,
 } from "../../domain/content/content";
 
@@ -28,6 +31,10 @@ export class MemoryContentRepository
   private tasks: ContentWorkspace["tasks"] = [];
   private assets: ContentWorkspace["assets"] = [];
   private messages: ContentWorkspace["messages"] = [];
+  private resources: NonNullable<ContentWorkspace["resources"]> = [];
+  private comments: NonNullable<ContentWorkspace["comments"]> = [];
+  private revisions: NonNullable<ContentWorkspace["revisions"]> = [];
+  private imports = new Map<string, "pending" | "complete">();
 
   constructor(seed?: ContentWorkspace) {
     if (seed)
@@ -38,12 +45,25 @@ export class MemoryContentRepository
         assets: this.assets,
         messages: this.messages,
       } = seed);
+    if (seed) this.resources = seed.resources ?? [];
+    if (seed) this.comments = seed.comments ?? [];
+    if (seed) this.revisions = seed.revisions ?? [];
   }
   async findSessionByProposal(eventId: string, proposalId: string) {
     return (
       this.sessions.find((item) => item.eventId === eventId && item.proposalId === proposalId) ??
       null
     );
+  }
+  async findSpeakerImport(eventId: string, email: string) {
+    return this.imports.get(`${eventId}:${email}`) ?? null;
+  }
+  async beginSpeakerImport(eventId: string, email: string) {
+    if (!this.imports.has(`${eventId}:${email}`))
+      this.imports.set(`${eventId}:${email}`, "pending");
+  }
+  async completeSpeakerImport(eventId: string, email: string) {
+    this.imports.set(`${eventId}:${email}`, "complete");
   }
   async accept(content: AcceptedContent) {
     // Mirrors `UNIQUE(event_id, proposal_id)` in D1 so acceptance idempotency is exercised here
@@ -54,6 +74,16 @@ export class MemoryContentRepository
     this.speakers = [...this.speakers, ...content.speakers];
     this.tasks = [...this.tasks, ...content.tasks];
     this.messages = [...this.messages, ...content.messages];
+  }
+  async addTasks(tasks: readonly SpeakerTask[]) {
+    this.tasks = [...this.tasks, ...tasks];
+  }
+  async replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset) {
+    if (previous)
+      this.assets = this.assets.map((item) =>
+        item.id === previous.id ? { ...item, isLatest: false } : item,
+      );
+    this.assets = [...this.assets, asset];
   }
   /** Out-of-band profile creation, the way `SpeakerConversionPort` writes one in D1. */
   async addProfile(profile: SpeakerProfile) {
@@ -83,6 +113,21 @@ export class MemoryContentRepository
       messages: this.messages
         .filter((item) => profileIds.has(item.speakerProfileId))
         .toSorted(by((item) => item.sentAt)),
+      resources: this.resources
+        .filter((item) => item.eventId === eventId && (!userId || item.visibility === "visible"))
+        .toSorted(
+          (left, right) =>
+            left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
+        ),
+      comments: this.comments.filter(
+        (item) =>
+          item.eventId === eventId &&
+          (!userId ||
+            this.assets.some(
+              (asset) => asset.id === item.assetId && profileIds.has(asset.speakerProfileId),
+            )),
+      ),
+      revisions: userId ? [] : this.revisions.filter((item) => item.eventId === eventId),
     };
   }
 
@@ -160,7 +205,18 @@ export class MemoryContentRepository
     this.assets = [...this.assets, asset];
   }
   async deleteAsset(assetId: string) {
+    const deleted = this.assets.find(({ id }) => id === assetId);
     this.assets = this.assets.filter(({ id }) => id !== assetId);
+    if (deleted && deleted.isLatest !== false && deleted.versionGroupId) {
+      const previous = this.assets
+        .filter(({ versionGroupId }) => versionGroupId === deleted.versionGroupId)
+        .toSorted((left, right) => (right.versionNumber ?? 1) - (left.versionNumber ?? 1))[0];
+      if (previous)
+        this.assets = this.assets.map((asset) =>
+          asset.id === previous.id ? { ...asset, isLatest: true } : asset,
+        );
+    }
+    this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
   async addTask(task: SpeakerTask) {
     this.tasks = [...this.tasks, task];
@@ -183,6 +239,27 @@ export class MemoryContentRepository
         (profile) => profile.eventId === eventId && profile.sourcePersonId === sourcePersonId,
       ) ?? null
     );
+  }
+  async addResource(resource: SpeakerResource) {
+    this.resources = [...this.resources, resource];
+  }
+  async updateResource(resource: SpeakerResource) {
+    this.resources = this.resources.map((item) => (item.id === resource.id ? resource : item));
+  }
+  async deleteResource(resourceId: string) {
+    this.resources = this.resources.filter(({ id }) => id !== resourceId);
+  }
+  async findResource(resourceId: string) {
+    return this.resources.find(({ id }) => id === resourceId) ?? null;
+  }
+  async addComment(comment: ContentComment) {
+    this.comments = [...this.comments, comment];
+  }
+  async addRevision(revision: ContentRevision) {
+    this.revisions = [...this.revisions, revision];
+  }
+  async findRevision(revisionId: string) {
+    return this.revisions.find(({ id }) => id === revisionId) ?? null;
   }
 }
 

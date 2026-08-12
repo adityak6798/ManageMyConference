@@ -1,12 +1,14 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   check,
   index,
+  integer,
   primaryKey,
   sqliteTable,
   text,
   unique,
-  type AnySQLiteColumn,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export function defineContentSchema(references: {
@@ -59,6 +61,9 @@ export function defineContentSchema(references: {
       pronouns: text("pronouns").notNull(),
       organization: text("organization").notNull(),
       photoAssetId: text("photo_asset_id"),
+      workflowStatus: text("workflow_status").notNull().default("onboarding"),
+      logisticsJson: text("logistics_json").notNull().default("{}"),
+      customFieldsJson: text("custom_fields_json").notNull().default("{}"),
     },
     (table) => [
       unique("speaker_profiles_event_id_source_person_id_unique").on(
@@ -66,6 +71,10 @@ export function defineContentSchema(references: {
         table.sourcePersonId,
       ),
       index("speaker_profiles_event_user_idx").on(table.eventId, table.userId),
+      check(
+        "speaker_profiles_workflow_status",
+        sql`${table.workflowStatus} IN ('invited','onboarding','ready','blocked')`,
+      ),
     ],
   );
   const speakerTasks = sqliteTable(
@@ -82,9 +91,13 @@ export function defineContentSchema(references: {
       dueAt: text("due_at").notNull(),
       status: text("status").notNull(),
       completedAt: text("completed_at"),
+      taskType: text("task_type").notNull().default("general"),
+      instructions: text("instructions").notNull().default(""),
+      sessionId: text("session_id"),
     },
     (table) => [
       check("speaker_tasks_status", sql`${table.status} IN ('open','complete')`),
+      check("speaker_tasks_task_type", sql`${table.taskType} IN ('general','file-request')`),
       index("speaker_tasks_profile_idx").on(table.speakerProfileId),
     ],
   );
@@ -103,10 +116,21 @@ export function defineContentSchema(references: {
       storageKey: text("storage_key").notNull().unique(),
       visibility: text("visibility").notNull(),
       uploadedAt: text("uploaded_at").notNull(),
+      taskId: text("task_id"),
+      sessionId: text("session_id"),
+      versionGroupId: text("version_group_id"),
+      versionNumber: integer("version_number").notNull().default(1),
+      isLatest: integer("is_latest", { mode: "boolean" }).notNull().default(true),
     },
     (table) => [
       check("speaker_assets_visibility", sql`${table.visibility} IN ('private','publishable')`),
       index("speaker_assets_profile_idx").on(table.speakerProfileId),
+      uniqueIndex("speaker_assets_version_unique")
+        .on(table.versionGroupId, table.versionNumber)
+        .where(sql`${table.versionGroupId} IS NOT NULL`),
+      uniqueIndex("speaker_assets_latest_unique")
+        .on(table.versionGroupId)
+        .where(sql`${table.versionGroupId} IS NOT NULL AND ${table.isLatest}=1`),
     ],
   );
   const speakerMessages = sqliteTable(
@@ -123,6 +147,76 @@ export function defineContentSchema(references: {
       sentAt: text("sent_at").notNull(),
     },
     (table) => [index("speaker_messages_profile_idx").on(table.speakerProfileId)],
+  );
+  const speakerResources = sqliteTable(
+    "speaker_resources",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      title: text("title").notNull(),
+      slug: text("slug").notNull(),
+      bodyHtml: text("body_html").notNull(),
+      embedHtml: text("embed_html").notNull(),
+      visibility: text("visibility").notNull(),
+      sortOrder: integer("sort_order").notNull(),
+    },
+    (table) => [
+      unique("speaker_resources_event_slug_unique").on(table.eventId, table.slug),
+      check("speaker_resources_visibility", sql`${table.visibility} IN ('hidden','visible')`),
+      index("speaker_resources_event_order_idx").on(table.eventId, table.sortOrder),
+    ],
+  );
+  const contentAssetComments = sqliteTable(
+    "content_asset_comments",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      assetId: text("asset_id")
+        .notNull()
+        .references(() => speakerAssets.id),
+      authorId: text("author_id")
+        .notNull()
+        .references(() => references.usersId),
+      authorName: text("author_name").notNull(),
+      body: text("body").notNull(),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [index("content_asset_comments_asset_idx").on(table.assetId, table.createdAt)],
+  );
+  const contentRevisions = sqliteTable(
+    "content_revisions",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      entityType: text("entity_type").notNull(),
+      entityId: text("entity_id").notNull(),
+      revisionNumber: integer("revision_number").notNull(),
+      snapshotJson: text("snapshot_json").notNull(),
+      actorId: text("actor_id")
+        .notNull()
+        .references(() => references.usersId),
+      createdAt: text("created_at").notNull(),
+      restoredFromRevisionId: text("restored_from_revision_id"),
+    },
+    (table) => [
+      check("content_revisions_entity_type", sql`${table.entityType} IN ('profile','session')`),
+      unique("content_revisions_entity_revision_unique").on(
+        table.entityType,
+        table.entityId,
+        table.revisionNumber,
+      ),
+      index("content_revisions_entity_idx").on(
+        table.entityType,
+        table.entityId,
+        table.revisionNumber,
+      ),
+    ],
   );
   const speakerConversionSources = sqliteTable(
     "speaker_conversion_sources",
@@ -164,6 +258,20 @@ export function defineContentSchema(references: {
     },
     (table) => [primaryKey({ columns: [table.eventId, table.normalizedEmail] })],
   );
+  const contentSpeakerImportRows = sqliteTable(
+    "content_speaker_import_rows",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      normalizedEmail: text("normalized_email").notNull(),
+      status: text("status").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.normalizedEmail] }),
+      check("content_speaker_import_rows_status", sql`${table.status} IN ('pending','complete')`),
+    ],
+  );
 
   return {
     contentSessions,
@@ -171,8 +279,12 @@ export function defineContentSchema(references: {
     speakerTasks,
     speakerAssets,
     speakerMessages,
+    speakerResources,
+    contentAssetComments,
+    contentRevisions,
     speakerConversionSources,
     speakerConversionClaims,
     speakerEmailClaims,
+    contentSpeakerImportRows,
   };
 }

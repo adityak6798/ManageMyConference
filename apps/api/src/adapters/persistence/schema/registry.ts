@@ -74,6 +74,9 @@ export const {
   communicationAttempts,
   communicationDeliveries,
   contentSessions,
+  contentAssetComments,
+  contentRevisions,
+  contentSpeakerImportRows,
   crmActivities,
   crmContacts,
   crmProspects,
@@ -99,6 +102,7 @@ export const {
   speakerEmailClaims,
   speakerMessages,
   speakerProfiles,
+  speakerResources,
   speakerTasks,
   users,
 } = schema;
