@@ -150,7 +150,8 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   expect(snippet).toContain(`/embed/events/${slug}/schedule`);
   expect(snippet).toMatch(/^<iframe src="http/);
   // Both views render a live frame of the real embed once the event is live.
-  await expect(page.locator(".publishing-frame iframe")).toHaveCount(2);
+  // Four widget types since #95: schedule, sessions, speakers and the gallery.
+  await expect(page.locator(".publishing-frame iframe")).toHaveCount(4);
 
   // ---- the public routes serve it ------------------------------------------
   const published = await page.request.get(`/api/public/events/${slug}`);

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, sqliteTable, text, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { type AnySQLiteColumn, check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }) {
   // @spec PRD-PUB-001
@@ -31,5 +31,33 @@ export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }
     ],
   );
 
-  return { publicEventProjections };
+  /*
+   * An attendee's chosen sessions, addressed by a capability token rather than by a user.
+   *
+   * `/api/public/*` reads no session and cannot: its `Access-Control-Allow-Origin: *`
+   * policy forbids credentials, which is exactly what lets a conference's own site embed
+   * the schedule. The token is the identity, only its hash is stored, and the row names
+   * sessions by the published projection's public slugs so nothing here can reach past
+   * what the organizer published.
+   */
+  // @spec PRD-PUB-001
+  const attendeeItineraries = sqliteTable(
+    "attendee_itineraries",
+    {
+      tokenHash: text("token_hash").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      sessionSlugs: text("session_slugs").notNull(),
+      createdAt: text("created_at").notNull(),
+      updatedAt: text("updated_at").notNull(),
+    },
+    (table) => [
+      check("attendee_itineraries_token_hash", sql`length(${table.tokenHash}) = 64`),
+      check("attendee_itineraries_session_slugs", sql`json_valid(${table.sessionSlugs})`),
+      index("attendee_itineraries_event_id_idx").on(table.eventId),
+    ],
+  );
+
+  return { publicEventProjections, attendeeItineraries };
 }

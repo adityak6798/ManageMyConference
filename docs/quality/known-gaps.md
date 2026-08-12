@@ -158,3 +158,19 @@ feature-by-feature verdict.
   with a diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between
   spec files, or a Playwright global setup that fails fast when the API stops answering — and the
   wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
+- `GAP-018` **An attendee itinerary is addressed by a capability URL, which leaks the way URLs leak.**
+  `/api/public/*` is anonymous by construction — its `Access-Control-Allow-Origin: *` policy forbids
+  credentials, which is what lets a conference embed the schedule — so an itinerary is held by an
+  unguessable token in the path rather than by a session. That is what makes the shared ETag cache
+  correct (one itinerary, one URL) and makes sharing a plan the same act as sharing its link. The
+  cost is that the token travels wherever the URL does: browser history, a referrer header on any
+  outbound link, a screenshot, a shoulder. The page says so in as many words rather than implying an
+  account exists. Impact: anyone who obtains the link can read and edit that itinerary, and there is
+  no way to revoke it. Accepted for a list of public sessions someone starred; it would not be
+  acceptable for anything carrying a name, an email or a payment. The table also has no expiry and
+  no cleanup beyond `npm run reset`: minting is throttled per address but rows accumulate for the
+  life of the event, which is a storage cost rather than a correctness one. Owner: publishing.
+  Governing ID:
+  `PRD-PUB-001`, `ACC-PUBLIC`. Closure: if attendee data ever grows past a list of public slugs —
+  rotation, an explicit revoke, or a real identity, decided before the data changes rather than
+  after.

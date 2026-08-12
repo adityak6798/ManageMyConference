@@ -28,7 +28,7 @@ import {
 } from "../../application/identity/actor";
 import { resolveDemoSession } from "../../application/identity/demo-session";
 import { resolveEventToken, resolveUserSession } from "../../application/identity/real-auth";
-import type { PublicationService } from "../../application/publishing/public";
+import type { ItineraryService, PublicationService } from "../../application/publishing/public";
 import type { ReviewService } from "../../application/review/review-service";
 import type { HttpDependencies } from "./routes/contract";
 import { assertNoDuplicateRoutes, routeModules } from "./routes/registry";
@@ -43,8 +43,8 @@ import {
   type Variables,
 } from "./runtime";
 
-export type { BuildIdentity, RuntimeAuthConfig, StructuredLogger } from "./runtime";
 export type { HttpDependencies } from "./routes/contract";
+export type { BuildIdentity, RuntimeAuthConfig, StructuredLogger } from "./runtime";
 
 const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -280,6 +280,7 @@ export function createHttpApp(
   communicationsArgument?: CommunicationsService,
   publishingArgument?: PublicationService,
   buildIdentity?: BuildIdentity,
+  itineraries?: ItineraryService,
 ) {
   const review =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -310,6 +311,7 @@ export function createHttpApp(
     agenda,
     communications,
     publishing,
+    itineraries,
     build: buildIdentity,
   });
 }

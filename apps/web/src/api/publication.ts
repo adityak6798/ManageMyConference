@@ -5,7 +5,7 @@ import {
   publicationPreviewResponseSchema,
   publicEventResponseSchema,
 } from "@greenroom/contracts";
-import { apiFetch as fetch, decodeResponse } from "./config";
+import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class PublicApiError extends Error {}
 

@@ -32,7 +32,9 @@ import {
   SpeakerHeadline,
   TimeRange,
 } from "./cards";
+import { itineraryCalendar, StarButton, useItinerary } from "./itinerary";
 import {
+  bySurname,
   CFP_AWARE_VIEWS,
   calendarDate,
   clockTime,
@@ -45,6 +47,7 @@ import {
   linkProps,
   type PublicSession,
   type PublicSpeaker,
+  parseEmbedOptions,
   SCHEDULE_VIEWS,
   type ScheduleView,
   usePublicRoute,
@@ -76,6 +79,20 @@ export function PublicEventApp() {
   // and back, and it never triggers a fetch.
   const [scheduleView, setScheduleView] = useState<ScheduleView>("day");
   const mainRef = useRef<HTMLElement>(null);
+  /*
+   * Embeds are configured by their own URL. Derived during render rather than memoised:
+   * the value depends on `window.location`, which is not reactive, so a dependency array
+   * could only ever be a guess at when it changed — and re-parsing four query parameters
+   * costs less than being wrong about that.
+   */
+  const embedOptions = parseEmbedOptions(window.location.search);
+  const embedTrack = embedOptions.track;
+  /*
+   * Starring is offered on the real site only. Inside an embed the frame is third-party,
+   * so `localStorage` may be partitioned away or blocked outright, and an itinerary that
+   * silently fails to persist is worse than one the surface never offered.
+   */
+  const itinerary = useItinerary(slug, !embedded);
   const viewKey = `${section}/${detail ?? ""}`;
   const landedOn = useRef(viewKey);
   const [filteredView, setFilteredView] = useState(section);
@@ -167,10 +184,12 @@ export function PublicEventApp() {
       speakers: speaker
         ? `${speaker.name} · ${projection.event.name}`
         : `Speakers · ${projection.event.name}`,
+      gallery: `Speaker gallery · ${projection.event.name}`,
+      itinerary: `My itinerary · ${projection.event.name}`,
       // The tab, the heading, and the meta description all name the live call once it
       // has loaded, so a republished title cannot show up in one place and not another.
       cfp: `${liveCfp?.title ?? projection.cfp.title} · ${projection.event.name}`,
-    };
+    } satisfies Record<View, string>;
     document.title = titles[section];
     description.content =
       session?.abstract ??
@@ -188,7 +207,19 @@ export function PublicEventApp() {
   const model = useMemo(() => {
     if (!projection) return null;
     const timezone = projection.event.timezone;
-    const ordered = [...projection.sessions].sort((left, right) =>
+    /*
+     * An embed's `track=` narrows the programme itself, before anything is grouped or
+     * counted. Applying it further downstream is what made it a lie on three of the four
+     * widgets: only the sessions list read the filtered array, so a host page that pasted
+     * the *schedule* snippet with a track chosen got the whole programme back.
+     *
+     * Unlike the visitor's own track filter this cannot be cleared from inside the frame —
+     * the host page chose it, and the embed has no navigation to change it with.
+     */
+    const scoped = embedTrack
+      ? projection.sessions.filter((item) => item.track.toLowerCase() === embedTrack.toLowerCase())
+      : projection.sessions;
+    const ordered = [...scoped].sort((left, right) =>
       (left.startsAt ?? "9999").localeCompare(right.startsAt ?? "9999"),
     );
     const timed = ordered.filter((item) => item.startsAt);
@@ -236,14 +267,17 @@ export function PublicEventApp() {
       timed,
       untimed,
       days,
-      tracks: [...new Set(projection.sessions.map((item) => item.track).filter(Boolean))].sort(),
+      tracks: [...new Set(ordered.map((item) => item.track).filter(Boolean))].sort(),
+      // Surname order, because a speaker directory is read as one. The gallery and the
+      // list share it so the same person is in the same place on both.
+      bySurname: [...projection.speakers].sort(bySurname),
       sessionsBySpeaker,
       speakersOf: (item: PublicSession) =>
         item.speakerSlugs
           .map((speakerSlug) => projection.speakers.find((entry) => entry.slug === speakerSlug))
           .filter((entry): entry is PublicSpeaker => Boolean(entry)),
     };
-  }, [projection]);
+  }, [embedTrack, projection]);
 
   if (error)
     return (
@@ -273,7 +307,10 @@ export function PublicEventApp() {
 
   if (
     (detail && section === "sessions" && !session) ||
-    (detail && section === "speakers" && !speaker)
+    (detail && section === "speakers" && !speaker) ||
+    // Sections with no detail pages of their own. Without this, `/gallery/anything`
+    // answered 200 with the gallery, so a mistyped or stale URL looked like a real page.
+    (detail && (section === "gallery" || section === "itinerary" || section === "schedule"))
   )
     return (
       <main className="public-state">
@@ -311,11 +348,33 @@ export function PublicEventApp() {
       .includes(needle);
   });
   const speakerNeedle = speakerQuery.trim().toLowerCase();
-  const visibleSpeakers = projection.speakers.filter((item) =>
+  const visibleSpeakers = model.bySurname.filter((item) =>
     speakerNeedle
       ? `${item.name} ${item.organization} ${item.bio}`.toLowerCase().includes(speakerNeedle)
       : true,
   );
+  /*
+   * The itinerary's own sessions, in programme order rather than the order they were
+   * starred. `model.ordered` is already sorted by start time, so filtering it preserves
+   * that — which is what makes the page readable as a day plan.
+   */
+  const itinerarySessions = model.ordered.filter((item) => itinerary.has(item.slug));
+  const downloadCalendar = () => {
+    const calendar = itineraryCalendar(
+      projection.event.name,
+      slug,
+      itinerarySessions,
+      new Date().toISOString(),
+    );
+    const url = URL.createObjectURL(new Blob([calendar], { type: "text/calendar;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${slug}-itinerary.ics`;
+    anchor.click();
+    // Revoked on the next frame rather than immediately: Safari has not finished reading
+    // the blob when `click()` returns, and revoking synchronously yields an empty file.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
   const zoneLine = `All times in ${model.timezone}${model.zone ? ` (${model.zone})` : ""}.`;
   // Regrouping changes the page under a screen-reader user without moving focus, so the
   // new shape is announced. Visually hidden: the buttons already show it. The day view
@@ -338,11 +397,22 @@ export function PublicEventApp() {
     { href: `${base}/schedule`, label: "Schedule", view: "schedule" as View },
     { href: `${base}/sessions`, label: "Sessions", view: "sessions" as View },
     { href: `${base}/speakers`, label: "Speakers", view: "speakers" as View },
+    { href: `${base}/gallery`, label: "Gallery", view: "gallery" as View },
+    { href: `${base}/itinerary`, label: "My itinerary", view: "itinerary" as View },
     { href: `${base}/cfp`, label: "CFP", view: "cfp" as View },
   ];
 
   return (
-    <div className={embedded ? "public-shell embed" : "public-shell"}>
+    <div
+      className={embedded ? "public-shell embed" : "public-shell"}
+      // The host page's brand colour, when its snippet supplied one. Set as a custom
+      // property rather than on individual rules so one value reaches every accent, and
+      // only ever a literal hex colour — `parseEmbedOptions` rejects anything else before
+      // it can reach a style attribute.
+      {...(embedOptions.accent
+        ? { style: { "--accent": embedOptions.accent } as React.CSSProperties }
+        : {})}
+    >
       <header>
         {embedded ? (
           // Inside an iframe the wordmark is the one way back to the real site, so
@@ -573,6 +643,12 @@ export function PublicEventApp() {
                                     base={base}
                                     timezone={model.timezone}
                                     speakers={model.speakersOf(item)}
+                                    fields={embedOptions.fields}
+                                    action={
+                                      embedded ? undefined : (
+                                        <StarButton session={item} itinerary={itinerary} />
+                                      )
+                                    }
                                   />
                                 ))}
                               </div>
@@ -591,6 +667,12 @@ export function PublicEventApp() {
                               base={base}
                               timezone={model.timezone}
                               speakers={model.speakersOf(item)}
+                              fields={embedOptions.fields}
+                              action={
+                                embedded ? undefined : (
+                                  <StarButton session={item} itinerary={itinerary} />
+                                )
+                              }
                             />
                           ))}
                         </div>
@@ -612,6 +694,12 @@ export function PublicEventApp() {
                           timezone={model.timezone}
                           speakers={model.speakersOf(item)}
                           showTime
+                          fields={embedOptions.fields}
+                          action={
+                            embedded ? undefined : (
+                              <StarButton session={item} itinerary={itinerary} />
+                            )
+                          }
                         />
                       ))}
                     </div>
@@ -630,6 +718,12 @@ export function PublicEventApp() {
                             timezone={model.timezone}
                             speakers={model.speakersOf(item)}
                             showTime
+                            fields={embedOptions.fields}
+                            action={
+                              embedded ? undefined : (
+                                <StarButton session={item} itinerary={itinerary} />
+                              )
+                            }
                           />
                         ))}
                       </div>
@@ -705,6 +799,12 @@ export function PublicEventApp() {
                           timezone={model.timezone}
                           speakers={model.speakersOf(item)}
                           showTime
+                          fields={embedOptions.fields}
+                          action={
+                            embedded ? undefined : (
+                              <StarButton session={item} itinerary={itinerary} />
+                            )
+                          }
                         />
                       ))}
                     </div>
@@ -854,6 +954,111 @@ export function PublicEventApp() {
           </article>
         )}
 
+        {/*
+          The gallery and the list are two readings of one directory, not two directories.
+          The list is for finding a name you already have; the gallery is for recognising a
+          face you do not. Both sort by surname and both link the same detail page, so a
+          session's speaker is in the same place whichever surface the visitor came from.
+        */}
+        {section === "gallery" && (
+          <>
+            <div className="pub-head">
+              <p className="kicker">People</p>
+              <h1>Speaker gallery</h1>
+              <p className="pub-tz">
+                {countLabel(projection.speakers.length, "speaker")}, by surname.
+              </p>
+            </div>
+            {projection.speakers.length === 0 ? (
+              <Empty level={2} title="No speakers published yet">
+                Speaker profiles appear here once the organizers publish the program.
+              </Empty>
+            ) : (
+              <section aria-labelledby="pub-gallery-list">
+                <h2 className="pub-sr" id="pub-gallery-list">
+                  Speaker gallery
+                </h2>
+                <div className="pub-gallery">
+                  {model.bySurname.map((item) => (
+                    <SpeakerCard
+                      key={item.slug}
+                      speaker={item}
+                      base={base}
+                      sessions={model.sessionsBySpeaker.get(item.slug) ?? []}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {section === "itinerary" && (
+          <>
+            <div className="pub-head">
+              <p className="kicker">Yours</p>
+              <h1>My itinerary</h1>
+              <p className="pub-tz">{zoneLine}</p>
+            </div>
+            {/*
+              The itinerary is stored against an unguessable link rather than an account.
+              Saying so is not legal boilerplate: it is the only way an attendee can know
+              that clearing this browser's storage loses the plan, and that the share link
+              hands the plan to whoever receives it.
+            */}
+            <p className="pub-note">
+              Starred sessions are kept against a private link for this browser — no account, no
+              email. Anyone with the link can see this itinerary.
+            </p>
+            {itinerary.failure && (
+              <p className="pub-note is-warning" role="alert">
+                {itinerary.failure}
+              </p>
+            )}
+            {itinerarySessions.length === 0 ? (
+              <Empty level={2} title="Nothing starred yet">
+                Star a session from the <a {...linkProps(`${base}/sessions`)}>sessions list</a> or
+                the <a {...linkProps(`${base}/schedule`)}>schedule</a> and it appears here.
+              </Empty>
+            ) : (
+              <>
+                <div className="pub-toolbar">
+                  <p className="pub-count" role="status">
+                    {countLabel(itinerarySessions.length, "session")} in your itinerary
+                  </p>
+                  <button type="button" className="pub-button" onClick={downloadCalendar}>
+                    Download calendar (.ics)
+                  </button>
+                </div>
+                {itinerary.shareUrl && (
+                  <p className="pub-note">
+                    Share or reopen on another device:{" "}
+                    <a href={itinerary.shareUrl}>{itinerary.shareUrl}</a>
+                  </p>
+                )}
+                <section aria-labelledby="pub-itinerary-list">
+                  <h2 className="pub-sr" id="pub-itinerary-list">
+                    Starred sessions
+                  </h2>
+                  <div className="pub-grid">
+                    {itinerarySessions.map((item) => (
+                      <SessionCard
+                        key={item.slug}
+                        session={item}
+                        base={base}
+                        timezone={model.timezone}
+                        speakers={model.speakersOf(item)}
+                        showTime
+                        action={<StarButton session={item} itinerary={itinerary} />}
+                      />
+                    ))}
+                  </div>
+                </section>
+              </>
+            )}
+          </>
+        )}
+
         {section === "cfp" ? (
           <PublicCfpView
             key={projection.event.eventId}
@@ -885,6 +1090,17 @@ export function PublicEventApp() {
 
       <footer>
         <p>Published by Project Greenroom</p>
+        {/*
+          The freshness boundary, stated rather than left to be discovered. Every surface
+          on this page reads one immutable snapshot, so an organizer's edit is invisible
+          here until they publish again — which is the property that lets two of these
+          pages be compared against each other and against an embed and agree, and the
+          one thing a visitor cannot infer from a page that looks live.
+        */}
+        <p className="pub-note">
+          This page shows the programme as last published. Changes an organizer makes afterwards
+          appear here only when they publish again.
+        </p>
       </footer>
     </div>
   );

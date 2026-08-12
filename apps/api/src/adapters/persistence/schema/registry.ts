@@ -67,6 +67,7 @@ export const schema = {
 export const {
   agendaDrafts,
   agendaPublications,
+  attendeeItineraries,
   cfpForms,
   cfpStatusAudit,
   cfpStatuses,

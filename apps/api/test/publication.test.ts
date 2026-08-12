@@ -1,34 +1,35 @@
 // @acceptance ACC-PUBLIC
-import { describe, expect, it, vi } from "vitest";
-import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
-import { EventService } from "../src/application/events/event-service";
+
 import {
-  createDemoSession,
-  resolveSeededDemoActor,
-} from "../src/application/identity/demo-session";
+  type PublicScheduleDto,
+  publicEventProjectionSchema,
+  publicScheduleSchema,
+} from "@greenroom/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
+import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
+import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
+import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
+import { AgendaService } from "../src/application/agenda/agenda-service";
+import { CfpService } from "../src/application/cfp/cfp-service";
+import { EventService } from "../src/application/events/event-service";
 import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
 } from "../src/application/identity/actor";
+import {
+  createDemoSession,
+  resolveSeededDemoActor,
+} from "../src/application/identity/demo-session";
 import type { PublicationRepository } from "../src/application/publishing/publication-repository";
 import {
   PublicationService,
   PublicationSettingsError,
   PublicationSlugTakenError,
 } from "../src/application/publishing/publication-service";
-import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
-import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
-import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
-import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
-import { AgendaService } from "../src/application/agenda/agenda-service";
-import { CfpService } from "../src/application/cfp/cfp-service";
 import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
+import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
 import { createHttpApp } from "../src/transport/http/app";
-import {
-  publicEventProjectionSchema,
-  publicScheduleSchema,
-  type PublicScheduleDto,
-} from "@greenroom/contracts";
 
 const safeProjection = {
   event: {
@@ -434,7 +435,7 @@ describe("publication snapshots", () => {
     });
 
     it("keeps a slug edit off the live address until it is published", async () => {
-      const { record, service, repository } = await composedFixture();
+      const { record, service } = await composedFixture();
       const organizer = await resolveSeededDemoActor("organizer");
       await service.publish(organizer, record.eventId);
 

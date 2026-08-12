@@ -118,6 +118,30 @@ export const publicationSettingsInputSchema = z
     "The end date cannot fall before the start date",
   );
 export type PublicationSettingsInput = z.infer<typeof publicationSettingsInputSchema>;
+/*
+ * Attendee itineraries.
+ *
+ * Anonymous by construction, like everything else under `/api/public/*`. The token in the
+ * path *is* the identity — there is no user id here to leak, and none to attribute an
+ * itinerary to later, which is a constraint worth knowing before anything tries to.
+ */
+// @spec PRD-PUB-001
+export const itineraryTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/);
+export const itineraryTokenParamsSchema = z.object({ token: itineraryTokenSchema });
+export const itinerarySchema = z.object({
+  eventSlug: routeSlugSchema,
+  sessionSlugs: z.array(routeSlugSchema),
+  updatedAt: z.string().datetime(),
+});
+export type ItineraryDto = z.infer<typeof itinerarySchema>;
+/** The saved list replaces the stored one outright; there is no add/remove verb. */
+export const itineraryInputSchema = z.object({ sessionSlugs: z.array(routeSlugSchema).max(200) });
+export const itineraryResponseSchema = z.object({ itinerary: itinerarySchema });
+/** The mint response, and the only time the token is ever returned. */
+export const itineraryCreatedResponseSchema = z.object({
+  token: itineraryTokenSchema,
+  itinerary: itinerarySchema,
+});
 export const publicationPreviewResponseSchema = z.object({
   publication: z.object({
     eventId: z.string().uuid(),

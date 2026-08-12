@@ -710,8 +710,15 @@
         "apps/web/test/public-event-pages.test.tsx",
         "apps/web/e2e/public-event.spec.ts",
         "apps/web/e2e/publishing.spec.ts",
+        "apps/web/e2e/public-itinerary.spec.ts",
         "apps/api/src/transport/http/routes/publishing.ts",
-        "apps/web/src/workspaces/publishing.tsx"
+        "apps/web/src/workspaces/publishing.tsx",
+        "apps/api/src/adapters/persistence/d1-itinerary-repository.ts",
+        "apps/api/migrations/1800_attendee_itineraries.sql",
+        "apps/api/test/itinerary.test.ts",
+        "apps/web/src/api/itinerary.ts",
+        "apps/web/src/public-event/itinerary.tsx",
+        "apps/web/test/public-itinerary.test.ts"
       ]
     }
   ],
@@ -727,12 +734,15 @@
     "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
     "EventRepository": "apps/api/src/application/events/event-repository.ts",
     "EventService": "apps/api/src/application/events/event-service.ts",
+    "ItineraryService": "apps/api/src/application/publishing/itinerary-service.ts",
     "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts",
     "PublicationService": "apps/api/src/application/publishing/publication-service.ts",
     "PublishingContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
+    "applyPublicationSettings": "apps/api/src/domain/publishing/publication.ts",
     "composePublicSchedule": "apps/api/src/application/publishing/public.ts",
-    "createHttpApp": "apps/api/src/transport/http/app.ts"
+    "createHttpApp": "apps/api/src/transport/http/app.ts",
+    "reconcileItinerary": "apps/api/src/domain/publishing/itinerary.ts"
   }
 }

@@ -1,24 +1,25 @@
 // @acceptance ACC-HARNESS
-import { describe, expect, it, vi } from "vitest";
+
 import { healthResponseSchema } from "@greenroom/contracts";
-import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
+import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
+import type { AgendaService } from "../src/application/agenda/public";
+import type { ContentService } from "../src/application/content/content-service";
 import { CrmService } from "../src/application/crm/crm-service";
 import { EventService } from "../src/application/events/event-service";
-import {
-  createDemoSession,
-  resolveSeededDemoActor,
-} from "../src/application/identity/demo-session";
-import { createEventToken } from "../src/application/identity/real-auth";
 import {
   type Actor,
   type Capability,
   requireEventCapability,
 } from "../src/application/identity/actor";
-import type { AgendaService } from "../src/application/agenda/public";
-import type { ContentService } from "../src/application/content/content-service";
-import type { ReviewService } from "../src/application/review/review-service";
+import {
+  createDemoSession,
+  resolveSeededDemoActor,
+} from "../src/application/identity/demo-session";
+import { createEventToken } from "../src/application/identity/real-auth";
 import { PublicationService } from "../src/application/publishing/publication-service";
+import type { ReviewService } from "../src/application/review/review-service";
 import { createHttpApp, createHttpAppFrom, type StructuredLogger } from "../src/transport/http/app";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";

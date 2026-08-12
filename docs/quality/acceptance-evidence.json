@@ -105,9 +105,12 @@
         "apps/api/test/publication.test.ts",
         "apps/api/test/d1-publication-repository.integration.test.ts",
         "apps/api/test/seed-state.integration.test.ts",
+        "apps/api/test/itinerary.test.ts",
         "apps/web/test/publishing.test.tsx",
         "apps/web/test/public-event-pages.test.tsx",
+        "apps/web/test/public-itinerary.test.ts",
         "apps/web/e2e/public-event.spec.ts",
+        "apps/web/e2e/public-itinerary.spec.ts",
         "apps/web/e2e/publishing.spec.ts",
         "apps/web/e2e/00-seed-state.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts"

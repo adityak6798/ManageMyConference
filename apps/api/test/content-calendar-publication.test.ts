@@ -29,8 +29,8 @@ import { resolveSeededDemoActor } from "../src/application/identity/demo-session
 import type { PublicationRepository } from "../src/application/publishing/publication-repository";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import { ProposalNotFoundError } from "../src/application/review/public";
-import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
 import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
+import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const sessionId = "20000000-0000-4000-8000-000000000001";

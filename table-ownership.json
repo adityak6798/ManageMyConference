@@ -36,6 +36,7 @@
     "review_decisions": "review",
     "agenda_drafts": "agenda",
     "agenda_publications": "agenda",
-    "public_event_projections": "publishing"
+    "public_event_projections": "publishing",
+    "attendee_itineraries": "publishing"
   }
 }

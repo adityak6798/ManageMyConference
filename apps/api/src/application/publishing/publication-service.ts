@@ -1,4 +1,3 @@
-import type { PublicationRepository } from "./publication-repository";
 import {
   allowlistPublicProjection,
   applyPublicationSettings,
@@ -7,14 +6,15 @@ import {
   publicEventSlug,
   publicSlugs,
 } from "../../domain/publishing/publication";
+import type { PublicSchedule } from "../agenda/public";
+import type { PublishingContentQuery } from "../content/public";
 import {
   type Actor,
   AuthenticationRequiredError,
   CapabilityDeniedError,
   hasEventRoleCapability,
 } from "../identity/actor";
-import type { PublishingContentQuery } from "../content/public";
-import type { PublicSchedule } from "../agenda/public";
+import type { PublicationRepository } from "./publication-repository";
 
 /** The organizer sent a coherent field that contradicts the stored one — a caller mistake. */
 export class PublicationSettingsError extends Error {}

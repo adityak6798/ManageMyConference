@@ -167,7 +167,36 @@ describe("PublishingWorkspace", () => {
     const frames = [...container.querySelectorAll("iframe")].map((frame) =>
       frame.getAttribute("src"),
     );
-    expect(frames).toEqual([`/embed/events/${slug}/schedule`, `/embed/events/${slug}/speakers`]);
+    // Four widget types, which is what issue #95 asks the share tooling to cover: the two
+    // programme views and the two readings of the speaker directory.
+    expect(frames).toEqual([
+      `/embed/events/${slug}/schedule`,
+      `/embed/events/${slug}/sessions`,
+      `/embed/events/${slug}/speakers`,
+      `/embed/events/${slug}/gallery`,
+    ]);
+  });
+
+  it("writes the chosen options into every snippet it hands out", async () => {
+    stubPublishing({});
+    renderWorkspace();
+    await screen.findByLabelText("Paste this into the host page", {
+      selector: "#snippet-schedule",
+    });
+
+    fireEvent.change(screen.getByLabelText("Limit to one track"), {
+      target: { value: "Main stage" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Times" }));
+
+    // The configuration lives in the URL rather than on the server, so the organizer can
+    // hand out two differently configured snippets without this screen remembering either.
+    const snippet = screen.getByLabelText<HTMLTextAreaElement>("Paste this into the host page", {
+      selector: "#snippet-sessions",
+    });
+    expect(snippet.value).toContain("track=Main+stage");
+    expect(snippet.value).toContain("fields=time");
+    expect(screen.getByText("The cards print only: time.")).toBeVisible();
   });
 
   it("copies the schedule snippet to the clipboard and announces it", async () => {
