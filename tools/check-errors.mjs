@@ -92,6 +92,11 @@ export function inspectText(text, path = "fixture.ts") {
       : ts.ScriptKind.TS;
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind);
   const failures = [];
+  const nulPosition = text.indexOf("\0");
+  if (nulPosition !== -1) {
+    const line = source.getLineAndCharacterOfPosition(nulPosition).line + 1;
+    failures.push(`${relative(root, path)}:${line}: NUL byte is forbidden in source text`);
+  }
   function fail(node, message) {
     const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
     failures.push(`${relative(root, path)}:${line}: ${message}`);
