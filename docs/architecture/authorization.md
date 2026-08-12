@@ -17,7 +17,16 @@ creating an event in an organization. Event-owned reads and mutations use
 `requireEventCapability`, which considers every role grant on the named event and requires the
 capability on that exact grant. An actor-wide capability never substitutes for the event grant.
 
-The current seeded demo authentication is harness-only. Organizer, reviewer, speaker, and public demo identities are signed sessions. Runtime actor resolution loads organization memberships and event roles from D1 on every request, so persisted revocation takes effect immediately. The organizer holds an organization membership and event roles; the other personas hold only explicit event assignments. The current-session query drives browser navigation, while server authorization remains authoritative. `npm run setup:local` creates an ignored `apps/api/.dev.vars` with a random signing secret; no deployable secret is committed. The internal demo-session route exists only when `DEMO_MODE=true` under the exact `ENVIRONMENT=development`, issues an expiring signed HttpOnly/SameSite cookie, rejects expired or tampered tokens, and still uses normal application authorization. Runtime startup rejects demo mode when the environment is missing, misspelled, or not development, and rejects a missing/default signing secret. Production authentication is intentionally not designed by this harness and requires an assigned security decision before implementation.
+The seeded demo authentication is harness-only. Production users request an emailed six-digit code,
+exchange it for an expiring signed HttpOnly/SameSite cookie, and may mint a one-hour bearer token
+restricted to one event they can read. The email adapter is provider-neutral and configured by
+AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN; provider payloads do not enter application contracts.
+Runtime actor resolution loads organization memberships and event roles from D1 on every cookie or
+bearer request, so persisted revocation takes effect immediately. The current-session query drives
+browser navigation, while server authorization remains authoritative. The internal demo-session
+route exists only when DEMO_MODE=true under exact ENVIRONMENT=development. Runtime startup rejects
+production or demo operation with a missing/default signing secret and rejects demo mode outside
+development.
 
 CI proves positive organizer access, scoped reviewer/speaker event reads, public private-route denial/navigation, organization creation denial, cross-event isolation, unauthenticated and unauthorized outcomes, and production demo-mode rejection. Published public reads remain owned by `ACC-PUBLIC`. Every future capability requires corresponding positive/negative tests.
 

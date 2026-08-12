@@ -119,17 +119,19 @@ describe("App", () => {
   it("shows a safe unauthenticated state with correlation reference", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        jsonResponse(
-          {
-            error: {
-              code: "UNAUTHORIZED",
-              message: "Sign in to continue.",
-              correlationId: "trace-123",
-            },
-          },
-          401,
-        ),
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/api/auth/config")
+          ? jsonResponse({ demoMode: true })
+          : jsonResponse(
+              {
+                error: {
+                  code: "UNAUTHORIZED",
+                  message: "Sign in to continue.",
+                  correlationId: "trace-123",
+                },
+              },
+              401,
+            ),
       ),
     );
     render(<App />);
@@ -150,6 +152,7 @@ describe("App", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
+        if (url.endsWith("/api/auth/config")) return jsonResponse({ demoMode: true });
         if (url.endsWith("/api/demo-session")) {
           signedIn = true;
           return jsonResponse({ persona: "reviewer" });

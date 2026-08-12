@@ -79,6 +79,8 @@ export const {
   crmProspects,
   eventRoles,
   events,
+  identityEmails,
+  identityLoginChallenges,
   messageTemplates,
   organizationMemberships,
   organizations,

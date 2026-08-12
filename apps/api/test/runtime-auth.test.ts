@@ -5,7 +5,11 @@ import { clientAddress, FixedWindowThrottle } from "../src/transport/http/thrott
 
 describe("runtimeAuth", () => {
   it("requires explicit safe demo configuration", () => {
-    expect(runtimeAuth({})).toEqual({ demoMode: false });
+    expect(() => runtimeAuth({})).toThrow("non-default SESSION_SECRET");
+    expect(runtimeAuth({ SESSION_SECRET: "safe-unique-key" })).toEqual({
+      demoMode: false,
+      sessionSecret: "safe-unique-key",
+    });
     expect(() => runtimeAuth({ DEMO_MODE: "true", ENVIRONMENT: "development" })).toThrow(
       "non-default SESSION_SECRET",
     );

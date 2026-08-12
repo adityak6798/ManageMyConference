@@ -27,6 +27,10 @@ export interface Environment {
   ASSETS: R2BucketPort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
+  AUTH_EMAIL_ENDPOINT?: string;
+  AUTH_EMAIL_TOKEN?: string;
+  INITIAL_ORGANIZER_USER_ID?: string;
+  INITIAL_ORGANIZER_EMAIL?: string;
   ENVIRONMENT?: string;
   /**
    * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
@@ -59,14 +63,11 @@ export function runtimeAuth(
   const demoMode = environment.DEMO_MODE === "true";
   if (demoMode && environment.ENVIRONMENT !== "development")
     throw new Error("DEMO_MODE is allowed only when ENVIRONMENT=development");
-  if (
-    demoMode &&
-    (!environment.SESSION_SECRET || environment.SESSION_SECRET === "local-development-secret")
-  )
-    throw new Error("Demo mode requires a non-default SESSION_SECRET binding");
+  if (!environment.SESSION_SECRET || environment.SESSION_SECRET === "local-development-secret")
+    throw new Error("Authentication requires a non-default SESSION_SECRET binding");
   if (demoMode)
     return { demoMode: true as const, sessionSecret: environment.SESSION_SECRET as string };
-  return { demoMode: false as const };
+  return { demoMode: false as const, sessionSecret: environment.SESSION_SECRET };
 }
 
 // @spec PRD-EVT-001 ARC-OBS-001
@@ -183,8 +184,45 @@ export default {
       service,
       logger,
       auth.demoMode
-        ? { ...auth, resolveActor: (persona) => identityDirectory.findByPersona(persona) }
-        : auth,
+        ? {
+            ...auth,
+            resolveActor: (persona: "organizer" | "reviewer" | "speaker" | "public") =>
+              identityDirectory.findByPersona(persona),
+          }
+        : {
+            ...auth,
+            resolveActor: (userId: string) => identityDirectory.findByUserId(userId),
+            resolveEmail: async (email: string) => {
+              if (
+                environment.INITIAL_ORGANIZER_USER_ID &&
+                environment.INITIAL_ORGANIZER_EMAIL?.toLowerCase() === email
+              )
+                await identityDirectory.linkEmail(environment.INITIAL_ORGANIZER_USER_ID, email);
+              return identityDirectory.findByEmail(email);
+            },
+            saveLoginChallenge: (challenge: {
+              id: string;
+              email: string;
+              codeProof: string;
+              expiresAt: number;
+            }) => identityDirectory.saveLoginChallenge(challenge),
+            consumeLoginChallenge: (id: string, proof: string, now: number) =>
+              identityDirectory.consumeLoginChallenge(id, proof, now),
+            sendLoginCode: async (email: string, code: string) => {
+              if (!environment.AUTH_EMAIL_ENDPOINT || !environment.AUTH_EMAIL_TOKEN)
+                throw new Error("Production authentication email provider is not configured");
+              const response = await fetch(environment.AUTH_EMAIL_ENDPOINT, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${environment.AUTH_EMAIL_TOKEN}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({ to: email, code }),
+              });
+              if (!response.ok)
+                throw new Error(`Authentication email provider returned ${response.status}`);
+            },
+          },
       reviewService,
       cfpService,
       content,

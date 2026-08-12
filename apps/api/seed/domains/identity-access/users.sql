@@ -11,3 +11,8 @@ INSERT INTO users (id, name, persona) VALUES
 
 INSERT INTO organization_memberships (organization_id, user_id, role)
 VALUES ('00000000-0000-4000-8000-000000000010', 'seed-organizer', 'organizer');
+
+INSERT INTO identity_emails (user_id, email) VALUES
+  ('seed-organizer', 'organizer@greenroom.test'),
+  ('seed-reviewer', 'reviewer@greenroom.test'),
+  ('seed-speaker', 'speaker@greenroom.test');

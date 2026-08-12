@@ -7,8 +7,8 @@ The repository is deliberately organized as an agent-readable context graph. Sta
 ## What is shipped, and what is not
 
 The product runs from a deterministic seed with development-only demo identities. The production
-bundle is deployable as one Cloudflare Worker serving both the API and SPA, but there is no
-production authentication, so a public deployment is not yet a usable organizer handoff. Every
+bundle is deployable as one Cloudflare Worker serving both the API and SPA, with emailed-code
+authentication and event-scoped bearer tokens. Every
 provider is a deterministic fake. Of the
 nine competition features, four are shipped — one of those with a named hole, one with no test on its
 rows — three are partial, and two are missing. The per-feature verdict with a deciding file for each
@@ -47,11 +47,16 @@ Wrangler with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, then deploy bo
 command:
 
 ```bash
+npm exec wrangler d1 migrations apply DB --config apps/api/wrangler.toml --remote
 npm run deploy
 ```
 
-The production runtime deliberately does not enable `DEMO_MODE`; issue #12 owns a deployable
-credential path. Do not publish a demo signing secret as a substitute.
+The production runtime deliberately does not enable DEMO_MODE. Configure a unique SESSION_SECRET,
+AUTH_EMAIL_ENDPOINT, AUTH_EMAIL_TOKEN, INITIAL_ORGANIZER_USER_ID, and INITIAL_ORGANIZER_EMAIL.
+The initial identity variables securely link an existing organizer row on first login; remove them
+after the link is established. The endpoint receives a JSON object containing
+to and code with the token as a Bearer credential. Missing/default signing configuration fails
+startup, while demo mode remains development-only.
 
 The running Worker serves its generated API contract at `/openapi.json` and a self-contained,
 browsable reference at `/docs`. The docs page loads no third-party runtime assets.

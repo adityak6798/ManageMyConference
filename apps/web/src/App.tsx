@@ -12,10 +12,13 @@ import { AppShell, type NavGroup, type Persona } from "./AppShell";
 import {
   ApiError,
   createEvent,
+  getAuthConfig,
   getSession,
   listAssignedEvents,
   listEvents,
+  requestLoginCode,
   startDemoSession,
+  verifyLoginCode,
 } from "./api/events";
 import { getPublicationSummary } from "./api/publication";
 import { OverviewPage } from "./OverviewPage";
@@ -117,6 +120,10 @@ export function App() {
   const [agendaLoadFailure, setAgendaLoadFailure] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [challenge, setChallenge] = useState("");
   const [publication, setPublication] = useState<{ slug: string; state: string } | null>(null);
   const location = useLocation();
   const path = location.split("?")[0] ?? "/";
@@ -151,6 +158,12 @@ export function App() {
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
     void loadShell()
+      .catch(async (reason: unknown) => {
+        if (!(reason instanceof ApiError) || reason.envelope.error.code !== "UNAUTHORIZED")
+          throw reason;
+        setError(readableError(reason));
+        setDemoMode((await getAuthConfig()).demoMode);
+      })
       .catch((reason: unknown) => setError(readableError(reason)))
       .finally(() => setLoading(false));
   }, [loadShell]);
@@ -246,6 +259,24 @@ export function App() {
     }
   }
 
+  async function submitLogin(formEvent: FormEvent) {
+    formEvent.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      if (!challenge) {
+        setChallenge((await requestLoginCode(email)).challenge);
+      } else {
+        await verifyLoginCode(challenge, code);
+        await loadShell();
+      }
+    } catch (reason) {
+      setError(readableError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function selectEvent(eventId: string) {
     setSelectedEventId(eventId);
     navigate(`${path}?event=${eventId}`, { replace: true });
@@ -292,25 +323,53 @@ export function App() {
       <main className="page-body" style={{ maxWidth: 560, margin: "12vh auto" }}>
         <PageHeader
           eyebrow="Project Greenroom"
-          title="Choose a workspace role"
-          subtitle="Each seeded identity sees exactly the access its role grants."
+          title={demoMode ? "Choose a workspace role" : "Sign in to Greenroom"}
+          subtitle={
+            demoMode
+              ? "Each seeded identity sees exactly the access its role grants."
+              : "Use the email address connected to your event account."
+          }
         />
         <Card>
-          <div className="persona-actions">
-            {personas.map((persona) => (
-              <button
-                key={persona}
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
-                  void switchPersona(persona);
-                }}
-              >
-                Continue as {persona}
+          {demoMode ? (
+            <div className="persona-actions">
+              {personas.map((persona) => (
+                <button
+                  key={persona}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
+                    void switchPersona(persona);
+                  }}
+                >
+                  Continue as {persona}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <form onSubmit={submitLogin}>
+              <div className="field">
+                <label htmlFor={challenge ? "login-code" : "login-email"}>
+                  {challenge ? "Six-digit code" : "Email address"}
+                </label>
+                <input
+                  id={challenge ? "login-code" : "login-email"}
+                  type={challenge ? "text" : "email"}
+                  inputMode={challenge ? "numeric" : undefined}
+                  autoComplete={challenge ? "one-time-code" : "email"}
+                  value={challenge ? code : email}
+                  onChange={(event) =>
+                    challenge ? setCode(event.target.value) : setEmail(event.target.value)
+                  }
+                  required
+                />
+              </div>
+              <button type="submit" disabled={busy}>
+                {challenge ? "Sign in" : "Email me a code"}
               </button>
-            ))}
-          </div>
+            </form>
+          )}
           {error ? (
             <div style={{ marginTop: "var(--s-4)" }}>
               <Notice tone="error">{error}</Notice>

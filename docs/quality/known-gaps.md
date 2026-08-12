@@ -82,13 +82,11 @@ feature-by-feature verdict.
 
 ## Missing product capability
 
-- `GAP-007` **There is no production authentication.** Signed, expiring, HttpOnly demo-session
-  cookies are the only identity path, and `/api/demo-session` is available only when
-  `DEMO_MODE=true` and `ENVIRONMENT=development`. Impact: a deployed instance is either
-  authenticated by nobody or impersonable by anybody; every authorization negative this repository
-  proves is proved against demo identities. Owner: identity-access. Governing ID: `PRD-IAM-001`,
-  `ARC-AUTH-001`. Closure: issues #60 and #12 — a real credential path with session lifecycle,
-  covered by the same authorization-negative matrix the demo path is covered by.
+- `GAP-007` **Partially closed by issue #60.** Production now has emailed-code sign-in and
+  event-scoped bearer tokens; demo impersonation remains development-only. Issue #12 still owns
+  durable logout/revocation, rotation/recovery operations, membership administration, audit
+  events, and the approved provider ADR. Owner: identity-access. Governing IDs:
+  `PRD-IAM-001`, `ARC-AUTH-001`.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). What remains is a provisioned preview/production target and its smoke and rollback

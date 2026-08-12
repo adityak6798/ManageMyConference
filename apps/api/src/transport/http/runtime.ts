@@ -30,7 +30,22 @@ export type ActorResolver = (
 
 export type RuntimeAuthConfig =
   | { demoMode: true; sessionSecret: string; now?: () => number; resolveActor: ActorResolver }
-  | { demoMode: false; now?: () => number };
+  | { demoMode: false; sessionSecret?: undefined; now?: () => number }
+  | {
+      demoMode: false;
+      sessionSecret: string;
+      now?: () => number;
+      resolveActor: (userId: string) => Promise<Actor | null>;
+      resolveEmail: (email: string) => Promise<Actor | null>;
+      sendLoginCode: (email: string, code: string) => Promise<void>;
+      saveLoginChallenge: (challenge: {
+        id: string;
+        email: string;
+        codeProof: string;
+        expiresAt: number;
+      }) => Promise<void>;
+      consumeLoginChallenge: (id: string, codeProof: string, now: number) => Promise<string | null>;
+    };
 
 /**
  * Which checkout started this Worker, and at which commit. Supplied by the local launcher and

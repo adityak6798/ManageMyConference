@@ -17,6 +17,7 @@ const personas = {
         "events:read",
         "events:settings:read",
         "events:settings:update",
+        "communications:manage",
         "agenda:manage",
         "crm:manage",
         "content:read",

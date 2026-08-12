@@ -421,6 +421,59 @@ describe("events HTTP transport", () => {
     );
   });
 
+  it("authenticates a production identity with an emailed code", async () => {
+    const service = new EventService({
+      repository: new MemoryEventRepository(),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const actor = await resolveSeededDemoActor("organizer");
+    let deliveredCode = "";
+    let savedChallenge: { id: string; email: string; codeProof: string; expiresAt: number } | null =
+      null;
+    const app = createHttpApp(
+      service,
+      logger,
+      {
+        demoMode: false,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: async (userId) => (userId === actor.id ? actor : null),
+        resolveEmail: async (email) => (email === "organizer@greenroom.test" ? actor : null),
+        sendLoginCode: async (_email, code) => {
+          deliveredCode = code;
+        },
+        saveLoginChallenge: async (challenge) => {
+          savedChallenge = challenge;
+        },
+        consumeLoginChallenge: async (id, proof, now) => {
+          const saved = savedChallenge;
+          if (!saved || saved.id !== id || saved.codeProof !== proof || saved.expiresAt <= now)
+            return null;
+          savedChallenge = null;
+          return saved.email;
+        },
+      },
+      testCrm(),
+    );
+    const requested = await app.request("/api/auth/code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "organizer@greenroom.test" }),
+    });
+    expect(requested.status).toBe(202);
+    const challenge = ((await requested.json()) as { challenge: string }).challenge;
+    const verified = await app.request("/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challenge, code: deliveredCode }),
+    });
+    expect(verified.status).toBe(200);
+    const cookie = verified.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect((await app.request("/api/session", { headers: { cookie } })).status).toBe(200);
+  });
+
   it("returns the standard envelope for unknown routes", async () => {
     const { app } = createTestApp();
     const response = await app.request("/api/unknown", {

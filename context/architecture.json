@@ -34,6 +34,11 @@
         "reason": "Harness-only session issue and resolution. The transport middleware resolves the session cookie through it and the identity routes issue one."
       },
       {
+        "path": "apps/api/src/application/identity/real-auth.ts",
+        "governing": "PRD-IAM-001",
+        "reason": "Production session and event-token issue and verification. The platform transport resolves credentials through this identity application boundary."
+      },
+      {
         "path": "apps/api/src/application/identity/identity-directory.ts",
         "governing": "PRD-IAM-002",
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
@@ -201,7 +206,7 @@
         "names": ["D1"],
         "state": "configured",
         "evidence": "apps/api/wrangler.toml",
-        "note": "Bound as DB; 22 migrations apply against it locally and in the D1 suite."
+        "note": "Bound as DB; 23 migrations apply against it locally and in the D1 suite."
       },
       {
         "id": "r2",

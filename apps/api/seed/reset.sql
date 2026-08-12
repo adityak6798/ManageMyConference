@@ -30,7 +30,10 @@ DELETE FROM cfp_forms;
 DELETE FROM event_roles;
 DELETE FROM organization_memberships;
 DELETE FROM events;
+DELETE FROM identity_login_challenges;
+DELETE FROM identity_emails;
 DELETE FROM users;
+
 DELETE FROM organizations;
 
 INSERT INTO organizations (id, name, created_at) VALUES
@@ -48,6 +51,12 @@ INSERT INTO users (id, name, persona) VALUES
 
 INSERT INTO organization_memberships (organization_id, user_id, role)
 VALUES ('00000000-0000-4000-8000-000000000010', 'seed-organizer', 'organizer');
+
+INSERT INTO identity_emails (user_id, email) VALUES
+  ('seed-organizer', 'organizer@greenroom.test'),
+  ('seed-reviewer', 'reviewer@greenroom.test'),
+  ('seed-speaker', 'speaker@greenroom.test');
+
 
 INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES
 (

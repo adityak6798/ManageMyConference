@@ -27,6 +27,7 @@ import {
   CapabilityDeniedError,
 } from "../../application/identity/actor";
 import { resolveDemoSession } from "../../application/identity/demo-session";
+import { resolveEventToken, resolveUserSession } from "../../application/identity/real-auth";
 import type { PublicationService } from "../../application/publishing/public";
 import type { ReviewService } from "../../application/review/review-service";
 import type { HttpDependencies } from "./routes/contract";
@@ -64,6 +65,8 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
     const correlationId =
       supplied && correlationPattern.test(supplied) ? supplied : crypto.randomUUID();
     context.set("correlationId", correlationId);
+    const authorization = context.req.header("authorization");
+    const bearer = authorization?.match(/^Bearer (\S+)$/i)?.[1];
     context.set(
       "actor",
       auth.demoMode
@@ -73,7 +76,23 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
             (auth.now ?? Date.now)(),
             auth.resolveActor,
           )
-        : null,
+        : !auth.sessionSecret
+          ? null
+          : authorization
+            ? bearer
+              ? await resolveEventToken(
+                  bearer,
+                  auth.sessionSecret,
+                  (auth.now ?? Date.now)(),
+                  auth.resolveActor,
+                )
+              : null
+            : await resolveUserSession(
+                getCookie(context, "greenroom_session"),
+                auth.sessionSecret,
+                (auth.now ?? Date.now)(),
+                auth.resolveActor,
+              ),
     );
     context.set("operation", `${context.req.method} ${context.req.path}`);
     context.header("x-correlation-id", correlationId);
@@ -160,7 +179,10 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
   const health = (context: HttpContext) =>
     context.json({
       status: "ok",
-      checks: { database: "configured", sessionSigning: auth.demoMode ? "configured" : "disabled" },
+      checks: {
+        database: "configured",
+        sessionSigning: auth.sessionSecret ? "configured" : "disabled",
+      },
       providerMode: "sql-r2",
       logFormat: "structured-json",
       // Omitted rather than set to undefined: a deployed instance reports no build identity at
