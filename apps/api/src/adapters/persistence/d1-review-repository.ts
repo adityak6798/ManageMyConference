@@ -255,6 +255,16 @@ export class D1ReviewRepository implements ReviewRepository {
     this.ensure(result, "get evaluation");
     return result.results?.[0] ? evaluation(result.results[0]) : null;
   }
+  async listEvaluations(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT evaluation.assignment_id, evaluation.reviewer_id, evaluation.scores_json, evaluation.notes, evaluation.state, evaluation.updated_at, evaluation.completed_at FROM review_evaluations evaluation INNER JOIN review_assignments assignment ON assignment.id = evaluation.assignment_id WHERE assignment.event_id = ? ORDER BY assignment.round, evaluation.updated_at",
+      )
+      .bind(eventId)
+      .all<EvaluationRow>();
+    this.ensure(result, "list review evaluations");
+    return (result.results ?? []).map(evaluation);
+  }
   async saveEvaluation(item: Evaluation) {
     const result = await this.database
       .prepare(
@@ -307,7 +317,7 @@ export class D1ReviewRepository implements ReviewRepository {
           ),
         this.database
           .prepare(
-            "INSERT INTO review_outcomes (event_id, proposal_id, completed_evaluation_count, average_score, updated_at) SELECT ?, ?, COUNT(DISTINCT e.assignment_id), AVG(CAST(json_extract(score.value, '$.score') AS REAL)), ? FROM review_evaluations e JOIN review_assignments a ON a.id = e.assignment_id JOIN json_each(e.scores_json) score WHERE a.event_id = ? AND a.proposal_id = ? AND e.state = 'completed' ON CONFLICT(event_id, proposal_id) DO UPDATE SET completed_evaluation_count = excluded.completed_evaluation_count, average_score = excluded.average_score, updated_at = excluded.updated_at",
+            "INSERT INTO review_outcomes (event_id, proposal_id, completed_evaluation_count, average_score, updated_at) SELECT ?, ?, COUNT(DISTINCT e.assignment_id), SUM(COALESCE(CAST(json_extract(score.value, '$.value') AS REAL), CAST(json_extract(score.value, '$.score') AS REAL)) * COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)) / SUM(COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)), ? FROM review_evaluations e JOIN review_assignments a ON a.id = e.assignment_id JOIN json_each(e.scores_json) score JOIN review_plans p ON p.event_id = a.event_id JOIN json_each(p.criteria_json) criterion ON json_extract(criterion.value, '$.id') = json_extract(score.value, '$.criterionId') WHERE a.event_id = ? AND a.proposal_id = ? AND e.state = 'completed' AND (COALESCE(json_extract(criterion.value, '$.type'), 'numeric') = 'numeric') ON CONFLICT(event_id, proposal_id) DO UPDATE SET completed_evaluation_count = excluded.completed_evaluation_count, average_score = excluded.average_score, updated_at = excluded.updated_at",
           )
           .bind(event.eventId, event.proposalId, event.occurredAt, event.eventId, event.proposalId),
       ]);
@@ -363,7 +373,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async listOutcomes(eventId: string) {
     const result = await this.database
       .prepare(
-        "SELECT event_id, proposal_id, completed_evaluation_count, average_score, updated_at FROM review_outcomes WHERE event_id = ? ORDER BY proposal_id",
+        "SELECT event_id, proposal_id, completed_evaluation_count, average_score, updated_at FROM review_outcomes WHERE event_id = ? ORDER BY average_score DESC, proposal_id",
       )
       .bind(eventId)
       .all<OutcomeRow>();

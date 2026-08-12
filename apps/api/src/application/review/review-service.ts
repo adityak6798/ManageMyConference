@@ -70,6 +70,26 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
   submitter: null,
 });
 
+const withCoAuthors = (proposal: SubmittedProposal) => {
+  const answer = proposal.answers.find(({ fieldId }) => fieldId === "coauthors")?.value;
+  if (!answer) return { ...proposal, coAuthors: [] };
+  try {
+    const parsed: unknown = JSON.parse(answer);
+    if (!Array.isArray(parsed)) return { ...proposal, coAuthors: [] };
+    return {
+      ...proposal,
+      coAuthors: parsed.flatMap((item) =>
+        item && typeof item === "object" && "name" in item && "role" in item
+          ? [{ name: String(item.name), role: String(item.role) }]
+          : [],
+      ),
+    };
+  } catch {
+    // ERROR-INTENT: malformed optional authorship is shown as absent; the proposal remains readable.
+    return { ...proposal, coAuthors: [] };
+  }
+};
+
 /**
  * Why an assignment cannot be removed once it has been scored. Named here so the service and
  * the storage race path answer with the same sentence.
@@ -155,16 +175,33 @@ export class ReviewService implements AcceptedProposalQuery {
         this.reviewerLists(authorized, eventId),
         this.dependencies.repository.listDecisions(eventId),
       ]);
+    const evaluations = await this.dependencies.repository.listEvaluations(eventId);
+    const progress = reviewers.directory.map(({ id: reviewerId }) => {
+      const owned = assignments.filter((assignment) => assignment.reviewerId === reviewerId);
+      const completed = owned.filter(
+        (assignment) =>
+          evaluations.find((evaluation) => evaluation.assignmentId === assignment.id)?.state ===
+          "completed",
+      ).length;
+      return {
+        reviewerId,
+        assigned: owned.length,
+        completed,
+        outstanding: owned.length - completed,
+      };
+    });
     return {
-      proposals,
+      proposals: proposals.map(withCoAuthors),
       plan,
       assignments,
       outcomes,
+      evaluations,
       audit,
       statuses,
       reviewers: reviewers.assignable,
       reviewerDirectory: reviewers.directory,
       decisions,
+      progress,
     };
   }
 
@@ -276,6 +313,49 @@ export class ReviewService implements AcceptedProposalQuery {
         throw new ReviewValidationError({ plan: [error.message] });
       throw error;
     }
+  }
+
+  async distribute(
+    actor: Actor | null,
+    eventId: string,
+    proposalIds: readonly string[],
+    reviewerIds: readonly string[],
+    maxAssignmentsPerReviewer: number,
+  ) {
+    this.organizer(actor, eventId);
+    const uniqueReviewers = [...new Set(reviewerIds)].sort();
+    for (const reviewerId of uniqueReviewers)
+      if (!(await this.dependencies.identities.isReviewerForEvent(reviewerId, eventId)))
+        throw new ReviewValidationError({
+          reviewerIds: ["Every reviewer must belong to this event"],
+        });
+    const existing = await this.dependencies.repository.listAssignments(eventId);
+    const counts = new Map(
+      uniqueReviewers.map((reviewerId) => [
+        reviewerId,
+        existing.filter((item) => item.reviewerId === reviewerId).length,
+      ]),
+    );
+    const created = [];
+    for (const proposalId of [...new Set(proposalIds)].sort()) {
+      const reviewerId = uniqueReviewers
+        .filter(
+          (candidate) =>
+            (counts.get(candidate) ?? 0) < maxAssignmentsPerReviewer &&
+            !existing.some(
+              (item) => item.proposalId === proposalId && item.reviewerId === candidate,
+            ),
+        )
+        .sort(
+          (left, right) =>
+            (counts.get(left) ?? 0) - (counts.get(right) ?? 0) || left.localeCompare(right),
+        )[0];
+      if (!reviewerId) break;
+      const assigned = await this.assign(actor, eventId, [proposalId], reviewerId);
+      created.push(...assigned);
+      counts.set(reviewerId, (counts.get(reviewerId) ?? 0) + assigned.length);
+    }
+    return created;
   }
 
   /**
@@ -507,10 +587,21 @@ export class ReviewService implements AcceptedProposalQuery {
     const plan = await this.dependencies.repository.getPlan(eventId);
     if (!plan)
       throw new ReviewValidationError({ plan: ["The organizer has not configured a plan"] });
-    const scoreMap = new Map(input.scores.map((score) => [score.criterionId, score.score]));
+    const scoreMap = new Map(
+      input.scores.map((score) => [score.criterionId, score.value ?? score.score]),
+    );
     const invalid = plan.criteria.filter((criterion) => {
-      const score = scoreMap.get(criterion.id);
-      return score === undefined || score < criterion.minScore || score > criterion.maxScore;
+      const value = scoreMap.get(criterion.id);
+      if (value === undefined) return true;
+      if (!criterion.type || criterion.type === "numeric")
+        return (
+          typeof value !== "number" || value < criterion.minScore || value > criterion.maxScore
+        );
+      if (criterion.type === "dropdown")
+        return typeof value !== "string" || !criterion.options.includes(value);
+      if (criterion.type === "text")
+        return typeof value !== "string" || !value.trim() || value.length > criterion.maxLength;
+      return true;
     });
     if (
       invalid.length ||
@@ -532,10 +623,10 @@ export class ReviewService implements AcceptedProposalQuery {
     const requestedEvaluation: Evaluation = {
       assignmentId,
       reviewerId: authorized.id,
-      scores: plan.criteria.map(({ id }) => ({
-        criterionId: id,
-        score: scoreMap.get(id) as number,
-      })),
+      scores: plan.criteria.map(({ id }) => {
+        const value = scoreMap.get(id) as number | string;
+        return { criterionId: id, value, ...(typeof value === "number" ? { score: value } : {}) };
+      }),
       notes: input.notes,
       state: input.complete ? "completed" : "draft",
       updatedAt: timestamp,

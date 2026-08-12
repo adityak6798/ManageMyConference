@@ -80,6 +80,16 @@ export class MemoryReviewRepository implements ReviewRepository {
   async getEvaluation(assignmentId: string, reviewerId: string) {
     return this.evaluations.get(`${assignmentId}:${reviewerId}`) ?? null;
   }
+  async listEvaluations(eventId: string) {
+    const assignmentIds = new Set(
+      [...this.assignments.values()]
+        .filter((assignment) => assignment.eventId === eventId)
+        .map(({ id }) => id),
+    );
+    return [...this.evaluations.values()].filter(({ assignmentId }) =>
+      assignmentIds.has(assignmentId),
+    );
+  }
   async saveEvaluation(evaluation: Evaluation) {
     const key = `${evaluation.assignmentId}:${evaluation.reviewerId}`;
     if (this.evaluations.get(key)?.state !== "completed") this.evaluations.set(key, evaluation);
@@ -92,12 +102,26 @@ export class MemoryReviewRepository implements ReviewRepository {
     if (!this.events.some((item) => item.assignmentId === event.assignmentId))
       this.events.push(event);
     const completed = await this.listCompletedEvaluations(event.eventId, event.proposalId);
-    const values = completed.flatMap(({ scores }) => scores.map(({ score }) => score));
+    const plan = this.plans.get(event.eventId);
+    const numeric = new Map(
+      (plan?.criteria ?? [])
+        .filter((criterion) => !criterion.type || criterion.type === "numeric")
+        .map((criterion) => [criterion.id, criterion.weight ?? 1]),
+    );
+    const values = completed.flatMap(({ scores }) =>
+      scores.flatMap((item) => {
+        const value = item.value ?? item.score;
+        const weight = numeric.get(item.criterionId);
+        return typeof value === "number" && weight ? [{ value, weight }] : [];
+      }),
+    );
     this.outcomes.set(`${event.eventId}:${event.proposalId}`, {
       eventId: event.eventId,
       proposalId: event.proposalId,
       completedEvaluationCount: completed.length,
-      averageScore: values.reduce((total, value) => total + value, 0) / values.length,
+      averageScore:
+        values.reduce((total, item) => total + item.value * item.weight, 0) /
+        values.reduce((total, item) => total + item.weight, 0),
       updatedAt: event.occurredAt,
     });
   }

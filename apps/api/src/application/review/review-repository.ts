@@ -28,6 +28,7 @@ export interface ReviewRepository {
   getConflict(assignmentId: string, reviewerId: string): Promise<ReviewConflict | null>;
   saveConflict(conflict: ReviewConflict): Promise<void>;
   getEvaluation(assignmentId: string, reviewerId: string): Promise<Evaluation | null>;
+  listEvaluations(eventId: string): Promise<readonly Evaluation[]>;
   saveEvaluation(evaluation: Evaluation): Promise<void>;
   completeEvaluation(evaluation: Evaluation, event: ReviewCompletedEvent): Promise<void>;
   listCompletedEvaluations(eventId: string, proposalId: string): Promise<readonly Evaluation[]>;

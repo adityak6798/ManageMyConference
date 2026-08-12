@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignReviewer,
+  distributeReviewers,
   getOrganizerReview,
   recordProposalDecision,
   removeReviewAssignment,
@@ -37,7 +38,9 @@ const RECENT_CHANGES = 12;
 export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [sortByScore, setSortByScore] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectedReviewers, setSelectedReviewers] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Which abstracts have their accept/decline confirmation open, and what it would record. A
@@ -91,7 +94,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const rows = useMemo(() => {
     if (!data) return [];
     const needle = search.trim().toLowerCase();
-    return data.proposals.filter((proposal) => {
+    const filtered = data.proposals.filter((proposal) => {
       if (tab !== "all" && proposal.status !== tab) return false;
       if (!needle) return true;
       return [
@@ -105,7 +108,13 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         .toLowerCase()
         .includes(needle);
     });
-  }, [data, search, tab]);
+    if (!sortByScore) return filtered;
+    const score = (proposalId: string) =>
+      data.outcomes
+        .filter((outcome) => outcome.proposalId === proposalId)
+        .sort((left, right) => right.round - left.round)[0]?.averageScore ?? -Infinity;
+    return filtered.sort((left, right) => score(right.id) - score(left.id));
+  }, [data, search, sortByScore, tab]);
 
   useEffect(() => {
     if (openId) detailRef.current?.focus();
@@ -301,6 +310,83 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
       `${name} is now reviewing ${proposalIds.length} abstract${proposalIds.length === 1 ? "" : "s"}.`,
     );
   };
+  const distribute = (proposalIds: string[]) => {
+    // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
+    void act(
+      () =>
+        distributeReviewers(eventId, {
+          proposalIds,
+          reviewerIds: data.reviewers.map(({ id }) => id),
+          maxAssignmentsPerReviewer: 20,
+        }),
+      `${proposalIds.length} abstracts distributed across the reviewer team.`,
+    );
+  };
+  const exportCsv = () => {
+    const quote = (value: unknown) => {
+      const raw = String(value ?? "");
+      const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+      return `"${safe.replaceAll('"', '""')}"`;
+    };
+    const criteria = data.plan?.criteria ?? [];
+    const lines = [
+      [
+        "Proposal",
+        "Submitter",
+        "Co-authors",
+        "Status",
+        "Reviewer",
+        "State",
+        "Aggregate",
+        ...criteria.map(({ name }) => name),
+      ]
+        .map(quote)
+        .join(","),
+    ];
+    for (const proposal of data.proposals) {
+      const assigned = assignmentsFor(proposal.id);
+      if (!assigned.length)
+        lines.push(
+          [
+            proposal.title,
+            proposal.submitterName,
+            (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; "),
+            proposal.status,
+            "",
+            "unassigned",
+            "",
+          ]
+            .map(quote)
+            .join(","),
+        );
+      for (const assignment of assigned) {
+        const evaluation = data.evaluations?.find((item) => item.assignmentId === assignment.id);
+        const outcome = data.outcomes.find((item) => item.proposalId === proposal.id);
+        lines.push(
+          [
+            proposal.title,
+            proposal.submitterName,
+            (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; "),
+            proposal.status,
+            reviewerName(assignment.reviewerId),
+            evaluation?.state ?? "outstanding",
+            outcome?.averageScore ?? "",
+            ...criteria.map(
+              (criterion) =>
+                evaluation?.scores.find((score) => score.criterionId === criterion.id)?.value ?? "",
+            ),
+          ]
+            .map(quote)
+            .join(","),
+        );
+      }
+    }
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+    link.download = `review-results-${eventId}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
   /**
    * Undo one assignment.
    *
@@ -400,6 +486,16 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
             <p className="triage-count">
               Showing {rows.length} of {data.proposals.length}
             </p>
+            <button
+              type="button"
+              className="secondary small"
+              onClick={() => setSortByScore((value) => !value)}
+            >
+              {sortByScore ? "Use submission order" : "Sort by aggregate"}
+            </button>
+            <button type="button" className="secondary small" onClick={exportCsv}>
+              Export CSV
+            </button>
           </div>
 
           {selected.length ? (
@@ -426,6 +522,14 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                 onTransition={(toStatus) => transition(selected, toStatus, true)}
                 onAssign={(reviewerId) => assign(selected, reviewerId, true)}
               />
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy || !data.reviewers.length}
+                onClick={() => distribute(selected)}
+              >
+                Distribute selection
+              </button>
               {/*
                * The bulk accept an organizer was reaching for when they picked "Accepted" in the
                * pipeline select. It opens the same confirmation a single row does and posts the
@@ -686,6 +790,12 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
             }
           >
             <ProposalAnswers answers={open.answers} />
+            {(open.coAuthors ?? []).length ? (
+              <p className="detail-reviewers">
+                <span className="detail-term">Co-authors and presenters</span>
+                {(open.coAuthors ?? []).map(({ name, role }) => `${name} — ${role}`).join(", ")}
+              </p>
+            ) : null}
             {/* Organizers see the contact address; the reviewer queue never receives it. */}
             <p className="detail-reviewers">
               <span className="detail-term">Submitter</span>
@@ -755,6 +865,58 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
           />
         </div>
       </details>
+
+      <div className="review-block">
+        <Card
+          labelledBy="review-progress"
+          title="Reviewer progress"
+          hint="Select reviewers who still have outstanding evaluations."
+          tight
+        >
+          {(data.progress ?? []).some(({ outstanding }) => outstanding > 0) ? (
+            <>
+              <ul className="assigned-reviewers">
+                {(data.progress ?? []).map((item) => (
+                  <li key={item.reviewerId}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        disabled={item.outstanding === 0}
+                        checked={selectedReviewers.includes(item.reviewerId)}
+                        onChange={(event) =>
+                          setSelectedReviewers((current) =>
+                            event.target.checked
+                              ? [...current, item.reviewerId]
+                              : current.filter((id) => id !== item.reviewerId),
+                          )
+                        }
+                      />
+                      {reviewerName(item.reviewerId)} — {item.completed} of {item.assigned} complete
+                      {item.outstanding ? ` · ${item.outstanding} outstanding` : ""}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                disabled
+                title="Waiting for issue #66's reviewer-reminder trigger"
+              >
+                Queue reminders for {selectedReviewers.length} reviewers
+              </button>
+              <p className="hint">
+                Delivery is waiting for communications issue #66 to add a reviewer-reminder trigger.
+                Review will enqueue through its public interface when that vocabulary exists; it
+                does not write delivery tables.
+              </p>
+            </>
+          ) : (
+            <EmptyState title="No outstanding reviews" icon={<IconReview size={20} />}>
+              Every assigned evaluation is complete.
+            </EmptyState>
+          )}
+        </Card>
+      </div>
 
       <div className="review-block">
         <Card

@@ -10,6 +10,7 @@ import {
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
   declareConflictInputSchema,
+  distributeReviewersInputSchema,
   evaluationResponseSchema,
   organizerReviewWorkspaceSchema,
   proposalDecisionResponseSchema,
@@ -93,6 +94,28 @@ export const reviewPaths: OpenApiFragment = {
       responses: {
         201: {
           description: "Created reviewer assignments",
+          content: json(reviewAssignmentsResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/review/assignments/distribute",
+      description:
+        "Deterministically balances proposals across reviewers up to a per-reviewer cap.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewEventParamsSchema,
+        body: { required: true, content: json(distributeReviewersInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "Distributed assignments",
           content: json(reviewAssignmentsResponseSchema),
         },
         400: errorResponse,

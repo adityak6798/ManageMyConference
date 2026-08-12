@@ -41,7 +41,15 @@ const build = (options: { reviewers?: readonly { id: string; name: string }[] } 
       abstract: "Test abstract",
       submitterName: "Robin Submitter",
       submitter: { name: "Robin Submitter", email: "robin@example.test" },
-      answers: [{ fieldId: "format", label: "Session format", type: "select", value: "Workshop" }],
+      answers: [
+        { fieldId: "format", label: "Session format", type: "select", value: "Workshop" },
+        {
+          fieldId: "coauthors",
+          label: "Co-authors",
+          type: "long_text",
+          value: '[{"name":"Avery Chen","role":"Co-presenter"}]',
+        },
+      ],
       status: "submitted",
     },
   ]);
@@ -88,7 +96,13 @@ describe("review workflow", () => {
       { id: "fit", name: "Fit", description: "Audience fit", minScore: 1, maxScore: 5 },
     ]);
     await service.bulkTransition(organizer, eventId, [proposalId], "under_review");
-    const [assignment] = await service.assign(organizer, eventId, [proposalId], reviewer.id);
+    const [assignment] = await service.distribute(
+      organizer,
+      eventId,
+      [proposalId],
+      [reviewer.id],
+      1,
+    );
     expect(assignment).toBeDefined();
     const queue = await service.reviewerQueue(reviewer, eventId);
     expect(queue).toHaveLength(1);
@@ -467,6 +481,9 @@ describe("review workflow", () => {
     ]);
 
     const workspace = await service.organizerWorkspace(organizer, eventId);
+    expect(workspace.proposals[0]?.coAuthors).toEqual([
+      { name: "Avery Chen", role: "Co-presenter" },
+    ]);
     expect(workspace.reviewers).toEqual([{ id: reviewer.id, name: "Ravi Reviewer" }]);
     /*
      * Withheld from the *assignable* list, still present in the directory.
@@ -648,5 +665,79 @@ describe("review workflow", () => {
     // None of them removed anything.
     expect((await service.organizerWorkspace(organizer, eventId)).assignments).toHaveLength(1);
     expect(await service.reviewerQueue(reviewer, eventId)).toHaveLength(1);
+  });
+
+  it("round-trips typed weighted criteria and reports reviewer progress", async () => {
+    const { service } = build();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    await service.configurePlan(organizer, eventId, [
+      {
+        id: "impact",
+        name: "Impact",
+        description: "Audience value",
+        type: "numeric",
+        minScore: 1,
+        maxScore: 5,
+        weight: 3,
+      },
+      {
+        id: "confidence",
+        name: "Confidence",
+        description: "Recommendation",
+        type: "numeric",
+        minScore: 1,
+        maxScore: 5,
+        weight: 1,
+      },
+      {
+        id: "format",
+        name: "Format",
+        description: "Best format",
+        type: "dropdown",
+        options: ["Talk", "Workshop"],
+        weight: 1,
+      },
+      {
+        id: "feedback",
+        name: "Feedback",
+        description: "Rationale",
+        type: "text",
+        maxLength: 500,
+        weight: 1,
+      },
+    ]);
+    const [assignment] = await service.assign(organizer, eventId, [proposalId], reviewer.id);
+    expect((await service.organizerWorkspace(organizer, eventId)).progress).toContainEqual({
+      reviewerId: reviewer.id,
+      assigned: 1,
+      completed: 0,
+      outstanding: 1,
+    });
+    await service.saveEvaluation(
+      reviewer,
+      eventId,
+      assignment?.id as string,
+      {
+        scores: [
+          { criterionId: "impact", value: 4 },
+          { criterionId: "confidence", value: 1 },
+          { criterionId: "format", value: "Workshop" },
+          { criterionId: "feedback", value: "Strong practical detail" },
+        ],
+        notes: "",
+        complete: true,
+      },
+      "typed-criteria",
+    );
+    const workspace = await service.organizerWorkspace(organizer, eventId);
+    expect(workspace.evaluations?.[0]?.scores).toMatchObject([
+      { criterionId: "impact", value: 4 },
+      { criterionId: "confidence", value: 1 },
+      { criterionId: "format", value: "Workshop" },
+      { criterionId: "feedback", value: "Strong practical detail" },
+    ]);
+    expect(workspace.outcomes[0]?.averageScore).toBe(3.25);
+    expect(workspace.progress?.[0]).toMatchObject({ completed: 1, outstanding: 0 });
   });
 });

@@ -393,17 +393,19 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
 
   // Unscored criteria are explicit, and completing without them is refused
   // rather than silently defaulting each one to its minimum score.
-  await expect(evaluation.getByText("2 of 2 criteria still need a score.")).toBeVisible();
+  await expect(evaluation.getByText("3 of 3 criteria still need a score.")).toBeVisible();
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
-  await expect(page.getByRole("alert")).toContainText("Relevance, Clarity");
+  await expect(page.getByRole("alert")).toContainText(
+    "Relevance, Recommended format, Reviewer feedback",
+  );
   await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
     "Not started",
   );
 
-  // Distinct, non-default scores: the minimum on this rubric is 1, so an average of 4.5
-  // is only reachable if the select actually wrote 4 and 5 into the submitted evaluation.
+  // Exercise every supported field type. Only numeric criteria contribute to the aggregate.
   await evaluation.getByLabel("Relevance").selectOption("4");
-  await evaluation.getByLabel("Clarity").selectOption("5");
+  await evaluation.getByLabel("Recommended format").selectOption("Workshop");
+  await evaluation.getByLabel("Reviewer feedback").fill("Strong audience fit.");
   await evaluation.getByLabel("Private notes").fill("Clear and relevant.");
   await evaluation.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
@@ -415,7 +417,8 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await page.reload();
   await queue.getByRole("button", { name: new RegExp(scored) }).click();
   await expect(evaluation.getByLabel("Relevance")).toHaveValue("4");
-  await expect(evaluation.getByLabel("Clarity")).toHaveValue("5");
+  await expect(evaluation.getByLabel("Recommended format")).toHaveValue("Workshop");
+  await expect(evaluation.getByLabel("Reviewer feedback")).toHaveValue("Strong audience fit.");
   await expect(evaluation.getByLabel("Private notes")).toHaveValue("Clear and relevant.");
 
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
@@ -452,7 +455,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
     .getByRole("table")
     .first()
     .getByRole("row", { name: new RegExp(scored) });
-  await expect(scoredRow).toContainText("4.5");
+  await expect(scoredRow).toContainText("4");
   await expect(scoredRow).toContainText("1 completed");
   // A declared conflict is not a score.
   await expect(
@@ -532,7 +535,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
     .getByRole("table")
     .first()
     .getByRole("row", { name: new RegExp(scored) });
-  await expect(combined).toContainText("4.5");
+  await expect(combined).toContainText("4");
   await expect(combined).toContainText("1 completed");
   await expect(combined.getByText("Ravi Reviewer", { exact: true })).toBeVisible();
 });

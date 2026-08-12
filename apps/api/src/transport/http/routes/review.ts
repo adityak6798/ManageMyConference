@@ -12,6 +12,7 @@ import {
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
   declareConflictInputSchema,
+  distributeReviewersInputSchema,
   proposalStatusSchema,
   recordProposalDecisionInputSchema,
   reviewAssignmentParamsSchema,
@@ -39,6 +40,7 @@ const routes = [
   "PUT /api/events/:eventId/review/plan",
   "PUT /api/events/:eventId/review/statuses",
   "POST /api/events/:eventId/review/assignments",
+  "POST /api/events/:eventId/review/assignments/distribute",
   "DELETE /api/events/:eventId/review/assignments/:assignmentId",
   "POST /api/events/:eventId/review/transitions",
   "POST /api/events/:eventId/review/decisions",
@@ -162,6 +164,39 @@ export const reviewRoutes: RouteModule = {
             params.data.eventId,
             parsed.data.proposalIds,
             parsed.data.reviewerId,
+          ),
+        },
+        201,
+      );
+    });
+    app.post("/api/events/:eventId/review/assignments/distribute", async (context) => {
+      const params = reviewEventParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+      const parsed = distributeReviewersInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The distribution request is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json(
+        {
+          assignments: await reviewService.distribute(
+            context.get("actor"),
+            params.data.eventId,
+            parsed.data.proposalIds,
+            parsed.data.reviewerIds,
+            parsed.data.maxAssignmentsPerReviewer,
           ),
         },
         201,

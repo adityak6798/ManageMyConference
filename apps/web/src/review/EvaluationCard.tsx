@@ -28,9 +28,12 @@ export function EvaluationCard({
   reload: () => Promise<void>;
 }) {
   const [notes, setNotes] = useState(item.evaluation?.notes ?? "");
-  const [scores, setScores] = useState<Record<string, number>>(() =>
+  const [scores, setScores] = useState<Record<string, number | string>>(() =>
     Object.fromEntries(
-      (item.evaluation?.scores ?? []).map(({ criterionId, score }) => [criterionId, score]),
+      (item.evaluation?.scores ?? []).flatMap(({ criterionId, value, score }) => {
+        const stored = value ?? score;
+        return stored === undefined ? [] : [[criterionId, stored]];
+      }),
     ),
   );
   const [attempted, setAttempted] = useState(false);
@@ -66,7 +69,7 @@ export function EvaluationCard({
       await saveReviewEvaluation(eventId, item.assignment.id, {
         scores: item.plan.criteria.map((criterion) => ({
           criterionId: criterion.id,
-          score: scores[criterion.id] as number,
+          value: scores[criterion.id] as number | string,
         })),
         notes,
         complete,
@@ -119,7 +122,7 @@ export function EvaluationCard({
               <dt>
                 {criteria.find(({ id }) => id === score.criterionId)?.name ?? score.criterionId}
               </dt>
-              <dd>{score.score}</dd>
+              <dd>{score.value ?? score.score}</dd>
             </Fragment>
           ))}
         </dl>
@@ -179,41 +182,67 @@ export function EvaluationCard({
                 <div className="field">
                   <label htmlFor={`score-${criterion.id}`}>{criterion.name}</label>
                   <p className="hint" id={`hint-${criterion.id}`}>
-                    {criterion.description} · {criterion.minScore} to {criterion.maxScore}
+                    {criterion.description} · Weight {criterion.weight ?? 1}
                   </p>
                 </div>
                 <div className="criterion-input">
-                  <select
-                    id={`score-${criterion.id}`}
-                    aria-describedby={`hint-${criterion.id}`}
-                    aria-required="true"
-                    aria-invalid={missing}
-                    value={value === undefined ? "" : String(value)}
-                    onChange={(event) =>
-                      setScores((current) => {
-                        const next = { ...current };
-                        if (event.target.value === "") delete next[criterion.id];
-                        else next[criterion.id] = Number(event.target.value);
-                        return next;
-                      })
-                    }
-                  >
-                    <option value="">Not scored</option>
-                    {Array.from(
-                      { length: criterion.maxScore - criterion.minScore + 1 },
-                      (_, index) => criterion.minScore + index,
-                    ).map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                  {criterion.type === "text" ? (
+                    <textarea
+                      id={`score-${criterion.id}`}
+                      aria-describedby={`hint-${criterion.id}`}
+                      aria-required="true"
+                      aria-invalid={missing}
+                      maxLength={criterion.maxLength}
+                      value={value === undefined ? "" : String(value)}
+                      onChange={(event) =>
+                        setScores((current) => {
+                          const next = { ...current };
+                          if (!event.target.value.trim()) delete next[criterion.id];
+                          else next[criterion.id] = event.target.value;
+                          return next;
+                        })
+                      }
+                    />
+                  ) : (
+                    <select
+                      id={`score-${criterion.id}`}
+                      aria-describedby={`hint-${criterion.id}`}
+                      aria-required="true"
+                      aria-invalid={missing}
+                      value={value === undefined ? "" : String(value)}
+                      onChange={(event) =>
+                        setScores((current) => {
+                          const next = { ...current };
+                          if (event.target.value === "") delete next[criterion.id];
+                          else
+                            next[criterion.id] =
+                              !criterion.type || criterion.type === "numeric"
+                                ? Number(event.target.value)
+                                : event.target.value;
+                          return next;
+                        })
+                      }
+                    >
+                      <option value="">Not scored</option>
+                      {(!criterion.type || criterion.type === "numeric"
+                        ? Array.from(
+                            { length: criterion.maxScore - criterion.minScore + 1 },
+                            (_, index) => criterion.minScore + index,
+                          )
+                        : "options" in criterion
+                          ? criterion.options
+                          : []
+                      ).map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   {value === undefined ? (
                     <Pill tone={missing ? "danger" : "neutral"}>Not scored</Pill>
                   ) : (
-                    <Pill tone="ok">
-                      {value} of {criterion.maxScore}
-                    </Pill>
+                    <Pill tone="ok">{value}</Pill>
                   )}
                 </div>
               </div>

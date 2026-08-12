@@ -134,7 +134,8 @@ test("carries one proposal from the public form to the published site", async ({
   await expect(page.getByText(email)).toHaveCount(0);
   const evaluation = page.getByRole("region", { name: "Your evaluation" });
   await evaluation.getByLabel("Relevance").selectOption("3");
-  await evaluation.getByLabel("Clarity").selectOption("4");
+  await evaluation.getByLabel("Recommended format").selectOption("Talk");
+  await evaluation.getByLabel("Reviewer feedback").fill("A strong fit for the audience.");
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Evaluation completed" })).toBeVisible();
 
@@ -143,7 +144,7 @@ test("carries one proposal from the public form to the published site", async ({
   await findInTriage(page, title);
   const row = page.getByRole("table").first().getByRole("row", { name: title });
   // The score the reviewer just entered is what the organizer decides on.
-  await expect(row).toContainText("3.5");
+  await expect(row).toContainText("3");
   await page.getByRole("button", { name: `Accept ${title}` }).click();
   const decision = page.getByRole("region", { name: "Accept this abstract" });
   await expect(decision).toContainText(`links ${speaker} (${email})`);

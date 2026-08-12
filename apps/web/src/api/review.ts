@@ -4,6 +4,7 @@ import {
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
+  distributeReviewersInputSchema,
   evaluationResponseSchema,
   type OrganizerReviewWorkspaceDto,
   organizerReviewWorkspaceSchema,
@@ -75,6 +76,18 @@ export async function assignReviewer(
     await fetch(
       `/api/events/${eventId}/review/assignments`,
       json(assignReviewersInputSchema.parse(input)),
+    ),
+    reviewAssignmentsResponseSchema,
+  );
+}
+export async function distributeReviewers(
+  eventId: string,
+  input: z.input<typeof distributeReviewersInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/assignments/distribute`,
+      json(distributeReviewersInputSchema.parse(input)),
     ),
     reviewAssignmentsResponseSchema,
   );
