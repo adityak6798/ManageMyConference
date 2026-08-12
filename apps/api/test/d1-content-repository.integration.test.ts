@@ -1,3 +1,4 @@
+// @acceptance ACC-SPEAKER
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { D1SpeakerConversion } from "../src/adapters/content/d1-speaker-conversion";
