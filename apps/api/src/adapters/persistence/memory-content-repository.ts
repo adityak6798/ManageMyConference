@@ -206,6 +206,21 @@ export class MemoryContentRepository
   async updateProfile(profile: SpeakerProfile) {
     this.speakers = this.speakers.map((item) => (item.id === profile.id ? profile : item));
   }
+  async updateProfileWorkflow(
+    profileId: string,
+    fields: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
+  ) {
+    this.speakers = this.speakers.map((item) =>
+      item.id === profileId
+        ? {
+            ...item,
+            workflowStatus: fields.workflowStatus ?? "onboarding",
+            logistics: fields.logistics ?? {},
+            customFields: fields.customFields ?? {},
+          }
+        : item,
+    );
+  }
   async updateProfilePhoto(profileId: string, assetId: string | null) {
     this.speakers = this.speakers.map((item) => {
       if (item.id !== profileId) return item;

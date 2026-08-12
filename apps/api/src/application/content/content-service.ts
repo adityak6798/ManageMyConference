@@ -282,8 +282,10 @@ export class ContentService {
           if (profile) {
             const parseFields = (value?: string) =>
               value ? (JSON.parse(value) as Record<string, string>) : {};
-            await this.dependencies.repository.updateProfile({
-              ...profile,
+            // The three columns the import owns, and only those. Writing the whole row would
+            // carry a name, bio and headshot from the read above, so a long import could
+            // quietly revert an organizer editing the same speaker while it ran.
+            await this.dependencies.repository.updateProfileWorkflow(profile.id, {
               workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
                 row.workflowStatus ?? "",
               )

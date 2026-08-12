@@ -48,7 +48,26 @@ export interface ContentRepository {
   findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null>;
   accept(content: AcceptedContent): Promise<void>;
   workspace(eventId: string, userId?: string): Promise<ContentWorkspace>;
+  /**
+   * Write a profile with no revision and no guard.
+   *
+   * No production path calls this, and none should: an organizer's or speaker's profile edit
+   * goes through `reviseProfile`, a headshot through `updateProfilePhoto`, and an import
+   * through `updateProfileWorkflow`. Each of those writes what it is actually changing, so
+   * none of them can put a column back the way it read it. This survives for fixtures.
+   */
   updateProfile(profile: SpeakerProfile): Promise<void>;
+  /**
+   * Set the three fields a bulk import owns, and touch nothing else.
+   *
+   * Same reasoning as `updateProfilePhoto`. An import that wrote the whole row would carry a
+   * name, bio and headshot from whenever it read the profile, so importing a logistics column
+   * could revert an organizer's edit made while the import was running.
+   */
+  updateProfileWorkflow(
+    profileId: string,
+    fields: Pick<SpeakerProfile, "workflowStatus" | "logistics" | "customFields">,
+  ): Promise<void>;
   /**
    * Point a profile at one of its uploads, or at none — and touch nothing else.
    *
