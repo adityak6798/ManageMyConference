@@ -206,11 +206,16 @@ test("the directory holds one contact across two events, filters, and saves a vi
   await expect(ada).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Dr. Ada Rivera" })).toHaveCount(1);
   await ada.getByRole("button", { name: "Dr. Ada Rivera" }).click();
-  const history = page.getByRole("region", { name: "Event history" });
-  await expect(history.getByText("Greenroom Demo Summit")).toBeVisible();
-  await expect(history.getByText(OTHER_EVENT_ID)).toBeVisible();
+  // The listed events, not the section's own controls — "Add to Greenroom Demo Summit" names
+  // the selected event too, and matching that would prove nothing about the history.
+  const history = page.getByRole("region", { name: "Event history" }).getByRole("listitem");
+  await expect(history).toHaveCount(2);
+  await expect(history.first()).toContainText("Greenroom Demo Summit");
+  await expect(history.nth(1)).toContainText(OTHER_EVENT_ID);
   // Notes and custom fields are the profile's, not any one event's.
-  await expect(page.getByLabel("Notes")).toHaveValue(/morning slot/);
+  // Exact, because the section is itself labelled "Internal notes" and a substring match
+  // resolves to the region as well as the control.
+  await expect(page.getByLabel("Notes", { exact: true })).toHaveValue(/morning slot/);
   await expect(page.getByText("Inclusive event design")).toBeVisible();
 
   // Multi-criteria filtering, then a clear that goes back to everybody.
@@ -267,8 +272,10 @@ test("importing a spreadsheet creates durable contacts and the duplicates it mak
   await page.getByLabel("File name").fill(`speakers-${stamp}.csv`);
   await page.getByLabel("Paste CSV").fill(csv);
   await page.getByRole("button", { name: "Preview import" }).click();
-  // The preview is per row, and the nameless row is refused by name rather than silently dropped.
-  await expect(page.getByText("2 to add, 0 to update, 1 refused")).toBeVisible();
+  // The preview is per row, and the nameless row is refused by name rather than silently
+  // dropped. The count appears twice on purpose — announced to the organizer, and as the
+  // caption of the table it describes — so this asserts the caption.
+  await expect(page.getByText("2 to add, 0 to update, 1 refused").last()).toBeVisible();
   await expect(page.getByText("A name is required.")).toBeVisible();
 
   await page.getByRole("button", { name: "Import contacts", exact: true }).click();
@@ -294,9 +301,15 @@ test("importing a spreadsheet creates durable contacts and the duplicates it mak
   await page.getByRole("button", { name: "Apply filters" }).click();
   await expect(page.getByRole("button", { name: "Import Person" })).toHaveCount(1);
   await page.getByRole("button", { name: "Import Person" }).click();
-  await expect(page.getByText(`import-alt-${stamp}@example.test`)).toBeVisible();
+  // On the identity list, where a merged address is kept as an alias — not merely inside the
+  // merge entry the timeline also carries.
   await expect(
-    page.getByRole("region", { name: "Activity timeline" }).getByText("merge"),
+    page.getByRole("region", { name: "Identity" }).getByText(`import-alt-${stamp}@example.test`),
+  ).toBeVisible();
+  // The entry's kind, exactly — an inexact match also finds the "Merged … into this contact"
+  // summary sitting beside it and proves nothing about the kind.
+  await expect(
+    page.getByRole("region", { name: "Activity timeline" }).getByText("merge", { exact: true }),
   ).toBeVisible();
 });
 
@@ -378,15 +391,22 @@ test("a directory contact is sourced into an event and reaches communications", 
   expect(recipients).toContain(`crm-contact:${contactId}`);
 });
 
-test("the directory refuses every identity outside this organization's CRM", async ({ page }) => {
+test("the directory is closed to a reviewer staffed on this organization's own event", async ({
+  page,
+}) => {
   await signIn(page, "reviewer");
   // Staffed on this organization's event, and holds no `crm:manage` anywhere: the API refuses
-  // and the workspace is not in this persona's navigation at all.
+  // and the workspace is not in this persona's navigation at all. Being assignable as a
+  // prospect owner — which this reviewer is — grants no directory access either.
   const reviewerRead = await page.request.get(`/api/organizations/${ORGANIZATION_ID}/crm/contacts`);
   expect(reviewerRead.status()).toBe(403);
   await page.goto(DIRECTORY);
   await expect(page.getByRole("heading", { name: "Speaker directory", level: 1 })).toHaveCount(0);
+});
 
+test("the directory refuses every identity outside this organization's CRM", async ({ page }) => {
+  // A separate test rather than a second half of the reviewer one: the shell has no sign-out,
+  // so re-running the demo sign-in inside one context would find no persona buttons.
   await signIn(page);
   // The organizer holds `crm:manage` and belongs to one organization. Naming another is a
   // refusal, not a 404 that would confirm the organization exists.
