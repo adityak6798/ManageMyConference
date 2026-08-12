@@ -34,6 +34,11 @@ export const apiErrorCodeSchema = z.enum([
   // The unauthenticated CFP submission route is throttled per client and event; a caller
   // that exceeds the window is told so rather than being given a misleading 4xx.
   "RATE_LIMITED",
+  // A third-party system this request had to read was unreachable or unusable. Distinct from
+  // INTERNAL_ERROR on purpose: the registration sync failing because Accelevents is down is not
+  // our bug and not the caller's mistake, and telling an organizer "internal error" sends them
+  // to the wrong place. Carries a normalized code, never the upstream's own message.
+  "UPSTREAM_UNAVAILABLE",
   "INTERNAL_ERROR",
 ]);
 

@@ -38,6 +38,13 @@ import type {
 } from "../../domain/communications/delivery";
 
 export { CommunicationsService } from "./communications-service";
+/**
+ * The inbound Accelevents registration sync, composed by the transport alongside the service
+ * above. Its typed failure is exported with it because the route module translates that failure
+ * into a 502 — the registration platform being unreachable is neither our bug nor the caller's
+ * mistake, and it must not be reported as either.
+ */
+export { AccelEventsSyncService, AccelEventsUnavailableError } from "./accelevents-sync";
 export {
   CommunicationsConflictError,
   CommunicationsInputError,

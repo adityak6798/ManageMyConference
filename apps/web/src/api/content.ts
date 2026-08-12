@@ -4,6 +4,7 @@ import {
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
   setSpeakerPhotoInputSchema,
+  speakerCalendarInviteResultSchema,
   speakerCsvImportResultSchema,
   type UpdateContentSessionInput,
   type UpdateSpeakerProfileInput,
@@ -290,6 +291,20 @@ export async function addContentComment(
 }
 export async function restoreContentRevision(revisionId: string, fetcher: typeof fetch = fetch) {
   await contentMutation("/api/content-revisions/restore", { revisionId }, fetcher);
+}
+
+/**
+ * Send every speaker of every scheduled session the calendar invitation for it.
+ *
+ * The server decides who is reachable and what was already sent — running this twice on an
+ * unchanged agenda writes nothing the second time. `unreachable` names the sessions it could not
+ * invite anyone to, because a count gives an organizer nothing to act on.
+ */
+export async function sendSpeakerCalendarInvites(eventId: string, fetcher: typeof fetch = fetch) {
+  return decode(
+    await fetcher(`/api/events/${eventId}/speaker-calendar-invites`, { method: "POST" }),
+    speakerCalendarInviteResultSchema,
+  );
 }
 export async function downloadDeliverables(
   eventId: string,

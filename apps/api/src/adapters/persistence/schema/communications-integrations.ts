@@ -71,6 +71,9 @@ export function defineCommunicationsIntegrationsSchema(references: {
     },
     (table) => [
       unique().on(table.organizationId, table.idempotencyKey),
+      // The union both wave-3 communications branches agreed on, so a rebuild in either does not
+      // drop the other's values. Five triggers and the `event` channel have no producer here yet;
+      // migration 1750's header says why they are permitted anyway.
       check(
         "communication_deliveries_trigger_type",
         sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded')`,
@@ -146,10 +149,34 @@ export function defineCommunicationsIntegrationsSchema(references: {
     ],
   );
 
+  // Last-sync state for the inbound Accelevents registration import. One row per event; a dry run
+  // never writes here. See migration 1751 for why this is the only run state kept.
+  const accelEventsSyncRuns = sqliteTable(
+    "accelevents_sync_runs",
+    {
+      eventId: text("event_id")
+        .primaryKey()
+        .notNull()
+        .references(() => references.eventsId),
+      startedAt: text("started_at").notNull(),
+      completedAt: text("completed_at").notNull(),
+      outcome: text("outcome").notNull(),
+      total: integer("total").notNull(),
+      created: integer("created").notNull(),
+      skipped: integer("skipped").notNull(),
+      invalid: integer("invalid").notNull(),
+      errorCode: text("error_code"),
+    },
+    (table) => [
+      check("accelevents_sync_runs_outcome", sql`${table.outcome} IN ('succeeded', 'failed')`),
+    ],
+  );
+
   return {
     messageTemplates,
     communicationDeliveries,
     communicationAttempts,
     outboundProjectionState,
+    accelEventsSyncRuns,
   };
 }

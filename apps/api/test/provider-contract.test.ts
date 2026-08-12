@@ -11,12 +11,15 @@
 // staging smoke documented in docs/engineering/communications-providers.md, and it has not run.
 import { describe, expect, it } from "vitest";
 import { AccelEventsProjectionProvider } from "../src/adapters/providers/accelevents-provider";
+import { HttpAccelEventsRegistrations } from "../src/adapters/providers/accelevents-registration";
 import { AirtableProjectionProvider } from "../src/adapters/providers/airtable-provider";
 import { HttpEmailProvider } from "../src/adapters/providers/email-provider";
 import type { DeliveryProvider } from "../src/application/communications/ports";
 import type { Delivery } from "../src/domain/communications/delivery";
 
 const TOKEN = "super-secret-token-value";
+/** The one Greenroom event this deployment's Accelevents binding is mapped to. */
+const GREENROOM_EVENT = "00000000-0000-4000-8000-000000000001";
 
 const delivery = (overrides: Partial<Delivery> = {}): Delivery => ({
   id: "delivery-1",
@@ -308,5 +311,166 @@ describe("provider request shapes", () => {
       version: 2,
       eventRef: "event-1",
     });
+  });
+
+  /*
+   * The calendar part, which is what makes an email an invitation.
+   *
+   * A mail client shows Accept/Decline for a `text/calendar; method=REQUEST` part and not for a
+   * link or a plain attachment, so the adapter has to carry the method through to the provider.
+   */
+  const email = (fetch: (url: string, init: RequestInit) => Promise<Response>) =>
+    new HttpEmailProvider(
+      { endpoint: "https://mail.test/send", token: TOKEN, sender: "events@greenroom.test" },
+      fetch,
+    );
+  const invite = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n";
+
+  it("sends an invitation as a calendar part carrying its method", async () => {
+    const { fetch, recorded } = stub(200, { id: "msg-1" });
+
+    const result = await email(fetch).deliver(
+      delivery({
+        triggerType: "speaker.calendar_invite",
+        payload: {
+          speakerName: "Ada",
+          calendarInvite: { method: "REQUEST", filename: "invite.ics", content: invite },
+        },
+      }),
+    );
+
+    expect(result).toEqual({ kind: "success", providerReference: "email:msg-1" });
+    expect(JSON.parse(String(recorded[0]?.init.body))).toMatchObject({
+      to: "ada@example.test",
+      subject: "You're speaking",
+      text: "Hello Ada",
+      calendar: { method: "REQUEST", filename: "invite.ics", content: invite },
+    });
+  });
+
+  it("sends an ordinary email exactly as it did before invitations existed", async () => {
+    const withoutInvite = stub(200, { id: "msg-2" });
+    await email(withoutInvite.fetch).deliver(delivery());
+    const body = JSON.parse(String(withoutInvite.recorded[0]?.init.body));
+
+    // Absent, not null: an existing delivery's request is unchanged by this feature, which is the
+    // property that lets the field be added without touching any other trigger's behaviour.
+    expect("calendar" in body).toBe(false);
+    expect(body).toEqual({
+      from: "events@greenroom.test",
+      to: "ada@example.test",
+      subject: "You're speaking",
+      text: "Hello Ada",
+    });
+  });
+
+  /*
+   * The inbound registration client (#58). Same normalization table as the delivery adapters,
+   * because an operator reading a failed sync should be reading the same vocabulary.
+   */
+  const registrations = (fetch: (url: string, init: RequestInit) => Promise<Response>) =>
+    new HttpAccelEventsRegistrations(
+      {
+        apiOrigin: "https://accelevents.test/api",
+        token: TOKEN,
+        eventRef: "ae-event-1",
+        boundEventId: GREENROOM_EVENT,
+      },
+      fetch,
+    );
+
+  it("reads registrants and never puts its credential in the URL", async () => {
+    const { fetch, recorded } = stub(200, {
+      registrations: [
+        { id: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
+        { id: "ae-2", name: "Grace", email: "grace@example.test" },
+      ],
+    });
+
+    expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toEqual([
+      { sourceRef: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
+      { sourceRef: "ae-2", name: "Grace", email: "grace@example.test" },
+    ]);
+    expect(recorded[0]?.url).toBe("https://accelevents.test/api/events/ae-event-1/registrations");
+    expect(recorded[0]?.url).not.toContain(TOKEN);
+    expect(recorded[0]?.init.method).toBe("GET");
+  });
+
+  it("refuses to answer an event it is not bound to, rather than serving another one's roster", async () => {
+    const { fetch, recorded } = stub(200, {
+      registrations: [{ id: "ae-1", name: "Ada", email: "ada@example.test" }],
+    });
+
+    // One deployment maps one Greenroom event to one Accelevents event. Answering any other event
+    // with the configured roster would import a different conference's attendee names and
+    // addresses as speaker profiles — reachable by an organizer who is legitimately authorized on
+    // *their* event, because the capability check upstream cannot know what the roster contains.
+    await expect(
+      registrations(fetch).listRegistrants("00000000-0000-4000-8000-0000000000ff"),
+    ).rejects.toMatchObject({ code: "ACCELEVENTS_EVENT_NOT_MAPPED" });
+    // Refused before the request, so the wrong roster is never even fetched.
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("drops an incomplete registrant rather than importing a person nobody can reach", async () => {
+    const { fetch } = stub(200, {
+      registrations: [
+        { id: "ae-1", name: "Ada", email: "ada@example.test" },
+        { id: "ae-2", name: "No address" },
+        { name: "No id", email: "x@example.test" },
+        null,
+      ],
+    });
+    expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toHaveLength(1);
+  });
+
+  it("normalizes an unreadable platform without ever storing its message", async () => {
+    for (const [status, code] of [
+      [429, "PROVIDER_RATE_LIMITED"],
+      [503, "PROVIDER_UNAVAILABLE:503"],
+      [401, "PROVIDER_UNAUTHORIZED:401"],
+    ] as const) {
+      // The error body echoes the credential back, the way a careless API does.
+      const { fetch } = stub(status, { message: `rejected token ${TOKEN}` });
+      await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.toMatchObject({
+        code,
+      });
+      await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.not.toMatchObject(
+        {
+          message: expect.stringContaining(TOKEN),
+        },
+      );
+    }
+    // A 2xx that is not the documented shape is malformed, not an empty roster: reporting "0
+    // registrants" for an unparsable answer would look like a successful, empty sync.
+    const unparsable = stub(200, { items: [] });
+    await expect(
+      registrations(unparsable.fetch).listRegistrants(GREENROOM_EVENT),
+    ).rejects.toMatchObject({
+      code: "MALFORMED_PROVIDER_RESPONSE",
+    });
+    await expect(
+      registrations(failing(new Error("dns"))).listRegistrants(GREENROOM_EVENT),
+    ).rejects.toMatchObject({
+      code: "PROVIDER_UNREACHABLE",
+    });
+  });
+
+  it("refuses a malformed invitation rather than sending the covering note alone", async () => {
+    // A speaker who receives "here is your invitation" and no invitation has been told a meeting
+    // exists and given no way to accept it. No retry can repair a payload already stored.
+    for (const calendarInvite of [
+      { method: "REQUEST" },
+      { method: "SHOUT", content: invite },
+      { content: invite },
+      "not an object",
+    ]) {
+      const { fetch, recorded } = stub(200, { id: "msg-3" });
+      expect(await email(fetch).deliver(delivery({ payload: { calendarInvite } }))).toEqual({
+        kind: "terminal",
+        code: "CALENDAR_INVITE_MALFORMED",
+      });
+      expect(recorded).toHaveLength(0);
+    }
   });
 });

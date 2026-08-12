@@ -219,3 +219,47 @@ export type BroadcastResultDto = z.infer<typeof broadcastResponseSchema>;
 export type TriggerDeliveryInput = z.infer<typeof triggerDeliveryInputSchema>;
 export type DeliveryDto = z.infer<typeof deliverySchema>;
 export type CommunicationsHistoryDto = z.infer<typeof communicationsHistoryResponseSchema>;
+
+/**
+ * The inbound Accelevents registration sync (`PRD-INT-001`, brief feature 7).
+ *
+ * `disposition` is a prediction in a dry run and an outcome in an apply, and the two use the same
+ * words on purpose: an organizer who previewed three creates should recognise the three creates
+ * they get.
+ */
+export const accelEventsSyncRowSchema = z.object({
+  sourceRef: z.string(),
+  name: z.string(),
+  email: z.string(),
+  disposition: z.enum(["create", "skip", "invalid"]),
+  errors: z.array(z.string()),
+});
+export const accelEventsSyncReportSchema = z.object({
+  preview: z.boolean(),
+  total: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  invalid: z.number().int().nonnegative(),
+  rows: z.array(accelEventsSyncRowSchema),
+});
+export const accelEventsSyncRunSchema = z.object({
+  eventId: z.string().uuid(),
+  startedAt: z.string(),
+  completedAt: z.string(),
+  outcome: z.enum(["succeeded", "failed"]),
+  total: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  invalid: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+});
+/** The organizer surface's whole state: what the integration is, and what it last did. */
+export const accelEventsIntegrationSchema = z.object({
+  /** `fixture` answers from an in-repository roster; `live` reads the real platform. */
+  mode: z.enum(["fixture", "live"]),
+  direction: z.literal("inbound"),
+  lastRun: accelEventsSyncRunSchema.nullable(),
+});
+export const accelEventsSyncInputSchema = z.object({ commit: z.boolean() });
+export type AccelEventsSyncReportDto = z.infer<typeof accelEventsSyncReportSchema>;
+export type AccelEventsIntegrationDto = z.infer<typeof accelEventsIntegrationSchema>;

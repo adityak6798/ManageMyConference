@@ -192,7 +192,7 @@ function isCalendarTextCharacter(character: string) {
  * RFC 5545 section 3.3.11 TEXT: backslash, comma, semicolon, and line breaks are escaped.
  * The backslash has to go first so the escapes introduced afterwards are not escaped again.
  */
-function escapeCalendarText(value: string) {
+export function escapeCalendarText(value: string) {
   return [
     ...value
       .replaceAll("\\", "\\\\")
@@ -209,7 +209,7 @@ function escapeCalendarText(value: string) {
  * one space, which the reader strips to recover the original line. The split never lands
  * inside a multi-octet character, so unfolding restores the text byte for byte.
  */
-function foldCalendarLine(line: string) {
+export function foldCalendarLine(line: string) {
   const octets = new TextEncoder().encode(line);
   if (octets.length <= CALENDAR_LINE_OCTETS) return line;
   const decoder = new TextDecoder();
@@ -229,7 +229,7 @@ function foldCalendarLine(line: string) {
 }
 
 /** RFC 5545 section 3.3.5 UTC DATE-TIME form: `YYYYMMDDTHHMMSSZ`, no fractional seconds. */
-function utcCalendarStamp(instant: Date) {
+export function utcCalendarStamp(instant: Date) {
   return instant
     .toISOString()
     .replaceAll(/[-:]/g, "")
@@ -241,7 +241,7 @@ function utcCalendarStamp(instant: Date) {
  * An offset is required: `2026-09-15T17:00:00` would be read in whatever zone the worker
  * happens to run in, which would make the export non-deterministic.
  */
-function calendarDateTime(value: string) {
+export function calendarDateTime(value: string) {
   if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return null;
   const instant = new Date(value);
   return Number.isNaN(instant.getTime()) ? null : utcCalendarStamp(instant);

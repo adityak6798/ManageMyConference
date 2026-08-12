@@ -1,5 +1,6 @@
 import {
   type CommunicationsRepository,
+  type DeliveryCompletion,
   DeliveryRecoveryConflictError,
   TemplateVersionTakenError,
 } from "../../application/communications/ports";
@@ -139,10 +140,14 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     attempt: DeliveryAttempt,
     next: Pick<Delivery, "state" | "nextAttemptAt" | "updatedAt">,
     projection?: ProjectionState,
-  ): Promise<void> {
+  ): Promise<DeliveryCompletion> {
     const delivery = this.deliveries.get(attempt.deliveryId);
     if (!delivery || delivery.leaseToken !== leaseToken) throw new Error("Delivery lease lost");
-    if (this.attemptLog.some((item) => item.id === attempt.id)) return;
+    // `true`, matching the SQL: re-completing an already-recorded attempt re-runs the upsert with
+    // an equal version, which the `>=` guard accepts. Answering `false` here would report a stale
+    // external projection for a completion where nothing was refused and no repair was queued —
+    // and `staleProjectionRepaired` is only worth having because it is normally never true.
+    if (this.attemptLog.some((item) => item.id === attempt.id)) return { projectionApplied: true };
     this.attemptLog.push(attempt);
     this.deliveries.set(delivery.id, {
       ...delivery,
@@ -150,11 +155,26 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
       attemptCount: attempt.sequence,
       leaseToken: null,
     });
-    if (projection) {
-      const key = `${projection.destination}:${projection.eventId}:${projection.resourceRef}`;
-      const current = this.projections.get(key);
-      if (!current || projection.version >= current.version) this.projections.set(key, projection);
+    if (!projection) return { projectionApplied: true };
+    const key = `${projection.destination}:${projection.eventId}:${projection.resourceRef}`;
+    const current = this.projections.get(key);
+    const applied = !current || projection.version >= current.version;
+    if (applied) this.projections.set(key, projection);
+    // Mirrors the D1 batch: a refused projection means this delivery's provider call landed after
+    // a newer one, so the external system now holds older data than this repository records. The
+    // delivery owning the recorded version is re-queued to re-send the winning payload. See the
+    // statement in `d1-communications-repository.ts` for why the repair belongs beside the write.
+    if (!applied && current) {
+      const owner = this.deliveries.get(current.deliveryId);
+      if (owner && owner.state === "succeeded" && !owner.leaseToken)
+        this.deliveries.set(owner.id, {
+          ...owner,
+          state: "queued",
+          nextAttemptAt: projection.projectedAt,
+          updatedAt: projection.projectedAt,
+        });
     }
+    return { projectionApplied: applied };
   }
 
   async retry(deliveryId: string, organizationId: string, now: string): Promise<Delivery> {
@@ -184,7 +204,11 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
         candidate.eventId === delivery.eventId &&
         candidate.recipientRef === delivery.recipientRef &&
         candidate.projectionVersion !== null &&
-        candidate.projectionVersion > projectionVersion,
+        candidate.projectionVersion > projectionVersion &&
+        // A terminally failed newer version will never be sent, so it must not supersede this one.
+        // See the SQL for why abandoning the newest deliverable version is the failure that
+        // matters.
+        candidate.state !== "terminal",
     );
   }
 }

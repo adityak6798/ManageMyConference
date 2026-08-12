@@ -105,7 +105,10 @@ export async function readJson(request: { json(): Promise<unknown> }): Promise<u
 export interface ErrorTranslation {
   code: ApiErrorEnvelope["error"]["code"];
   message: string;
-  status: 400 | 401 | 403 | 404 | 409;
+  // 502 is here for a refusal that is nobody in this conversation's fault: a third-party system
+  // the request had to read was unreachable. Every other member is a 4xx because every other
+  // translated error is something the caller can act on.
+  status: 400 | 401 | 403 | 404 | 409 | 502;
   fields?: Record<string, string[]>;
 }
 

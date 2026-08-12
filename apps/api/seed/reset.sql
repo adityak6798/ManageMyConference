@@ -4,11 +4,16 @@
 -- against a demo snapshot, and no seeded itinerary exists to restore.
 DELETE FROM attendee_itineraries;
 DELETE FROM public_event_projections;
-
+-- Last-sync state is product-written, not seeded, so nothing here recreates it — but it holds a
+-- foreign key to `events`, and the reset deletes events. Without this line one applied Accelevents
+-- sync makes every later `npm run reset` fail with FOREIGN KEY constraint failed, and the demo the
+-- reset exists to restore stays broken until someone deletes the row by hand.
+DELETE FROM accelevents_sync_runs;
 DELETE FROM outbound_projection_state;
 DELETE FROM communication_attempts;
 DELETE FROM communication_deliveries;
 DELETE FROM message_templates;
+
 DELETE FROM agenda_publications;
 DELETE FROM agenda_drafts;
 DELETE FROM crm_contact_activities;
@@ -114,6 +119,12 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
 -- the enqueue rather than mailing somebody `Hello {{speakerName}}`, so a template naming a value
 -- nobody provides would break the very action it is meant to announce. The pairing of template
 -- key to trigger lives in `apps/api/src/index.ts`; these are the messages those bindings name.
+--
+-- The last row is the covering note an invitation travels with. The invitation itself is not
+-- this text: it is the `text/calendar; method=REQUEST` part the email adapter attaches, which is
+-- what a mail client turns into an Accept/Decline card. This message is what the speaker reads
+-- if their client shows the body, so it names the session and the event rather than repeating
+-- the calendar entry.
 INSERT INTO message_templates (id, organization_id, template_key, version, channel, subject, body, created_at) VALUES
   ('template-speaker-v1', '00000000-0000-4000-8000-000000000010', 'speaker-invite', 1, 'email', 'Welcome to Greenroom', 'Hello {{speakerName}}, your session is confirmed. Please complete your speaker profile before the event.', '2026-08-10T12:00:00.000Z'),
   ('template-speaker-task-v1', '00000000-0000-4000-8000-000000000010', 'speaker-task', 1, 'email', 'A new task is waiting for you', 'Hello {{speakerName}}, please complete "{{taskTitle}}" by {{dueAt}}. You can do it from your speaker portal.', '2026-08-10T12:00:00.000Z'),
@@ -121,7 +132,8 @@ INSERT INTO message_templates (id, organization_id, template_key, version, chann
   ('template-schedule-published-v1', '00000000-0000-4000-8000-000000000010', 'schedule-published', 1, 'email', 'The schedule is published', 'Hello {{speakerName}}, the schedule is published and your session has a time. Add it to your calendar: {{calendarUrl}}', '2026-08-10T12:00:00.000Z'),
   ('template-reviewer-assignment-v1', '00000000-0000-4000-8000-000000000010', 'reviewer-assignment', 1, 'email', 'Abstracts are waiting for your review', 'Hello {{reviewerName}}, abstracts have been assigned to you for round {{round}}. Open your review queue when you have time.', '2026-08-10T12:00:00.000Z'),
   ('template-decision-accepted-v1', '00000000-0000-4000-8000-000000000010', 'decision-accepted', 1, 'email', 'Your proposal was accepted', 'Hello {{submitterName}}, we are delighted to tell you that "{{proposalTitle}}" has been accepted. We will be in touch with next steps shortly.', '2026-08-10T12:00:00.000Z'),
-  ('template-decision-declined-v1', '00000000-0000-4000-8000-000000000010', 'decision-declined', 1, 'email', 'About your proposal', 'Hello {{submitterName}}, thank you for submitting "{{proposalTitle}}". We had more strong proposals than slots this year and will not be able to programme it. We hope you will submit again.', '2026-08-10T12:00:00.000Z');
+  ('template-decision-declined-v1', '00000000-0000-4000-8000-000000000010', 'decision-declined', 1, 'email', 'About your proposal', 'Hello {{submitterName}}, thank you for submitting "{{proposalTitle}}". We had more strong proposals than slots this year and will not be able to programme it. We hope you will submit again.', '2026-08-10T12:00:00.000Z'),
+  ('template-calendar-invite-v1', '00000000-0000-4000-8000-000000000010', 'speaker-calendar-invite', 1, 'email', 'Your session at {{eventName}}', 'Hello {{speakerName}}, here is the calendar invitation for {{sessionTitle}} at {{eventName}}. Accept it to add the session to your calendar; if the time changes we will send an update that replaces this entry.', '2026-08-10T12:00:00.000Z');
 
 -- Delivery history for the demo, shaped exactly as the lifecycle triggers now write it.
 --

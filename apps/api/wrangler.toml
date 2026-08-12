@@ -2,6 +2,20 @@ name = "project-greenroom-api"
 main = "src/index.ts"
 compatibility_date = "2026-08-08"
 
+[vars]
+# The ORGANIZER of every calendar invitation, when no mail sender is configured.
+#
+# An iTIP REQUEST must carry an ORGANIZER, and Gmail and Outlook check it corresponds to the
+# sending identity — so in a real deployment this is the mail sender and `EMAIL_SENDER` takes
+# precedence over it. This default exists for the configurations that send no mail at all: local
+# development, CI, Playwright and the demo, where `COMMUNICATIONS_PROVIDERS=fixture` means the
+# invitation reaches a deterministic fake rather than a mailbox. Without it the send refuses and
+# the organizer's Send button answers 500 in every configuration this repository ships.
+#
+# `.invalid` is reserved by RFC 2606 and can never resolve, which is the point: a placeholder that
+# cannot be mistaken for a real mailbox and cannot receive a reply if one ever escaped.
+CALENDAR_ORGANIZER_EMAIL = "organizer@greenroom.invalid"
+
 [assets]
 directory = "../web/dist"
 not_found_handling = "single-page-application"
