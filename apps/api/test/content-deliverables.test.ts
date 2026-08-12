@@ -141,4 +141,46 @@ describe("versioned and discussable deliverables", () => {
     const workflowRevision = (await repository.workspace(eventId)).revisions?.at(-1);
     expect(workflowRevision?.snapshotJson).toContain('"bio":"old"');
   });
+
+  it("restores the fields an edit can change, and only those", async () => {
+    const { repository, service } = fixture();
+    // A revision taken before the speaker had a headshot, and before anything touched the
+    // identity a profile carries from speaker conversion.
+    await service.updateMyProfile(speaker, profileId, {
+      name: "Sam",
+      bio: "written after the snapshot",
+      pronouns: "they/them",
+      organization: "Greenroom Labs",
+    });
+    const revision = (await repository.workspace(eventId)).revisions?.[0];
+    const asset = await service.upload(speaker, {
+      profileId,
+      name: "portrait.png",
+      contentType: "image/png",
+      bytes: new Uint8Array([1]),
+    });
+    await service.setProfilePhoto(organizer, profileId, asset.id);
+    // The identity columns no edit writes. A snapshot carrying an older address must not appear
+    // to put it back, because no repository would have stored it if it tried.
+    await repository.updateProfile({
+      ...((await repository.findProfile(profileId)) as NonNullable<
+        Awaited<ReturnType<typeof repository.findProfile>>
+      >),
+      email: "moved@example.test",
+    });
+
+    await service.restoreRevision(organizer, revision?.id ?? "");
+
+    const restored = await repository.findProfile(profileId);
+    expect(restored).toMatchObject({ bio: "old", pronouns: "", organization: "" });
+    // Chosen after the snapshot was taken, so restoring that snapshot takes it back off.
+    expect(restored).not.toHaveProperty("photoAssetId");
+    // Never restorable: identity is not an editable field, whatever a snapshot happens to hold.
+    expect(restored).toMatchObject({
+      email: "moved@example.test",
+      sourcePersonId: "source",
+      userId: speaker.id,
+      eventId,
+    });
+  });
 });
