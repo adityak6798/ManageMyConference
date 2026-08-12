@@ -128,22 +128,44 @@ async function runFileSequentially(database: RunnableDatabase, file: SqlFile): P
   }
 }
 
+/** Every message in an error's `cause` chain, which is where a fetch failure hides its reason. */
+function causeChain(error: unknown): string {
+  const seen: string[] = [];
+  let current = error;
+  while (current instanceof Error && seen.length < 10) {
+    seen.push(current.message);
+    const nested: unknown = (current as { cause?: unknown }).cause;
+    current = nested;
+  }
+  return seen.join(" | ");
+}
+
+/**
+ * Whether a failure came from the connection rather than from the SQL.
+ *
+ * This decides whether it is safe to replay the statements one at a time, and getting it wrong
+ * is expensive in one direction only: replaying under port exhaustion issues ~180 more
+ * connections at the moment connections are the thing that ran out, which is the failure this
+ * whole change exists to remove. So the test is deliberately broad — anything that smells of the
+ * transport is treated as transport, and only an error that looks like neither is replayed.
+ */
+function isTransportFailure(error: unknown): boolean {
+  return /fetch failed|Server is not running|EADDR|ECONN|EPIPE|ETIMEDOUT|socket|network/i.test(
+    causeChain(error),
+  );
+}
+
 /**
  * Apply a set of SQL files in one round trip where the database can take one.
  *
  * Every statement used to be its own call, and on a real D1 database every call is an HTTP
- * request to the workerd process — a fresh TCP connection each time. Building one database
- * replayed ~180 statements and therefore burned ~180 sockets, and a suite of eighty of them
- * burned more than macOS's whole ephemeral range (16,384 ports between 49152 and 65535), so
- * the later tests failed on `EADDRNOTAVAIL` with messages that read like schema faults
- * (`GAP-017`). Measured on this machine, per database built: 264 sockets before, 1 after, and
- * 1460ms before, 471ms after.
+ * request to the workerd process over its own TCP connection. Measured on one machine, per
+ * database built: a migrated database cost 179 sockets and a seeded one 264, and the suite
+ * exhausted macOS's whole ephemeral range (16,384 ports between 49152 and 65535) before it
+ * finished, so its later tests failed on `EADDRNOTAVAIL` with messages that read like schema
+ * faults (`GAP-017`). One batch costs 1 socket, and 471ms against 1460ms.
  *
- * The whole set goes in one `batch`, which D1 runs as a single transaction. A database without
- * `batch` — the schema drift tool's synchronous `node:sqlite` handle — takes the sequential
- * path, which is also the path a failure takes: the batch reports one error for the transaction
- * and cannot say which statement caused it, so the replay is what names the file and the
- * statement. It runs against the rolled-back database, so it fails in the same place.
+ * A database without `batch` takes the sequential path; nothing else here depends on which.
  */
 async function applyFiles(database: RunnableDatabase, files: SqlFile[]): Promise<void> {
   const flat = files.flatMap((file) => file.statements);
@@ -151,23 +173,51 @@ async function applyFiles(database: RunnableDatabase, files: SqlFile[]): Promise
     for (const file of files) await runFileSequentially(database, file);
     return;
   }
+
   let batchFailure: unknown;
   try {
     await database.batch(flat.map((statement) => database.prepare(statement)));
     return;
   } catch (cause) {
-    // ERROR-INTENT: held, not dropped. The batch reports one error for the whole transaction and
-    // cannot say which statement caused it, so the replay below is what produces the message a
-    // reader can act on — and if the replay somehow passes, this is rethrown as the cause.
+    // ERROR-INTENT: held for one decision and then always surfaced — rethrown as-is just below
+    // when it came from the transport, and carried into the replay's message otherwise.
     batchFailure = cause;
   }
-  for (const file of files) await runFileSequentially(database, file);
-  // The replay applied cleanly, so the statements are individually valid and it is the single
-  // transaction they were sent in that the database refused. That is worth failing on rather
-  // than passing quietly: the schema this database now holds was not built the way the harness
-  // says it builds one.
+
+  /*
+   * A batch reports one error for the whole transaction and cannot say which statement caused
+   * it, so naming the statement means running them one at a time. That is worth ~180 extra
+   * connections when a statement is genuinely wrong — the run is failing anyway and the name is
+   * what makes it fixable — and it is precisely the wrong move when the connection is what
+   * failed, because it spends the resource that just ran out. So a transport failure is reported
+   * as itself rather than investigated.
+   */
+  if (isTransportFailure(batchFailure)) throw batchFailure;
+
+  try {
+    for (const file of files) await runFileSequentially(database, file);
+  } catch (replayFailure) {
+    // The replay found the statement. Both errors reach the reader: the named one it threw, and
+    // the batch's own message, which is otherwise lost because the replay's `cause` is the
+    // statement error rather than the batch.
+    throw new Error(
+      `${replayFailure instanceof Error ? replayFailure.message : String(replayFailure)}\n\n` +
+        `The batch containing it failed with: ${causeChain(batchFailure)}`,
+      { cause: replayFailure },
+    );
+  }
+
+  /*
+   * Every statement applied on its own, so none of them is wrong and the database now holds the
+   * schema. What failed was sending them as one transaction, and why is not something this
+   * harness can establish — a refused transaction and a connection dropped mid-batch look the
+   * same from here. It reports what it observed rather than diagnosing, and fails rather than
+   * continuing, because a database built the long way round is not the one the harness says it
+   * builds and the difference should be somebody's decision rather than a silent fallback.
+   */
   throw new Error(
-    "the migrations applied one at a time but not as one transaction; the batch was refused",
+    "the statements applied one at a time but the batch containing them did not: " +
+      causeChain(batchFailure),
     { cause: batchFailure },
   );
 }

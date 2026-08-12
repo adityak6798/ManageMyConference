@@ -12,6 +12,7 @@
  * so its test is too — which is also why it does not reach across an ownership boundary to
  * make its point, and why it needs no edit when a domain adds a table.
  */
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyMigrations,
@@ -19,6 +20,7 @@ import {
   createMigratedDatabase,
   type MigratedDatabase,
   migrationFilenames,
+  statements,
 } from "./support/seeded-d1";
 
 type Database = MigratedDatabase["database"];
@@ -149,8 +151,8 @@ describe("the shared D1 integration harness", () => {
  * batch — is the same on every operating system, and the socket count is not.
  */
 describe("the cost of building a database", () => {
-  /** Records how it was called, and answers enough for the harness to proceed. */
-  function recorder(options: { batch: boolean }) {
+  /** Records how it was called, and can be told to refuse in either of the two ways that matter. */
+  function recorder(options: { batch: boolean; batchRejects?: Error; runRejects?: Error }) {
     const calls = { prepared: 0, ran: 0, batched: 0, batchSizes: [] as number[] };
     const database = {
       prepare(sql: string) {
@@ -159,6 +161,7 @@ describe("the cost of building a database", () => {
           sql,
           run: async () => {
             calls.ran += 1;
+            if (options.runRejects) throw options.runRejects;
           },
         };
       },
@@ -167,11 +170,23 @@ describe("the cost of building a database", () => {
             batch: async (prepared: unknown[]) => {
               calls.batched += 1;
               calls.batchSizes.push(prepared.length);
+              if (options.batchRejects) throw options.batchRejects;
             },
           }
         : {}),
     };
     return { database, calls };
+  }
+
+  /** What the harness would send one at a time, counted from the files themselves. */
+  async function statementCount() {
+    const names = await migrationFilenames();
+    const files = await Promise.all(
+      names.map(async (name) =>
+        statements(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8")),
+      ),
+    );
+    return files.reduce((total, list) => total + list.length, 0);
   }
 
   it("sends every migration in one batch when the database offers one", async () => {
@@ -183,19 +198,21 @@ describe("the cost of building a database", () => {
     // One round trip for the whole set, whatever the migration count grows to.
     expect(calls.batched).toBe(1);
     expect(calls.ran).toBe(0);
-    expect(calls.batchSizes[0]).toBe(calls.prepared);
+    // Counted from the migration files rather than from the harness's own bookkeeping, so a
+    // batch that carried one file's statements and dropped the rest would fail here.
+    expect(calls.batchSizes[0]).toBe(await statementCount());
   });
 
   it("falls back to one statement at a time when it does not", async () => {
-    // The schema drift tool applies these migrations to a synchronous `node:sqlite` handle,
-    // which has no `batch`. The harness has to keep working there.
+    // The schema drift tool keeps its own applier, but a database without `batch` is the shape
+    // this path exists for and the harness must keep working against one.
     const { database, calls } = recorder({ batch: false });
 
     await applyMigrations(database as never);
 
     expect(calls.batched).toBe(0);
     expect(calls.ran).toBe(calls.prepared);
-    expect(calls.ran).toBeGreaterThan(100);
+    expect(calls.ran).toBe(await statementCount());
   });
 
   it("seeds in one batch too", async () => {
@@ -205,5 +222,49 @@ describe("the cost of building a database", () => {
 
     expect(calls.batched).toBe(1);
     expect(calls.ran).toBe(0);
+  });
+
+  /*
+   * The two ways a batch can fail are not the same emergency.
+   *
+   * A wrong statement is worth ~180 further round trips to name, because the run is failing
+   * anyway and the name is what makes it fixable. A connection that failed is worth none: the
+   * replay would spend exactly the resource that just ran out, which is how `GAP-017` got its
+   * cascade in the first place.
+   */
+  it("replays to name the statement when a batch fails on the SQL", async () => {
+    const { database, calls } = recorder({
+      batch: true,
+      batchRejects: new Error('D1_ERROR: near "CREAT": syntax error'),
+      runRejects: new Error('near "CREAT": syntax error'),
+    });
+
+    await expect(applyMigrations(database as never)).rejects.toThrow(
+      /0001_create_events\.sql: statement 1 failed/,
+    );
+    // It found the statement by running them, and said what the batch had reported as well.
+    expect(calls.ran).toBeGreaterThan(0);
+    await expect(applyMigrations(database as never)).rejects.toThrow(/D1_ERROR/);
+  });
+
+  it("does not replay when the batch failed on the connection", async () => {
+    const { database, calls } = recorder({
+      batch: true,
+      batchRejects: new Error("fetch failed", { cause: new Error("connect EADDRNOTAVAIL") }),
+    });
+
+    await expect(applyMigrations(database as never)).rejects.toThrow(/fetch failed/);
+    // Not one further round trip: the replay is what turned a port exhaustion into a cascade.
+    expect(calls.ran).toBe(0);
+  });
+
+  it("fails rather than accepting a database the long way round", async () => {
+    // The batch is refused but every statement applies on its own. The schema is there, but it
+    // was not built the way the harness says it builds one, so that is somebody's decision.
+    const { database } = recorder({ batch: true, batchRejects: new Error("transaction refused") });
+
+    await expect(applyMigrations(database as never)).rejects.toThrow(
+      /statements applied one at a time but the batch containing them did not/,
+    );
   });
 });

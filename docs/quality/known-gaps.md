@@ -148,18 +148,33 @@ feature-by-feature verdict.
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
   its own TCP connection, and `apps/api/test/support/seeded-d1.ts` ran every migration statement
-  as its own call. Measured per database built: **264 sockets, 1460ms**. Eighty databases
-  therefore needed ~16,000 sockets against macOS's whole ephemeral range of 16,384
-  (`net.inet.ip.portrange`, 49152–65535), so `npm run gate:d1` could not complete at all — cold,
-  solo and with nothing else running it failed 35 of 79 and ended at 16,358 sockets. The failures
-  land as `fetch failed` / `Server is not running` / `EADDRNOTAVAIL` on whichever tests run last,
-  which reads as a mass regression in whatever domain that happens to be. It also broke unrelated
+  as its own call — one socket each. Measured on one macOS machine, from a drained socket table:
+
+  | | statements | sockets | time |
+  |---|---|---|---|
+  | a migrated database, before | 179 | 179 | — |
+  | a seeded database, before | 264 | 264 | 1460ms |
+  | either, after | — | **1** | 471ms |
+
+  Against an ephemeral range of 16,384 (`net.inet.ip.portrange`, 49152–65535) a suite of eighty
+  such databases cannot fit, and `npm run gate:d1` did not: cold, solo and with nothing else
+  running, it failed 35 of 79 tests and ended at 16,358 sockets. The failures land as
+  `fetch failed` / `Server is not running` / `EADDRNOTAVAIL` on whichever tests run last, which
+  reads as a mass regression in whatever domain that happens to be. It also broke unrelated
   network calls on the same machine, `git push` among them. Sending the statements as one `batch`
-  costs **1 socket and 471ms** instead, and the whole suite now passes with ~1,400 sockets rather
-  than ~16,000. Two harness tests pin it against a double, so it cannot silently return.
+  fixes it: the same suite now passes — 85 tests in 20s, against ~1,600 sockets rather than the
+  16,384 it could not fit into. (The counts differ between measurements because the suite grew
+  while this was being diagnosed: 79 tests when it was failing, 85 with the tests below added.)
+
+  Two properties are pinned by tests against a double, both checked by mutation. The statements
+  go in one batch. And a batch that fails on the *connection* is reported rather than replayed —
+  replaying to find the offending statement is right when a statement is wrong, and is exactly
+  the wrong move when sockets are what ran out, since it spends ~180 more of them at the moment
+  there are none.
 
   Two notes from the diagnosis, and the first is **retired rather than advice**. While the suite
-  did not fit, it could be run in chunks small enough that it did (all 81 passed that way), and a
+  did not fit, it could be run in chunks small enough that it did (a second lane ran its own
+  81-test branch that way, all passing), and a
   red local `gate:d1` could be told from a real defect by reproducing it on `origin/main`. Neither
   should be needed again, and neither is a substitute for a green gate: if a run has to be chunked
   to pass, the ceiling is back and that is the finding, not the workaround. The second note stands
