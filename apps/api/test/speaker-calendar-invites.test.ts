@@ -47,7 +47,7 @@ const speaker = (id: string, email: string | null) => ({
 const session = (
   id: string,
   speakerProfileIds: string[],
-  schedule?: { startsAt: string; endsAt: string; location: string },
+  schedule?: { startsAt: string; endsAt: string; location: string; revision?: number },
 ) => ({
   id,
   eventId,
@@ -59,7 +59,7 @@ const session = (
   tags: [],
   tracks: [],
   publicationState: "published" as const,
-  ...(schedule ? { schedule } : {}),
+  ...(schedule ? { schedule: { ...schedule, revision: schedule.revision ?? 1 } } : {}),
 });
 
 const placed = {
@@ -89,7 +89,6 @@ function harness(
           tasks: [],
           assets: [],
           messages: [],
-          schedulePublicationVersion: 1,
           ...workspace,
         }) as ContentWorkspaceView,
     },
@@ -216,17 +215,14 @@ describe("sending speaker calendar invitations", () => {
     const workspace = {
       sessions: [session("s1", ["p1"], placed)],
       speakers: [speaker("p1", "ada@example.test")],
-      schedulePublicationVersion: 1,
     };
     const test = harness(workspace);
     await test.service.send(organizer, eventId);
 
     workspace.sessions = [session("s1", ["p1"])];
-    workspace.schedulePublicationVersion = 2;
     expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 0, alreadySent: 0 });
 
-    workspace.sessions = [session("s1", ["p1"], placed)];
-    workspace.schedulePublicationVersion = 3;
+    workspace.sessions = [session("s1", ["p1"], { ...placed, revision: 3 })];
     expect(await test.service.send(organizer, eventId)).toMatchObject({ sent: 1, alreadySent: 0 });
 
     const clientVisible = test.requests.map((request) => {
@@ -345,7 +341,6 @@ describe("sending speaker calendar invitations", () => {
             tasks: [],
             assets: [],
             messages: [],
-            schedulePublicationVersion: 1,
           }) as ContentWorkspaceView,
       },
       communications,

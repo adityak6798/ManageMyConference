@@ -62,7 +62,6 @@ it("resumes a claimed row after profile enrichment fails and validates JSON befo
     },
     agenda: {
       publishedSessionSchedules: async () => new Map(),
-      publishedScheduleVersion: async () => null,
       unscheduleSession: async () => undefined,
     },
     speakerConversion: {

@@ -63,6 +63,8 @@ export interface AgendaRepository {
    */
   publish(schedule: PublishedSchedule): Promise<PublishOutcome>;
   getPublished(eventId: string): Promise<PublishedSchedule | null>;
+  /** Immutable history, oldest first, for deriving per-session schedule revisions. */
+  listPublished(eventId: string): Promise<readonly PublishedSchedule[]>;
   /** The publication a previous attempt of this command committed, if it got that far. */
   findByCommandKey(eventId: string, commandKey: string): Promise<PublishedSchedule | null>;
 }

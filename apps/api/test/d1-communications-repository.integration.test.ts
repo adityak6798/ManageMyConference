@@ -446,6 +446,26 @@ describe("migration 1704, after invitations already exist", () => {
       sequence: 19000001,
       deliveryId: "legacy-b",
     });
+
+    const communications = new CommunicationsService({
+      repository: new D1CommunicationsRepository(database),
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => "post-upgrade",
+      now: () => new Date("2026-08-12T10:00:00.000Z"),
+    });
+    await expect(
+      communications.enqueueCalendarInvite({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        sessionId: "session",
+        speakerProfileId: "profile",
+        scheduleRef: "3|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
+        recipientRef: "new@example.test",
+        deliveryFor: () => {
+          throw new Error("an unchanged legacy invitation must not be rebuilt");
+        },
+      }),
+    ).resolves.toMatchObject({ created: false, sequence: 19000001, id: "legacy-b" });
   });
 });
 

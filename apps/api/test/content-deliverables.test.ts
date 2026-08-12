@@ -71,7 +71,6 @@ function fixture() {
     },
     agenda: {
       publishedSessionSchedules: async () => new Map(),
-      publishedScheduleVersion: async () => null,
       unscheduleSession: async () => undefined,
     },
     speakerConversion: { createOrLink: async () => ({ speakerId: profileId }) },

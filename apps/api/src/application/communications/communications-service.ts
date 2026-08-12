@@ -363,7 +363,11 @@ export class CommunicationsService implements CommunicationsEnqueue {
         request.speakerProfileId,
       );
       if (
-        current?.scheduleRef === request.scheduleRef &&
+        current &&
+        (current.scheduleRef === request.scheduleRef ||
+          (!/^\d+\|/.test(current.scheduleRef) &&
+            current.scheduleRef ===
+              request.scheduleRef.slice(request.scheduleRef.indexOf("|") + 1))) &&
         current.recipientRef === request.recipientRef
       ) {
         const delivery = await this.dependencies.repository.get(current.deliveryId);

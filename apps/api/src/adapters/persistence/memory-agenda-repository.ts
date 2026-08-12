@@ -13,6 +13,7 @@ import {
 export class MemoryAgendaRepository implements AgendaRepository {
   private readonly drafts = new Map<string, AgendaDraft>();
   private readonly publications = new Map<string, PublishedSchedule>();
+  private readonly publicationHistory = new Map<string, PublishedSchedule[]>();
   /** Versions already taken per event, so a second publication cannot reuse one. */
   private readonly versions = new Map<string, Set<number>>();
   /** Publications by `eventId~commandKey`, mirroring D1's partial unique index. */
@@ -27,6 +28,7 @@ export class MemoryAgendaRepository implements AgendaRepository {
     for (const draft of drafts) this.drafts.set(draft.eventId, structuredClone(draft));
     for (const schedule of publications) {
       this.publications.set(schedule.eventId, structuredClone(schedule));
+      this.publicationHistory.set(schedule.eventId, [structuredClone(schedule)]);
       // A seeded snapshot has taken its version too, so the next publication allocates past it.
       this.versions.set(
         schedule.eventId,
@@ -101,6 +103,10 @@ export class MemoryAgendaRepository implements AgendaRepository {
     versions.add(schedule.version);
     this.versions.set(schedule.eventId, versions);
     this.publications.set(schedule.eventId, structuredClone(schedule));
+    this.publicationHistory.set(schedule.eventId, [
+      ...(this.publicationHistory.get(schedule.eventId) ?? []),
+      structuredClone(schedule),
+    ]);
     if (schedule.commandKey)
       this.byCommandKey.set(
         `${schedule.eventId}~${schedule.commandKey}`,
@@ -118,5 +124,8 @@ export class MemoryAgendaRepository implements AgendaRepository {
   }
   async getPublished(eventId: string) {
     return structuredClone(this.publications.get(eventId) ?? null);
+  }
+  async listPublished(eventId: string) {
+    return structuredClone(this.publicationHistory.get(eventId) ?? []);
   }
 }

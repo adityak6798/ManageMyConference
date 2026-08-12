@@ -303,6 +303,42 @@ describe("assisted agenda placement", () => {
   });
 });
 
+describe("published session schedule revisions", () => {
+  const publication = (version: number, agenda: AgendaDraft) => ({
+    eventId,
+    version,
+    publishedAt: `2026-08-12T00:00:0${version}.000Z`,
+    publishedBy: "organizer",
+    agenda,
+  });
+
+  it("changes only when that session moves or returns after being absent", async () => {
+    const withoutA = {
+      ...draft,
+      placements: draft.placements.filter(({ sessionId }) => sessionId !== "session-a"),
+    };
+    const movedB = {
+      ...draft,
+      placements: draft.placements.map((placement) =>
+        placement.sessionId === "session-b" ? { ...placement, roomId: "room-lab" } : placement,
+      ),
+    };
+    const repository = new MemoryAgendaRepository([], [publication(1, draft)]);
+    await repository.publish(publication(2, draft));
+    await repository.publish(publication(3, movedB));
+    await repository.publish(publication(4, withoutA));
+    await repository.publish(publication(5, draft));
+    const schedules = await new AgendaService(
+      repository,
+      () => new Date(),
+      content,
+    ).publishedSessionSchedules(eventId);
+
+    expect(schedules.get("session-a")?.revision).toBe(5);
+    expect(schedules.get("session-b")?.revision).toBe(4);
+  });
+});
+
 describe("agenda conflicts and publication", () => {
   it("places with one draft read, one schedulable-content read, and one write", async () => {
     const repository = new MemoryAgendaRepository([draft]);

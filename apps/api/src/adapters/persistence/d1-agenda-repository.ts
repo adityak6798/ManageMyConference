@@ -261,6 +261,17 @@ export class D1AgendaRepository implements AgendaRepository {
       throw new Error(`D1 failed to read published agenda: ${result.error ?? "unknown error"}`);
     return publicationFromRow(result.results?.[0]);
   }
+  async listPublished(eventId: string): Promise<readonly PublishedSchedule[]> {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id, version, published_at, published_by, schedule_json, command_key FROM agenda_publications WHERE event_id = ? ORDER BY version",
+      )
+      .bind(eventId)
+      .all<PublicationRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to list published agendas: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map((row) => publicationFromRow(row) as PublishedSchedule);
+  }
 
   /**
    * The publication an earlier attempt of this command committed.
