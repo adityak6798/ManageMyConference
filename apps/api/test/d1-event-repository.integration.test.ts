@@ -1,12 +1,11 @@
 // @acceptance ACC-HARNESS
-import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrations, applySeedData, createMigratedDatabase } from "./support/seeded-d1";
 import {
   type D1DatabasePort,
   D1EventRepository,
 } from "../src/adapters/persistence/d1-event-repository";
+import { applyMigrations, applySeedData, createMigratedDatabase } from "./support/seeded-d1";
 
 describe("D1EventRepository", () => {
   let runtime: Miniflare | undefined;
@@ -65,11 +64,22 @@ describe("D1EventRepository", () => {
       repository.findById(event.id, { organizationIds: [event.organizationId], eventIds: [] }),
     ).resolves.toEqual(event);
     await expect(
+      repository.update(event.id, "Renamed Summit", "America/New_York"),
+    ).resolves.toEqual({ ...event, name: "Renamed Summit", timezone: "America/New_York" });
+    await expect(
       repository.findById(event.id, {
         organizationIds: ["00000000-0000-4000-8000-000000000099"],
         eventIds: [],
       }),
     ).resolves.toBeNull();
+    await expect(
+      repository.listIdsInOrganization(event.organizationId, [
+        "023e4567-e89b-42d3-a456-426614174000",
+        event.id,
+        "missing",
+        ...Array.from({ length: 1_000 }, (_, index) => `missing-${index}`),
+      ]),
+    ).resolves.toEqual([event.id]);
   });
 
   it("restores the exact deterministic seed when reset is applied twice", async () => {

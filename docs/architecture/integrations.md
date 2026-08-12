@@ -17,8 +17,8 @@ documentation and covered by a stubbed contract suite, and the staging smoke in
 has not run. **No AI port exists at all**: the bullet below is a design constraint on future work,
 not a description of code (`GAP-011`, issue #57).
 
-- Email: enqueue template/version plus recipient reference; the delivery carries the message rendered from that template version, and the adapter reports the provider's message reference and a normalized result. *Live adapter implemented and contract-tested against a stub; unverified against a real mail API. No lifecycle event enqueues a delivery yet (`GAP-010`, issue #66) — an organizer sends from the console.*
-- Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Two artefacts now, and they are not variations of each other. The download (`GET /api/events/{id}/speaker-calendar.ics`) is an import feed of one speaker's scheduled sessions, unchanged. The invitation (`buildSpeakerInvite`) is one session addressed to one person, carrying `METHOD:REQUEST`, an `ORGANIZER` and an `ATTENDEE`, which is what makes a mail client render Accept/Decline and write to the recipient's own calendar; `POST /api/events/{id}/speaker-calendar-invites` sends one per speaker per session through the outbox, and the speaker portal additionally offers Google and Outlook template links per session. Both share a UID, so a speaker who imported the file and is then invited ends with one entry, not two. **Nothing here has been verified against a real mail client** — the fixture provider sends no mail, so what the suite proves is that the invitation is built correctly and reaches the provider (issue #56).*
+- Email: enqueue template/version plus recipient reference; the delivery carries the message rendered from that template version, and the adapter reports the provider's message reference and a normalized result. *Live adapter implemented and contract-tested against a stub; unverified against a real mail API. Lifecycle events enqueue: acceptance, task assignment, reviewer assignment, an accept/decline decision, and — through the schedule-published event below — a per-speaker schedule confirmation. An organizer can also send from the console.*
+- Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Two artefacts now, and they are not variations of each other. The download (`GET /api/events/{id}/speaker-calendar.ics`) is an import feed of one speaker's scheduled sessions, unchanged. The invitation (`buildSpeakerInvite`) is one session addressed to one person, carrying `METHOD:REQUEST`, an `ORGANIZER` and an `ATTENDEE`, which is what makes a mail client render Accept/Decline and write to the recipient's own calendar; `POST /api/events/{id}/speaker-calendar-invites` sends one per speaker per session through the outbox, and the speaker portal additionally offers Google and Outlook template links per session. Both share a UID, so a speaker who imported the file and is then invited ends with one entry, not two. The schedule confirmation the fan-out above sends still carries the download's URL rather than the invitation; wiring it to `buildSpeakerInvite` is one call and one payload key (issue #66). **Nothing here has been verified against a real mail client** — the fixture provider sends no mail, so what the suite proves is that the invitation is built correctly and reaches the provider (issue #56).*
 - Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; live adapters exist and upsert on the Greenroom reference. Airtable still has no organizer-facing mapping, dry-run or connection-test workflow (issue #23's Airtable product surface).*
 - Accelevents, inbound: registrations read into Greenroom as speaker profiles. *Implemented, with an organizer surface — preview, apply, last-run state and its failure — and a deterministic in-repository roster as the default source, so the demo and a fresh clone sync with no credential (issue #58). This is a different integration from the `accelevents` delivery channel above and runs the other way; both are one-way. The sync writes through content's public import command and touches no content table, which is what gives it a preview that writes nothing and convergence on re-apply for free. Its client has never exchanged a request with a real Accelevents tenant.*
 - AI: suggestion/draft only, with provenance, explicit acceptance, timeouts, and deterministic manual fallback. *Not implemented.*
@@ -33,6 +33,46 @@ two of its own, `PROJECTION_SUPERSEDED` and `UNEXPECTED_PROVIDER_ERROR`, which a
 under [delivery lifecycle and recovery](#delivery-lifecycle-and-recovery) below.
 
 Provider calls originate from outbox workers, not open database transactions. Adapters normalize retryable versus terminal errors and never leak SDK types inward.
+
+## Domain events on the `event` channel
+
+One channel calls nothing outside. An `event` delivery carries a domain event another domain
+committed — today only `EVT-SCHEDULE-PUBLISHED` — so that the announcement of a fact and the fact
+itself share one transaction. The agenda appends the record to the same D1 `batch` as its
+publication through an opaque writer, so a crash between the two cannot leave a published
+schedule nobody is told about, or an announcement of a snapshot that does not exist.
+
+Draining it does not call a provider. It hands the record to a `DomainEventConsumer`, which
+returns the same normalized result a provider does, so retry, backoff, immutable attempts and the
+terminal state after three tries all apply unchanged. `SchedulePublishedConsumer` turns one such
+record into one email per reachable speaker, keyed `schedule:{eventId}:v{version}:{userId}` — the
+outbox is at-least-once, so a lease that expires mid-fan-out simply re-runs and nobody is written
+to twice. An `event` delivery reaching a worker with no consumer bound fails terminally with
+`NO_EVENT_CONSUMER` rather than sitting queued or reporting success.
+
+The alternative this replaces was to model the publication as an `airtable` delivery, which would
+have queued a fabricated push to somebody's base and written projection state claiming the
+schedule had been sent there.
+
+## Time-based reminders
+
+The same one-minute tick that drains the outbox first asks content for open speaker tasks falling
+due within the reminder window, and queues one reminder each. There is no bookkeeping table and no
+"last reminded at" column: the key `task-reminder:{taskId}:d{offsetDays}` *is* the record, so the
+next tick prepares the same key, the organization-scoped unique index returns the first delivery,
+and nothing is written or sent. Anything less than that would mail a speaker every sixty seconds
+the first time a crash landed between deciding to remind and recording it.
+
+Overdue tasks are included rather than filtered out — a task whose window passed while nothing was
+running is exactly the one worth a reminder — and each task is reminded about once. An escalating
+series is not implemented: each step would need its own key and somebody has to decide when
+nagging stops.
+
+A tick is bounded, so the first run after this shipped works through a backlog over several ticks,
+oldest first, instead of one invocation exhausting its subrequest budget and retrying the same
+doomed batch every minute. One task whose reminder cannot be built is reported and skipped rather
+than thrown, because this runs beside the drain and a broken template must not stall every queued
+delivery.
 
 ## Delivery lifecycle and recovery
 

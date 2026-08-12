@@ -17,12 +17,84 @@ export interface AcceptedContent {
   messages: readonly SpeakerMessage[];
 }
 
+/**
+ * A revision the caller wants recorded, minus the two things only the store may decide.
+ *
+ * `revisionNumber` is absent because an application that reads the highest number and adds one
+ * has already lost the race: two organizers editing the same speaker both compute the same
+ * number, and `UNIQUE(entity_type, entity_id, revision_number)` refuses the second edit that
+ * was otherwise perfectly valid. `snapshotJson` is absent because the state a revision claims
+ * to preserve must be the state the row actually held immediately before the write — read by
+ * the store, in the same operation, not by a caller that read it moments earlier.
+ */
+export interface ContentRevisionDraft {
+  readonly id: string;
+  readonly eventId: string;
+  readonly actorId: string;
+  readonly createdAt: string;
+  readonly restoredFromRevisionId?: string | undefined;
+}
+
+/**
+ * The edit itself, applied to whatever the store finds when it takes the row.
+ *
+ * A function rather than a finished entity, because the store may have to re-read: an edit that
+ * lost the race for a revision number is retried against the row as it is *now*, so the losing
+ * organizer's change lands on top of the winner's instead of overwriting it from a stale copy.
+ */
+export type ContentEdit<T> = (current: T) => T;
+
+/** The workflow columns a bulk import owns, all three required. See `updateProfileWorkflow`. */
+export interface SpeakerWorkflowFields {
+  readonly workflowStatus: NonNullable<SpeakerProfile["workflowStatus"]>;
+  readonly logistics: NonNullable<SpeakerProfile["logistics"]>;
+  readonly customFields: NonNullable<SpeakerProfile["customFields"]>;
+}
+
 export interface ContentRepository {
   findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null>;
   accept(content: AcceptedContent): Promise<void>;
   workspace(eventId: string, userId?: string): Promise<ContentWorkspace>;
+  /**
+   * Write a profile with no revision and no guard.
+   *
+   * No production path calls this, and none should: an organizer's or speaker's profile edit
+   * goes through `reviseProfile`, a headshot through `updateProfilePhoto`, and an import
+   * through `updateProfileWorkflow`. Each of those writes what it is actually changing, so
+   * none of them can put a column back the way it read it. This survives for fixtures.
+   */
   updateProfile(profile: SpeakerProfile): Promise<void>;
+  /**
+   * Replace the three fields a bulk import owns, and touch nothing else.
+   *
+   * Same reasoning as `updateProfilePhoto`. An import that wrote the whole row would carry a
+   * name, bio and headshot from whenever it read the profile, so importing a logistics column
+   * could revert an organizer's edit made while the import was running.
+   *
+   * All three are required, and each is a *replacement* rather than a patch — an omitted
+   * `logistics` would be stored as `{}`, not left alone. They are required in the type for
+   * exactly that reason: `SpeakerProfile` has all three optional, so a `Pick` of it would let a
+   * caller pass one field and silently erase the other two.
+   */
+  updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields): Promise<void>;
+  /**
+   * Point a profile at one of its uploads, or at none — and touch nothing else.
+   *
+   * Narrow on purpose. `updateProfile` rewrites every mutable column from whatever the caller
+   * last read, so choosing a headshot through it would put a bio, a workflow status and a
+   * logistics field back the way they were at that read, silently undoing an organizer's edit
+   * that landed in between. A speaker choosing a picture should write the picture.
+   */
+  updateProfilePhoto(profileId: string, assetId: string | null): Promise<void>;
   updateTask(task: SpeakerTask): Promise<void>;
+  /**
+   * Write a session with no revision and no guard.
+   *
+   * No production path calls this, and none should: an organizer's session edit goes through
+   * `reviseSession`, which records who changed what and refuses to write from a copy the row
+   * has moved past. It survives because fixtures in other domains' suites build session state
+   * with it. A new caller here is a caller that has bypassed attributed history.
+   */
   updateSession(session: ContentSession): Promise<void>;
   /** Remove a withdrawn session. Its speaker, their tasks, and their uploads are untouched. */
   deleteSession(sessionId: string): Promise<void>;
@@ -42,7 +114,25 @@ export interface ContentRepository {
   deleteResource(resourceId: string): Promise<void>;
   findResource(resourceId: string): Promise<SpeakerResource | null>;
   addComment(comment: ContentComment): Promise<void>;
-  addRevision(revision: ContentRevision): Promise<void>;
+  /**
+   * Record what the profile was and write what it becomes, as one indivisible operation.
+   *
+   * There is deliberately no way to append a revision on its own. The two writes used to be
+   * separate calls, so a failure on the second left a revision describing an edit that never
+   * happened — history that reads as authoritative and is not. Returns the stored profile, or
+   * `null` when the profile no longer exists.
+   */
+  reviseProfile(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<SpeakerProfile>,
+  ): Promise<SpeakerProfile | null>;
+  /** `reviseProfile` for a session: the same single-operation guarantee. */
+  reviseSession(
+    sessionId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<ContentSession>,
+  ): Promise<ContentSession | null>;
   findRevision(revisionId: string): Promise<ContentRevision | null>;
   findSpeakerImport(eventId: string, email: string): Promise<"pending" | "complete" | null>;
   beginSpeakerImport(eventId: string, email: string): Promise<void>;

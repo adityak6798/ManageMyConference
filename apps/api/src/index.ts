@@ -8,7 +8,10 @@ import {
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
 import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
-import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
+import {
+  D1CommunicationsRepository,
+  preparedDeliveryWriter,
+} from "./adapters/persistence/d1-communications-repository";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
@@ -28,15 +31,20 @@ import {
   CommunicationsNotFoundError,
   CommunicationsService,
 } from "./application/communications/public";
+import type { DeliveryRequest } from "./application/communications/public";
+import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
+import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
 import { ContentService } from "./application/content/content-service";
+import type { SpeakerNotificationPort } from "./application/content/content-service";
 import { SpeakerCalendarInviteService } from "./application/content/public";
 import { CrmService } from "./application/crm/crm-service";
-import { OutreachRejectedError } from "./application/crm/public";
 import type { OutreachMessage } from "./application/crm/public";
-import { EventService } from "./application/events/event-service";
+import { OutreachRejectedError } from "./application/crm/public";
+import { EventService } from "./application/events/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { ReviewService } from "./application/review/review-service";
+import type { ReviewNotificationPort } from "./application/review/review-service";
 import { createHttpApp } from "./transport/http/app";
 
 export interface Environment {
@@ -49,6 +57,13 @@ export interface Environment {
   INITIAL_ORGANIZER_USER_ID?: string;
   INITIAL_ORGANIZER_EMAIL?: string;
   ENVIRONMENT?: string;
+  /**
+   * Public origin of this deployment, for links inside messages the outbox sends.
+   *
+   * The scheduled drain has no request to read an origin from, so a link in a schedule
+   * confirmation has to come from configuration. Non-secret; belongs in vars.
+   */
+  PUBLIC_BASE_URL?: string;
   /**
    * `fixture` (the default) or `live`.
    *
@@ -95,7 +110,60 @@ const communicationsRepository = (environment: Environment) =>
     environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
   );
 
+/**
+ * Where a speaker downloads the calendar for an event.
+ *
+ * `PUBLIC_BASE_URL` is deployment configuration, not something this domain can infer: the
+ * scheduled drain has no request to read an origin from, and a message containing a relative
+ * path reaches somebody's inbox as text they cannot click. Absent, the confirmation still goes
+ * out and simply says where to look instead of linking there — a message with a broken link is
+ * worse than one with none.
+ */
+const speakerCalendarUrl = (environment: Environment) => (eventId: string) =>
+  environment.PUBLIC_BASE_URL
+    ? `${environment.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/events/${eventId}/speaker-calendar.ics`
+    : "your event's schedule page";
+
+/**
+ * The composition the cron tick uses. Not a request, so it builds its own.
+ *
+ * Only the enqueue surface is reached, which takes no actor by design — a cron tick has none.
+ */
+const scheduledCommunications = (environment: Environment) => {
+  const events = new EventService({
+    repository: new D1EventRepository(environment.DB),
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  return {
+    events,
+    service: new CommunicationsService({
+      repository: communicationsRepository(environment),
+      eventDirectory: events,
+      speakerDirectory: new D1IdentityDirectory(environment.DB),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    }),
+  };
+};
+
+/** Queue a reminder for every open speaker task now inside the reminder window (issue #52). */
+export async function remindDueSpeakerTasks(environment: Environment) {
+  const { events, service } = scheduledCommunications(environment);
+  return enqueueDueTaskReminders({
+    work: new D1ContentRepository(environment.DB),
+    enqueue: service,
+    organizationOf: (eventId) => events.organizationOf(eventId),
+    now: () => new Date(),
+    onFailure(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(JSON.stringify({ level: "warn", message: "task.reminder.failed", ...fields }));
+    },
+  });
+}
+
 export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
+  const communications = scheduledCommunications(environment).service;
   const worker = new OutboxWorker(
     communicationsRepository(environment),
     // Throws rather than falling back if `live` is half-configured, so a scheduled drain that
@@ -111,10 +179,22 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
         console.info(JSON.stringify({ level: "info", message: "delivery.attempt", ...record }));
       },
     },
+    new SchedulePublishedConsumer({
+      enqueue: communications,
+      speakerDirectory: new D1IdentityDirectory(environment.DB),
+      calendarUrl: speakerCalendarUrl(environment),
+    }),
   );
   let processed = 0;
   while (processed < limit && (await worker.runOne())) processed += 1;
   return processed;
+}
+
+export function pruneItineraries(environment: Environment): Promise<void> {
+  return new ItineraryService(
+    new D1ItineraryRepository(environment.DB),
+    new D1PublicationRepository(environment.DB),
+  ).prune();
 }
 
 export function runtimeAuth(
@@ -162,8 +242,55 @@ export default {
       new D1SubmittedProposalAdapter(environment.DB),
     );
     const now = () => new Date();
+    const communications = new CommunicationsService({
+      repository: communicationsRepository(environment),
+      eventDirectory: service,
+      // Who an event's speakers are is identity's answer, not a read of content's profiles.
+      speakerDirectory: identityDirectory,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    /**
+     * Closes `DEBT-006`: the writer that makes a schedule publication and its announcement one
+     * durable operation (issue #22).
+     *
+     * The agenda derived an `EVT-SCHEDULE-PUBLISHED` payload on every commit and dropped it,
+     * because nothing could be bound here — the outbox modelled a delivery to a provider, and
+     * routing a domain event through it would have queued a fabricated Airtable push. The
+     * `event` channel added for this is what makes the binding expressible.
+     *
+     * `prepareEnqueue` resolves the row and writes nothing; `preparedDeliveryWriter` renders it
+     * into statements the agenda appends to the batch its publication was already running. So
+     * the SQL and the column names stay inside communications, the agenda never learns either,
+     * and a failure on one side leaves neither row.
+     *
+     * The idempotency key is the event's own derived id, so a retried publish command that lands
+     * on the same version produces exactly one record — and republishing after an edit allocates
+     * a new version, a new key, and a new record, which is what a second publication means.
+     */
+    const writePublicationEvent = preparedDeliveryWriter(
+      environment.DB as Parameters<typeof preparedDeliveryWriter>[0],
+    );
     const agenda = new AgendaService(
-      new D1AgendaRepository(environment.DB, now),
+      new D1AgendaRepository(environment.DB, now, async (_database, event) => {
+        const organizationId = await service.organizationOf(event.eventId);
+        // A publication whose event has no owning organization cannot be announced to anyone.
+        // Throwing fails the batch, so the publication does not commit either — which is the
+        // point of sharing one: a schedule nobody can be told about is not a published schedule.
+        if (!organizationId)
+          throw new Error(`Event ${event.eventId} has no owning organization to announce to`);
+        return writePublicationEvent(
+          await communications.prepareEnqueue({
+            organizationId,
+            eventId: event.eventId,
+            idempotencyKey: event.id,
+            triggerType: "schedule.published",
+            channel: "event",
+            recipientRef: `event:${event.eventId}`,
+            payload: { ...event },
+          }),
+        );
+      }),
       now,
       contentRepository,
       async (actor, eventId) => {
@@ -185,11 +312,119 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
+    /**
+     * Turns a lifecycle fact into a queued delivery, and never lets that failure become the
+     * lifecycle action's failure.
+     *
+     * Every caller of this has already committed the change it is announcing: the session
+     * exists, the tasks are written, the decision is recorded. Throwing here would report a
+     * failure for work that succeeded, and for `requestTasks` — whose task ids are minted per
+     * call — the organizer's retry would create a second set of tasks. So the enqueue is
+     * awaited, and a failure is logged rather than propagated.
+     *
+     * The log line carries the identifiers a human needs to send the message by hand: the event,
+     * and whatever the fact was about. That is the difference between a suppressed error and a
+     * recoverable one.
+     */
+    const notifyLifecycle = async (
+      eventId: string,
+      subject: Record<string, string>,
+      request: (organizationId: string) => Omit<DeliveryRequest, "organizationId" | "eventId">,
+    ): Promise<void> => {
+      try {
+        const organizationId = await service.organizationOf(eventId);
+        // Not an error to swallow quietly: an event with no owning organization means the id is
+        // wrong or the row is gone, and either way there is nobody to address the message to.
+        if (!organizationId) throw new Error("Event has no owning organization");
+        await communications.enqueue({
+          organizationId,
+          eventId,
+          ...request(organizationId),
+        });
+      } catch (error) {
+        // ERROR-INTENT: a message that cannot be queued must not fail the already-committed
+        // action that caused it; see `SpeakerNotificationPort`. Reported at error level with the
+        // identifiers needed to send it by hand, so this is visible and recoverable rather than
+        // discarded.
+        logger.error(
+          { eventId, ...subject, error: error instanceof Error ? error.message : String(error) },
+          "lifecycle.notification.failed",
+        );
+      }
+    };
+    const speakerNotifications: SpeakerNotificationPort = {
+      speakerAccepted: (fact) =>
+        notifyLifecycle(fact.eventId, { profileId: fact.profileId }, () => ({
+          idempotencyKey: `speaker-invite:${fact.eventId}:${fact.profileId}`,
+          triggerType: "speaker.invited",
+          channel: "email",
+          recipientRef: fact.speakerEmail,
+          payload: { speakerName: fact.speakerName, sessionTitle: fact.sessionTitle },
+          templateKey: "speaker-invite",
+        })),
+      taskAssigned: (fact) =>
+        notifyLifecycle(fact.eventId, { taskId: fact.taskId, profileId: fact.profileId }, () => ({
+          idempotencyKey: `speaker-task:${fact.taskId}`,
+          triggerType: "speaker.task_assigned",
+          channel: "email",
+          recipientRef: fact.speakerEmail,
+          payload: {
+            speakerName: fact.speakerName,
+            taskTitle: fact.taskTitle,
+            dueAt: fact.dueAt,
+          },
+          templateKey: "speaker-task",
+        })),
+    };
+    const reviewNotifications: ReviewNotificationPort = {
+      async reviewerAssigned(fact) {
+        const reviewer = await identityDirectory.findRecipient(fact.reviewerId);
+        // No address means nobody to write to. Logged rather than queued, because a delivery to
+        // a non-address would burn an attempt and fail terminally with a code that describes the
+        // provider's refusal rather than the reason: this reviewer has no email linked.
+        if (!reviewer?.email) {
+          logger.warn(
+            { eventId: fact.eventId, reviewerId: fact.reviewerId },
+            "lifecycle.notification.unaddressable",
+          );
+          return;
+        }
+        await notifyLifecycle(fact.eventId, { reviewerId: fact.reviewerId }, () => ({
+          idempotencyKey: `reviewer-assigned:${fact.eventId}:${fact.reviewerId}:r${fact.round}`,
+          triggerType: "reviewer.assigned",
+          channel: "email",
+          recipientRef: reviewer.email as string,
+          payload: { reviewerName: reviewer.name, round: fact.round },
+          templateKey: "reviewer-assignment",
+        }));
+      },
+      async decisionRecorded(fact) {
+        if (!fact.submitterEmail) {
+          logger.warn(
+            { eventId: fact.eventId, proposalId: fact.proposalId },
+            "lifecycle.notification.unaddressable",
+          );
+          return;
+        }
+        await notifyLifecycle(fact.eventId, { proposalId: fact.proposalId }, () => ({
+          // The outcome is in the key on purpose: a reversed decision is a different thing to
+          // announce, so re-deciding sends the corrected message instead of being deduplicated
+          // into silence by the first one.
+          idempotencyKey: `decision:${fact.eventId}:${fact.proposalId}:${fact.outcome}`,
+          triggerType: "decision.recorded",
+          channel: "email",
+          recipientRef: fact.submitterEmail as string,
+          payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
+          templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
+        }));
+      },
+    };
     const reviewService = new ReviewService({
       repository: new D1ReviewRepository(environment.DB),
       proposals: new D1SubmittedProposalAdapter(environment.DB),
       identities: identityDirectory,
       events: service,
+      notifications: reviewNotifications,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
@@ -197,6 +432,9 @@ export default {
     // interface, never by reading `cfp_submissions` (`ARC-FLOW-001`).
     const content = new ContentService({
       repository: contentRepository,
+      // Acceptance and task assignment now reach the speaker. Content states the fact; this
+      // binding decides the template, the trigger and the idempotency key.
+      speakerNotifications,
       assetStorage: new R2AssetStorage(environment.ASSETS),
       proposals: reviewService,
       // The agenda owns when a session happens; content asks rather than keeping a second copy,
@@ -215,14 +453,6 @@ export default {
       sanitizeResourceEmbed,
       parseSpeakerCsv,
       createDeliverablesZip,
-    });
-    const communications = new CommunicationsService({
-      repository: communicationsRepository(environment),
-      eventDirectory: service,
-      // Who an event's speakers are is identity's answer, not a read of content's profiles.
-      speakerDirectory: identityDirectory,
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
     });
     // The inbound Accelevents registration sync (#58). `fixture` is the default and answers from
     // an in-repository roster, which is what lets the demo and a fresh clone sync with no
@@ -407,7 +637,19 @@ export default {
     );
     return Promise.resolve(app.fetch(request));
   },
-  scheduled(_controller: unknown, environment: Environment): Promise<void> {
-    return drainOutbox(environment).then(() => undefined);
+  /**
+   * The one-minute tick.
+   *
+   * Reminders run *before* the drain and are awaited, so a reminder decided this minute goes out
+   * this minute rather than next. Their failures cannot stall it: `enqueueDueTaskReminders`
+   * reports rather than throws, including when the open-task read itself fails, precisely so one
+   * broken template cannot leave every queued delivery unsent.
+   *
+   * The drain and the itinerary prune stay concurrent with each other, as they were: neither
+   * depends on the other and both are bounded.
+   */
+  async scheduled(_controller: unknown, environment: Environment): Promise<void> {
+    await remindDueSpeakerTasks(environment);
+    await Promise.all([drainOutbox(environment), pruneItineraries(environment)]);
   },
 };

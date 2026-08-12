@@ -1,7 +1,10 @@
 import {
   type AcceptedContent,
   ContentConflictError,
+  type ContentEdit,
   type ContentRepository,
+  type ContentRevisionDraft,
+  type SpeakerWorkflowFields,
 } from "../../application/content/content-repository";
 import type { AgendaContentQuery, PublishingContentQuery } from "../../application/content/public";
 import type {
@@ -11,6 +14,7 @@ import type {
 import type {
   ContentComment,
   ContentRevision,
+  ContentSession,
   ContentWorkspace,
   SpeakerAsset,
   SpeakerProfile,
@@ -119,15 +123,29 @@ export class MemoryContentRepository
           (left, right) =>
             left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
         ),
-      comments: this.comments.filter(
-        (item) =>
-          item.eventId === eventId &&
-          (!userId ||
-            this.assets.some(
-              (asset) => asset.id === item.assetId && profileIds.has(asset.speakerProfileId),
-            )),
-      ),
-      revisions: userId ? [] : this.revisions.filter((item) => item.eventId === eventId),
+      comments: this.comments
+        .filter(
+          (item) =>
+            item.eventId === eventId &&
+            (!userId ||
+              this.assets.some(
+                (asset) => asset.id === item.assetId && profileIds.has(asset.speakerProfileId),
+              )),
+        )
+        // `ORDER BY created_at`, exactly as D1 clauses it — the one collection whose
+        // ordering this repository claimed to mirror and did not.
+        .toSorted(by((item) => item.createdAt)),
+      revisions: userId
+        ? []
+        : this.revisions
+            .filter((item) => item.eventId === eventId)
+            // The same total order D1 applies, tiebreak included. See `D1ContentRepository`.
+            .toSorted(
+              by(
+                (item) =>
+                  `${item.createdAt}\u0000${item.entityType}\u0000${item.entityId}\u0000${String(item.revisionNumber).padStart(12, "0")}`,
+              ),
+            ),
     };
   }
 
@@ -188,6 +206,18 @@ export class MemoryContentRepository
   }
   async updateProfile(profile: SpeakerProfile) {
     this.speakers = this.speakers.map((item) => (item.id === profile.id ? profile : item));
+  }
+  async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
+    this.speakers = this.speakers.map((item) =>
+      item.id === profileId ? { ...item, ...fields } : item,
+    );
+  }
+  async updateProfilePhoto(profileId: string, assetId: string | null) {
+    this.speakers = this.speakers.map((item) => {
+      if (item.id !== profileId) return item;
+      const { photoAssetId: _replaced, ...withoutPhoto } = item;
+      return assetId ? { ...withoutPhoto, photoAssetId: assetId } : withoutPhoto;
+    });
   }
   async updateTask(task: SpeakerTask) {
     this.tasks = this.tasks.map((item) => (item.id === task.id ? task : item));
@@ -255,8 +285,70 @@ export class MemoryContentRepository
   async addComment(comment: ContentComment) {
     this.comments = [...this.comments, comment];
   }
-  async addRevision(revision: ContentRevision) {
-    this.revisions = [...this.revisions, revision];
+  /**
+   * The same indivisible pair D1 gets, which here costs nothing: the read, the append and the
+   * write happen with no `await` between them, so nothing can interleave.
+   */
+  private revise<T extends { id: string }>(
+    entityType: ContentRevision["entityType"],
+    current: T | undefined,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<T>,
+  ): T | null {
+    if (!current) return null;
+    const next = edit(current);
+    const existing = this.revisions.filter(
+      (revision) => revision.entityType === entityType && revision.entityId === current.id,
+    );
+    this.revisions = [
+      ...this.revisions,
+      {
+        id: draft.id,
+        eventId: draft.eventId,
+        entityType,
+        entityId: current.id,
+        revisionNumber: Math.max(0, ...existing.map(({ revisionNumber }) => revisionNumber)) + 1,
+        snapshotJson: JSON.stringify(current),
+        actorId: draft.actorId,
+        // Never earlier than the revision it follows, matching D1. See `D1ContentRepository`.
+        createdAt: existing.reduce(
+          (latest, { createdAt }) => (createdAt > latest ? createdAt : latest),
+          draft.createdAt,
+        ),
+        ...(draft.restoredFromRevisionId
+          ? { restoredFromRevisionId: draft.restoredFromRevisionId }
+          : {}),
+      },
+    ];
+    return next;
+  }
+  async reviseProfile(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<SpeakerProfile>,
+  ) {
+    const next = this.revise(
+      "profile",
+      this.speakers.find(({ id }) => id === profileId),
+      draft,
+      edit,
+    );
+    if (next) this.speakers = this.speakers.map((item) => (item.id === next.id ? next : item));
+    return next;
+  }
+  async reviseSession(
+    sessionId: string,
+    draft: ContentRevisionDraft,
+    edit: ContentEdit<ContentSession>,
+  ) {
+    const next = this.revise(
+      "session",
+      this.sessions.find(({ id }) => id === sessionId),
+      draft,
+      edit,
+    );
+    if (next) this.sessions = this.sessions.map((item) => (item.id === next.id ? next : item));
+    return next;
   }
   async findRevision(revisionId: string) {
     return this.revisions.find(({ id }) => id === revisionId) ?? null;

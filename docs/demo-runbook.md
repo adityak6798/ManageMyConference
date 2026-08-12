@@ -126,10 +126,19 @@ Every workspace has its own URL, so each step below is directly linkable and sur
 
    Below it, from a clean reset, the outbox carries one delivery in each of the queued, retrying,
    succeeded, and terminal states, with attempt history and an explicit retry on the terminal one;
-   recovering it consumes that state until the next reset. Be straight about those four: they are
-   seeded placeholder data, and no lifecycle event enqueues a delivery — accepting a proposal or
-   publishing an agenda still sends nothing (`GAP-010`). The provider behind every send here is a
-   deterministic fake; live adapters exist but are credential-gated off and unverified.
+   recovering it consumes that state until the next reset. Those rows are still seeded, but they
+   are now shaped exactly as the product writes them — a real seeded speaker's address, the
+   idempotency key the enqueueing code generates, the message that template version renders — and
+   the two failures are genuine fixture outcomes rather than states typed into SQL.
+
+   What is no longer true of them: the product does enqueue on its own. Accept a proposal in
+   `/content` and the speaker is welcomed and told about each onboarding task; assign review work
+   and the reviewer hears once; decide a proposal and its submitter is told. Publishing an agenda
+   commits an `EVT-SCHEDULE-PUBLISHED` record in the same transaction as the publication, and
+   draining it queues one confirmation per speaker. Be straight about the last one: that message
+   carries a **link** to the `.ics`, not an attached invitation — nothing yet lands in a calendar
+   client (`GAP-010`, issue #56). The provider behind every send here is a deterministic fake;
+   live adapters exist but are credential-gated off and unverified.
 8. Switch to **reviewer** — only `/reviews` is reachable. Score the seeded assignment against the
    evaluation plan; unscored criteria are refused rather than silently scored at the minimum.
 9. Switch to **speaker** — only `/portal` is reachable. Complete a task, edit the profile, upload a

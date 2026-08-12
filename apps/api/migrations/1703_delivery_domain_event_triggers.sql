@@ -1,40 +1,49 @@
--- @spec PRD-COM-001 PRD-SPK-002 PORT-CALENDAR
+-- @spec PRD-COM-001 PRD-INT-001
 --
--- Admit `speaker.calendar_invite` as a delivery trigger, so an organizer can send a speaker the
--- invitation for their own session (#56). SQLite cannot widen a CHECK in place, so the only way to
--- add one value is to rebuild the table.
+-- Widen `communication_deliveries`' trigger and channel vocabularies so a lifecycle event can be
+-- enqueued and a domain event can be recorded.
 --
--- WHY THERE IS NO `PRAGMA foreign_keys = OFF` HERE
+-- `trigger_type` gains six values. Five of them name the lifecycle moments that now produce a
+-- message — a speaker's schedule confirmation, a task being assigned, a task falling due, an
+-- accept/decline decision reaching its submitter, and a calendar invitation (issue #66,
+-- issue #52, and issue #56's trigger, agreed with the adapter agent so this table is rebuilt
+-- once this wave rather than twice). The sixth, `schedule.published`, is not a message at all.
 --
--- The textbook SQLite rebuild recipe turns foreign keys off, drops the old table and renames the
--- new one into place. **D1 does not honour that pragma between statements.** The DROP is therefore
--- checked with foreign keys on, and `communication_attempts` and `outbound_projection_state` both
--- carry a foreign key to `communication_deliveries`, so a single recorded attempt refuses it:
+-- `decision.recorded` covers both outcomes rather than splitting into accepted and declined:
+-- the trigger names what happened in the product, and which of the two templates renders it is
+-- already recorded on the delivery's `template_id`.
 --
---   D1_ERROR: FOREIGN KEY constraint failed: SQLITE_CONSTRAINT_FOREIGNKEY
+-- `channel` gains `event`, which is what makes that sixth value expressible. Every other channel
+-- names an outside system this domain calls over HTTP. `event` names none: it carries a domain
+-- event another domain committed, through the same durable machinery, so that the announcement
+-- of a fact and the fact itself commit or fail together. Issue #22 asked for exactly that, and
+-- PR #113 could not deliver it because the four values pinned in `0019` admitted no schedule
+-- publication and every other channel would have queued a fabricated external effect.
 --
--- That failure is invisible to the test suite by construction, because `createMigratedDatabase`
--- applies the migrations and *then* the seed: every rebuild in CI copies an empty table and drops
--- one nothing references yet. A deployed database has rows in all three.
--- `apps/api/test/d1-migration-rebuild.integration.test.ts` re-applies this file over the seeded
--- fixture, which is the only arrangement that exercises the copy and the drop with rows present.
+-- ## Why this rebuilds three tables and not one
 --
--- So the children are rebuilt too, and the order is what makes it work with foreign keys enforced
--- throughout: build the new parent, point new children at it, drop the old children, drop the old
--- parent, then rename. Renaming the parent rewrites the new children's REFERENCES for us.
+-- SQLite cannot widen a CHECK in place, so the table has to be recreated. The obvious recipe —
+-- `PRAGMA foreign_keys = OFF`, create, copy, drop, rename — **does not work on D1**, and fails in
+-- a way no test on an empty table can see: `DROP TABLE communication_deliveries` is refused with
+-- `FOREIGN KEY constraint failed` as soon as a single `communication_attempts` row references it.
+-- D1 does not honour the pragma across statements, so the drop is checked with foreign keys on.
+-- Every deployment that has ever recorded one delivery attempt would have failed this migration;
+-- a fresh database would not. Migration `1300` uses that recipe and has the same latent problem,
+-- which has never surfaced because nothing had rebuilt a table with live children until now.
 --
--- WHY THIS CONSTRAINT LISTS VALUES NOTHING IN THIS BRANCH WRITES
+-- So the children are rebuilt with the parent, in an order where no statement ever violates a
+-- foreign key and no row exists in only one place:
 --
--- Two pull requests widen this constraint in the same wave: #66/#82/#22/#52 add the lifecycle
--- triggers and the `event` channel, and this one adds the calendar invitation. Because a rebuild
--- restates the whole constraint, whichever landed second would silently drop the other's values —
--- a regression that fails no test on either branch in isolation, and that surfaces later as a
--- CHECK failure pointing at the innocent pull request. Both constraints below are the agreed union
--- and are identical in both branches. If the other pull request merges first this file is
--- redundant and should be deleted in the rebase rather than rebuilding the same table twice.
+--   1. build the new parent and copy into it;
+--   2. build new children pointing at the new parent and copy into them;
+--   3. drop the old children — nothing references them;
+--   4. drop the old parent — its children are gone;
+--   5. rename the new parent into place, which rewrites the new children's REFERENCES to it,
+--      then rename the children.
 --
--- Nothing else changes: same columns in the same order, same defaults, same unique constraints,
--- same indexes, and every row copied.
+-- `communication_attempts` and `outbound_projection_state` are restated verbatim from `0019`.
+-- Neither gains or loses anything here; they are rebuilt only because they point at the table
+-- that had to be.
 
 CREATE TABLE communication_deliveries_next (
   id TEXT PRIMARY KEY NOT NULL,

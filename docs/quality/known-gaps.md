@@ -98,18 +98,23 @@ feature-by-feature verdict.
   Owner: cfp. Governing ID: `PRD-CFP-001`, `PRD-CFP-002`, `ACC-CFP`.
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.
-- `GAP-010` **Brief feature 3 is incomplete**: no lifecycle event enqueues a communication, and
-  organizer "communications" in the content workspace are log rows rather than sends. An organizer
-  *can* now write a template and send it to the event's speakers from the console, and those
-  deliveries carry a message rendered from the template version, so message content is no longer
-  purely decorative — but nothing the product does on its own enqueues anything, and the seeded
-  outbox rows remain placeholder data. The calendar half is no longer a download only: an
-  organizer sends an iTIP `METHOD:REQUEST` invitation per speaker per session through the outbox,
-  and the portal offers Google and Outlook links beside the `.ics`. What is still unproven there
-  is the last step — **no mail client has ever rendered one of these invitations**, because the
-  fixture provider sends no mail, so the evidence covers the invitation being built correctly and
-  reaching the provider and stops there. Provider selection is credential-gated with live adapters
-  behind it (`fixture` remains the default and no live adapter has met a real API).
+- `GAP-010` **Brief feature 3 is incomplete**: organizer "communications" in the content workspace
+  are still log rows rather than sends, and `ContentService.recordMessage` writes a
+  `speaker_messages` row and touches no outbox. An organizer can write a template and send it to
+  the event's speakers from the console, and **the product now enqueues on its own**: accepting a
+  proposal welcomes the speaker and announces each onboarding task, requesting a task tells them,
+  assigning or distributing review work tells the reviewer once per round, and an accept/decline
+  decision reaches the submitter (issue #66). A published schedule commits an
+  `EVT-SCHEDULE-PUBLISHED` record whose drain fans out one confirmation per speaker.
+  The calendar half is no longer a download only: an organizer sends an iTIP `METHOD:REQUEST`
+  invitation per speaker per session through the outbox, and the portal offers Google and Outlook
+  links beside the `.ics` (issue #56). Two things are still open there. The schedule confirmation
+  carries a **link** to the `.ics` rather than the attached invitation — the two halves landed in
+  different pull requests, and wiring them is one call plus one payload key. And the last step is
+  unproven: **no mail client has ever rendered one of these invitations**, because the fixture
+  provider sends no mail, so the evidence covers the invitation being built correctly and reaching
+  the provider and stops there. Provider selection is credential-gated with live adapters behind it
+  (`fixture` remains the default and no live adapter has met a real API).
   Owner: communications-integrations.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #23 (production adapters); #56's
@@ -169,19 +174,3 @@ feature-by-feature verdict.
   with a diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between
   spec files, or a Playwright global setup that fails fast when the API stops answering — and the
   wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
-- `GAP-018` **An attendee itinerary is addressed by a capability URL, which leaks the way URLs leak.**
-  `/api/public/*` is anonymous by construction — its `Access-Control-Allow-Origin: *` policy forbids
-  credentials, which is what lets a conference embed the schedule — so an itinerary is held by an
-  unguessable token in the path rather than by a session. That is what makes the shared ETag cache
-  correct (one itinerary, one URL) and makes sharing a plan the same act as sharing its link. The
-  cost is that the token travels wherever the URL does: browser history, a referrer header on any
-  outbound link, a screenshot, a shoulder. The page says so in as many words rather than implying an
-  account exists. Impact: anyone who obtains the link can read and edit that itinerary, and there is
-  no way to revoke it. Accepted for a list of public sessions someone starred; it would not be
-  acceptable for anything carrying a name, an email or a payment. The table also has no expiry and
-  no cleanup beyond `npm run reset`: minting is throttled per address but rows accumulate for the
-  life of the event, which is a storage cost rather than a correctness one. Owner: publishing.
-  Governing ID:
-  `PRD-PUB-001`, `ACC-PUBLIC`. Closure: if attendee data ever grows past a list of public slugs —
-  rotation, an explicit revoke, or a real identity, decided before the data changes rather than
-  after.

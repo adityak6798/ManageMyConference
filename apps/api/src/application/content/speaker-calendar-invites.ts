@@ -37,6 +37,18 @@ export class CalendarOrganizerUnconfiguredError extends Error {}
  * Retries do not disturb it. A resend of an unchanged schedule reuses the idempotency key below
  * and creates no delivery at all, so the only invitations that carry a new sequence are the ones
  * describing a genuinely new time.
+ *
+ * **Where a clock is not good enough, stated rather than hidden.** Whole-second resolution means
+ * two invitations for the same session and speaker issued inside one second carry the *same*
+ * sequence, and RFC 5546 says a client applies an update only on a strictly higher one — so the
+ * second would be ignored and the calendar would keep the first time. Reaching it needs a session
+ * moved twice within a second, or two organizers sending concurrently. Finer resolution does not
+ * fix it: milliseconds since the same epoch overflow a 32-bit integer in under a month.
+ *
+ * The real fix is the same one issue **#136** describes for the idempotency key — a sequence that
+ * counts what has actually been sent to this speaker for this session, rather than reading a
+ * clock and hoping. Both need per-pair state this feature does not keep, so they are one problem
+ * and are tracked as one.
  */
 const SEQUENCE_EPOCH_MS = Date.UTC(2026, 0, 1);
 const sequenceFor = (now: Date) =>

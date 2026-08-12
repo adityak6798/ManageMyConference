@@ -1,5 +1,5 @@
 import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
-import { ContactNotFoundError } from "../../application/crm/errors";
+import { ContactAlreadySourcedError, ContactNotFoundError } from "../../application/crm/errors";
 import {
   type ContactActivity,
   type ContactAlias,
@@ -29,6 +29,22 @@ export class MemoryCrmRepository implements CrmRepository {
   async findById(eventId: string, prospectId: string) {
     const item = this.prospects.get(prospectId);
     return item?.eventId === eventId ? item : null;
+  }
+  async findByPrimaryEmail(eventId: string, email: string) {
+    const normalized = email.trim().toLowerCase();
+    return (
+      [...this.prospects.values()]
+        .filter((prospect) => prospect.eventId === eventId)
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        )
+        .find((prospect) => {
+          const primary =
+            prospect.contacts.find(({ isPrimary }) => isPrimary) ?? prospect.contacts[0];
+          return primary?.email.trim().toLowerCase() === normalized;
+        }) ?? null
+    );
   }
   async create(prospect: Prospect) {
     this.prospects.set(prospect.id, prospect);
@@ -229,6 +245,25 @@ export class MemoryCrmRepository implements CrmRepository {
       });
     }
   }
+  async recordContactConversion(
+    organizationId: string,
+    contactId: string,
+    eventId: string,
+    activity: Omit<ContactActivity, "kind" | "summary">,
+  ) {
+    const contact = this.contacts.get(contactId);
+    if (!contact || contact.organizationId !== organizationId) return;
+    const target = contact.mergedIntoId
+      ? (this.contacts.get(contact.mergedIntoId) ?? contact)
+      : contact;
+    const summary = `Converted to a speaker on event ${eventId}`;
+    if (target.activities.some((entry) => entry.kind === "conversion" && entry.summary === summary))
+      return;
+    this.contacts.set(target.id, {
+      ...target,
+      activities: [...target.activities, { ...activity, kind: "conversion", summary }],
+    });
+  }
   async linkContactToEvent(input: {
     contact: OrganizationContact;
     prospect: Prospect;
@@ -247,6 +282,38 @@ export class MemoryCrmRepository implements CrmRepository {
           stage: input.prospect.stage,
           speakerId: null,
           convertedAt: null,
+          linkedAt: input.activity.occurredAt,
+        },
+      ],
+      activities: [...contact.activities, input.activity],
+    });
+  }
+  async linkContactToExistingProspect(input: {
+    contact: OrganizationContact;
+    prospect: Prospect;
+    activity: ContactActivity;
+  }) {
+    const contact = this.contacts.get(input.contact.id);
+    if (!contact || contact.mergedIntoId) throw new ContactNotFoundError("Contact not found");
+    if (!(await this.findById(input.prospect.eventId, input.prospect.id)))
+      throw new Error("Prospect not found");
+    if (
+      contact.events.some(({ eventId }) => eventId === input.prospect.eventId) ||
+      [...this.contacts.values()].some((stored) =>
+        stored.events.some(({ prospectId }) => prospectId === input.prospect.id),
+      )
+    )
+      throw new ContactAlreadySourcedError("This contact is already in that event's pipeline");
+    this.contacts.set(contact.id, {
+      ...contact,
+      events: [
+        ...contact.events,
+        {
+          eventId: input.prospect.eventId,
+          prospectId: input.prospect.id,
+          stage: input.prospect.stage,
+          speakerId: input.prospect.speakerId,
+          convertedAt: input.prospect.convertedAt,
           linkedAt: input.activity.occurredAt,
         },
       ],

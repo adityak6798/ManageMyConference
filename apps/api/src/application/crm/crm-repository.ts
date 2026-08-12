@@ -18,6 +18,8 @@ export interface ProspectFilters {
 export interface CrmRepository extends CrmDirectoryRepository {
   list(eventId: string, filters: ProspectFilters): Promise<readonly Prospect[]>;
   findById(eventId: string, prospectId: string): Promise<Prospect | null>;
+  /** Resolve an existing event prospect using conversion's normalized-address identity. */
+  findByPrimaryEmail(eventId: string, email: string): Promise<Prospect | null>;
   create(prospect: Prospect): Promise<void>;
   /**
    * Persist the prospect together with everything this command produced. `activities` is a list

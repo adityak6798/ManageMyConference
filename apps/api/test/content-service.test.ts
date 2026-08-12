@@ -14,6 +14,7 @@ import {
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
+import type { SpeakerNotificationPort } from "../src/application/content/content-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
 import { CapabilityDeniedError } from "../src/application/identity/actor";
@@ -85,6 +86,8 @@ function setup(
     publishedEvents?: Set<string>;
     /** Agenda boards this event starts with, so a withdrawal has placements to drop. */
     drafts?: readonly AgendaDraft[];
+    /** Records what content asked to have sent, for the lifecycle-trigger tests (issue #66). */
+    speakerNotifications?: SpeakerNotificationPort;
   } = {},
 ) {
   const publishedEvents = options.publishedEvents ?? new Set([eventId]);
@@ -106,6 +109,9 @@ function setup(
     agendaRepository,
     service: new ContentService({
       repository,
+      ...(options.speakerNotifications
+        ? { speakerNotifications: options.speakerNotifications }
+        : {}),
       assetStorage: storage,
       proposals:
         options.proposals ??
@@ -983,5 +989,106 @@ describe("ContentService", () => {
     // elsewhere, and one withdrawn talk is not a reason to delete a person's work.
     expect(after.speakers).toHaveLength(1);
     expect(after.tasks).toHaveLength(2);
+  });
+});
+
+describe("what a lifecycle action asks to have sent (issue #66)", () => {
+  /** Records every fact content reports, in order, without sending anything. */
+  const recorder = () => {
+    const accepted: Parameters<SpeakerNotificationPort["speakerAccepted"]>[0][] = [];
+    const tasks: Parameters<SpeakerNotificationPort["taskAssigned"]>[0][] = [];
+    return {
+      accepted,
+      tasks,
+      port: {
+        async speakerAccepted(fact) {
+          accepted.push(fact);
+        },
+        async taskAssigned(fact) {
+          tasks.push(fact);
+        },
+      } satisfies SpeakerNotificationPort,
+    };
+  };
+
+  it("reports the accepted speaker with the address they can actually be reached at", async () => {
+    const notifications = recorder();
+    const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.accept(organizer, command, correlationId);
+
+    // Before #66 this was the gap: acceptance wrote a session and told the speaker nothing. The
+    // address is the profile's, resolved server-side, not anything a client named.
+    expect(notifications.accepted).toHaveLength(1);
+    expect(notifications.accepted[0]).toMatchObject({
+      eventId,
+      speakerName: "Sam Speaker",
+      speakerEmail: "sam@example.test",
+    });
+  });
+
+  it("reports each onboarding task acceptance created, so the checklist is not silent", async () => {
+    const notifications = recorder();
+    const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.accept(organizer, command, correlationId);
+
+    expect(notifications.tasks.map(({ taskTitle }) => taskTitle)).toEqual([
+      "Complete your speaker profile",
+      "Upload a headshot",
+    ]);
+    // Keyed on the task, so the delivering domain dedupes per task rather than per speaker.
+    expect(new Set(notifications.tasks.map(({ taskId }) => taskId)).size).toBe(2);
+  });
+
+  it("says nothing the second time the same proposal is accepted", async () => {
+    const notifications = recorder();
+    const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.accept(organizer, command, correlationId);
+    await service.accept(organizer, command, correlationId);
+
+    // Re-accepting is the same acceptance. The delivering domain deduplicates it too, but not
+    // announcing it twice is what keeps the two mechanisms from hiding each other's bugs.
+    expect(notifications.accepted).toHaveLength(1);
+    expect(notifications.tasks).toHaveLength(2);
+  });
+
+  it("reports a task an organizer requests by hand", async () => {
+    const notifications = recorder();
+    const { service } = setup({ speakerNotifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    const task = await service.requestTask(organizer, {
+      profileId: samProfile.id,
+      title: "Send your slides",
+      dueAt: "2026-09-01T00:00:00.000Z",
+    });
+
+    expect(notifications.tasks).toEqual([
+      {
+        eventId,
+        profileId: samProfile.id,
+        taskId: task.id,
+        speakerName: "Sam Speaker",
+        speakerEmail: "sam@example.test",
+        taskTitle: "Send your slides",
+        dueAt: "2026-09-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("still accepts when there is nobody bound to tell", async () => {
+    // The port is optional and content works exactly as it did before #66 without one: a
+    // composition that cannot send must not be a composition that cannot accept.
+    const { service } = setup({ seedSpeaker: false });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    const workspace = await service.accept(organizer, command, correlationId);
+
+    expect(workspace.sessions).toHaveLength(1);
   });
 });

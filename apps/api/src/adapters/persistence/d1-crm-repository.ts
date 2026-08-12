@@ -19,6 +19,7 @@ import type {
   ProspectContact,
   ProspectStage,
 } from "../../domain/crm/prospect";
+
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   run(): Promise<{ success: boolean; error?: string }>;
@@ -226,6 +227,20 @@ export class D1CrmRepository implements CrmRepository {
     if (!result.success)
       throw new Error(`D1 failed to find prospect: ${result.error ?? "unknown error"}`);
     return (await this.hydrate(result.results ?? []))[0] ?? null;
+  }
+  async findByPrimaryEmail(eventId: string, email: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT p.id FROM crm_prospects p JOIN crm_contacts c ON c.prospect_id=p.id WHERE p.event_id=? AND c.is_primary=1 AND lower(trim(c.email))=? ORDER BY p.created_at,p.id LIMIT 1",
+      )
+      .bind(eventId, email.trim().toLowerCase())
+      .all<{ id: string }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to find CRM prospect by address: ${result.error ?? "unknown error"}`,
+      );
+    const id = result.results?.[0]?.id;
+    return id ? this.findById(eventId, id) : null;
   }
   async create(prospect: Prospect) {
     const statements = [
@@ -1068,6 +1083,41 @@ export class D1CrmRepository implements CrmRepository {
     );
   }
 
+  async recordContactConversion(
+    organizationId: string,
+    contactId: string,
+    eventId: string,
+    activity: Omit<ContactActivity, "kind" | "summary">,
+  ) {
+    const summary = `Converted to a speaker on event ${eventId}`;
+    const result = await this.database
+      .prepare(
+        `INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id)
+         SELECT ?,COALESCE(o.merged_into_id,o.id),?,?,?,?,?
+         FROM crm_organization_contacts o
+         WHERE o.id=? AND o.organization_id=?
+           AND NOT EXISTS (
+             SELECT 1 FROM crm_contact_activities a
+             WHERE a.contact_id=COALESCE(o.merged_into_id,o.id)
+               AND a.kind='conversion' AND a.summary=?
+           )`,
+      )
+      .bind(
+        activity.id,
+        "conversion",
+        summary,
+        activity.private ? 1 : 0,
+        activity.occurredAt,
+        activity.actorId,
+        contactId,
+        organizationId,
+        summary,
+      )
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to record contact conversion: ${result.error ?? "unknown error"}`);
+  }
+
   async linkContactToEvent(input: {
     contact: OrganizationContact;
     prospect: Prospect;
@@ -1120,6 +1170,39 @@ export class D1CrmRepository implements CrmRepository {
       // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
       // event_id)`, or the unique index that keeps one prospect to one contact. Reported as the
       // conflict it is rather than as a server fault.
+      {
+        when: /crm_contact_events/i,
+        error: () =>
+          new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
+      },
+    );
+  }
+
+  async linkContactToExistingProspect(input: {
+    contact: OrganizationContact;
+    prospect: Prospect;
+    activity: ContactActivity;
+  }) {
+    const { contact, prospect } = input;
+    const owns = [contact.id, contact.organizationId];
+    await this.runBatch(
+      [
+        this.database
+          .prepare(
+            `INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE ${D1CrmRepository.LIVE} AND EXISTS (SELECT 1 FROM crm_prospects p WHERE p.id=? AND p.event_id=?)`,
+          )
+          .bind(
+            contact.id,
+            prospect.eventId,
+            prospect.id,
+            input.activity.occurredAt,
+            ...owns,
+            prospect.id,
+            prospect.eventId,
+          ),
+        this.contactActivityStatement(contact.id, input.activity, contact.organizationId),
+      ],
+      "link the contact to an existing event prospect atomically",
       {
         when: /crm_contact_events/i,
         error: () =>

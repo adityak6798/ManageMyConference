@@ -57,6 +57,8 @@ export const UNMODELLED_OBJECTS = [
   "trigger:review_conflict_rejects_completion",
   "trigger:review_plan_lock",
   "trigger:review_assignment_cap",
+  "trigger:public_event_projections_slug_reservation_insert",
+  "trigger:public_event_projections_slug_reservation_update",
 ];
 
 const dialect = new SQLiteSyncDialect();

@@ -4,11 +4,17 @@ import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
   requireCapability,
+  requireEventCapability,
 } from "../identity/actor";
 import type { EventRepository } from "./event-repository";
 
 export interface CreateEventCommand {
   readonly organizationId: string;
+  readonly name: string;
+  readonly timezone: string;
+}
+
+export interface UpdateEventCommand {
   readonly name: string;
   readonly timezone: string;
 }
@@ -49,6 +55,15 @@ export class EventService {
     await this.dependencies.grantOrganizer?.(event.id, authorized.id);
     return event;
   }
+
+  async update(
+    actor: Actor | null,
+    eventId: string,
+    command: UpdateEventCommand,
+  ): Promise<Event | null> {
+    requireEventCapability(actor, eventId, "events:settings:update");
+    return this.dependencies.repository.update(eventId, command.name, command.timezone);
+  }
   listAssigned(actor: Actor | null): Promise<readonly Event[]> {
     if (!actor) throw new AuthenticationRequiredError("Authentication is required");
     return this.dependencies.repository.list({
@@ -67,6 +82,27 @@ export class EventService {
     return this.dependencies.repository.findById(eventId, this.scope(authorized));
   }
 
+  /**
+   * Which organization owns this event, for a caller that has no actor to scope by.
+   *
+   * The system-trust sibling of `belongsToOrganization`, and it exists for the same reason: a
+   * lifecycle consequence — a speaker welcomed after acceptance, a schedule confirmation drained
+   * from the outbox on a cron tick — happens without a request, so there is no actor whose
+   * organizations could scope the lookup. Both are addressing facts rather than grants: knowing
+   * which organization owns an event confers nothing, and every caller here has already
+   * authorized the action that led to it.
+   *
+   * Null when no such event exists, which a caller must treat as "do not act" rather than as an
+   * empty string.
+   */
+  async organizationOf(eventId: string): Promise<string | null> {
+    const event = await this.dependencies.repository.findById(eventId, {
+      organizationIds: [],
+      eventIds: [eventId],
+    });
+    return event?.organizationId ?? null;
+  }
+
   async belongsToOrganization(eventId: string, organizationId: string): Promise<boolean> {
     return (
       (await this.dependencies.repository.findById(eventId, {
@@ -74,5 +110,13 @@ export class EventService {
         eventIds: [],
       })) !== null
     );
+  }
+
+  /** Public application query for domains that must validate several event candidates at once. */
+  listEventIdsInOrganization(
+    organizationId: string,
+    candidateEventIds: readonly string[],
+  ): Promise<readonly string[]> {
+    return this.dependencies.repository.listIdsInOrganization(organizationId, candidateEventIds);
   }
 }

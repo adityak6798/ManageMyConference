@@ -17,7 +17,11 @@ test("signs in, switches events and roles, creates, and reloads an event", async
 
   await page.getByRole("link", { name: /Event settings/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Event settings" })).toBeVisible();
-  await page.getByLabel("Event name").fill(eventName);
+  await page.getByLabel("Current event name").fill("Greenroom Workshop Day Renamed");
+  await page.getByLabel("Event timezone").fill("America/Chicago");
+  await page.getByRole("button", { name: "Save event settings" }).click();
+  await expect(switcher).toContainText("Greenroom Workshop Day Renamed");
+  await page.getByLabel("Event name", { exact: true }).fill(eventName);
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(switcher).toContainText(eventName);
 

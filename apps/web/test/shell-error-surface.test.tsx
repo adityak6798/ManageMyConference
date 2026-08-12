@@ -67,7 +67,8 @@ describe("where a failed load is explained", () => {
         // succeed here so that exactly one read on this page has failed, which is what makes
         // "one alert" the right assertion below.
         if (url.includes("/api/communications/templates")) return json({ templates: [] });
-        if (url.includes("/api/communications/recipients")) return json({ recipients: [] });
+        if (url.includes("/api/communications/recipients"))
+          return json({ recipients: [], audienceVersion: "0-empty" });
         if (url.includes("/api/communications/history"))
           return outboxFails
             ? refusal("comms-trace", "The outbox could not be read.")

@@ -54,6 +54,14 @@ const latestByKey = (templates: readonly MessageTemplateDto[]) => {
 export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelProps) {
   const [templates, setTemplates] = useState<MessageTemplateDto[] | null>(null);
   const [recipients, setRecipients] = useState<BroadcastRecipientDto[] | null>(null);
+  /**
+   * The server's name for the audience the count on screen describes.
+   *
+   * Sent back with the broadcast. If the event's speakers changed in between, the send is
+   * refused and nothing goes out, rather than reaching a different set of people than the number
+   * the organizer approved.
+   */
+  const [audienceVersion, setAudienceVersion] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
@@ -70,7 +78,8 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
         getRecipients(organizationId, eventId),
       ]);
       setTemplates(loadedTemplates);
-      setRecipients(loadedRecipients);
+      setRecipients(loadedRecipients.recipients);
+      setAudienceVersion(loadedRecipients.audienceVersion);
       setLoadFailure(null);
       setSelectedKey((current) =>
         current && loadedTemplates.some((template) => template.key === current)
@@ -103,15 +112,9 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       const created = await createTemplate({
         organizationId,
         key: draft.key.trim(),
-        // Publishing the next version of an existing key is how a message is corrected;
-        // a key nobody has used starts at 1.
-        version:
-          Math.max(
-            0,
-            ...(templates ?? [])
-              .filter((template) => template.key === draft.key.trim())
-              .map((template) => template.version),
-          ) + 1,
+        // No version. The server allocates the next one next to the constraint that arbitrates
+        // it, so two organizers publishing the same key at once both succeed with consecutive
+        // versions instead of one being refused for proposing a number this panel guessed.
         channel: "email",
         subject: draft.subject.trim() ? draft.subject.trim() : null,
         body: draft.body,
@@ -126,11 +129,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       );
     } catch (reason: unknown) {
       // ERROR-INTENT: announced beside the form that produced it, so the draft survives.
-      //
-      // The version number is computed from the list this panel last read, so two organizers
-      // publishing the same key at once both propose the same number and one is refused. Re-read
-      // before reporting: without it the recomputed number would be the same stale one and the
-      // organizer would retry into the identical failure forever.
+      // Re-read first so the list behind the panel reflects whatever else has been published.
       await load();
       feedback.announce("error", readError(reason, "The template could not be saved."));
     } finally {
@@ -147,6 +146,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
         eventId,
         templateKey: selected.key,
         templateVersion: selected.version,
+        ...(audienceVersion ? { audienceVersion } : {}),
       });
       setConfirming(false);
       onSent();
@@ -166,6 +166,14 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
     } catch (reason: unknown) {
       // ERROR-INTENT: a refused send belongs next to the Send control. A template whose
       // placeholders the payload cannot fill fails here, naming the placeholder.
+      //
+      // A stale audience lands here too, and re-reading is what makes the refusal actionable:
+      // the panel comes back showing the count that is true now, and the organizer confirms
+      // against that rather than pressing Send into the same refusal. `setConfirming(false)`
+      // sends them back through the confirmation deliberately — a send refused because the
+      // audience changed must be re-approved, not retried.
+      setConfirming(false);
+      await load();
       feedback.announce("error", readError(reason, "The send was refused."));
     } finally {
       setBusy(false);

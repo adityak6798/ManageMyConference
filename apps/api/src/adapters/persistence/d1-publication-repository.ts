@@ -1,4 +1,5 @@
 import type { PublicationRepository } from "../../application/publishing/publication-repository";
+import { PublicationSlugTakenError } from "../../application/publishing/publication-service";
 import type { Publication, PublicEventProjection } from "../../domain/publishing/publication";
 
 interface D1PreparedStatement {
@@ -27,6 +28,11 @@ const fromRow = (row: PublicationRow): Publication => ({
   published: row.published_json ? (JSON.parse(row.published_json) as PublicEventProjection) : null,
   publishedAt: row.published_at,
 });
+
+const isPublicationSlugConstraint = (error: unknown) =>
+  /(UNIQUE constraint failed:.*public_event_projections(?:\.slug|_draft_slug_idx)|publication slug taken)/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
 
 // @spec PRD-PUB-001
 export class D1PublicationRepository implements PublicationRepository {
@@ -84,9 +90,11 @@ export class D1PublicationRepository implements PublicationRepository {
     slug: string,
     draft: PublicEventProjection,
   ): Promise<Publication | null> {
-    const result = await this.database
-      .prepare(
-        `INSERT INTO public_event_projections
+    let result: { success: boolean; error?: string };
+    try {
+      result = await this.database
+        .prepare(
+          `INSERT INTO public_event_projections
           (event_id, slug, state, draft_json, published_json, published_at)
          VALUES (?, ?, 'draft', ?, NULL, NULL)
          ON CONFLICT(event_id) DO UPDATE SET
@@ -100,9 +108,16 @@ export class D1PublicationRepository implements PublicationRepository {
             WHEN public_event_projections.state = 'published' THEN public_event_projections.slug
             ELSE excluded.slug
           END`,
-      )
-      .bind(eventId, slug, JSON.stringify(draft))
-      .run();
+        )
+        .bind(eventId, slug, JSON.stringify(draft))
+        .run();
+    } catch (error) {
+      if (isPublicationSlugConstraint(error))
+        throw new PublicationSlugTakenError("That public address is already taken.");
+      throw error;
+    }
+    if (!result.success && isPublicationSlugConstraint(result.error))
+      throw new PublicationSlugTakenError("That public address is already taken.");
     if (!result.success)
       throw new Error(`D1 failed to save publication settings: ${result.error ?? "unknown error"}`);
     return this.findByEventId(eventId);
@@ -113,9 +128,11 @@ export class D1PublicationRepository implements PublicationRepository {
     publishedAt: string,
     projection: PublicEventProjection,
   ): Promise<Publication | null> {
-    const result = await this.database
-      .prepare(
-        `INSERT INTO public_event_projections
+    let result: { success: boolean; error?: string };
+    try {
+      result = await this.database
+        .prepare(
+          `INSERT INTO public_event_projections
           (event_id, slug, state, draft_json, published_json, published_at)
          VALUES (?, ?, 'published', ?, ?, ?)
          ON CONFLICT(event_id) DO UPDATE SET
@@ -124,15 +141,22 @@ export class D1PublicationRepository implements PublicationRepository {
           draft_json = excluded.draft_json,
           published_json = excluded.published_json,
           published_at = excluded.published_at`,
-      )
-      .bind(
-        eventId,
-        projection.event.slug,
-        JSON.stringify(projection),
-        JSON.stringify(projection),
-        publishedAt,
-      )
-      .run();
+        )
+        .bind(
+          eventId,
+          projection.event.slug,
+          JSON.stringify(projection),
+          JSON.stringify(projection),
+          publishedAt,
+        )
+        .run();
+    } catch (error) {
+      if (isPublicationSlugConstraint(error))
+        throw new PublicationSlugTakenError("That public address is already taken.");
+      throw error;
+    }
+    if (!result.success && isPublicationSlugConstraint(result.error))
+      throw new PublicationSlugTakenError("That public address is already taken.");
     if (!result.success)
       throw new Error(`D1 failed to publish projection: ${result.error ?? "unknown error"}`);
     return this.findByEventId(eventId);

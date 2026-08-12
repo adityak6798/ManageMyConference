@@ -78,6 +78,7 @@ export function defineCommunicationsIntegrationsSchema(references: {
         "communication_deliveries_trigger_type",
         sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded')`,
       ),
+      // `event` carries a domain event rather than an outbound call; see migration 1703.
       check(
         "communication_deliveries_channel",
         sql`${table.channel} IN ('email', 'airtable', 'accelevents', 'event')`,

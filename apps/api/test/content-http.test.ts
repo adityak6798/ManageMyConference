@@ -4,6 +4,7 @@ import {
   MemoryContentRepository,
   MemorySpeakerConversion,
 } from "../src/adapters/persistence/memory-content-repository";
+import { ContentConflictError } from "../src/application/content/content-repository";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { MemoryReviewRepository } from "../src/adapters/persistence/memory-review-repository";
@@ -53,6 +54,14 @@ function app(
   storage: DeterministicAssetStorage = new DeterministicAssetStorage(),
   /** The board this event starts with. A session's time comes from here and nowhere else. */
   agendaRepository: MemoryAgendaRepository = new MemoryAgendaRepository(),
+  /** Supplied only by a case that needs the store to behave a particular way, such as refusing. */
+  repository: MemoryContentRepository = new MemoryContentRepository({
+    sessions: [],
+    speakers: [samProfile],
+    tasks: [],
+    assets: [],
+    messages: [],
+  }),
 ) {
   let id = 0;
   const newId = () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`;
@@ -61,13 +70,6 @@ function app(
     () => new Date("2026-08-10T12:00:00.000Z"),
     new FixtureSchedulableContentQuery(new Map()),
   );
-  const repository = new MemoryContentRepository({
-    sessions: [],
-    speakers: [samProfile],
-    tasks: [],
-    assets: [],
-    messages: [],
-  });
   const proposals = new MemorySubmittedProposalAdapter([
     {
       id: submittedProposalId,
@@ -756,5 +758,33 @@ describe("content HTTP transport", () => {
     await expect(
       (await api.request(`/api/events/${eventId}/content`, { headers: organizer })).json(),
     ).resolves.toMatchObject({ sessions: [] });
+  });
+
+  it("answers a profile edit that never wins the record with 409 CONFLICT", async () => {
+    // The store refuses the way `D1ContentRepository` does after losing the revision number
+    // five times running. What is under test is the transport: contention has to reach the
+    // organizer as a conflict they can resolve by reloading, not as a 500 or a silent 200.
+    const contended = new MemoryContentRepository({
+      sessions: [],
+      speakers: [samProfile],
+      tasks: [],
+      assets: [],
+      messages: [],
+    });
+    contended.reviseProfile = async () => {
+      throw new ContentConflictError("This record is being edited by someone else.");
+    };
+    const api = app(undefined, undefined, undefined, contended);
+
+    const response = await api.request(`/api/speaker-profiles/${samProfile.id}/workflow`, {
+      method: "PATCH",
+      headers: await cookie("organizer"),
+      body: JSON.stringify({ workflowStatus: "ready", logistics: {}, customFields: {} }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "CONFLICT", message: "This record is being edited by someone else." },
+    });
   });
 });

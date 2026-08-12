@@ -1,4 +1,5 @@
-import type { DeliveryProvider, ProviderResult } from "./ports";
+import { isProjectionChannel } from "../../domain/communications/delivery";
+import type { DomainEventConsumer, DeliveryProvider, ProviderResult } from "./ports";
 import type { CommunicationsRepository } from "./ports";
 
 const retryDelayMs = (attempt: number) => Math.min(60_000, 1_000 * 2 ** Math.max(0, attempt - 1));
@@ -49,6 +50,17 @@ export class OutboxWorker {
     private readonly providers: Record<"email" | "airtable" | "accelevents", DeliveryProvider>,
     private readonly dependencies: { newId(): string; now(): Date },
     private readonly telemetry?: OutboxTelemetry,
+    /**
+     * Handles `event`-channel deliveries, which carry a domain event rather than a message and
+     * so have no provider to call.
+     *
+     * Optional because a composition that only sends mail has no events to consume, and an
+     * absent consumer must not silently drop one: an `event` delivery that arrives with nothing
+     * bound is failed terminally with `NO_EVENT_CONSUMER` rather than left queued forever or
+     * marked succeeded. A record nobody consumed should be visible in the history as exactly
+     * that.
+     */
+    private readonly eventConsumer?: DomainEventConsumer,
   ) {}
 
   async runOne(): Promise<boolean> {
@@ -81,7 +93,17 @@ export class OutboxWorker {
     }
     let result: ProviderResult;
     try {
-      result = await this.providers[delivery.channel].deliver(delivery);
+      // An `event` delivery has no provider: it announces something that already happened here,
+      // and "delivering" it means letting this system's own consumer act on it. It shares this
+      // path rather than getting one of its own so a fan-out that fails halfway is retried,
+      // bounded and audited by the same attempt history as a failed send.
+      result =
+        delivery.channel === "event"
+          ? ((await this.eventConsumer?.consume(delivery)) ?? {
+              kind: "terminal",
+              code: "NO_EVENT_CONSUMER",
+            })
+          : await this.providers[delivery.channel].deliver(delivery);
     } catch {
       // ERROR-INTENT: Provider details are untrusted; normalize the failure into an auditable retry.
       result = { kind: "retryable" as const, code: "UNEXPECTED_PROVIDER_ERROR" };
@@ -123,7 +145,7 @@ export class OutboxWorker {
       attempt,
       { state, nextAttemptAt, updatedAt: completedAt },
       result.kind === "success" &&
-        delivery.channel !== "email" &&
+        isProjectionChannel(delivery.channel) &&
         delivery.projectionVersion !== null
         ? {
             destination: delivery.channel,

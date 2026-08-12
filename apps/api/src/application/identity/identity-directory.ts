@@ -38,4 +38,19 @@ export interface IdentityDirectory {
   listAssignableOwnersForEvent(eventId: string): Promise<readonly AssignableOwner[]>;
   grantOrganizer(eventId: string, userId: string): Promise<void>;
   provisionSpeaker(userId: string, name: string, eventId: string): Promise<void>;
+  /**
+   * One user's display name and the address they can be reached at, by id.
+   *
+   * The single-user counterpart of `listSpeakersForEvent`, added because a lifecycle message to
+   * one named person — a reviewer who has just been given abstracts — otherwise had no way to
+   * learn an address without reading `users` or `identity_emails`. Deliberately *not* folded
+   * into `listReviewersForEvent`, whose result is projected into the review workspace response:
+   * widening that would put every reviewer's address into an API payload as a side effect of
+   * wanting one address on the server.
+   *
+   * `email` is null when identity holds no address for this user, exactly as
+   * `listSpeakersForEvent` reports it. Null for a user who does not exist. Addressing only —
+   * appearing here grants nothing.
+   */
+  findRecipient(userId: string): Promise<{ id: string; name: string; email: string | null } | null>;
 }

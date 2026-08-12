@@ -1,6 +1,6 @@
 // @acceptance ACC-INTEGRATION
 /*
- * Migration 1750 rebuilds `communication_deliveries`, and a rebuild is the one migration shape
+ * Migration 1703 rebuilds `communication_deliveries`, and a rebuild is the one migration shape
  * whose test can be green while the migration cannot run at all.
  *
  * `createMigratedDatabase` applies the migrations and *then* the seed, so every rebuild in the
@@ -55,7 +55,7 @@ describe("communication_deliveries rebuild", () => {
     expect(before.results?.[0]?.projections).toBeGreaterThan(0);
 
     const sql = await readFile(
-      new URL("../migrations/1750_delivery_calendar_invite_trigger.sql", import.meta.url),
+      new URL("../migrations/1703_delivery_domain_event_triggers.sql", import.meta.url),
       "utf8",
     );
     for (const statement of statements(sql)) await migrated.database.prepare(statement).run();
@@ -71,8 +71,8 @@ describe("communication_deliveries rebuild", () => {
       joined: before.results?.[0]?.attempts,
     });
 
-    // The widened constraint is the point of the migration: the new trigger value inserts, and a
-    // value nobody agreed on still does not.
+    // The widened constraint is the point of the migration: the trigger values it admits insert,
+    // and a value nobody agreed on still does not.
     const accepted = await migrated.database
       .prepare(
         "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at, rendered_subject, rendered_body) VALUES ('rebuild-invite', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'rebuild:invite', 'speaker.calendar_invite', 'email', NULL, NULL, 'ada@example.test', '{}', NULL, 'queued', 0, '2026-08-12T09:00:00.000Z', NULL, '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z', 'Subject', 'Body')",

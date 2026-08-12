@@ -96,13 +96,15 @@ export const communicationsRoutes: RouteModule = {
           ),
           400,
         );
-      return context.json({
-        recipients: await communications.recipients(
+      // The whole result, `audienceVersion` included: the console confirms against this count
+      // and sends the version back, so a send whose audience has since changed is refused.
+      return context.json(
+        await communications.recipients(
           context.get("actor"),
           parsed.data.organizationId,
           parsed.data.eventId,
         ),
-      });
+      );
     });
     app.post("/api/communications/broadcasts", async (context) => {
       requireCapability(context.get("actor"), "communications:manage");
@@ -196,34 +198,40 @@ export const communicationsRoutes: RouteModule = {
      */
     app.get("/api/events/:eventId/integrations/accelevents", async (context) => {
       const parsed = eventIdParamsSchema.safeParse(context.req.param());
-      if (parsed.success)
-        requireEventCapability(context.get("actor"), parsed.data.eventId, "content:manage");
       if (!parsed.success)
         return context.json(
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
+      requireEventCapability(context.get("actor"), parsed.data.eventId, "content:manage");
       if (!accelEventsSync) throw new Error("Accelevents integration is not configured");
       return context.json(
         await accelEventsSync.describe(context.get("actor"), parsed.data.eventId),
       );
     });
     app.post("/api/events/:eventId/integrations/accelevents/sync", async (context) => {
+      // A malformed event id ends the request before anything else happens. Reading the body
+      // first would spend work on a request already known to be a 400, and would leave the
+      // authorization below unreachable for the very requests whose scope cannot be determined.
       const params = eventIdParamsSchema.safeParse(context.req.param());
-      // Denied before the body is read. The service authorizes too, but leaving it to the service
-      // alone means an anonymous caller receives a validation error with field detail instead of
-      // a 401, and has their request body read and parsed on the way to it — and this domain's
-      // stated invariant is that denial happens before request-body parsing.
-      if (params.success)
-        requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      // Then denial, still before the body is read. The service authorizes too, but leaving it to
+      // the service alone means an anonymous caller receives a validation error with field detail
+      // instead of a 401, and has their request body read and parsed on the way to it — and this
+      // domain's stated invariant is that denial happens before request-body parsing.
+      requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
       const body = accelEventsSyncInputSchema.safeParse(await readJson(context.req));
-      if (!params.success || !body.success)
+      if (!body.success)
         return context.json(
           envelope(
             "VALIDATION_FAILED",
             "The sync request is invalid.",
             context.get("correlationId"),
-            body.success ? undefined : validationFields(body.error.issues),
+            validationFields(body.error.issues),
           ),
           400,
         );

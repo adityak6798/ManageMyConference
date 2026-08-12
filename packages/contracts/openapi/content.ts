@@ -43,6 +43,19 @@ import type { OpenApiFragment } from "./contract";
 export const contentPaths: OpenApiFragment = {
   domain: "content",
   register(registry, { json, errorResponse }) {
+    /**
+     * Two people edited the same speaker or session at the same moment, repeatedly.
+     *
+     * Carries its own description rather than reusing the standard envelope's, because this is
+     * the one 4xx on these routes a client should answer by reloading and retrying rather than
+     * by correcting the request — and a consumer reading the generated contract has no other
+     * way to learn that.
+     */
+    const revisionConflictResponse = {
+      ...errorResponse,
+      description:
+        "Contention, not a malformed request. Every profile and session edit records an attributed revision in the same transaction as the change itself, and a writer that loses the revision number five times running stops rather than writing from a copy the record has moved past. Nothing was changed; reload and try again.",
+    };
     registry.registerPath({
       method: "get",
       path: "/api/events/{eventId}/content",
@@ -120,6 +133,11 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: {
+          ...errorResponse,
+          description:
+            "The selected deliverables exceed the 50 MB archive limit. The request is well formed and the caller is entitled to every file in it; there are simply too many bytes to return in one archive. Select fewer.",
+        },
         500: errorResponse,
       },
     });
@@ -136,6 +154,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -171,6 +190,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -245,6 +265,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -398,6 +419,7 @@ export const contentPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: revisionConflictResponse,
         500: errorResponse,
       },
     });
@@ -474,7 +496,7 @@ export const contentPaths: OpenApiFragment = {
       method: "post",
       path: "/api/events/{eventId}/speaker-calendar-invites",
       description:
-        "Send every speaker of every scheduled session the iTIP invitation for it. One delivery per speaker per session per schedule: re-running on an unchanged agenda writes nothing, and a moved session produces one new invitation carrying a higher SEQUENCE, which replaces the entry rather than adding a second. Answers 500 when EMAIL_SENDER is unconfigured, because that address becomes the ORGANIZER and a calendar client refuses an invitation whose organizer is not the sender.",
+        "Send every speaker of every scheduled session the iTIP invitation for it. One delivery per speaker per session per schedule: re-running on an unchanged agenda writes nothing, and a moved session produces one new invitation carrying a higher SEQUENCE, which replaces the entry rather than adding a second. Every invitation needs an ORGANIZER, because a calendar client refuses one whose organizer is not the sender: EMAIL_SENDER supplies it wherever mail is real, and CALENDAR_ORGANIZER_EMAIL — defaulted in wrangler.toml — supplies it in the configurations that send no mail. Answers 500 only if neither is configured, which is a deployment fault rather than a caller mistake.",
       security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: eventContentParamsSchema },
       responses: {

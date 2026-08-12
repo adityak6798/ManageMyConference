@@ -37,11 +37,56 @@ export class ReviewValidationError extends Error {
 export class ReviewConflictError extends Error {}
 export class ReviewNotFoundError extends Error {}
 
+/**
+ * How review asks for somebody to be told the outcome of a review action.
+ *
+ * Declared here and bound in the composition root, so this domain imports nothing of whoever
+ * delivers the message. Review states what happened; the template, trigger and deduplication
+ * belong to the delivering domain.
+ *
+ * **Implementations must not throw.** Both facts are reported after the change is durable, and a
+ * decision that has already transitioned a proposal's status must not report failure because a
+ * message could not be queued. See the binding in `apps/api/src/index.ts`.
+ *
+ * @spec PRD-REV-001 PRD-COM-001 ARC-DOM-001
+ */
+export interface ReviewNotificationPort {
+  /**
+   * A reviewer was given abstracts to evaluate in this round.
+   *
+   * Reported once per reviewer per round however many passes the organizer distributes in, so
+   * the delivering domain can key on `(eventId, reviewerId, round)` and tell them once.
+   */
+  reviewerAssigned(fact: {
+    readonly eventId: string;
+    readonly reviewerId: string;
+    readonly round: number;
+    readonly assignmentIds: readonly string[];
+    readonly proposalCount: number;
+  }): Promise<void>;
+  /**
+   * A submitter's proposal was accepted or declined.
+   *
+   * `submitterEmail` is null when the published form collected no contact address — a real
+   * state, and one this domain reports rather than guesses at.
+   */
+  decisionRecorded(fact: {
+    readonly eventId: string;
+    readonly proposalId: string;
+    readonly outcome: DecisionOutcome;
+    readonly submitterName: string;
+    readonly submitterEmail: string | null;
+    readonly proposalTitle: string;
+  }): Promise<void>;
+}
+
 export interface ReviewServiceDependencies {
   repository: ReviewRepository;
   proposals: SubmittedProposalInterface;
   identities: Pick<IdentityDirectory, "isReviewerForEvent" | "listReviewersForEvent">;
   events: Pick<EventService, "get">;
+  /** Tells reviewers and submitters what happened. Optional; review works unchanged without it. */
+  notifications?: ReviewNotificationPort;
   newId: () => string;
   now: () => Date;
 }
@@ -314,13 +359,18 @@ export class ReviewService implements AcceptedProposalQuery {
         round,
         createdAt: now,
       }));
+    let created: readonly ReviewAssignment[];
     try {
-      return await this.dependencies.repository.createAssignments(assignments);
+      created = await this.dependencies.repository.createAssignments(assignments);
     } catch (error) {
       if (error instanceof ReviewStateConflictError)
         throw new ReviewValidationError({ plan: [error.message] });
       throw error;
     }
+    // Nothing new was assigned, so there is nothing to tell anybody. Without this an organizer
+    // re-submitting the same list would mail the reviewer again about work they already have.
+    await this.notifyAssigned(eventId, round, created);
+    return created;
   }
 
   async distribute(
@@ -392,8 +442,9 @@ export class ReviewService implements AcceptedProposalQuery {
       });
       counts.set(reviewerId, (counts.get(reviewerId) ?? 0) + 1);
     }
+    let stored: readonly ReviewAssignment[];
     try {
-      return await this.dependencies.repository.createCappedAssignments(
+      stored = await this.dependencies.repository.createCappedAssignments(
         created,
         new Map(uniqueReviewers.map((reviewerId) => [reviewerId, maxAssignmentsPerReviewer])),
       );
@@ -402,6 +453,44 @@ export class ReviewService implements AcceptedProposalQuery {
         throw new ReviewValidationError({ reviewerIds: [error.message] });
       throw error;
     }
+    // One message per reviewer, not one per abstract: a distribution that hands somebody twelve
+    // proposals is one thing that happened to them, and twelve emails about it is the kind of
+    // notification people filter out.
+    await this.notifyAssigned(eventId, targetRound, stored);
+    return stored;
+  }
+
+  /**
+   * Tell each reviewer, once, that they have work in this round.
+   *
+   * Grouped by reviewer and keyed on the round rather than on the assignments, because an
+   * organizer distributing in several passes — a batch now, more when late proposals arrive — is
+   * one reviewer being given work in one round, and they should hear about it once. That is also
+   * why the message does not name a count: a count stated at the first pass would be wrong after
+   * the second, and a message that says "you have 3 abstracts" when the queue holds 11 is worse
+   * than one that says there is work waiting.
+   */
+  private async notifyAssigned(
+    eventId: string,
+    round: number,
+    assignments: readonly ReviewAssignment[],
+  ): Promise<void> {
+    const notifications = this.dependencies.notifications;
+    if (!notifications || assignments.length === 0) return;
+    const byReviewer = new Map<string, ReviewAssignment[]>();
+    for (const assignment of assignments) {
+      const list = byReviewer.get(assignment.reviewerId);
+      if (list) list.push(assignment);
+      else byReviewer.set(assignment.reviewerId, [assignment]);
+    }
+    for (const [reviewerId, theirs] of byReviewer)
+      await notifications.reviewerAssigned({
+        eventId,
+        reviewerId,
+        round,
+        assignmentIds: theirs.map(({ id }) => id),
+        proposalCount: theirs.length,
+      });
   }
 
   async advanceRound(
@@ -574,6 +663,20 @@ export class ReviewService implements AcceptedProposalQuery {
       note,
     }));
     for (const decision of decisions) await this.dependencies.repository.saveDecision(decision);
+    // Told after both the status transition and the decision record are durable. A submitter who
+    // hears "accepted" from a decision that did not save would be told again on the retry, and
+    // the two messages would disagree about which one was real.
+    for (const proposal of proposals)
+      await this.dependencies.notifications?.decisionRecorded({
+        eventId,
+        proposalId: proposal.id,
+        outcome,
+        submitterName: proposal.submitterName,
+        // Null rather than a guess: a form that collected no address leaves nobody to write to,
+        // and inventing one would send somebody else's decision to somebody else.
+        submitterEmail: proposal.submitter?.email ?? null,
+        proposalTitle: proposal.title,
+      });
     return { proposals, decisions };
   }
 

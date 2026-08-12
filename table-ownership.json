@@ -10,7 +10,10 @@
     "event_roles": "identity-access",
     "message_templates": "communications-integrations",
     "communication_deliveries": "communications-integrations",
+    "communication_deliveries_next": "communications-integrations",
     "communication_attempts": "communications-integrations",
+    "communication_attempts_next": "communications-integrations",
+    "outbound_projection_state_next": "communications-integrations",
     "outbound_projection_state": "communications-integrations",
     "crm_prospects": "crm",
     "crm_contacts": "crm",
@@ -53,9 +56,7 @@
     "agenda_publications": "agenda",
     "public_event_projections": "publishing",
     "attendee_itineraries": "publishing",
-    "communication_deliveries_next": "communications-integrations",
-    "accelevents_sync_runs": "communications-integrations",
-    "communication_attempts_next": "communications-integrations",
-    "outbound_projection_state_next": "communications-integrations"
+    "publication_slug_reservation_audit": "publishing",
+    "accelevents_sync_runs": "communications-integrations"
   }
 }
