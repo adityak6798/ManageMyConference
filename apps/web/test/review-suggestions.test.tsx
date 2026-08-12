@@ -259,6 +259,68 @@ describe("the assistant's draft", () => {
     expect(screen.getByLabelText("Private notes")).toHaveValue("Halfway through my own note");
   });
 
+  it("appends the summary to what the reviewer has typed, rather than replacing it", async () => {
+    // The checked branch had the same defect as the unchecked one, one layer down: the server
+    // composes the summary onto the notes *it* has stored, and handing that back replaced
+    // anything typed since. The summary is appended to what is actually on screen instead.
+    const sent = stubApi((url) => {
+      if (url.endsWith(`/suggestions/${suggestionId}/response`))
+        return jsonResponse({
+          suggestion: suggestion({ state: "accepted" }),
+          evaluation: {
+            assignmentId,
+            reviewerId: "seed-reviewer",
+            scores: [{ criterionId: "relevance", value: 4, score: 4 }],
+            // What the server stored: its own (empty) copy plus the summary. Not what the
+            // reviewer is looking at.
+            notes: "A talk about watermark-only stream joins.",
+            state: "draft",
+            updatedAt: "2026-08-11T10:05:00.000Z",
+            source: "suggested",
+            suggestionId,
+          },
+        });
+      if (url.endsWith("/review/assignments"))
+        return jsonResponse(queue({}, { suggestions: [suggestion()] }));
+      return undefined;
+    });
+
+    render(<ReviewerWorkspace eventId={eventId} />);
+    const notes = await screen.findByLabelText("Private notes");
+    fireEvent.change(notes, { target: { value: "My own half-written note" } });
+    fireEvent.click(screen.getByLabelText(/copy the summary into my private notes/i));
+    fireEvent.click(screen.getByRole("button", { name: "Accept into my scores" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Audience fit")).toHaveValue("4"));
+    expect(screen.getByLabelText("Private notes")).toHaveValue(
+      "My own half-written note\n\nA talk about watermark-only stream joins.",
+    );
+    expect(sent[0]?.body).toMatchObject({ includeSummaryInNotes: true });
+  });
+
+  it("says what a dismissal does and does not record", async () => {
+    let answered = false;
+    stubApi((url) => {
+      if (url.endsWith(`/suggestions/${suggestionId}/response`)) {
+        answered = true;
+        return jsonResponse({
+          suggestion: suggestion({ state: "rejected", respondedBy: "seed-reviewer" }),
+          evaluation: null,
+        });
+      }
+      if (url.endsWith("/review/assignments"))
+        return jsonResponse(queue({}, { suggestions: answered ? [] : [suggestion()] }));
+      return undefined;
+    });
+
+    render(<ReviewerWorkspace eventId={eventId} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+
+    // "Nothing was recorded" contradicted the audit row a dismissal deliberately keeps.
+    expect(await screen.findByText(/No evaluation was recorded/i)).toBeInTheDocument();
+    expect(await screen.findByText(/kept as an audit record/i)).toBeInTheDocument();
+  });
+
   it("dismisses a draft without touching the form", async () => {
     let answered = false;
     const sent = stubApi((url) => {
@@ -277,9 +339,7 @@ describe("the assistant's draft", () => {
     render(<ReviewerWorkspace eventId={eventId} />);
     fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
 
-    expect(
-      await screen.findByText(/Nothing was recorded against this abstract/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/No evaluation was recorded/i)).toBeInTheDocument();
     expect(sent[0]?.body).toMatchObject({ response: "rejected" });
     expect(screen.getByLabelText("Audience fit")).toHaveValue("");
   });

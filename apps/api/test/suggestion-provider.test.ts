@@ -290,6 +290,65 @@ describe("the live suggestion adapter", () => {
     expect((refusal as Error).message).not.toContain("10.0.0.5");
   });
 
+  it("reports an abort from its own deadline as a timeout, not as unreachable", async () => {
+    // `AbortSignal.timeout` rejects with a `TimeoutError`. Folded into PROVIDER_UNREACHABLE it
+    // told the reviewer to suspect the network when the model was simply slow — and the code
+    // table in the engineering doc already promised otherwise.
+    const abort = Object.assign(new Error("The operation was aborted"), { name: "TimeoutError" });
+    const fetch = vi.fn().mockRejectedValue(abort);
+    const provider = new AnthropicSuggestionProvider({ apiKey: "sk-test" }, fetch);
+
+    const refusal = await refusalOf(provider.suggest(request()));
+
+    expect((refusal as SuggestionUnavailableError).code).toBe("PROVIDER_TIMEOUT");
+  });
+
+  it("refuses a success that will not say which model served it", async () => {
+    // Defaulting to the configured model would write a provenance line claiming something the API
+    // never said, which is worse than having no suggestion.
+    const fetch = vi.fn().mockResolvedValue(
+      response({
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: JSON.stringify(DRAFT) }],
+      }),
+    );
+    const provider = new AnthropicSuggestionProvider({ apiKey: "sk-test" }, fetch);
+
+    const refusal = await refusalOf(provider.suggest(request()));
+
+    expect((refusal as SuggestionUnavailableError).code).toBe("MALFORMED_PROVIDER_RESPONSE");
+  });
+
+  it.each([
+    ["a null envelope", response(null)],
+    ["a content field that is not an array", response({ model: "m", content: "nope" })],
+  ])("normalizes %s instead of throwing through it", async (_label, stubbed) => {
+    // Each of these used to read straight through an `as` cast and raise a TypeError, which left
+    // as a 500 — reporting the provider's bad response as a fault in this Worker.
+    const fetch = vi.fn().mockResolvedValue(stubbed);
+    const provider = new AnthropicSuggestionProvider({ apiKey: "sk-test" }, fetch);
+
+    const refusal = await refusalOf(provider.suggest(request()));
+
+    expect(refusal).toBeInstanceOf(SuggestionUnavailableError);
+    expect((refusal as SuggestionUnavailableError).code).toBe("MALFORMED_PROVIDER_RESPONSE");
+  });
+
+  it("drops a score entry that is not an object rather than throwing through it", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        modelReply({ summary: "Summary", scores: [null, "nope", DRAFT.scores[0]] }),
+      );
+    const provider = new AnthropicSuggestionProvider({ apiKey: "sk-test" }, fetch);
+
+    const draft = await provider.suggest(request());
+
+    expect(draft.scores).toEqual([
+      { criterionId: "fit", value: 4, rationale: "Squarely on topic." },
+    ]);
+  });
+
   it("reports a safety decline as its own outcome rather than a parse failure", async () => {
     const fetch = vi
       .fn()

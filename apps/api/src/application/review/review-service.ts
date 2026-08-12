@@ -965,6 +965,12 @@ export class ReviewService implements AcceptedProposalQuery {
     options: { readonly includeSummaryInNotes?: boolean } = {},
   ): Promise<{ suggestion: ReviewSuggestion; evaluation: Evaluation | null }> {
     const authorized = this.reviewer(actor, eventId);
+    // The same refusal `requestSuggestion` gives, on the path that answers an *existing* draft.
+    // Without it, a deployment that switched the assistant off could still have a stale tab accept
+    // a suggestion stored before the switch — which is not what "withdrawn entirely" means, and
+    // not what the routes tell every other caller.
+    if (!this.dependencies.suggestions)
+      throw new SuggestionsDisabledError("AI-assisted review is switched off for this deployment");
     const assignment = await this.ownedAssignment(eventId, assignmentId, authorized.id);
     const suggestion = await this.dependencies.repository.findSuggestion(
       eventId,

@@ -81,12 +81,15 @@ export class MemoryReviewRepository implements ReviewRepository {
       )
     )
       throw new ReviewStateConflictError("Evaluation is completed");
-    // The draft and the conflict describe an assignment that is going away, so they go with it
-    // rather than being left pointing at an id nothing resolves.
+    // The draft, the conflict and any suggestion describe an assignment that is going away, so
+    // they go with it rather than being left pointing at an id nothing resolves. In D1 the
+    // suggestion is not merely tidy — it is a foreign key, and leaving it refuses the delete.
     for (const [key, item] of [...this.evaluations])
       if (item.assignmentId === assignmentId) this.evaluations.delete(key);
     for (const [key, item] of [...this.conflicts])
       if (item.assignmentId === assignmentId) this.conflicts.delete(key);
+    for (const [key, item] of [...this.suggestions])
+      if (item.assignmentId === assignmentId) this.suggestions.delete(key);
     this.assignments.delete(assignmentId);
   }
   async getConflict(assignmentId: string, reviewerId: string) {

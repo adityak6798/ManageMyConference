@@ -178,6 +178,10 @@ const codeForStatus = (status: number): string => {
   return "PROVIDER_REJECTED";
 };
 
+/** A JSON object, as opposed to null, an array, or a scalar the `as` cast would have hidden. */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 interface MessagesResponse {
   model?: string;
   stop_reason?: string | null;
@@ -224,23 +228,36 @@ export class AnthropicSuggestionProvider implements ReviewSuggestionPort {
         // backstop, but only this abort actually releases the connection.
         signal: AbortSignal.timeout(request.timeoutMs),
       });
-    } catch {
+    } catch (error) {
       // ERROR-INTENT: a transport failure carries an untrusted message that can name internal
-      // hosts, and this code reaches a reviewer's screen. The outcome is the whole report.
+      // hosts, and this code reaches a reviewer's screen — so only the *kind* of failure crosses.
+      // The deadline is separated from the rest because a reviewer acts on it differently and the
+      // documented code table already distinguishes it: `AbortSignal.timeout` rejects with a
+      // `TimeoutError`, which folded into `PROVIDER_UNREACHABLE` would have told somebody to check
+      // their network when the model was simply slow.
+      if ((error as { name?: string })?.name === "TimeoutError")
+        throw new SuggestionUnavailableError("PROVIDER_TIMEOUT");
       throw new SuggestionUnavailableError("PROVIDER_UNREACHABLE");
     }
 
     if (response.status < 200 || response.status >= 300)
       throw new SuggestionUnavailableError(codeForStatus(response.status));
 
-    let body: MessagesResponse;
+    let decoded: unknown;
     try {
-      body = (await response.json()) as MessagesResponse;
+      decoded = await response.json();
     } catch {
       // ERROR-INTENT: an unparsable body is untrusted provider text and is never stored or logged;
       // the normalized code is what an operator acts on.
       throw new SuggestionUnavailableError("MALFORMED_PROVIDER_RESPONSE");
     }
+    // Checked rather than cast. A 2xx carrying `null`, or a `content` that is not an array, is a
+    // malformed *response* — casting it and reading through would throw a TypeError that escapes
+    // as a 500, turning the provider's bad day into our internal error.
+    if (!isRecord(decoded)) throw new SuggestionUnavailableError("MALFORMED_PROVIDER_RESPONSE");
+    const body = decoded as MessagesResponse;
+    if (!Array.isArray(body.content))
+      throw new SuggestionUnavailableError("MALFORMED_PROVIDER_RESPONSE");
 
     // A safety decline is a 200 with no usable content, so it is checked before the content is
     // read rather than surfacing later as an unexplained parse failure.
@@ -261,7 +278,11 @@ export class AnthropicSuggestionProvider implements ReviewSuggestionPort {
 
     const byId = new Map(request.criteria.map((criterion) => [criterion.id, criterion]));
     const scores: SuggestedScore[] = [];
-    for (const entry of parsed.scores as Record<string, unknown>[]) {
+    for (const entry of parsed.scores as unknown[]) {
+      // ERROR-INTENT: a `null` or a bare string in the array is dropped rather than destructured.
+      // Reading through it throws a TypeError that leaves as a 500, which would report a provider
+      // returning junk as a fault in this Worker.
+      if (!isRecord(entry)) continue;
       const { criterionId, value, rationale } = entry;
       // ERROR-INTENT: an entry naming a criterion this rubric does not have, or missing its value
       // or reason, is dropped rather than stored — the plan validation then refuses acceptance and
@@ -271,12 +292,17 @@ export class AnthropicSuggestionProvider implements ReviewSuggestionPort {
       scores.push({ criterionId, value: valueFor(byId.get(criterionId), value), rationale });
     }
 
+    // Required, not defaulted. Falling back to the model this deployment *asked* for would write
+    // a provenance line claiming something the API never said — and provenance nobody can trust
+    // is the one thing this feature cannot ship with.
+    if (typeof body.model !== "string" || !body.model)
+      throw new SuggestionUnavailableError("MALFORMED_PROVIDER_RESPONSE");
     return {
       summary: parsed.summary,
       scores,
       // The model the API says served the request, so a substitution upstream is recorded rather
       // than hidden behind the model this deployment asked for.
-      model: body.model ?? this.model,
+      model: body.model,
       promptVersion: SUGGESTION_PROMPT_VERSION,
     };
   }

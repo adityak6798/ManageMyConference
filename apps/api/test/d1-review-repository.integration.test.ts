@@ -1,7 +1,6 @@
 // @acceptance ACC-REVIEW
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 import {
   type D1ReviewDatabasePort,
   D1ReviewRepository,
@@ -11,6 +10,7 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { ReviewStateConflictError } from "../src/application/review/review-repository";
+import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
 describe("review D1 persistence", () => {
   let runtime: Miniflare | undefined;
@@ -585,5 +585,141 @@ describe("review round rebuild correction", () => {
         "review_plan_lock",
       ]),
     );
+  });
+  /**
+   * The three defects automated review found in this lane, each against real D1.
+   *
+   * All three are cases where the in-memory repository was happy and SQLite was not, or where a
+   * guard read as if it were unique and was not. They are grouped because they share a fixture.
+   */
+});
+
+describe("review suggestion races and provenance guards", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+  it("survives unassignment after a suggestion was drafted, and refuses a same-millisecond replay", async () => {
+    const migrated = await createMigratedDatabase({ label: "review-suggestion-races", seed: true });
+    runtime = migrated.runtime;
+    const reviews = new D1ReviewRepository(migrated.database as D1ReviewDatabasePort);
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const assignmentId = "20000000-0000-4000-8000-000000000001";
+    const suggestionId = "40000000-0000-4000-8000-000000000010";
+    const draft = (id: string) => ({
+      id,
+      eventId,
+      assignmentId,
+      reviewerId: "seed-reviewer",
+      proposalId: "10000000-0000-4000-8000-000000000001",
+      round: 1,
+      summary: "Summary",
+      scores: [{ criterionId: "relevance", value: 4, rationale: "On topic." }],
+      state: "offered" as const,
+      provenance: {
+        model: "m",
+        promptVersion: "v",
+        generatedAt: "2026-08-10T12:00:00.000Z",
+        proposalRevision: "rev-00000000",
+      },
+      respondedBy: null,
+      respondedAt: null,
+      createdAt: "2026-08-10T12:00:00.000Z",
+    });
+    const evaluation = {
+      assignmentId,
+      reviewerId: "seed-reviewer",
+      scores: [{ criterionId: "relevance", value: 4, score: 4 }],
+      notes: "",
+      state: "draft" as const,
+      updatedAt: "2026-08-10T12:05:00.000Z",
+      source: "suggested" as const,
+      suggestionId,
+    };
+
+    await reviews.saveSuggestion(draft(suggestionId));
+    await reviews.acceptSuggestion(
+      suggestionId,
+      "seed-reviewer",
+      "2026-08-10T12:05:00.000Z",
+      evaluation,
+    );
+
+    // A replay carrying the *same* timestamp — two accepts inside one millisecond. The first
+    // guard keyed on `responded_at`, which is not unique at that resolution, so the loser matched
+    // the winner's row and overwrote the reviewer's edited draft before reporting a conflict.
+    await reviews.saveEvaluation({
+      ...evaluation,
+      notes: "My own words",
+      updatedAt: "2026-08-10T12:06:00.000Z",
+    });
+    await expect(
+      reviews.acceptSuggestion(
+        suggestionId,
+        "seed-reviewer",
+        "2026-08-10T12:05:00.000Z",
+        evaluation,
+      ),
+    ).rejects.toThrow(ReviewStateConflictError);
+    await expect(reviews.getEvaluation(assignmentId, "seed-reviewer")).resolves.toMatchObject({
+      notes: "My own words",
+    });
+
+    // And unassignment still works once a suggestion exists. `review_suggestions` references the
+    // assignment, so leaving it behind made the final DELETE a foreign-key failure — a 500 on the
+    // organizer's Unassign control, reachable the moment any reviewer had drafted.
+    await reviews.deleteAssignment(eventId, assignmentId);
+    await expect(reviews.findAssignment(eventId, assignmentId)).resolves.toBeNull();
+    await expect(reviews.listSuggestionsForReviewer(eventId, "seed-reviewer")).resolves.toEqual([]);
+  });
+
+  it("refuses an evaluation citing a suggestion nobody accepted, and an impossible source", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "review-suggestion-source",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const reviews = new D1ReviewRepository(database as D1ReviewDatabasePort);
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const assignmentId = "20000000-0000-4000-8000-000000000001";
+    const suggestionId = "40000000-0000-4000-8000-000000000011";
+    await reviews.saveSuggestion({
+      id: suggestionId,
+      eventId,
+      assignmentId,
+      reviewerId: "seed-reviewer",
+      proposalId: "10000000-0000-4000-8000-000000000001",
+      round: 1,
+      summary: "Summary",
+      scores: [],
+      state: "offered",
+      provenance: {
+        model: "m",
+        promptVersion: "v",
+        generatedAt: "2026-08-10T12:00:00.000Z",
+        proposalRevision: "rev-00000000",
+      },
+      respondedBy: null,
+      respondedAt: null,
+      createdAt: "2026-08-10T12:00:00.000Z",
+    });
+
+    const insertEvaluation = (source: string, citedId: string | null) =>
+      database
+        .prepare(
+          "INSERT INTO review_evaluations (assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source, suggestion_id) VALUES (?, 'seed-reviewer', '[]', '', 'draft', '2026-08-10T12:00:00.000Z', NULL, ?, ?)",
+        )
+        .bind(assignmentId, source, citedId)
+        .run();
+
+    // The suggestion exists and belongs to this reviewer, but is still `offered`. Citing it is a
+    // claim that an acceptance happened, and no acceptance happened.
+    await expect(insertEvaluation("suggested", suggestionId)).rejects.toThrow();
+    // A source outside the two the contract allows would reach the transport as an impossible
+    // shape, because the adapter casts the column to `EvaluationSource`.
+    await expect(insertEvaluation("banana", null)).rejects.toThrow();
+    // A hand-written evaluation citing a suggestion is provenance nobody claimed.
+    await expect(insertEvaluation("manual", suggestionId)).rejects.toThrow();
+    // The honest write still lands.
+    await expect(insertEvaluation("manual", null)).resolves.toMatchObject({ success: true });
   });
 });

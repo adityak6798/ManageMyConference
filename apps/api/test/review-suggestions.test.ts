@@ -349,6 +349,55 @@ describe("AI-assisted review suggestions", () => {
     expect(await repository.listOutcomes(eventId)).toHaveLength(1);
   });
 
+  it("refuses to answer a stored suggestion once the assistant is switched off", async () => {
+    // The suggestion was drafted while the port was on, and the deployment then switched it off.
+    // A stale tab must not be able to accept it: "withdrawn entirely" has to mean both paths, or
+    // the routes are telling different callers different things.
+    const live = build();
+    const { reviewer, assignment } = await assigned(live.service);
+    const suggestion = await live.service.requestSuggestion(reviewer, eventId, assignment.id);
+
+    const off = new ReviewService({
+      repository: live.repository,
+      proposals: live.proposals,
+      identities: {
+        isReviewerForEvent: async () => true,
+        listReviewersForEvent: async () => [{ id: "seed-reviewer", name: "Ravi Reviewer" }],
+      },
+      events: {
+        get: async () => ({
+          id: eventId,
+          organizationId: "00000000-0000-4000-8000-000000000010",
+          name: "Event",
+          timezone: "UTC",
+          createdAt: "2026-08-09T12:00:00.000Z",
+        }),
+      },
+      newId: () => "00000000-0000-4000-8000-00000000ffff",
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+    });
+
+    expect(
+      await refusalOf(
+        off.respondToSuggestion(reviewer, eventId, assignment.id, suggestion.id, "accepted"),
+      ),
+    ).toBeInstanceOf(SuggestionsDisabledError);
+    expect(await live.repository.getEvaluation(assignment.id, reviewer.id)).toBeNull();
+  });
+
+  it("removes an assignment that has been drafted for", async () => {
+    // `review_suggestions` references the assignment, so leaving one behind made the organizer's
+    // Unassign control fail once any reviewer had pressed Draft.
+    const { service, repository } = build();
+    const { organizer, reviewer, assignment } = await assigned(service);
+    await service.requestSuggestion(reviewer, eventId, assignment.id);
+
+    await service.unassign(organizer, eventId, assignment.id);
+
+    expect(await repository.findAssignment(eventId, assignment.id)).toBeNull();
+    expect(await repository.listSuggestionsForReviewer(eventId, reviewer.id)).toEqual([]);
+  });
+
   it("refuses a second answer to the same suggestion", async () => {
     const { service } = build();
     const { reviewer, assignment } = await assigned(service);

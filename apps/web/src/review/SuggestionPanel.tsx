@@ -72,10 +72,11 @@ export function SuggestionPanel({
   /**
    * Applies the accepted draft to the open scoring form, so the reviewer sees what they took.
    *
-   * `replacedNotes` says whether this acceptance touched the notes field, so the card can leave
-   * the reviewer's unsaved typing alone when it did not.
+   * `appendToNotes` is the summary when the reviewer asked for it, and `null` otherwise — a
+   * summary to *add* rather than a notes field to replace, so their unsaved typing survives either
+   * way.
    */
-  onAccepted: (evaluation: Evaluation, replacedNotes: boolean) => void;
+  onAccepted: (evaluation: Evaluation, appendToNotes: string | null) => void;
   onChanged: () => Promise<void>;
   disabled: boolean;
 }) {
@@ -117,13 +118,17 @@ export function SuggestionPanel({
         response,
         response === "accepted" && includeSummary,
       );
-      if (result.evaluation) onAccepted(result.evaluation, includeSummary);
+      // The summary, not the server's composed notes. The server appended it to the notes it had
+      // stored, which is not what the reviewer is looking at — anything they typed since is only
+      // in the browser, and handing back the stored version would delete it.
+      if (result.evaluation)
+        onAccepted(result.evaluation, includeSummary ? suggestion.summary : null);
       await onChanged();
       feedback.announce(
         "success",
         response === "accepted"
           ? "Copied into your draft. Review the values, then press Complete evaluation when you agree with them."
-          : "Suggestion dismissed. Nothing was recorded against this abstract.",
+          : "Suggestion dismissed. No evaluation was recorded; the dismissal itself is kept as an audit record.",
       );
     } catch (reason) {
       // ERROR-INTENT: the panel reports the handled request failure in its live region.

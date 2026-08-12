@@ -2,7 +2,6 @@ import {
   type ReviewRepository,
   ReviewStateConflictError,
 } from "../../application/review/review-repository";
-import { changedRows, type D1WriteResult } from "./d1-write-result";
 import type {
   DecisionOutcome,
   Evaluation,
@@ -17,6 +16,7 @@ import type {
   ReviewSuggestion,
   SuggestionState,
 } from "../../domain/review/suggestion";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 
 interface D1Result<T> {
   results?: T[];
@@ -351,6 +351,13 @@ export class D1ReviewRepository implements ReviewRepository {
       this.database
         .prepare(`DELETE FROM review_evaluations WHERE ${owned} AND state != 'completed'`)
         .bind(assignmentId, eventId),
+      // After the evaluations that cite them and before the assignment they hang off, because
+      // `review_suggestions` sits between the two foreign keys — the same sandwich the seed
+      // reset has to observe. Omitted, the final DELETE below is rejected by the foreign key the
+      // moment any suggestion exists, and unassigning a drafted-for reviewer answers 500.
+      this.database
+        .prepare(`DELETE FROM review_suggestions WHERE ${owned} AND ${unscored}`)
+        .bind(assignmentId, eventId, assignmentId),
       // Last, so the rows referencing it by foreign key are already gone.
       this.database
         .prepare(`DELETE FROM review_assignments WHERE id = ? AND event_id = ? AND ${unscored}`)
@@ -569,11 +576,15 @@ export class D1ReviewRepository implements ReviewRepository {
   /**
    * Accept a suggestion and write the reviewer's draft, in one batch and in that order.
    *
-   * The evaluation insert is conditioned on the suggestion row this batch's *first* statement
-   * just wrote — matched on `responded_at`, not merely on `state = 'accepted'`. That is what makes
-   * a second accept a no-op rather than a silent overwrite of scores the reviewer has since
-   * edited: the second call's `UPDATE` matches nothing (the state is no longer `offered`), so the
-   * `EXISTS` names a timestamp that is not there and the evaluation is left alone.
+   * The evaluation insert is conditioned on `changes() = 1` — on this batch's *first* statement
+   * having actually transitioned the row, in this connection, a moment ago. That is what makes a
+   * second accept a no-op rather than a silent overwrite of scores the reviewer has since edited.
+   *
+   * `changes()` rather than the `responded_at` this call wrote, which was the first attempt and
+   * was wrong: ISO timestamps carry milliseconds, so two accepts in the same millisecond produce
+   * the same token, and the loser's `EXISTS` matched the *winner's* row and overwrote the
+   * evaluation before reporting a conflict. A timestamp is a poor identity for "this call"; the
+   * statement counter is the real one.
    *
    * Both statements also refuse when the reviewer has already completed this evaluation. The
    * service checks that first; this is the guard for a completion that lands between the two.
@@ -597,7 +608,7 @@ export class D1ReviewRepository implements ReviewRepository {
         .bind(reviewerId, respondedAt, suggestionId, reviewerId, item.assignmentId, reviewerId),
       this.database
         .prepare(
-          `INSERT INTO review_evaluations (assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source, suggestion_id) SELECT ?, ?, ?, ?, 'draft', ?, NULL, 'suggested', ? WHERE EXISTS (SELECT 1 FROM review_suggestions WHERE id = ? AND reviewer_id = ? AND state = 'accepted' AND responded_at = ?) ON CONFLICT(assignment_id, reviewer_id) DO UPDATE SET scores_json = excluded.scores_json, notes = excluded.notes, state = 'draft', updated_at = excluded.updated_at, source = 'suggested', suggestion_id = excluded.suggestion_id WHERE review_evaluations.state != 'completed'`,
+          `INSERT INTO review_evaluations (assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source, suggestion_id) SELECT ?, ?, ?, ?, 'draft', ?, NULL, 'suggested', ? WHERE changes() = 1 ON CONFLICT(assignment_id, reviewer_id) DO UPDATE SET scores_json = excluded.scores_json, notes = excluded.notes, state = 'draft', updated_at = excluded.updated_at, source = 'suggested', suggestion_id = excluded.suggestion_id WHERE review_evaluations.state != 'completed'`,
         )
         .bind(
           item.assignmentId,
@@ -606,9 +617,6 @@ export class D1ReviewRepository implements ReviewRepository {
           item.notes,
           item.updatedAt,
           suggestionId,
-          suggestionId,
-          reviewerId,
-          respondedAt,
         ),
     ]);
     const [answered, drafted] = results.map((result, index) =>

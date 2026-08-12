@@ -100,7 +100,7 @@ answers `502 UPSTREAM_UNAVAILABLE` with the code in `fieldErrors.suggestion`.
 
 | Code | Cause | What the reviewer is told | Worth retrying |
 |---|---|---|---|
-| `PROVIDER_TIMEOUT` | our 20s ceiling, or a 408 | the assistant did not answer in time | yes |
+| `PROVIDER_TIMEOUT` | our 20s ceiling (the adapter's own `AbortSignal.timeout`, or the service backstop), or a 408 | the assistant did not answer in time | yes |
 | `PROVIDER_RATE_LIMITED` | 429 | the assistant is busy | yes |
 | `PROVIDER_UNAVAILABLE` | 5xx | the assistant is unavailable | yes |
 | `PROVIDER_UNREACHABLE` | DNS, TLS, dropped connection | the assistant could not be reached | yes |

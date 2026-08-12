@@ -410,7 +410,9 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await expect(evaluation.getByLabel("Recommended format")).toHaveValue("");
   // Dismissing writes nothing at all: the queue pill still says this was never started.
   await draft.getByRole("button", { name: "Dismiss" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Nothing was recorded" })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "No evaluation was recorded" }),
+  ).toBeVisible();
   await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
     "Not started",
   );
