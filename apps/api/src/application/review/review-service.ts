@@ -8,7 +8,14 @@ import {
   RESERVED_PROPOSAL_STATUSES,
   type ReviewAssignment,
   type ReviewCompletedEvent,
+  type ReviewCriterion,
 } from "../../domain/review/review";
+import type {
+  EvaluationSource,
+  ReviewSuggestion,
+  SuggestedScore,
+} from "../../domain/review/suggestion";
+import { proposalRevisionOf } from "../../domain/review/suggestion";
 import type { ProposalStatus, ProposalStatusDefinition } from "../cfp/submitted-proposal-interface";
 import {
   MASKED_SUBMITTER_NAME,
@@ -27,6 +34,8 @@ import {
   ProposalSubmitterUnavailableError,
 } from "./public";
 import { type ReviewRepository, ReviewStateConflictError } from "./review-repository";
+import type { ReviewSuggestionPort } from "./suggestion-port";
+import { SuggestionUnavailableError } from "./suggestion-port";
 
 export class ReviewValidationError extends Error {
   constructor(readonly fields: Record<string, string[]>) {
@@ -36,6 +45,17 @@ export class ReviewValidationError extends Error {
 
 export class ReviewConflictError extends Error {}
 export class ReviewNotFoundError extends Error {}
+
+/**
+ * The suggestion port is switched off in this deployment.
+ *
+ * Distinct from a provider failure, because the two are different facts about the world and a
+ * reviewer acts on them differently: a failure is worth pressing again, an absent assistant is
+ * not. It is also the state that proves the acceptance criterion "the full review journey passes
+ * with the port disabled" — the queue offers no Draft control at all, and a request that arrives
+ * anyway is refused rather than quietly answered.
+ */
+export class SuggestionsDisabledError extends Error {}
 
 /**
  * How review asks for somebody to be told the outcome of a review action.
@@ -87,6 +107,14 @@ export interface ReviewServiceDependencies {
   events: Pick<EventService, "get">;
   /** Tells reviewers and submitters what happened. Optional; review works unchanged without it. */
   notifications?: ReviewNotificationPort;
+  /**
+   * Drafts AI suggestions. Optional, and absent is a supported configuration rather than a
+   * degraded one: with no port bound, the reviewer's queue offers no Draft control and every
+   * other review behaviour is byte-for-byte what it was before this feature existed.
+   */
+  suggestions?: ReviewSuggestionPort;
+  /** Ceiling on one provider call. Defaults to `SUGGESTION_TIMEOUT_MS`. */
+  suggestionTimeoutMs?: number;
   newId: () => string;
   now: () => Date;
 }
@@ -141,6 +169,66 @@ const withCoAuthors = (proposal: SubmittedProposal) => {
  */
 const ASSIGNMENT_EVALUATED_REFUSAL =
   "This reviewer has already completed their evaluation, and that score is counted in the abstract's aggregate. Remove is only offered before an evaluation is completed.";
+
+/**
+ * The criteria a set of values does not usably answer.
+ *
+ * One definition, two callers — a reviewer saving their own scores and a reviewer accepting a
+ * drafted set — because "in range for this criterion" must mean exactly the same thing on both
+ * paths. If it did not, a suggestion could be accepted carrying a value the reviewer's own save
+ * would have refused, and the difference would surface as an unexplained failure one step later.
+ */
+const criteriaWithoutUsableValue = (
+  criteria: readonly ReviewCriterion[],
+  values: ReadonlyMap<string, number | string | undefined>,
+): readonly ReviewCriterion[] =>
+  criteria.filter((criterion) => {
+    const value = values.get(criterion.id);
+    if (value === undefined) return true;
+    if (!criterion.type || criterion.type === "numeric")
+      return typeof value !== "number" || value < criterion.minScore || value > criterion.maxScore;
+    if (criterion.type === "dropdown")
+      return typeof value !== "string" || !criterion.options.includes(value);
+    if (criterion.type === "text")
+      return typeof value !== "string" || !value.trim() || value.length > criterion.maxLength;
+    return true;
+  });
+
+/**
+ * A promise, or a `PROVIDER_TIMEOUT` once the deadline passes.
+ *
+ * The port's contract says implementations honour `timeoutMs` themselves, and the live adapter
+ * does — this is the backstop for the one that does not, so a provider that hangs cannot hold a
+ * reviewer's request open indefinitely. It does not *cancel* the underlying call, which is why it
+ * is a backstop rather than the mechanism: the same relationship the outbox's lease has with its
+ * per-call ceiling.
+ */
+const withDeadline = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new SuggestionUnavailableError("PROVIDER_TIMEOUT")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+
+/**
+ * How long a reviewer waits before the assistant is declared unavailable.
+ *
+ * Longer than the outbox's ten seconds, deliberately: that ceiling protects a scheduled drain
+ * working through a hundred deliveries, while this one is a person who pressed a button and is
+ * watching a spinner. Twenty seconds is long enough for a model to draft against a rubric and
+ * short enough that giving up and scoring by hand is still the faster path.
+ */
+const SUGGESTION_TIMEOUT_MS = 20_000;
 
 /**
  * The given statuses with every missing reserved decision status appended.
@@ -709,11 +797,27 @@ export class ReviewService implements AcceptedProposalQuery {
     };
   }
 
+  /**
+   * Whether this deployment has an assistant at all.
+   *
+   * Read by the transport so the reviewer's surface can offer a Draft control only where pressing
+   * it would do something. A getter rather than a field on the queue's items because it is a fact
+   * about the deployment, not about any one abstract.
+   */
+  get suggestionsEnabled(): boolean {
+    return Boolean(this.dependencies.suggestions);
+  }
+
   async reviewerQueue(actor: Actor | null, eventId: string) {
     const authorized = this.reviewer(actor, eventId);
-    const [assignments, plan] = await Promise.all([
+    const [assignments, plan, suggestions] = await Promise.all([
       this.dependencies.repository.listAssignments(eventId, authorized.id),
       this.dependencies.repository.getPlan(eventId),
+      // One read for the whole queue rather than one per assignment: a reviewer with twelve
+      // abstracts should cost twelve reads, not twenty-four.
+      this.dependencies.suggestions
+        ? this.dependencies.repository.listSuggestionsForReviewer(eventId, authorized.id)
+        : Promise.resolve([]),
     ]);
     return Promise.all(
       assignments.map(async (assignment) => {
@@ -725,9 +829,235 @@ export class ReviewService implements AcceptedProposalQuery {
         if (!proposal) throw new ReviewNotFoundError("Assigned proposal not found");
         // Reviewers evaluate the proposal, never the person: the submitter is masked here rather
         // than left as a constant the storage layer happens to produce.
-        return { assignment, proposal: withoutSubmitter(proposal), plan, conflict, evaluation };
+        const masked = withoutSubmitter(proposal);
+        // Recomputed from what the reviewer is about to read, so a suggestion drafted against an
+        // earlier version of the abstract can be shown as exactly that rather than presented as
+        // current. The comparison is the surface's; supplying both halves is this method's.
+        const proposalRevision = proposalRevisionOf(masked);
+        return {
+          assignment,
+          proposal: masked,
+          plan,
+          conflict,
+          evaluation,
+          proposalRevision,
+          suggestions: suggestions.filter((item) => item.assignmentId === assignment.id),
+        };
       }),
     );
+  }
+
+  /**
+   * Draft a suggestion for one of this reviewer's assignments.
+   *
+   * What this writes is one `review_suggestions` row in the `offered` state, and nothing else. No
+   * evaluation, no outcome, no decision, no status transition — so the strongest thing a
+   * misbehaving provider can achieve is a bad draft on a screen the reviewer can dismiss. Every
+   * refusal below exists to keep the drafting path from touching work that is already finished:
+   * a completed evaluation is not redrafted, and a conflicted assignment is not drafted for at
+   * all, because a reviewer who has recused themselves should not be handed an opinion about it.
+   *
+   * The proposal crosses the port **masked**. `withoutSubmitter` is the same projection the queue
+   * renders, so blind review holds for a live model exactly as it holds for a reviewer.
+   */
+  async requestSuggestion(
+    actor: Actor | null,
+    eventId: string,
+    assignmentId: string,
+  ): Promise<ReviewSuggestion> {
+    const authorized = this.reviewer(actor, eventId);
+    const port = this.dependencies.suggestions;
+    if (!port)
+      throw new SuggestionsDisabledError("AI-assisted review is switched off for this deployment");
+    const assignment = await this.ownedAssignment(eventId, assignmentId, authorized.id);
+    if (await this.dependencies.repository.getConflict(assignment.id, authorized.id))
+      throw new ReviewConflictError("Conflicted assignments cannot be evaluated");
+    const [existingEvaluation, plan, proposal] = await Promise.all([
+      this.dependencies.repository.getEvaluation(assignment.id, authorized.id),
+      this.dependencies.repository.getPlan(eventId),
+      this.dependencies.proposals.find(eventId, assignment.proposalId),
+    ]);
+    if (existingEvaluation?.state === "completed")
+      throw new ReviewValidationError({
+        evaluation: ["A completed evaluation cannot be redrafted"],
+      });
+    if (!plan)
+      throw new ReviewValidationError({
+        plan: ["The organizer has not configured a plan, so there is nothing to draft against"],
+      });
+    if (!proposal) throw new ReviewNotFoundError("Assigned proposal not found");
+    const masked = withoutSubmitter(proposal);
+
+    const draft = await withDeadline(
+      port.suggest({
+        title: masked.title,
+        abstract: masked.abstract,
+        answers: masked.answers.map(({ label, value }) => ({ label, value })),
+        criteria: plan.criteria,
+        round: assignment.round ?? 1,
+        timeoutMs: this.dependencies.suggestionTimeoutMs ?? SUGGESTION_TIMEOUT_MS,
+      }),
+      this.dependencies.suggestionTimeoutMs ?? SUGGESTION_TIMEOUT_MS,
+    );
+
+    // Drafted values are kept only for criteria this rubric actually has, and only the first
+    // value per criterion.
+    // ERROR-INTENT: an entry for a criterion the plan does not contain is dropped rather than
+    // stored — it can never be accepted, and storing it would render a score against a criterion
+    // the reviewer's form does not show. A criterion left with no draft is visible on the screen
+    // and named when acceptance is refused, which is where the reviewer needs it.
+    const planCriteria = new Set(plan.criteria.map(({ id }) => id));
+    const seen = new Set<string>();
+    const scores: SuggestedScore[] = draft.scores.filter(({ criterionId }) => {
+      if (!planCriteria.has(criterionId) || seen.has(criterionId)) return false;
+      seen.add(criterionId);
+      return true;
+    });
+
+    const now = this.dependencies.now().toISOString();
+    const suggestion: ReviewSuggestion = {
+      id: this.dependencies.newId(),
+      eventId,
+      assignmentId: assignment.id,
+      reviewerId: authorized.id,
+      proposalId: assignment.proposalId,
+      round: assignment.round ?? 1,
+      summary: draft.summary,
+      scores,
+      state: "offered",
+      provenance: {
+        model: draft.model,
+        promptVersion: draft.promptVersion,
+        // Ours, not the provider's: a provider must not be able to backdate its own suggestion.
+        generatedAt: now,
+        proposalRevision: proposalRevisionOf(masked),
+      },
+      respondedBy: null,
+      respondedAt: null,
+      createdAt: now,
+    };
+    await this.dependencies.repository.saveSuggestion(suggestion);
+    return suggestion;
+  }
+
+  /**
+   * Accept or reject a suggestion. This is the human action the whole port is arranged around.
+   *
+   * **Accepting produces a draft, never a completed evaluation.** The reviewer still has to press
+   * Complete, which is a second explicit act and the only thing that moves an aggregate or emits
+   * `EVT-REVIEW-COMPLETED`. Two actions rather than one is not ceremony: it is the difference
+   * between a reviewer who read a draft and agreed with it, and a reviewer who clicked once.
+   *
+   * **Rejecting writes no evaluation.** The suggestion row flips to `rejected` with the reviewer's
+   * name on it and nothing else changes — the audit record of what was offered and declined,
+   * which is the only trace `PRD-AI-001` wants left behind.
+   *
+   * A suggestion whose values the rubric would refuse is not accepted at all. The reviewer is told
+   * which criteria have no usable draft and scores those by hand, rather than being handed a
+   * half-populated form whose gaps they have to notice for themselves.
+   */
+  async respondToSuggestion(
+    actor: Actor | null,
+    eventId: string,
+    assignmentId: string,
+    suggestionId: string,
+    response: "accepted" | "rejected",
+    options: { readonly includeSummaryInNotes?: boolean } = {},
+  ): Promise<{ suggestion: ReviewSuggestion; evaluation: Evaluation | null }> {
+    const authorized = this.reviewer(actor, eventId);
+    const assignment = await this.ownedAssignment(eventId, assignmentId, authorized.id);
+    const suggestion = await this.dependencies.repository.findSuggestion(
+      eventId,
+      suggestionId,
+      authorized.id,
+    );
+    // A suggestion belonging to another assignment, another reviewer or another event is
+    // indistinguishable from one that does not exist (`ARC-AUTH-001`).
+    if (!suggestion || suggestion.assignmentId !== assignment.id)
+      throw new ReviewNotFoundError("Review suggestion not found");
+    if (suggestion.state !== "offered")
+      throw new ReviewConflictError("This suggestion has already been answered");
+    const respondedAt = this.dependencies.now().toISOString();
+
+    if (response === "rejected") {
+      try {
+        await this.dependencies.repository.rejectSuggestion(
+          suggestion.id,
+          authorized.id,
+          respondedAt,
+        );
+      } catch (error) {
+        if (error instanceof ReviewStateConflictError)
+          throw new ReviewConflictError("This suggestion has already been answered");
+        throw error;
+      }
+      return {
+        suggestion: { ...suggestion, state: "rejected", respondedBy: authorized.id, respondedAt },
+        evaluation: null,
+      };
+    }
+
+    if (await this.dependencies.repository.getConflict(assignment.id, authorized.id))
+      throw new ReviewConflictError("Conflicted assignments cannot be evaluated");
+    const [plan, existingEvaluation] = await Promise.all([
+      this.dependencies.repository.getPlan(eventId),
+      this.dependencies.repository.getEvaluation(assignment.id, authorized.id),
+    ]);
+    if (!plan)
+      throw new ReviewValidationError({ plan: ["The organizer has not configured a plan"] });
+    if (existingEvaluation?.state === "completed")
+      throw new ReviewValidationError({
+        evaluation: ["A completed evaluation cannot be replaced by a suggestion"],
+      });
+    const values = new Map(suggestion.scores.map(({ criterionId, value }) => [criterionId, value]));
+    const unusable = criteriaWithoutUsableValue(plan.criteria, values);
+    if (unusable.length)
+      throw new ReviewValidationError({
+        scores: [
+          `This suggestion has no usable value for ${unusable.map(({ name }) => name).join(", ")}. Score ${unusable.length === 1 ? "it" : "those"} yourself, or dismiss the suggestion.`,
+        ],
+      });
+
+    const evaluation: Evaluation = {
+      assignmentId: assignment.id,
+      reviewerId: authorized.id,
+      scores: plan.criteria.map(({ id }) => {
+        const value = values.get(id) as number | string;
+        return { criterionId: id, value, ...(typeof value === "number" ? { score: value } : {}) };
+      }),
+      // The summary becomes the reviewer's private notes only when they asked for it on this
+      // acceptance. Defaulting it on would put model prose into a field organizers read as the
+      // reviewer's own opinion — the quiet version of exactly what this feature must not do.
+      notes: options.includeSummaryInNotes
+        ? [existingEvaluation?.notes, suggestion.summary].filter(Boolean).join("\n\n")
+        : (existingEvaluation?.notes ?? ""),
+      // Draft. Always. Completing it is the reviewer's separate act.
+      state: "draft",
+      updatedAt: respondedAt,
+      source: "suggested" satisfies EvaluationSource,
+      suggestionId: suggestion.id,
+    };
+    try {
+      await this.dependencies.repository.acceptSuggestion(
+        suggestion.id,
+        authorized.id,
+        respondedAt,
+        evaluation,
+      );
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewConflictError("This suggestion has already been answered");
+      throw error;
+    }
+    const persisted = await this.dependencies.repository.getEvaluation(
+      assignment.id,
+      authorized.id,
+    );
+    if (!persisted) throw new Error("Evaluation persistence did not return a saved record");
+    return {
+      suggestion: { ...suggestion, state: "accepted", respondedBy: authorized.id, respondedAt },
+      evaluation: persisted,
+    };
   }
 
   async declareConflict(
@@ -780,19 +1110,7 @@ export class ReviewService implements AcceptedProposalQuery {
     const scoreMap = new Map(
       input.scores.map((score) => [score.criterionId, score.value ?? score.score]),
     );
-    const invalid = plan.criteria.filter((criterion) => {
-      const value = scoreMap.get(criterion.id);
-      if (value === undefined) return true;
-      if (!criterion.type || criterion.type === "numeric")
-        return (
-          typeof value !== "number" || value < criterion.minScore || value > criterion.maxScore
-        );
-      if (criterion.type === "dropdown")
-        return typeof value !== "string" || !criterion.options.includes(value);
-      if (criterion.type === "text")
-        return typeof value !== "string" || !value.trim() || value.length > criterion.maxLength;
-      return true;
-    });
+    const invalid = criteriaWithoutUsableValue(plan.criteria, scoreMap);
     if (
       invalid.length ||
       scoreMap.size !== plan.criteria.length ||
@@ -821,6 +1139,11 @@ export class ReviewService implements AcceptedProposalQuery {
       state: input.complete ? "completed" : "draft",
       updatedAt: timestamp,
       ...(input.complete ? { completedAt: timestamp } : {}),
+      // Editing a draft that began as an accepted suggestion does not make it hand-written.
+      // Provenance describes where the record started, so it is carried forward rather than
+      // recomputed from whatever this particular save happens to contain.
+      source: existingEvaluation?.source ?? "manual",
+      suggestionId: existingEvaluation?.suggestionId ?? null,
     };
     const evaluation =
       existingEvaluation?.state === "completed" ? existingEvaluation : requestedEvaluation;

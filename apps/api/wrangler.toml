@@ -34,6 +34,19 @@ CALENDAR_ORGANIZER_EMAIL = "organizer@greenroom.invalid"
 ENVIRONMENT = "development"
 DEMO_MODE = "true"
 
+# The AI review suggestion port (#110): `fixture`, `live` or `off`.
+#
+# `fixture` is the adapter's own default, so this line changes nothing today — it is here to make
+# the mode a visible, deliberate property of the deployment rather than an implicit one, the way
+# `DEMO_MODE` is. This deployment drafts with the deterministic fake: every suggestion is a hash of
+# the abstract's text, says so in its own summary, and needs no credential or network.
+#
+# `live` additionally requires `REVIEW_AI_API_KEY`, which is a Worker **secret** and never written
+# here. A `live` mode without it does not fail the deploy and does not take the reviewer's queue
+# down; it fails the Draft button and names the missing binding in the Worker log. `off` withdraws
+# the assistant entirely. See docs/engineering/review-suggestions.md.
+REVIEW_AI_PROVIDER = "fixture"
+
 # The origin the scheduled outbox drain puts into links it sends.
 #
 # The cron handler has no request to read an origin from, so a link in a schedule confirmation

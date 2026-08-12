@@ -14,12 +14,14 @@ import {
   configureReviewPlanInputSchema,
   declareConflictInputSchema,
   distributeReviewersInputSchema,
+  type ProposalAcceptanceDto,
   proposalStatusSchema,
   recordProposalDecisionInputSchema,
+  respondToSuggestionInputSchema,
   reviewAssignmentParamsSchema,
   reviewEventParamsSchema,
+  reviewSuggestionParamsSchema,
   saveEvaluationInputSchema,
-  type ProposalAcceptanceDto,
 } from "@greenroom/contracts";
 import { SpeakerIdentityUnavailableError } from "../../../application/content/content-service";
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
@@ -32,8 +34,10 @@ import {
   ReviewConflictError,
   ReviewNotFoundError,
   ReviewValidationError,
+  SuggestionsDisabledError,
 } from "../../../application/review/review-service";
-import { envelope, validationFields, readJson } from "../runtime";
+import { SuggestionUnavailableError } from "../../../application/review/suggestion-port";
+import { envelope, readJson, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
@@ -49,6 +53,8 @@ const routes = [
   "GET /api/events/:eventId/review/assignments",
   "POST /api/events/:eventId/review/assignments/:assignmentId/conflict",
   "PUT /api/events/:eventId/review/assignments/:assignmentId/evaluation",
+  "POST /api/events/:eventId/review/assignments/:assignmentId/suggestions",
+  "POST /api/events/:eventId/review/assignments/:assignmentId/suggestions/:suggestionId/response",
 ] as const;
 
 export const reviewRoutes: RouteModule = {
@@ -423,8 +429,94 @@ export const reviewRoutes: RouteModule = {
       if (!reviewService) throw new Error("Review service is not configured");
       return context.json({
         assignments: await reviewService.reviewerQueue(context.get("actor"), params.data.eventId),
+        // A fact about the deployment rather than about any abstract, so the surface can withhold
+        // the Draft control entirely where there is no assistant to draft with.
+        suggestionsEnabled: reviewService.suggestionsEnabled,
       });
     });
+    /**
+     * Ask for an AI-drafted suggestion.
+     *
+     * `POST` because it creates a suggestion resource, and `201` for the same reason — a draft is
+     * a thing that now exists and can be fetched with the queue, not a computed view. It is the
+     * only route in this module whose failure is *expected* often enough to be a designed state
+     * rather than an error: a provider that is slow, throttled or misconfigured produces a
+     * `UPSTREAM_UNAVAILABLE` the reviewer's surface renders as a notice beside a scoring form that
+     * still works.
+     */
+    app.post(
+      "/api/events/:eventId/review/assignments/:assignmentId/suggestions",
+      async (context) => {
+        const params = reviewAssignmentParamsSchema.safeParse(context.req.param());
+        if (!params.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Assignment path is malformed.",
+              context.get("correlationId"),
+            ),
+            400,
+          );
+        requireEventCapability(context.get("actor"), params.data.eventId, "review:evaluate");
+        if (!reviewService) throw new Error("Review service is not configured");
+        return context.json(
+          {
+            suggestion: await reviewService.requestSuggestion(
+              context.get("actor"),
+              params.data.eventId,
+              params.data.assignmentId,
+            ),
+          },
+          201,
+        );
+      },
+    );
+    /**
+     * The reviewer's answer: accept the draft into their own record, or dismiss it.
+     *
+     * A separate route from the evaluation `PUT` on purpose. Accepting is not "saving scores that
+     * happen to have come from somewhere" — it is the act the provenance record describes, and
+     * giving it its own address is what lets storage refuse an evaluation that claims a
+     * suggestion nobody accepted.
+     */
+    app.post(
+      "/api/events/:eventId/review/assignments/:assignmentId/suggestions/:suggestionId/response",
+      async (context) => {
+        const params = reviewSuggestionParamsSchema.safeParse(context.req.param());
+        if (!params.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Suggestion path is malformed.",
+              context.get("correlationId"),
+            ),
+            400,
+          );
+        requireEventCapability(context.get("actor"), params.data.eventId, "review:evaluate");
+        const parsed = respondToSuggestionInputSchema.safeParse(await readJson(context.req));
+        if (!parsed.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Choose whether to accept or dismiss this suggestion.",
+              context.get("correlationId"),
+              validationFields(parsed.error.issues),
+            ),
+            400,
+          );
+        if (!reviewService) throw new Error("Review service is not configured");
+        return context.json(
+          await reviewService.respondToSuggestion(
+            context.get("actor"),
+            params.data.eventId,
+            params.data.assignmentId,
+            params.data.suggestionId,
+            parsed.data.response,
+            { includeSummaryInNotes: parsed.data.includeSummaryInNotes },
+          ),
+        );
+      },
+    );
     app.post("/api/events/:eventId/review/assignments/:assignmentId/conflict", async (context) => {
       const params = reviewAssignmentParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -494,6 +586,30 @@ export const reviewRoutes: RouteModule = {
     });
   },
   translateError(error: unknown) {
+    /*
+     * A failed suggestion is not a failed request in the sense the reviewer cares about.
+     *
+     * `UPSTREAM_UNAVAILABLE` rather than `INTERNAL_ERROR` for the same reason the Accelevents sync
+     * uses it: a model that timed out is neither our bug nor the reviewer's mistake, and telling
+     * them "internal error" sends them looking in the wrong place. The message names the manual
+     * path explicitly, because the whole failure design is that scoring by hand still works — and
+     * the normalized code travels in `fieldErrors` so a surface can distinguish a timeout worth
+     * pressing again from a refusal that is not, without ever carrying provider text.
+     */
+    if (error instanceof SuggestionUnavailableError)
+      return {
+        code: "UPSTREAM_UNAVAILABLE" as const,
+        message:
+          "The review assistant could not draft a suggestion. Score this abstract yourself, or try again.",
+        status: 502 as const,
+        fields: { suggestion: [error.code] },
+      };
+    if (error instanceof SuggestionsDisabledError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "AI-assisted review is switched off for this deployment.",
+        status: 404 as const,
+      };
     if (error instanceof ReviewValidationError)
       return {
         code: "VALIDATION_FAILED" as const,

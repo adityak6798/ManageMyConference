@@ -391,6 +391,31 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   // Nor the submitter: the queue is blind.
   await expect(page.getByText("Blind review")).toBeVisible();
 
+  /*
+   * ---- the assistant drafts, and drafting alone scores nothing -------------
+   *
+   * The browser half of `PRD-AI-001`. Everything the fixture provider produces is a pure function
+   * of the abstract's text, so this asserts the provenance a reviewer actually reads rather than
+   * merely that a panel appeared — and then asserts the scoring form is still empty, which is the
+   * claim "a suggestion is never a score" made where a person could see it broken.
+   */
+  const draft = page.getByRole("region", { name: "Assistant's draft" });
+  await evaluation.getByRole("button", { name: "Draft with the review assistant" }).click();
+  await expect(draft).toBeVisible();
+  await expect(draft).toContainText("fixture-suggester-v1");
+  await expect(draft).toContainText("review-suggestion/v1");
+  await expect(draft).toContainText("Not scored");
+  // The reviewer's own controls are untouched by a draft sitting above them.
+  await expect(evaluation.getByLabel("Relevance")).toHaveValue("");
+  await expect(evaluation.getByLabel("Recommended format")).toHaveValue("");
+  // Dismissing writes nothing at all: the queue pill still says this was never started.
+  await draft.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Nothing was recorded" })).toBeVisible();
+  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
+    "Not started",
+  );
+  await expect(evaluation.getByLabel("Relevance")).toHaveValue("");
+
   // Unscored criteria are explicit, and completing without them is refused
   // rather than silently defaulting each one to its minimum score.
   await expect(evaluation.getByText("3 of 3 criteria still need a score.")).toBeVisible();
@@ -433,6 +458,30 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await queue.getByRole("button", { name: new RegExp(conflicted) }).click();
   await expect(page.getByRole("region", { name: conflicted })).toBeVisible();
   const second = page.getByRole("region", { name: "Your evaluation" });
+
+  /*
+   * ---- accepting a draft fills the form and completes nothing --------------
+   *
+   * The other half of the guarantee: acceptance is one human action, and the *second* one —
+   * pressing Complete — is still outstanding afterwards. The queue pill is the visible proof, and
+   * the organizer's board below still shows this abstract as unscored.
+   */
+  const secondDraft = page.getByRole("region", { name: "Assistant's draft" });
+  await second.getByRole("button", { name: "Draft with the review assistant" }).click();
+  await expect(secondDraft).toContainText("fixture-suggester-v1");
+  await secondDraft.getByRole("button", { name: "Accept into my scores" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "press Complete evaluation" }),
+  ).toBeVisible();
+  // The drafted values are now in the reviewer's own controls, where they can change them.
+  await expect(second.getByLabel("Relevance")).not.toHaveValue("");
+  await expect(second.getByLabel("Recommended format")).not.toHaveValue("");
+  // And nothing is completed: the reviewer still has to press the button themselves.
+  await expect(second.getByRole("button", { name: "Complete evaluation" })).toBeVisible();
+  await expect(queue.getByRole("button", { name: new RegExp(conflicted) })).toContainText(
+    "Draft saved",
+  );
+
   await second.getByRole("button", { name: "Declare a conflict" }).click();
   await second
     .getByLabel("Why can you not review this abstract?")

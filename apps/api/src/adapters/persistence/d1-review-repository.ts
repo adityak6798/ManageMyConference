@@ -11,10 +11,23 @@ import type {
   ReviewCompletedEvent,
   ReviewConflict,
 } from "../../domain/review/review";
+import type {
+  EvaluationSource,
+  ReviewSuggestion,
+  SuggestionState,
+} from "../../domain/review/suggestion";
+
 interface D1Result<T> {
   results?: T[];
   success: boolean;
   error?: string;
+  /**
+   * What the driver says the statement touched.
+   *
+   * Optional on the type because the driver may omit it — never because a caller may ignore it.
+   * See `changed` below.
+   */
+  meta?: { changes?: number };
 }
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
@@ -49,7 +62,53 @@ type EvaluationRow = {
   state: "draft" | "completed";
   updated_at: string;
   completed_at: string | null;
+  source: EvaluationSource;
+  suggestion_id: string | null;
 };
+
+type SuggestionRow = {
+  id: string;
+  event_id: string;
+  assignment_id: string;
+  reviewer_id: string;
+  proposal_id: string;
+  round: number;
+  summary: string;
+  scores_json: string;
+  state: SuggestionState;
+  provenance_model: string;
+  provenance_prompt_version: string;
+  provenance_generated_at: string;
+  provenance_proposal_revision: string;
+  responded_by: string | null;
+  responded_at: string | null;
+  created_at: string;
+};
+
+/** Every column, named once, so the four reads below cannot drift apart on provenance. */
+const SUGGESTION_COLUMNS =
+  "id, event_id, assignment_id, reviewer_id, proposal_id, round, summary, scores_json, state, provenance_model, provenance_prompt_version, provenance_generated_at, provenance_proposal_revision, responded_by, responded_at, created_at";
+
+const suggestion = (row: SuggestionRow): ReviewSuggestion => ({
+  id: row.id,
+  eventId: row.event_id,
+  assignmentId: row.assignment_id,
+  reviewerId: row.reviewer_id,
+  proposalId: row.proposal_id,
+  round: row.round,
+  summary: row.summary,
+  scores: JSON.parse(row.scores_json),
+  state: row.state,
+  provenance: {
+    model: row.provenance_model,
+    promptVersion: row.provenance_prompt_version,
+    generatedAt: row.provenance_generated_at,
+    proposalRevision: row.provenance_proposal_revision,
+  },
+  respondedBy: row.responded_by,
+  respondedAt: row.responded_at,
+  createdAt: row.created_at,
+});
 type OutcomeRow = {
   event_id: string;
   proposal_id: string;
@@ -93,7 +152,13 @@ const evaluation = (row: EvaluationRow): Evaluation => ({
   state: row.state,
   updatedAt: row.updated_at,
   ...(row.completed_at ? { completedAt: row.completed_at } : {}),
+  source: row.source,
+  suggestionId: row.suggestion_id,
 });
+
+/** The evaluation projection, named once so the four reads cannot disagree about provenance. */
+const EVALUATION_COLUMNS =
+  "assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source, suggestion_id";
 
 // @spec PRD-REV-001
 export class D1ReviewRepository implements ReviewRepository {
@@ -101,6 +166,23 @@ export class D1ReviewRepository implements ReviewRepository {
   private ensure(result: { success: boolean; error?: string }, operation: string) {
     if (!result.success)
       throw new Error(`D1 failed to ${operation}: ${result.error ?? "unknown error"}`);
+  }
+  /**
+   * How many rows a statement touched — or a thrown failure if the driver did not say.
+   *
+   * A driver that cannot report a count is a **failure**, never a silent 0 or 1. Reading a missing
+   * count as zero would report a suggestion the reviewer really did accept as "already answered",
+   * and reading it as one would report an acceptance that never landed as done — the second is the
+   * dangerous direction here, because the whole feature rests on a reviewer's acceptance being a
+   * real, recorded act. Silence about the count is not evidence of either. This follows the
+   * convention `d1-content-repository.ts` sets for the same reason.
+   */
+  private changed(result: D1Result<unknown>, operation: string): number {
+    this.ensure(result, operation);
+    const changes = result.meta?.changes;
+    if (typeof changes !== "number")
+      throw new Error(`D1 reported no row count while trying to ${operation}`);
+    return changes;
   }
   async getPlan(eventId: string) {
     const result = await this.database
@@ -317,7 +399,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async getEvaluation(assignmentId: string, reviewerId: string) {
     const result = await this.database
       .prepare(
-        "SELECT assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at FROM review_evaluations WHERE assignment_id = ? AND reviewer_id = ? LIMIT 1",
+        `SELECT ${EVALUATION_COLUMNS} FROM review_evaluations WHERE assignment_id = ? AND reviewer_id = ? LIMIT 1`,
       )
       .bind(assignmentId, reviewerId)
       .all<EvaluationRow>();
@@ -327,7 +409,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async listEvaluations(eventId: string) {
     const result = await this.database
       .prepare(
-        "SELECT evaluation.assignment_id, evaluation.reviewer_id, evaluation.scores_json, evaluation.notes, evaluation.state, evaluation.updated_at, evaluation.completed_at FROM review_evaluations evaluation INNER JOIN review_assignments assignment ON assignment.id = evaluation.assignment_id WHERE assignment.event_id = ? ORDER BY assignment.round, evaluation.updated_at",
+        "SELECT evaluation.assignment_id, evaluation.reviewer_id, evaluation.scores_json, evaluation.notes, evaluation.state, evaluation.updated_at, evaluation.completed_at, evaluation.source, evaluation.suggestion_id FROM review_evaluations evaluation INNER JOIN review_assignments assignment ON assignment.id = evaluation.assignment_id WHERE assignment.event_id = ? ORDER BY assignment.round, evaluation.updated_at",
       )
       .bind(eventId)
       .all<EvaluationRow>();
@@ -403,7 +485,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async listCompletedEvaluations(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        "SELECT e.assignment_id, e.reviewer_id, e.scores_json, e.notes, e.state, e.updated_at, e.completed_at FROM review_evaluations e JOIN review_assignments a ON a.id = e.assignment_id WHERE a.event_id = ? AND a.proposal_id = ? AND e.state = 'completed'",
+        "SELECT e.assignment_id, e.reviewer_id, e.scores_json, e.notes, e.state, e.updated_at, e.completed_at, e.source, e.suggestion_id FROM review_evaluations e JOIN review_assignments a ON a.id = e.assignment_id WHERE a.event_id = ? AND a.proposal_id = ? AND e.state = 'completed'",
       )
       .bind(eventId, proposalId)
       .all<EvaluationRow>();
@@ -438,6 +520,119 @@ export class D1ReviewRepository implements ReviewRepository {
       .all<DecisionRow>();
     this.ensure(result, "list review decisions");
     return (result.results ?? []).map(decision);
+  }
+  async saveSuggestion(item: ReviewSuggestion) {
+    const result = await this.database
+      .prepare(
+        "INSERT INTO review_suggestions (id, event_id, assignment_id, reviewer_id, proposal_id, round, summary, scores_json, state, provenance_model, provenance_prompt_version, provenance_generated_at, provenance_proposal_revision, responded_by, responded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offered', ?, ?, ?, ?, NULL, NULL, ?)",
+      )
+      .bind(
+        item.id,
+        item.eventId,
+        item.assignmentId,
+        item.reviewerId,
+        item.proposalId,
+        item.round,
+        item.summary,
+        JSON.stringify(item.scores),
+        item.provenance.model,
+        item.provenance.promptVersion,
+        item.provenance.generatedAt,
+        item.provenance.proposalRevision,
+        item.createdAt,
+      )
+      .run();
+    this.ensure(result, "save review suggestion");
+  }
+  async listSuggestionsForReviewer(eventId: string, reviewerId: string) {
+    const result = await this.database
+      .prepare(
+        `SELECT ${SUGGESTION_COLUMNS} FROM review_suggestions WHERE event_id = ? AND reviewer_id = ? ORDER BY created_at`,
+      )
+      .bind(eventId, reviewerId)
+      .all<SuggestionRow>();
+    this.ensure(result, "list review suggestions");
+    return (result.results ?? []).map(suggestion);
+  }
+  async findSuggestion(eventId: string, suggestionId: string, reviewerId: string) {
+    // Scoped to the event *and* the reviewer, so a suggestion belonging to somebody else is
+    // indistinguishable from one that does not exist (`ARC-AUTH-001`).
+    const result = await this.database
+      .prepare(
+        `SELECT ${SUGGESTION_COLUMNS} FROM review_suggestions WHERE id = ? AND event_id = ? AND reviewer_id = ? LIMIT 1`,
+      )
+      .bind(suggestionId, eventId, reviewerId)
+      .all<SuggestionRow>();
+    this.ensure(result, "find review suggestion");
+    return result.results?.[0] ? suggestion(result.results[0]) : null;
+  }
+  /**
+   * Accept a suggestion and write the reviewer's draft, in one batch and in that order.
+   *
+   * The evaluation insert is conditioned on the suggestion row this batch's *first* statement
+   * just wrote — matched on `responded_at`, not merely on `state = 'accepted'`. That is what makes
+   * a second accept a no-op rather than a silent overwrite of scores the reviewer has since
+   * edited: the second call's `UPDATE` matches nothing (the state is no longer `offered`), so the
+   * `EXISTS` names a timestamp that is not there and the evaluation is left alone.
+   *
+   * Both statements also refuse when the reviewer has already completed this evaluation. The
+   * service checks that first; this is the guard for a completion that lands between the two.
+   *
+   * The outcome is decided by the row counts, and a driver that will not report one is a failure
+   * rather than an assumed 0 or 1 — see `changed`.
+   */
+  async acceptSuggestion(
+    suggestionId: string,
+    reviewerId: string,
+    respondedAt: string,
+    item: Evaluation,
+  ) {
+    const notCompleted =
+      "NOT EXISTS (SELECT 1 FROM review_evaluations WHERE assignment_id = ? AND reviewer_id = ? AND state = 'completed')";
+    const results = await this.database.batch([
+      this.database
+        .prepare(
+          `UPDATE review_suggestions SET state = 'accepted', responded_by = ?, responded_at = ? WHERE id = ? AND reviewer_id = ? AND state = 'offered' AND ${notCompleted}`,
+        )
+        .bind(reviewerId, respondedAt, suggestionId, reviewerId, item.assignmentId, reviewerId),
+      this.database
+        .prepare(
+          `INSERT INTO review_evaluations (assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source, suggestion_id) SELECT ?, ?, ?, ?, 'draft', ?, NULL, 'suggested', ? WHERE EXISTS (SELECT 1 FROM review_suggestions WHERE id = ? AND reviewer_id = ? AND state = 'accepted' AND responded_at = ?) ON CONFLICT(assignment_id, reviewer_id) DO UPDATE SET scores_json = excluded.scores_json, notes = excluded.notes, state = 'draft', updated_at = excluded.updated_at, source = 'suggested', suggestion_id = excluded.suggestion_id WHERE review_evaluations.state != 'completed'`,
+        )
+        .bind(
+          item.assignmentId,
+          reviewerId,
+          JSON.stringify(item.scores),
+          item.notes,
+          item.updatedAt,
+          suggestionId,
+          suggestionId,
+          reviewerId,
+          respondedAt,
+        ),
+    ]);
+    const [answered, drafted] = results.map((result, index) =>
+      this.changed(result, index === 0 ? "accept review suggestion" : "write the accepted draft"),
+    );
+    // Neither statement matching is the ordinary race: somebody answered this suggestion first,
+    // or completed the evaluation between the service's read and this write.
+    if (answered === 0) throw new ReviewStateConflictError("Suggestion has already been answered");
+    // The suggestion moved but the draft did not, which the guards above are meant to make
+    // impossible. Reported rather than swallowed, because the pair is the whole point: a
+    // suggestion recorded as accepted with no draft behind it claims the reviewer did something
+    // they did not.
+    if (drafted === 0)
+      throw new Error("D1 accepted a review suggestion without writing the reviewer's draft");
+  }
+  async rejectSuggestion(suggestionId: string, reviewerId: string, respondedAt: string) {
+    const result = await this.database
+      .prepare(
+        "UPDATE review_suggestions SET state = 'rejected', responded_by = ?, responded_at = ? WHERE id = ? AND reviewer_id = ? AND state = 'offered'",
+      )
+      .bind(reviewerId, respondedAt, suggestionId, reviewerId)
+      .run();
+    if (this.changed(result, "reject review suggestion") === 0)
+      throw new ReviewStateConflictError("Suggestion has already been answered");
   }
   async listOutcomes(eventId: string) {
     const result = await this.database

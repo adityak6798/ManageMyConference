@@ -11,6 +11,7 @@ import type {
   ReviewConflict,
   ReviewOutcome,
 } from "../../domain/review/review";
+import type { ReviewSuggestion } from "../../domain/review/suggestion";
 
 export class MemoryReviewRepository implements ReviewRepository {
   private plans = new Map<string, EvaluationPlan>();
@@ -19,6 +20,7 @@ export class MemoryReviewRepository implements ReviewRepository {
   private evaluations = new Map<string, Evaluation>();
   private outcomes = new Map<string, ReviewOutcome>();
   private decisions = new Map<string, ProposalDecision>();
+  private suggestions = new Map<string, ReviewSuggestion>();
   readonly events: ReviewCompletedEvent[] = [];
 
   async getPlan(eventId: string) {
@@ -184,5 +186,56 @@ export class MemoryReviewRepository implements ReviewRepository {
   }
   async listDecisions(eventId: string) {
     return [...this.decisions.values()].filter((decision) => decision.eventId === eventId);
+  }
+  async saveSuggestion(suggestion: ReviewSuggestion) {
+    this.suggestions.set(suggestion.id, suggestion);
+  }
+  async listSuggestionsForReviewer(eventId: string, reviewerId: string) {
+    return [...this.suggestions.values()]
+      .filter(
+        (suggestion) => suggestion.eventId === eventId && suggestion.reviewerId === reviewerId,
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+  async findSuggestion(eventId: string, suggestionId: string, reviewerId: string) {
+    const suggestion = this.suggestions.get(suggestionId);
+    // A suggestion belonging to another event or another reviewer is indistinguishable from one
+    // that does not exist, so this cannot be used to read somebody else's draft (`ARC-AUTH-001`).
+    return suggestion?.eventId === eventId && suggestion.reviewerId === reviewerId
+      ? suggestion
+      : null;
+  }
+  async acceptSuggestion(
+    suggestionId: string,
+    reviewerId: string,
+    respondedAt: string,
+    evaluation: Evaluation,
+  ) {
+    const suggestion = this.suggestions.get(suggestionId);
+    if (!suggestion || suggestion.reviewerId !== reviewerId || suggestion.state !== "offered")
+      throw new ReviewStateConflictError("Suggestion has already been answered");
+    const key = `${evaluation.assignmentId}:${evaluation.reviewerId}`;
+    // The same refusal the storage trigger enforces: a completed evaluation is not reopened by
+    // accepting a suggestion, and no draft is written over it.
+    if (this.evaluations.get(key)?.state === "completed")
+      throw new ReviewStateConflictError("Evaluation is completed");
+    this.suggestions.set(suggestionId, {
+      ...suggestion,
+      state: "accepted",
+      respondedBy: reviewerId,
+      respondedAt,
+    });
+    this.evaluations.set(key, evaluation);
+  }
+  async rejectSuggestion(suggestionId: string, reviewerId: string, respondedAt: string) {
+    const suggestion = this.suggestions.get(suggestionId);
+    if (!suggestion || suggestion.reviewerId !== reviewerId || suggestion.state !== "offered")
+      throw new ReviewStateConflictError("Suggestion has already been answered");
+    this.suggestions.set(suggestionId, {
+      ...suggestion,
+      state: "rejected",
+      respondedBy: reviewerId,
+      respondedAt,
+    });
   }
 }

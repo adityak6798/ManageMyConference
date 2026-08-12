@@ -26,8 +26,12 @@ import {
   reviewEventParamsSchema,
   reviewOrganizerQuerySchema,
   reviewPlanResponseSchema,
+  respondToSuggestionInputSchema,
+  reviewSuggestionParamsSchema,
+  reviewSuggestionResponseSchema,
   reviewerQueueSchema,
   saveEvaluationInputSchema,
+  suggestionResponseResponseSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -261,6 +265,50 @@ export const reviewPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/review/assignments/{assignmentId}/suggestions",
+      description:
+        "Drafts an AI suggestion for this assignment: a summary and one value per rubric criterion, each with a rationale, stored with the model, prompt version, time and abstract revision it came from. The suggestion is a draft and nothing else — it is not an evaluation, it is counted in no aggregate, and it becomes part of the reviewer's record only through the response route below. The proposal crosses the provider boundary with its submitter masked, exactly as the reviewer sees it. 404 when the deployment has no assistant configured; 502 when the provider was slow, throttled or unusable, in which case the reviewer scores by hand and may try again.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: reviewAssignmentParamsSchema },
+      responses: {
+        201: {
+          description: "Drafted suggestion, with its provenance",
+          content: json(reviewSuggestionResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        502: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/review/assignments/{assignmentId}/suggestions/{suggestionId}/response",
+      description:
+        "Records the reviewer's answer to a suggestion. Accepting writes their own evaluation as a **draft** carrying `source: \"suggested\"` and the suggestion's id — completing it remains a separate reviewer action, and only that action moves an aggregate. Rejecting writes no evaluation at all and leaves only the suggestion row, marked rejected with the reviewer's name, as the audit record. Refused with 400 when the drafted values do not satisfy the rubric, naming the criteria the reviewer must score themselves, and with 409 once the suggestion has already been answered.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewSuggestionParamsSchema,
+        body: { required: true, content: json(respondToSuggestionInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "The answered suggestion, and the reviewer's draft when they accepted",
+          content: json(suggestionResponseResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
         409: errorResponse,
         500: errorResponse,
       },

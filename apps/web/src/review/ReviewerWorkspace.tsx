@@ -110,6 +110,7 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
           key={active.assignment.id}
           eventId={eventId}
           item={active}
+          suggestionsEnabled={data.suggestionsEnabled ?? false}
           reload={async () => {
             await load();
           }}

@@ -1,3 +1,5 @@
+import type { EvaluationSource } from "./suggestion";
+
 export type ReviewCriterion = {
   readonly id: string;
   readonly name: string;
@@ -45,6 +47,15 @@ export type Evaluation = {
   readonly state: "draft" | "completed";
   readonly updatedAt: string;
   readonly completedAt?: string;
+  /**
+   * Whether this record started from an accepted AI suggestion or was written by hand.
+   *
+   * Optional on the type only so a fixture built before `1310` still satisfies it; storage
+   * defaults it to `manual` and never stores null. See `EvaluationSource`.
+   */
+  readonly source?: EvaluationSource;
+  /** The suggestion this record was seeded from. Present exactly when `source` is `suggested`. */
+  readonly suggestionId?: string | null;
 };
 
 export type ReviewOutcome = {

@@ -576,6 +576,79 @@
   overflow-wrap: anywhere;
 }
 
+/* ================= assistant's draft (suggestions) =================
+ *
+ * Held visually apart from the scoring form on purpose. A reviewer glancing at this screen must be
+ * able to tell drafted values from their own without reading a word, so the panel gets its own
+ * inset surface and a left rule rather than sitting inline among the criteria.
+ */
+.suggestion-panel {
+  margin-bottom: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-left: 3px solid var(--green-700);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.suggestion-head h4 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+.suggestion-provenance {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--s-1) var(--s-3);
+  margin: var(--s-2) 0;
+  font-size: var(--text-xs);
+}
+.suggestion-provenance dt {
+  color: var(--ink-3);
+}
+.suggestion-provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.suggestion-summary {
+  margin: var(--s-3) 0;
+  overflow-wrap: anywhere;
+}
+.suggestion-scores {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-3);
+}
+.suggestion-score {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-1);
+}
+.suggestion-score dt {
+  font-weight: 600;
+}
+.suggestion-score dd {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0;
+}
+.suggestion-rationale {
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.suggestion-notes-choice label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
 /* ========================= responsive ========================= */
 
 @media (max-width: 700px) {
