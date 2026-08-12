@@ -13,6 +13,7 @@ type FormRow = {
   title: string;
   description: string;
   fields_json: string;
+  routing_json: string;
   status: CfpForm["status"];
   version: number;
   published_at: string | null;
@@ -25,6 +26,7 @@ type SubmissionRow = {
   idempotency_key: string;
   answers_json: string;
   form_fields_json: string;
+  resolved_route_json: string | null;
   submitted_at: string;
 };
 export class D1CfpRepository implements CfpRepository {
@@ -32,7 +34,7 @@ export class D1CfpRepository implements CfpRepository {
   async findForm(eventId: string) {
     const result = await this.database
       .prepare(
-        "SELECT event_id, title, description, fields_json, status, version, published_at, published_json FROM cfp_forms WHERE event_id = ? LIMIT 1",
+        "SELECT event_id, title, description, fields_json, routing_json, status, version, published_at, published_json FROM cfp_forms WHERE event_id = ? LIMIT 1",
       )
       .bind(eventId)
       .all<FormRow>();
@@ -45,6 +47,7 @@ export class D1CfpRepository implements CfpRepository {
           title: row.title,
           description: row.description,
           fields: JSON.parse(row.fields_json),
+          routing: JSON.parse(row.routing_json || "[]"),
           status: row.status,
           version: row.version,
           publishedAt: row.published_at,
@@ -73,13 +76,14 @@ export class D1CfpRepository implements CfpRepository {
   async saveForm(form: CfpForm) {
     const result = await this.database
       .prepare(
-        "INSERT INTO cfp_forms (event_id, title, description, fields_json, status, version, published_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET title=excluded.title, description=excluded.description, fields_json=excluded.fields_json, status=excluded.status, version=excluded.version, published_at=excluded.published_at",
+        "INSERT INTO cfp_forms (event_id, title, description, fields_json, routing_json, status, version, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET title=excluded.title, description=excluded.description, fields_json=excluded.fields_json, routing_json=excluded.routing_json, status=excluded.status, version=excluded.version, published_at=excluded.published_at",
       )
       .bind(
         form.eventId,
         form.title,
         form.description,
         JSON.stringify(form.fields),
+        JSON.stringify(form.routing ?? []),
         form.status,
         form.version,
         form.publishedAt,
@@ -91,7 +95,7 @@ export class D1CfpRepository implements CfpRepository {
   async savePublished(form: CfpForm, updateEditable: boolean): Promise<void> {
     const result = await this.database
       .prepare(
-        "UPDATE cfp_forms SET published_json = ?, title = CASE WHEN ? THEN ? ELSE title END, description = CASE WHEN ? THEN ? ELSE description END, fields_json = CASE WHEN ? THEN ? ELSE fields_json END, status = CASE WHEN ? THEN ? ELSE status END, version = CASE WHEN ? THEN ? ELSE version END, published_at = CASE WHEN ? THEN ? ELSE published_at END WHERE event_id = ?",
+        "UPDATE cfp_forms SET published_json = ?, title = CASE WHEN ? THEN ? ELSE title END, description = CASE WHEN ? THEN ? ELSE description END, fields_json = CASE WHEN ? THEN ? ELSE fields_json END, routing_json = CASE WHEN ? THEN ? ELSE routing_json END, status = CASE WHEN ? THEN ? ELSE status END, version = CASE WHEN ? THEN ? ELSE version END, published_at = CASE WHEN ? THEN ? ELSE published_at END WHERE event_id = ?",
       )
       .bind(
         JSON.stringify(form),
@@ -101,6 +105,8 @@ export class D1CfpRepository implements CfpRepository {
         form.description,
         updateEditable,
         JSON.stringify(form.fields),
+        updateEditable,
+        JSON.stringify(form.routing ?? []),
         updateEditable,
         form.status,
         updateEditable,
@@ -116,7 +122,7 @@ export class D1CfpRepository implements CfpRepository {
   async findSubmission(eventId: string, key: string) {
     const result = await this.database
       .prepare(
-        "SELECT id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, submitted_at FROM cfp_submissions WHERE event_id = ? AND idempotency_key = ? LIMIT 1",
+        "SELECT id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, resolved_route_json, submitted_at FROM cfp_submissions WHERE event_id = ? AND idempotency_key = ? LIMIT 1",
       )
       .bind(eventId, key)
       .all<SubmissionRow>();
@@ -131,6 +137,7 @@ export class D1CfpRepository implements CfpRepository {
           idempotencyKey: row.idempotency_key,
           answers: JSON.parse(row.answers_json),
           fields: JSON.parse(row.form_fields_json),
+          resolvedRoute: row.resolved_route_json ? JSON.parse(row.resolved_route_json) : null,
           submittedAt: row.submitted_at,
         }
       : null;
@@ -138,7 +145,7 @@ export class D1CfpRepository implements CfpRepository {
   async findSubmissionById(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        "SELECT id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, submitted_at FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1",
+        "SELECT id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, resolved_route_json, submitted_at FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1",
       )
       .bind(eventId, proposalId)
       .all<SubmissionRow>();
@@ -153,6 +160,7 @@ export class D1CfpRepository implements CfpRepository {
           idempotencyKey: row.idempotency_key,
           answers: JSON.parse(row.answers_json),
           fields: JSON.parse(row.form_fields_json),
+          resolvedRoute: row.resolved_route_json ? JSON.parse(row.resolved_route_json) : null,
           submittedAt: row.submitted_at,
         }
       : null;
@@ -160,7 +168,7 @@ export class D1CfpRepository implements CfpRepository {
   async createSubmission(submission: ProposalSubmission) {
     const result = await this.database
       .prepare(
-        "INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, submitted_at) SELECT ?, ?, ?, ?, ?, ?, ? FROM cfp_forms WHERE event_id = ? AND json_extract(published_json, '$.status') = 'open' AND CAST(json_extract(published_json, '$.version') AS INTEGER) = ?",
+        "INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, resolved_route_json, submitted_at, status) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cfp_forms WHERE event_id = ? AND json_extract(published_json, '$.status') = 'open' AND CAST(json_extract(published_json, '$.version') AS INTEGER) = ?",
       )
       .bind(
         submission.id,
@@ -169,7 +177,9 @@ export class D1CfpRepository implements CfpRepository {
         submission.idempotencyKey,
         JSON.stringify(submission.answers),
         JSON.stringify(submission.fields),
+        submission.resolvedRoute ? JSON.stringify(submission.resolvedRoute) : null,
         submission.submittedAt,
+        submission.resolvedRoute?.status ?? "submitted",
         submission.eventId,
         submission.cfpVersion,
       )

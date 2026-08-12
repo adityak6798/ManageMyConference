@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { submissionThrottle } from "../src/transport/http/throttle";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
+import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { CfpService } from "../src/application/cfp/cfp-service";
 import { EventService } from "../src/application/events/event-service";
@@ -39,6 +40,7 @@ async function setup() {
     repository,
     () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
     () => new Date("2026-08-10T12:00:00Z"),
+    new MemorySubmittedProposalAdapter(),
   );
   const eventRepository = new MemoryEventRepository();
   await eventRepository.create({

@@ -16,6 +16,8 @@
  */
 
 import type { CfpField } from "@greenroom/contracts";
+import { useState } from "react";
+import { conditionMatches } from "./model";
 import "../styles/cfp.css";
 
 function FieldControl({
@@ -101,19 +103,27 @@ function PublicFormPreview({
   fields: readonly CfpField[];
   statusLine: string;
 }) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   return (
     <div className="cfp-preview public-state">
       <p className="cfp-preview-kicker">Call for proposals</p>
       <p className="cfp-preview-title">{title.trim() || "Untitled call for proposals"}</p>
       {description.trim() ? <p className="cfp-preview-lede">{description}</p> : null}
       <p className="cfp-preview-status">{statusLine}</p>
-      {/* A disabled fieldset keeps the preview out of the tab order and off the
-          submit path, so nobody can type into a form that goes nowhere. */}
-      <fieldset className="cfp-preview-form" disabled>
+      <fieldset className="cfp-preview-form">
         <legend className="visually-hidden">Preview only — these controls do not submit</legend>
-        {fields.map((field) => (
-          <FieldControl key={field.id} field={field} idPrefix={idPrefix} value="" errors={[]} />
-        ))}
+        {fields
+          .filter((field) => conditionMatches(field.visibleWhen, answers))
+          .map((field) => (
+            <FieldControl
+              key={field.id}
+              field={field}
+              idPrefix={idPrefix}
+              value={answers[field.id] ?? ""}
+              errors={[]}
+              onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+            />
+          ))}
         <span className="cfp-preview-submit">Submit proposal</span>
       </fieldset>
     </div>

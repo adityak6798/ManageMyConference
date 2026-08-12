@@ -99,6 +99,7 @@ export default {
       new D1CfpRepository(environment.DB),
       () => crypto.randomUUID(),
       () => new Date(),
+      new D1SubmittedProposalAdapter(environment.DB),
     );
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),

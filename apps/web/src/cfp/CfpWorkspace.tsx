@@ -15,9 +15,16 @@
  *    states, in words, which one applicants can see.
  */
 
-import type { CfpField } from "@greenroom/contracts";
+import type { CfpField, CfpRoutingRule } from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CfpApiError, type CfpFormDto, changeCfpState, loadCfp, saveCfp } from "../api/cfp";
+import {
+  CfpApiError,
+  type CfpFormDto,
+  changeCfpState,
+  loadCfp,
+  loadCfpRoutingStatuses,
+  saveCfp,
+} from "../api/cfp";
 import "../styles/cfp.css";
 import {
   IconCheck,
@@ -51,6 +58,10 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const [fields, setFields] = useState<CfpField[]>(starter);
   const [title, setTitle] = useState(DEFAULT_TITLE);
   const [description, setDescription] = useState("");
+  const [routing, setRouting] = useState<CfpRoutingRule[]>([]);
+  const [routingStatuses, setRoutingStatuses] = useState<readonly { key: string; label: string }[]>(
+    [],
+  );
   const [baseline, setBaseline] = useState<string | null>(null);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [loadingCfp, setLoadingCfp] = useState(true);
@@ -77,6 +88,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     setFields(starter);
     setTitle(DEFAULT_TITLE);
     setDescription("");
+    setRouting([]);
     setBaseline(null);
     setErrors({});
     setLoadFailure(null);
@@ -88,6 +100,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
       setTitle(loaded.title);
       setDescription(loaded.description);
       setFields([...loaded.fields]);
+      setRouting([...loaded.routing]);
       setBaseline(shape(loaded));
     } catch (reason: unknown) {
       if (formRun.current !== run) return;
@@ -142,6 +155,23 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   useEffect(() => {
     if (!organizer) return;
     let current = true;
+    // ERROR-INTENT: routing status load failure is reported when a rule is added; the rest of
+    // the CFP editor remains usable and the server still rejects an unconfigured destination.
+    void loadCfpRoutingStatuses(eventId)
+      .then((statuses) => {
+        if (current) setRoutingStatuses(statuses);
+      })
+      .catch(() => {
+        if (current) setRoutingStatuses([]);
+      });
+    return () => {
+      current = false;
+    };
+  }, [eventId, organizer]);
+
+  useEffect(() => {
+    if (!organizer) return;
+    let current = true;
     // ERROR-INTENT: loadPublicSubmissionUrl already degrades to null, which the
     // toolbar renders as a disabled Copy action with an explanation.
     void loadPublicSubmissionUrl(eventId).then((url) => {
@@ -153,8 +183,8 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   }, [eventId, organizer]);
 
   const draftShape = useMemo(
-    () => shape({ title, description, fields }),
-    [title, description, fields],
+    () => shape({ title, description, fields, routing }),
+    [title, description, fields, routing],
   );
   const publishedShape = useMemo(() => (published ? shape(published) : null), [published]);
 
@@ -186,7 +216,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     setErrors({});
     setBusy("save");
     try {
-      const saved = await saveCfp(eventId, { title, description, fields });
+      const saved = await saveCfp(eventId, { title, description, fields, routing });
       setForm(saved);
       setBaseline(shape(saved));
       announce(
@@ -204,7 +234,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     } finally {
       setBusy(null);
     }
-  }, [announce, description, eventId, fields, title]);
+  }, [announce, description, eventId, fields, routing, title]);
 
   const transition = useCallback(
     async (state: "publish" | "close" | "reopen") => {
@@ -661,6 +691,105 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                             </p>
                           </div>
                         ) : null}
+                        {index > 0 ? (
+                          <div className="field cfp-span">
+                            <label className="cfp-check" htmlFor={`editor-condition-${field.id}`}>
+                              <input
+                                id={`editor-condition-${field.id}`}
+                                type="checkbox"
+                                checked={Boolean(field.visibleWhen)}
+                                onChange={(event) =>
+                                  updateField(field.id, {
+                                    visibleWhen: event.target.checked
+                                      ? {
+                                          fieldId: fields[index - 1]?.id ?? "",
+                                          operator: "equals",
+                                          values: [""],
+                                        }
+                                      : undefined,
+                                  })
+                                }
+                              />
+                              Show this question conditionally
+                            </label>
+                            {field.visibleWhen ? (
+                              <div className="cfp-details">
+                                <label>
+                                  Earlier question
+                                  <select
+                                    value={field.visibleWhen.fieldId}
+                                    onChange={(event) =>
+                                      updateField(field.id, {
+                                        visibleWhen: {
+                                          ...(field.visibleWhen ?? {
+                                            operator: "equals",
+                                            values: [""],
+                                            fieldId: "",
+                                          }),
+                                          fieldId: event.target.value,
+                                        },
+                                      })
+                                    }
+                                  >
+                                    {fields.slice(0, index).map((candidate) => (
+                                      <option key={candidate.id} value={candidate.id}>
+                                        {candidate.label || candidate.id}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  Match
+                                  <select
+                                    value={field.visibleWhen.operator}
+                                    onChange={(event) =>
+                                      updateField(field.id, {
+                                        visibleWhen: {
+                                          ...(field.visibleWhen ?? {
+                                            operator: "equals",
+                                            values: [""],
+                                            fieldId: "",
+                                          }),
+                                          operator: event.target.value as
+                                            | "equals"
+                                            | "in"
+                                            | "notEmpty",
+                                        },
+                                      })
+                                    }
+                                  >
+                                    <option value="equals">equals</option>
+                                    <option value="in">is one of</option>
+                                    <option value="notEmpty">is answered</option>
+                                  </select>
+                                </label>
+                                {field.visibleWhen.operator !== "notEmpty" ? (
+                                  <label>
+                                    Value{field.visibleWhen.operator === "in" ? "s" : ""}
+                                    <input
+                                      value={field.visibleWhen.values.join(", ")}
+                                      placeholder="Option, or comma-separated options"
+                                      onChange={(event) =>
+                                        updateField(field.id, {
+                                          visibleWhen: {
+                                            ...(field.visibleWhen ?? {
+                                              operator: "equals",
+                                              values: [""],
+                                              fieldId: "",
+                                            }),
+                                            values: event.target.value
+                                              .split(",")
+                                              .map((value) => value.trim()),
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
 
                       {questionErrors.map((error) => (
@@ -720,6 +849,120 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                   );
                 })}
               </ol>
+            )}
+          </Card>
+
+          <Card
+            labelledBy="cfp-routing"
+            title="Submission routing"
+            hint="The first matching rule sets the CFP triage status when a proposal is submitted."
+            actions={
+              <button
+                type="button"
+                className="secondary"
+                disabled={!routingStatuses.length}
+                onClick={() =>
+                  setRouting([
+                    ...routing,
+                    {
+                      id: `route-${crypto.randomUUID()}`,
+                      when: { fieldId: fields[0]?.id ?? "", operator: "equals", values: [""] },
+                      routeTo: { status: routingStatuses[0]?.key ?? "" },
+                    },
+                  ])
+                }
+              >
+                <IconPlus size={15} />
+                Add routing rule
+              </button>
+            }
+          >
+            {routing.length ? (
+              <ol className="cfp-questions">
+                {routing.map((rule, index) => (
+                  <li className="cfp-question" key={rule.id}>
+                    <div className="cfp-question-body">
+                      <label>
+                        Question
+                        <select
+                          value={rule.when.fieldId}
+                          onChange={(event) =>
+                            setRouting((current) =>
+                              current.map((item) =>
+                                item.id === rule.id
+                                  ? { ...item, when: { ...item.when, fieldId: event.target.value } }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          {fields.map((field) => (
+                            <option key={field.id} value={field.id}>
+                              {field.label || field.id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Answer values
+                        <input
+                          value={rule.when.values.join(", ")}
+                          onChange={(event) =>
+                            setRouting((current) =>
+                              current.map((item) =>
+                                item.id === rule.id
+                                  ? {
+                                      ...item,
+                                      when: {
+                                        ...item.when,
+                                        values: event.target.value
+                                          .split(",")
+                                          .map((value) => value.trim()),
+                                      },
+                                    }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Triage status
+                        <select
+                          value={rule.routeTo.status}
+                          onChange={(event) =>
+                            setRouting((current) =>
+                              current.map((item) =>
+                                item.id === rule.id
+                                  ? { ...item, routeTo: { status: event.target.value } }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          {routingStatuses.map((status) => (
+                            <option key={status.key} value={status.key}>
+                              {status.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost small cfp-remove"
+                      aria-label={`Remove routing rule ${index + 1}`}
+                      onClick={() =>
+                        setRouting((current) => current.filter(({ id }) => id !== rule.id))
+                      }
+                    >
+                      Remove rule
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="hint">No automatic routing. New proposals use the Submitted status.</p>
             )}
           </Card>
         </div>

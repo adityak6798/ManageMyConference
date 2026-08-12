@@ -8,11 +8,13 @@
  */
 import {
   cfpStateInputSchema,
+  cfpRoutingStatusesResponseSchema,
   eventIdParamsSchema,
   saveCfpInputSchema,
   submitProposalInputSchema,
 } from "@greenroom/contracts";
 import {
+  CfpRoutingConfigurationError,
   CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
@@ -23,6 +25,7 @@ import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
   "GET /api/events/:eventId/cfp",
+  "GET /api/events/:eventId/cfp/routing-statuses",
   "PUT /api/events/:eventId/cfp",
   "POST /api/events/:eventId/cfp/state",
   "GET /api/public/events/:eventId/cfp",
@@ -49,6 +52,17 @@ export const cfpRoutes: RouteModule = {
           404,
         );
       return context.json({ cfp });
+    });
+    app.get("/api/events/:eventId/cfp/routing-statuses", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const parsed = eventIdParamsSchema.safeParse(context.req.param());
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const statuses = await cfpService.routingStatuses(context.get("actor"), parsed.data.eventId);
+      return context.json(cfpRoutingStatusesResponseSchema.parse({ statuses }));
     });
     app.put("/api/events/:eventId/cfp", async (context) => {
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
@@ -176,6 +190,8 @@ export const cfpRoutes: RouteModule = {
         status: 400 as const,
         fields: error.fieldErrors,
       };
+    if (error instanceof CfpRoutingConfigurationError)
+      return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
     if (error instanceof CfpStateError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
     if (error instanceof CfpUnavailableError)

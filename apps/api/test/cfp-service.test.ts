@@ -80,6 +80,97 @@ describe("CFP service", () => {
       submittedAt: first.submittedAt,
     });
   });
+  it("honours conditional visibility on the server and snapshots the resolved route", async () => {
+    const service = new CfpService(
+      new MemoryCfpRepository(),
+      () => "00000000-0000-4000-8000-000000000049",
+      () => new Date("2026-08-11T12:00:00Z"),
+      {
+        listStatuses: async () => [
+          { key: "submitted", label: "Submitted", sortOrder: 0 },
+          { key: "under_review", label: "Under review", sortOrder: 1 },
+        ],
+      },
+    );
+    const conditionalFields = [
+      ...fields,
+      {
+        id: "category",
+        type: "select" as const,
+        label: "Category",
+        guidance: "",
+        required: true,
+        options: ["Workshop", "Talk"],
+      },
+      {
+        id: "equipment",
+        type: "short_text" as const,
+        label: "Equipment",
+        guidance: "",
+        required: true,
+        options: [],
+        visibleWhen: { fieldId: "category", operator: "equals" as const, values: ["Workshop"] },
+      },
+    ];
+    await service.save(actor, {
+      eventId,
+      title: "Speak",
+      description: "",
+      fields: conditionalFields,
+      routing: [
+        {
+          id: "workshops",
+          when: { fieldId: "category", operator: "in", values: ["Workshop"] },
+          routeTo: { status: "under_review" },
+        },
+      ],
+    });
+    await expect(
+      service.save(actor, {
+        eventId,
+        title: "Invalid route",
+        description: "",
+        fields: conditionalFields,
+        routing: [
+          {
+            id: "typo",
+            when: { fieldId: "category", operator: "equals", values: ["Talk"] },
+            routeTo: { status: "under_reveiw" },
+          },
+        ],
+        expectedVersion: 1,
+      }),
+    ).rejects.toThrow("Choose a configured proposal status");
+    await service.changeState(actor, eventId, "publish");
+
+    await expect(
+      service.submit(eventId, "hidden-answer", {
+        title: "Talk",
+        email: "a@example.com",
+        category: "Talk",
+        equipment: "Projector",
+      }),
+    ).rejects.toMatchObject({
+      fieldErrors: { "answers.equipment": ["This field is hidden for the answers you selected."] },
+    });
+    await expect(
+      service.submit(eventId, "hidden-required-skip", {
+        title: "Talk",
+        email: "a@example.com",
+        category: "Talk",
+      }),
+    ).resolves.toMatchObject({ resolvedRoute: null });
+    await expect(
+      service.submit(eventId, "workshop-route", {
+        title: "Workshop",
+        email: "a@example.com",
+        category: "Workshop",
+        equipment: "Projector",
+      }),
+    ).resolves.toMatchObject({
+      resolvedRoute: { ruleId: "workshops", status: "under_review" },
+    });
+  });
   it("does not expose drafts and rejects cross-event organizers", async () => {
     const service = new CfpService(new MemoryCfpRepository(), crypto.randomUUID, () => new Date());
     await service.save(actor, { eventId, title: "Speak", description: "", fields });

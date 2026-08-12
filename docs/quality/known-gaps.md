@@ -93,9 +93,9 @@ feature-by-feature verdict.
   gates; without those, deployability is locally verified but no hosted URL is evidenced. Owner:
   platform. Governing ID: `ENG-CI-001`. Closure: provision the target, run public/embed/API smoke
   against its URL, and prevent promotion or roll back when that smoke fails.
-- `GAP-009` **Brief feature 1 is incomplete**: the CFP form model has no conditional field logic and
-  no category-based routing. Impact: the feature's two named differentiators are absent while the
-  rest of the CFP is shipped. Owner: cfp. Governing ID: `PRD-CFP-001`, `ACC-CFP`. Closure: issue #49
+- `GAP-009` **Closed by issue #49**: CFP conditions and category-based status routing are persisted,
+  rendered by both applicant surfaces, enforced by server validation, and snapshotted on submission.
+  Owner: cfp. Governing ID: `PRD-CFP-001`, `PRD-CFP-002`, `ACC-CFP`.
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.
 - `GAP-010` **Brief feature 3 is incomplete**: no lifecycle event enqueues a communication, the only

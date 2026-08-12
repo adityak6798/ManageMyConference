@@ -44,6 +44,7 @@ const form = (overrides: Record<string, unknown> = {}) => ({
   title: "Call for proposals",
   description: "Tell us what you would like to talk about.",
   fields: [field()],
+  routing: [],
   status: "draft",
   version: 1,
   publishedAt: null,
@@ -299,6 +300,32 @@ describe("the public submission form", () => {
       abstract: "How the composer keeps draft and live apart.",
     });
     expect(String(submission?.body.idempotencyKey).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("reveals dependent questions only when their condition matches", async () => {
+    const conditional = form({
+      status: "open",
+      publishedStatus: "open",
+      fields: [
+        field({ id: "category", type: "select", label: "Category", options: ["Talk", "Workshop"] }),
+        field({
+          id: "equipment",
+          label: "Equipment needs",
+          visibleWhen: { fieldId: "category", operator: "equals", values: ["Workshop"] },
+        }),
+      ],
+    });
+    stubApi((url) =>
+      url.startsWith("/api/public/events/") ? jsonResponse({ cfp: conditional }) : undefined,
+    );
+    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+
+    expect(await screen.findByLabelText("Category *")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Equipment needs *")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Category *"), { target: { value: "Workshop" } });
+    expect(screen.getByLabelText("Equipment needs *")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Category *"), { target: { value: "Talk" } });
+    expect(screen.queryByLabelText("Equipment needs *")).toBeNull();
   });
 
   it("puts the server's rejection on the answer that caused it", async () => {

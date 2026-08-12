@@ -4,4 +4,10 @@ export interface SubmittedProposalReference {
   readonly cfpVersion: number;
   readonly submittedAt: string;
 }
-export { CfpService, CfpStateError, CfpUnavailableError, CfpValidationError } from "./cfp-service";
+export {
+  CfpRoutingConfigurationError,
+  CfpService,
+  CfpStateError,
+  CfpUnavailableError,
+  CfpValidationError,
+} from "./cfp-service";

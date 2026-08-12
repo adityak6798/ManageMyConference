@@ -40,18 +40,81 @@ describe("D1CfpRepository", () => {
           options: [],
         },
       ],
+      routing: [],
       status: "open" as const,
-      version: 1,
+      version: 2,
       publishedAt: "2026-08-10T00:00:00.000Z",
       publishedStatus: "open" as const,
     };
-    await repository.saveForm(form);
-    await repository.savePublished(form, true);
+    await expect(repository.saveForm(form, 1)).resolves.toBe(true);
+    await repository.savePublished(form, true, form.version);
     await expect(repository.findPublished(form.eventId)).resolves.toEqual(form);
+    const competing = await Promise.all([
+      repository.saveForm({ ...form, title: "First editor", version: 3 }, 2),
+      repository.saveForm({ ...form, title: "Second editor", version: 3 }, 2),
+    ]);
+    expect(competing.sort()).toEqual([false, true]);
+    const winner = await repository.findForm(form.eventId);
+    expect(winner?.version).toBe(3);
+    expect(["First editor", "Second editor"]).toContain(winner?.title);
+    await expect(
+      repository.saveForm({ ...form, title: "Stale overwrite", version: 3 }, 2),
+    ).resolves.toBe(false);
+    expect((await repository.findForm(form.eventId))?.title).toBe(winner?.title);
+    await expect(repository.savePublished(form, true, 2)).resolves.toBe(false);
+    expect((await repository.findForm(form.eventId))?.title).toBe(winner?.title);
+    const routedForm = {
+      ...form,
+      routing: [
+        {
+          id: "workshops",
+          when: { fieldId: "title", operator: "equals" as const, values: ["Workshop"] },
+          routeTo: { status: "workshop_queue" },
+        },
+      ],
+    };
+    await database
+      .prepare(
+        "INSERT INTO cfp_statuses (event_id, key, label, sort_order) VALUES (?, 'workshop_queue', 'Workshop queue', 99)",
+      )
+      .bind(form.eventId)
+      .run();
+    await expect(
+      repository.saveForm(
+        {
+          ...routedForm,
+          routing: [
+            {
+              id: "missing",
+              when: { fieldId: "title", operator: "equals", values: ["Workshop"] },
+              routeTo: { status: "missing_status" },
+            },
+          ],
+          version: 4,
+        },
+        3,
+      ),
+    ).rejects.toThrow("CFP_ROUTE_STATUS_NOT_CONFIGURED");
+    await repository.savePublished({ ...routedForm, version: 3 }, false, { ...routedForm, version: 3 }.version);
+    await expect(
+      proposals.saveStatuses(
+        form.eventId,
+        (await proposals.listStatuses(form.eventId)).filter(({ key }) => key !== "workshop_queue"),
+      ),
+    ).rejects.toThrow("Configured statuses must include every status currently in use");
+    await expect(repository.saveForm({ ...routedForm, version: 4 }, 3)).resolves.toBe(true);
+    await repository.savePublished({ ...form, version: 3 }, false, { ...form, version: 3 }.version);
+    await expect(
+      proposals.saveStatuses(
+        form.eventId,
+        (await proposals.listStatuses(form.eventId)).filter(({ key }) => key !== "workshop_queue"),
+      ),
+    ).rejects.toThrow("Configured statuses must include every status currently in use");
+    await repository.savePublished({ ...routedForm, version: 3 }, false, { ...routedForm, version: 3 }.version);
     const proposal = {
       id: "00000000-0000-4000-8000-000000000111",
       eventId: form.eventId,
-      cfpVersion: 1,
+      cfpVersion: 3,
       idempotencyKey: "same-retry-key",
       answers: { title: "Talk" },
       fields: form.fields,
@@ -66,6 +129,26 @@ describe("D1CfpRepository", () => {
     if (!first || !second) throw new Error("Expected idempotent submissions");
     expect(first.id).toBe(second.id);
     expect(first.id).toBe(proposal.id);
+    const routed = await repository.createSubmission({
+      ...proposal,
+      id: "00000000-0000-4000-8000-000000000049",
+      idempotencyKey: "routed-workshop",
+      resolvedRoute: { ruleId: "workshops", status: "workshop_queue" },
+    });
+    expect(routed?.resolvedRoute).toEqual({ ruleId: "workshops", status: "workshop_queue" });
+    await expect(
+      repository.createSubmission({
+        ...proposal,
+        id: "00000000-0000-4000-8000-000000000050",
+        idempotencyKey: "invalid-route",
+        resolvedRoute: { ruleId: "typo", status: "under_reveiw" },
+      }),
+    ).rejects.toThrow("CFP_ROUTE_STATUS_NOT_CONFIGURED");
+    await expect(proposals.list(form.eventId, "workshop_queue")).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: routed?.id, status: "workshop_queue" }),
+      ]),
+    );
     const custom = await repository.createSubmission({
       ...proposal,
       id: "10000000-0000-4000-8000-000000000004",
@@ -138,7 +221,13 @@ describe("D1CfpRepository", () => {
         (await proposals.find(form.eventId, "10000000-0000-4000-8000-000000000001"))?.answers,
       ),
     ).not.toContain("alex.morgan@example.test");
-    await repository.savePublished({ ...form, status: "closed", publishedStatus: "closed" }, true);
+    await expect(
+      repository.savePublished(
+        { ...form, status: "closed", publishedStatus: "closed", version: 4 },
+        true,
+        4,
+      ),
+    ).resolves.toBe(true);
     await expect(
       repository.createSubmission({
         ...proposal,

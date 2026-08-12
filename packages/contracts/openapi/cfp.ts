@@ -6,6 +6,7 @@
  */
 import {
   cfpResponseSchema,
+  cfpRoutingStatusesResponseSchema,
   cfpStateInputSchema,
   eventIdParamsSchema,
   proposalConfirmationResponseSchema,
@@ -28,6 +29,22 @@ export const cfpPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/cfp/routing-statuses",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description: "Configured CFP triage routing destinations",
+          content: json(cfpRoutingStatusesResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
         500: errorResponse,
       },
     });
