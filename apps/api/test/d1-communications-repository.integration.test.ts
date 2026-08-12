@@ -424,6 +424,9 @@ describe("migration 1704, after invitations already exist", () => {
       database.prepare(
         "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-b', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:session:profile:2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'new@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000001' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T09:00:00.000Z', NULL, '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')",
       ),
+      database.prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at) VALUES ('legacy-return', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'calendar-invite:returned-session:returned-profile:2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage', 'speaker.calendar_invite', 'email', 'template-calendar-invite-v1', 1, 'return@example.test', json_object('calendarInvite', json_object('content', 'BEGIN:VCALENDAR' || char(13) || char(10) || 'SEQUENCE:19000001' || char(13) || char(10) || 'END:VCALENDAR')), 'Invite', 'Body', NULL, 'succeeded', 1, '2026-08-12T09:00:00.000Z', NULL, '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')",
+      ),
     ]);
 
     await applyMigrations(database as never, {
@@ -473,18 +476,18 @@ describe("migration 1704, after invitations already exist", () => {
       communications.enqueueCalendarInvite({
         organizationId: "00000000-0000-4000-8000-000000000010",
         eventId: "00000000-0000-4000-8000-000000000001",
-        sessionId: "session",
-        speakerProfileId: "profile",
+        sessionId: "returned-session",
+        speakerProfileId: "returned-profile",
         scheduleRef: "5|2026-09-01T18:00:00.000Z|2026-09-01T19:00:00.000Z|Main stage",
         scheduleRevisedAt: "2026-08-12T09:30:00.000Z",
-        recipientRef: "new@example.test",
+        recipientRef: "return@example.test",
         deliveryFor: (sequence) => ({
           organizationId: "00000000-0000-4000-8000-000000000010",
           eventId: "00000000-0000-4000-8000-000000000001",
-          idempotencyKey: `calendar-invite:session:profile:${sequence}`,
+          idempotencyKey: `calendar-invite:returned-session:returned-profile:${sequence}`,
           triggerType: "speaker.calendar_invite",
           channel: "email",
-          recipientRef: "new@example.test",
+          recipientRef: "return@example.test",
           templateKey: "speaker-calendar-invite",
           payload: {
             speakerName: "Speaker",
