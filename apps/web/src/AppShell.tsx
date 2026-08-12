@@ -115,7 +115,7 @@ export function AppShell({
       </aside>
 
       <div className="page">
-        <div className="topbar">
+        <header className="topbar">
           <p className="visually-hidden">
             {selectedEvent ? `${selectedEvent.name} workspace` : "Greenroom workspace"}
           </p>
@@ -146,9 +146,10 @@ export function AppShell({
               ))}
             </select>
           </label>
-        </div>
+        </header>
 
-        <main className="page-body" id="main">
+        {/* tabIndex={-1} makes the skip-link target programmatically focusable, not a tab stop. */}
+        <main className="page-body" id="main" tabIndex={-1}>
           {children}
         </main>
       </div>

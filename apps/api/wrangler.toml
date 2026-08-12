@@ -9,12 +9,12 @@ run_worker_first = ["/api/*", "/health", "/openapi.json", "/docs"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "greenroom-local"
-database_id = "local-development"
+database_name = "manage-my-conf"
+database_id = "5aa5ed70-b4f8-443a-a3a4-f3a4e41cce7b"
 migrations_dir = "migrations"
 
 [triggers]
 crons = ["* * * * *"]
 [[r2_buckets]]
 binding = "ASSETS"
-bucket_name = "greenroom-assets"
+bucket_name = "manage-my-conf"
