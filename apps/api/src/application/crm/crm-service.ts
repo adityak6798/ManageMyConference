@@ -466,8 +466,12 @@ export class CrmService {
     for (const row of parsed) {
       // Read before overwriting: the useful half of this message is the *earlier* row that
       // already claimed the address, and setting first made it name the offending row itself.
-      const claimedBy = seen.get(row.email);
-      seen.set(row.email, claimedBy ?? row.line);
+      // Rows the parser already rejected are left out of the map entirely — several unreadable
+      // addresses all normalise to the empty string, and they would otherwise accuse each other
+      // of duplicating a contact that has no address at all.
+      const unusable = row.errors.length > 0;
+      const claimedBy = unusable ? undefined : seen.get(row.email);
+      if (!unusable) seen.set(row.email, claimedBy ?? row.line);
       const errors =
         claimedBy === undefined
           ? row.errors

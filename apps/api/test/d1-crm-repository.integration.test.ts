@@ -2,6 +2,11 @@
 import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  ContactAlreadySourcedError,
+  ContactEmailTakenError,
+  ContactNotFoundError,
+} from "../src/application/crm/errors";
 import { createMigratedDatabase } from "./support/seeded-d1";
 import { D1CrmRepository } from "../src/adapters/persistence/d1-crm-repository";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
@@ -537,6 +542,179 @@ describe("D1 CRM organization directory", () => {
     expect(foreign?.mergedIntoId).toBeNull();
     expect(foreign?.activities).toHaveLength(1);
     expect(foreign?.tags).toEqual(["confidential"]);
+  });
+
+  it("will not retire this organization's contacts into a primary from another one", async () => {
+    const migrated = await migratedRuntime("crm-merge-foreign-primary");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    /*
+     * The mirror image of the case above, and the worse one. Scoping the losers but not the
+     * primary let a foreign `primaryId` point this organization's live contacts at a record
+     * nobody here can open — they leave the directory with no undo route — and wrote an
+     * activity row onto another organization's contact, which is a cross-tenant *write*.
+     */
+    const foreignPrimary = "51000000-0000-4000-8000-0000000000e5";
+    await repository.createContact(
+      contactAt(foreignPrimary, {
+        organizationId: otherOrganizationId,
+        name: "Outside Primary",
+        email: "outside-primary@outside.test",
+      }),
+    );
+
+    await expect(
+      repository.mergeContacts({
+        organizationId,
+        primaryId: foreignPrimary,
+        duplicateIds: [priyaId],
+        aliases: [],
+        activity: {
+          id: "71000000-0000-4000-8000-0000000000e6",
+          kind: "merge",
+          summary: "Merge driven by a foreign primary",
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      }),
+      // The trailing read cannot find the primary in this organization, so the call fails —
+      // but the assertions that matter are that the batch changed nothing.
+    ).rejects.toBeInstanceOf(ContactNotFoundError);
+
+    // This organization's contact is still live and still listed.
+    const priya = await repository.findContact(organizationId, priyaId);
+    expect(priya?.mergedIntoId).toBeNull();
+    expect((await repository.listContacts(organizationId, {})).map(({ id }) => id)).toContain(
+      priyaId,
+    );
+    // And nothing was written onto the other organization's contact.
+    const outside = await repository.findContact(otherOrganizationId, foreignPrimary);
+    expect(outside?.activities).toEqual([]);
+  });
+
+  it("keeps both links when the merged records were sourced into the same event", async () => {
+    const migrated = await migratedRuntime("crm-merge-same-event");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * The one path where a merge does not move something. `crm_contact_events` is keyed on
+     * `(contact_id, event_id)`, so the loser's link cannot follow the winner's onto one row;
+     * `UPDATE OR IGNORE` leaves it where it is. `PRD-CRM-001` states this exception, and until
+     * now nothing exercised it — both records having a link to the *same* event is the case the
+     * other merge tests skip.
+     */
+    const prospectFor = async (id: string, name: string) => {
+      await database
+        .prepare(
+          "INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES (?,?,?,'identified','seed-organizer',NULL,NULL,?,?)",
+        )
+        .bind(id, eventId, name, "2026-08-04T12:00:00.000Z", "2026-08-04T12:00:00.000Z")
+        .run();
+      return id;
+    };
+    await prospectFor("50000000-0000-4000-8000-0000000000f1", "Priya Raman");
+    await prospectFor("50000000-0000-4000-8000-0000000000f2", "Priya Raman");
+    const link = (contactId: string, prospectId: string) =>
+      database
+        .prepare(
+          "INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) VALUES (?,?,?,?)",
+        )
+        .bind(contactId, eventId, prospectId, "2026-08-04T12:00:00.000Z")
+        .run();
+    await link(priyaId, "50000000-0000-4000-8000-0000000000f1");
+    await link(priyaDuplicateId, "50000000-0000-4000-8000-0000000000f2");
+
+    const merged = await repository.mergeContacts({
+      organizationId,
+      primaryId: priyaId,
+      duplicateIds: [priyaDuplicateId],
+      aliases: [],
+      activity: {
+        id: "71000000-0000-4000-8000-0000000000f1",
+        kind: "merge",
+        summary: "Merged a same-event duplicate",
+        private: false,
+        occurredAt: "2026-08-11T12:00:00.000Z",
+        actorId: "seed-organizer",
+      },
+    });
+
+    // The survivor keeps exactly its own link for that event — one link, not two.
+    expect(merged.events).toEqual([
+      expect.objectContaining({
+        eventId,
+        prospectId: "50000000-0000-4000-8000-0000000000f1",
+      }),
+    ]);
+    // And the loser's link is retained on the merged-away row rather than deleted.
+    const loser = await repository.findContact(organizationId, priyaDuplicateId);
+    expect(loser?.mergedIntoId).toBe(priyaId);
+    expect(loser?.events.map(({ prospectId }) => prospectId)).toEqual([
+      "50000000-0000-4000-8000-0000000000f2",
+    ]);
+  });
+
+  it("reports a racing duplicate address and a double-sourced event as conflicts, not faults", async () => {
+    const migrated = await migratedRuntime("crm-races");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    /*
+     * D1 rejects `batch()` on a statement error rather than returning a non-success result, so
+     * an adapter that inspected only the results array left both of these as redacted 500s —
+     * the very failure state `ContactEmailTakenError` exists to prevent.
+     */
+    await expect(
+      repository.createContact(
+        contactAt("51000000-0000-4000-8000-0000000000e7", { email: "ada@example.test" }),
+      ),
+    ).rejects.toBeInstanceOf(ContactEmailTakenError);
+
+    const contact = await repository.findContact(organizationId, priyaId);
+    if (!contact) throw new Error("The seeded contact is missing");
+    const prospect = {
+      id: "50000000-0000-4000-8000-0000000000e8",
+      eventId,
+      name: "Priya Raman",
+      stage: "identified" as const,
+      ownerId: "seed-organizer",
+      nextAction: null,
+      nextActionAt: null,
+      contacts: [],
+      activities: [],
+      speakerId: null,
+      convertedAt: null,
+      createdAt: "2026-08-11T12:00:00.000Z",
+      updatedAt: "2026-08-11T12:00:00.000Z",
+    };
+    const activity = {
+      id: "71000000-0000-4000-8000-0000000000e8",
+      kind: "note" as const,
+      summary: "Sourced",
+      private: false,
+      occurredAt: "2026-08-11T12:00:00.000Z",
+      actorId: "seed-organizer",
+    };
+    await repository.linkContactToEvent({ contact, prospect, activity });
+    await expect(
+      repository.linkContactToEvent({
+        contact,
+        prospect: { ...prospect, id: "50000000-0000-4000-8000-0000000000e9" },
+        activity: { ...activity, id: "71000000-0000-4000-8000-0000000000e9" },
+      }),
+    ).rejects.toBeInstanceOf(ContactAlreadySourcedError);
+
+    // A violation that is not one of those two stays a fault rather than becoming a false
+    // conflict: this one breaks the name-length CHECK, not a unique index.
+    await expect(
+      repository.createContact(
+        contactAt("51000000-0000-4000-8000-0000000000ea", {
+          email: "long-name@example.test",
+          name: "x".repeat(200),
+        }),
+      ),
+    ).rejects.not.toBeInstanceOf(ContactEmailTakenError);
   });
 
   it("writes the prospect, its contact and the directory link in one durable operation", async () => {

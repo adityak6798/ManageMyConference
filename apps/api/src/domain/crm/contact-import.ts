@@ -132,15 +132,21 @@ export function parseContactCsv(text: string): ParsedContactCsv {
     const fields = header
       .map((column, index) => ({ column, value: (values[index] ?? "").trim() }))
       .filter(({ column, value }) => column.startsWith("field:") && value.length > 0)
-      .map(({ column, value }) => ({ key: column.slice("field:".length), value }));
+      // Trimmed, because `field: topic` is what a spreadsheet produces when somebody types a
+      // space after the colon, and an untrimmed key is a different key from the same column.
+      .map(({ column, value }) => ({ key: column.slice("field:".length).trim(), value }));
     /*
-     * The same bounds the hand-typed create path enforces through `createContactInputSchema`.
+     * Every bound the hand-typed create path enforces through `createContactInputSchema`, both
+     * ends of each one.
      *
      * They are checked here rather than only there because a spreadsheet is the one way a value
      * reaches storage without passing that schema, and the *read* contract reuses the same
-     * limits: one over-long custom field committed by an import made every later directory
-     * response fail the client's decode, with no way back through the UI. A row that breaks a
-     * bound is refused by name and the rest of the file still imports.
+     * limits — so a row this misses does not merely store something odd, it makes every later
+     * directory response fail the client's decode, with no way back through the UI. That is
+     * also why the minimums matter and not only the maximums: a header column of exactly
+     * `field:` yields an empty key, which `contactCustomFieldSchema`'s `min(1)` rejects just as
+     * firmly as an over-long one. A row that breaks a bound is refused by name and the rest of
+     * the file still imports.
      */
     for (const [label, value, limit] of [
       ["name", name, 160],
@@ -149,9 +155,14 @@ export function parseContactCsv(text: string): ParsedContactCsv {
       ["notes", cell("notes"), 4000],
     ] as const)
       if (value.length > limit) errors.push(`The ${label} is longer than ${limit} characters.`);
+    if (tags.length > 20)
+      errors.push(`A contact may carry 20 tags, and this row has ${tags.length}.`);
     for (const tag of tags)
       if (tag.length > 40) errors.push(`The tag "${tag}" is longer than 40 characters.`);
+    if (fields.length > 30)
+      errors.push(`A contact may carry 30 custom fields, and this row has ${fields.length}.`);
     for (const field of fields) {
+      if (field.key.length === 0) errors.push('A "field:" column needs a name after the colon.');
       if (field.key.length > 60)
         errors.push(`The column "field:${field.key}" names a field longer than 60 characters.`);
       if (field.value.length > 300)

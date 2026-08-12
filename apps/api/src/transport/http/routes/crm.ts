@@ -9,6 +9,7 @@
 import type { Context } from "hono";
 import {
   contactDirectoryParamsSchema,
+  contactFiltersSchema,
   contactListQuerySchema,
   contactPathSchema,
   createContactInputSchema,
@@ -246,18 +247,30 @@ export const crmRoutes: RouteModule = {
       const query = contactListQuerySchema.safeParse(context.req.query());
       if (!organizationId || !query.success)
         return malformed(context, "Directory filters are invalid.");
-      const { tags, ...rest } = query.data;
+      const { tags, segmentId, ...rest } = query.data;
+      /*
+       * The split list is re-validated rather than trusted. `contactListQuerySchema` bounds the
+       * raw parameter as one string, which a caller can fill with far more than the twenty tags
+       * `contactFiltersSchema` permits — and every tag becomes a bound SQL variable, so an
+       * unbounded list reached D1's variable limit as a 500 rather than a refusal. The echoed
+       * filters also travel back inside the response contract, which declares the same bound.
+       */
+      const filters = contactFiltersSchema.safeParse({
+        ...rest,
+        ...(tags
+          ? {
+              tags: tags
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            }
+          : {}),
+      });
+      if (!filters.success) return malformed(context, "Directory filters are invalid.");
       return context.json(
         await service.listContacts(actor, organizationId, {
-          ...rest,
-          ...(tags
-            ? {
-                tags: tags
-                  .split(",")
-                  .map((tag) => tag.trim())
-                  .filter(Boolean),
-              }
-            : {}),
+          ...filters.data,
+          ...(segmentId ? { segmentId } : {}),
         }),
       );
     });

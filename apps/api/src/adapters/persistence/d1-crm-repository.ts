@@ -626,32 +626,61 @@ export class D1CrmRepository implements CrmRepository {
   }
 
   /**
-   * Run a batch, and translate the two uniqueness violations that are races rather than faults.
+   * Run a batch, and translate the uniqueness violations that are races rather than faults.
    *
    * A service-level check followed by an insert is not atomic: two organizers submitting the
    * same address, or one double-clicking "Add to event", both pass the read and the second
    * write meets the index. That is a caller-visible conflict the domain already has words for,
    * so it must not surface as the redacted 500 an unhandled adapter error becomes — the whole
    * reason `ContactEmailTakenError` exists is that this failure should name the field.
+   *
+   * Both failure shapes are handled because D1 uses both: `batch()` *rejects* on a statement
+   * error rather than returning a non-success result, so a version of this that inspected only
+   * the results array was unreachable code and every race still answered 500.
+   *
+   * `conflict.when` is matched against the driver's message and is deliberately specific to one
+   * index. Matching "constraint failed" would also catch the CHECK and FOREIGN KEY violations
+   * these batches can raise — the contact insert carries tags, fields and an activity whose
+   * `actor_id` is a foreign key — and reporting one of those as "another contact already holds
+   * this address" would send the organizer to fix something that is not wrong.
    */
-  private async runBatch(statements: D1Statement[], what: string, conflict?: () => Error) {
-    const results = await this.database.batch(statements);
+  private batchFailure(
+    what: string,
+    reason: string,
+    conflict?: { when: RegExp; error: () => Error },
+  ): Error {
+    if (conflict && /UNIQUE constraint failed/i.test(reason) && conflict.when.test(reason))
+      return conflict.error();
+    return new Error(`D1 failed to ${what}: ${reason}`);
+  }
+
+  private async runBatch(
+    statements: D1Statement[],
+    what: string,
+    conflict?: { when: RegExp; error: () => Error },
+  ) {
+    let results: Array<{ success: boolean; error?: string }>;
+    try {
+      results = await this.database.batch(statements);
+    } catch (error) {
+      throw this.batchFailure(
+        what,
+        error instanceof Error ? error.message : String(error),
+        conflict,
+      );
+    }
     const failed = results.find((result) => !result.success);
-    if (!failed) return;
-    const reason = failed.error ?? "unknown error";
-    if (conflict && /unique|constraint failed/i.test(reason)) throw conflict();
-    throw new Error(`D1 failed to ${what}: ${reason}`);
+    if (failed) throw this.batchFailure(what, failed.error ?? "unknown error", conflict);
   }
 
   async createContact(contact: OrganizationContact) {
-    await this.runBatch(
-      this.insertContactStatements(contact),
-      "create contact atomically",
-      () =>
+    await this.runBatch(this.insertContactStatements(contact), "create contact atomically", {
+      when: /crm_organization_contacts/i,
+      error: () =>
         new ContactEmailTakenError({
           email: ["Another contact already holds this address. Merge the records instead."],
         }),
-    );
+    });
   }
 
   private updateContactStatements(
@@ -795,12 +824,39 @@ export class D1CrmRepository implements CrmRepository {
             `INSERT OR IGNORE INTO crm_contact_fields (contact_id,field_key,field_value) SELECT ?, field_key, field_value FROM crm_contact_fields WHERE contact_id IN (${losers}) ${owned}`,
           )
           .bind(primaryId, ...duplicateIds, organizationId, primaryId, organizationId),
+        // Gated on the *primary* as well as the losers. Without it a foreign primary id retired
+        // this organization's contacts — pointing them at a record nobody here can open, and
+        // with no undo route — which is a worse outcome than the loser-side hole, not a lesser
+        // one: the directory silently loses a live person.
         this.database
           .prepare(
-            `UPDATE crm_organization_contacts SET merged_into_id = ?, updated_at = ? WHERE id IN (${list}) AND organization_id = ? AND merged_into_id IS NULL`,
+            `UPDATE crm_organization_contacts SET merged_into_id = ?, updated_at = ? WHERE id IN (${list}) AND organization_id = ? AND merged_into_id IS NULL ${owned}`,
           )
-          .bind(primaryId, input.activity.occurredAt, ...duplicateIds, organizationId),
-        this.contactActivityStatement(primaryId, input.activity),
+          .bind(
+            primaryId,
+            input.activity.occurredAt,
+            ...duplicateIds,
+            organizationId,
+            primaryId,
+            organizationId,
+          ),
+        // Likewise: an ungated insert here wrote an activity row onto another organization's
+        // contact, which is a cross-tenant write rather than a cross-tenant read.
+        this.database
+          .prepare(
+            "INSERT INTO crm_contact_activities (id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT ?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_organization_contacts o WHERE o.id = ? AND o.organization_id = ?)",
+          )
+          .bind(
+            input.activity.id,
+            primaryId,
+            input.activity.kind,
+            input.activity.summary,
+            input.activity.private ? 1 : 0,
+            input.activity.occurredAt,
+            input.activity.actorId,
+            primaryId,
+            organizationId,
+          ),
       ],
       "merge contacts atomically",
     );
@@ -947,8 +1003,13 @@ export class D1CrmRepository implements CrmRepository {
       ],
       "source the contact into the event atomically",
       // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
-      // event_id)`. Reported as the conflict it is rather than as a server fault.
-      () => new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
+      // event_id)`, or the unique index that keeps one prospect to one contact. Reported as the
+      // conflict it is rather than as a server fault.
+      {
+        when: /crm_contact_events/i,
+        error: () =>
+          new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
+      },
     );
   }
 }
@@ -963,6 +1024,8 @@ export class D1CrmRepository implements CrmRepository {
  * definition that cannot be read now degrades to "no criteria" — the segment still opens, and
  * shows everybody rather than nothing, which is the safe direction for a saved view.
  */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function toFilters(definition: string): ContactSegment["filters"] {
   let parsed: unknown;
   try {
@@ -973,19 +1036,36 @@ function toFilters(definition: string): ContactSegment["filters"] {
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
   const source = parsed as Record<string, unknown>;
-  const text = (key: string) =>
-    typeof source[key] === "string" ? (source[key] as string) : undefined;
+  /*
+   * Bounds as well as types, and for the same reason the types are checked: the criteria are
+   * echoed back inside `contactListResponseSchema` and `segmentListResponseSchema`, so a value
+   * of the right type and the wrong size fails the client's decode exactly as an unparseable
+   * row did. `contactFiltersSchema` is the authority on the numbers; the adapter layer declares
+   * no contracts dependency, so they are restated rather than imported, and a mismatch would
+   * show up as a decode failure in the segment tests.
+   */
+  const text = (key: string, max: number) => {
+    const value = source[key];
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed.length >= 1 && trimmed.length <= max ? trimmed : undefined;
+  };
   const tags = Array.isArray(source.tags)
-    ? source.tags.filter((tag): tag is string => typeof tag === "string")
+    ? source.tags
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length >= 1 && tag.length <= 40)
+        .slice(0, 20)
     : undefined;
+  const eventId = text("eventId", 36);
   return {
-    ...(text("search") ? { search: text("search") } : {}),
-    ...(text("company") ? { company: text("company") } : {}),
-    ...(text("title") ? { title: text("title") } : {}),
+    ...(text("search", 160) ? { search: text("search", 160) } : {}),
+    ...(text("company", 160) ? { company: text("company", 160) } : {}),
+    ...(text("title", 160) ? { title: text("title", 160) } : {}),
     ...(tags?.length ? { tags } : {}),
-    ...(text("fieldKey") ? { fieldKey: text("fieldKey") } : {}),
-    ...(text("fieldValue") ? { fieldValue: text("fieldValue") } : {}),
-    ...(text("eventId") ? { eventId: text("eventId") } : {}),
+    ...(text("fieldKey", 60) ? { fieldKey: text("fieldKey", 60) } : {}),
+    ...(text("fieldValue", 300) ? { fieldValue: text("fieldValue", 300) } : {}),
+    ...(eventId && UUID.test(eventId) ? { eventId } : {}),
   };
 }
 

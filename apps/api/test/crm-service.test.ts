@@ -642,6 +642,31 @@ describe("ACC-CRM organization directory", () => {
       `Long Field,long@example.test,Northwind,${"x".repeat(301)}`,
       `Long Company,company@example.test,${"y".repeat(161)},ok`,
     ].join("\n");
+    // Both ends of every bound, not just the maximums: an empty custom-field key fails the
+    // contract's `min(1)` exactly as firmly as an over-long one, and wedges the same response.
+    const unnamedField = ["name,email,field:", "Ada Rivera,ada@example.test,something"].join("\n");
+    const empty = await service.previewImport(organizer, organizationId, {
+      filename: "unnamed.csv",
+      csv: unnamedField,
+    });
+    expect(empty.rows[0]?.errors).toEqual(['A "field:" column needs a name after the colon.']);
+    expect(empty.summary).toEqual({ create: 0, update: 0, skip: 1 });
+    // And the counts the create path bounds, which a spreadsheet can exceed just as easily.
+    const tooMany = [
+      `name,email,tags,${Array.from({ length: 31 }, (_, index) => `field:k${index}`).join(",")}`,
+      `Many,many@example.test,${Array.from({ length: 21 }, (_, index) => `t${index}`).join(";")},${Array.from(
+        { length: 31 },
+        () => "v",
+      ).join(",")}`,
+    ].join("\n");
+    const counted = await service.previewImport(organizer, organizationId, {
+      filename: "counts.csv",
+      csv: tooMany,
+    });
+    expect(counted.rows[0]?.errors).toEqual([
+      "A contact may carry 20 tags, and this row has 21.",
+      "A contact may carry 30 custom fields, and this row has 31.",
+    ]);
     const preview = await service.previewImport(organizer, organizationId, {
       filename: "overlong.csv",
       csv: overlong,
