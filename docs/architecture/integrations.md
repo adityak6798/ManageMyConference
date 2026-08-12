@@ -61,12 +61,20 @@ correctly records v2 — the version guard on that row (`excluded.version >= …
 write. Both deliveries look like successes afterwards. Nothing in the history says the external
 system disagrees with us, and nothing ever asks it.
 
-**This is not fixed by a conditional write, because the providers do not offer one.** Airtable's
-REST API has no precondition on a record write: no `If-Match`, no ETag, no compare-and-set, and
+**A conditional write would prevent this, and the providers do not offer one.** Airtable's REST
+API has no precondition on a record write: no `If-Match`, no ETag, no compare-and-set, and
 `performUpsert` matches on a field value rather than on a version. There is no request we could
 send that the server would refuse on version grounds, so "only apply if you still hold v1" is not
-expressible. The same is true of the Accelevents contract as documented. A precondition is the
-right fix and it is unavailable, which is why what follows is a repair rather than a prevention.
+expressible. The same is true of the Accelevents contract as documented.
+
+That is why what follows is a repair rather than a prevention — but it is worth being precise that
+a *provider* precondition is not the only prevention imaginable. Serializing the drain per
+destination/event/resource, so two projections for one resource can never be in flight together,
+would close the race inside this system using the lease mechanism that already exists. It is not
+done here: the lease is per delivery, and making it per resource changes the outbox's concurrency
+model for every channel to fix one channel's race. Recorded as the alternative rather than left
+implied, because "the provider makes it impossible" is true of the conditional write and not of
+the problem.
 
 **What the code does instead is detect and repair.** The refusal above is observable — the upsert
 updates no row — so `complete` reports it, and in the same durable batch re-queues the delivery
@@ -90,3 +98,13 @@ rate of it means projections are being enqueued faster than the outbox drains th
 deliberately left alone — if the winning delivery has since been manually retried into
 `terminal`, the repair does not resurrect it, because re-sending something an operator has
 watched fail would fight the operator rather than help them.
+
+**Two limits on what that flag can tell you**, both worth knowing before it is used as an alarm.
+It is derived from *database commit* order, not from provider-landing order, and those can differ
+in either direction. So it over-reports: v1's request can be processed by the provider first —
+leaving the external system correctly on v2 — while v1's slower round trip makes its `complete`
+land second, which refuses its projection write and queues a re-send that was not needed. The
+re-send is harmless, because the adapters upsert. It also under-reports: if the late call's
+`complete` happens to commit first, both writes are accepted, the flag is false for both, and the
+identical staleness is invisible. Read it as "this delivery's projection write lost", which is
+what it observes; staleness is the case it covers, not the case it proves.

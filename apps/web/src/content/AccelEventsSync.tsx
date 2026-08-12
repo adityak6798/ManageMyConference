@@ -120,7 +120,10 @@ export function AccelEventsSync({
         return;
       }
       const value = next as AccelEventsSyncReportDto;
-      setReport(value);
+      // An apply clears the preview rather than replacing it, so the next import is again gated
+      // behind a fresh look at what it would do. Keeping the apply's own report here would leave
+      // Import enabled forever after the first one.
+      setReport(value.preview ? value : null);
       feedback.announce(
         value.invalid ? "error" : "success",
         commit

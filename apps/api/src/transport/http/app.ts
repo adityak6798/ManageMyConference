@@ -21,7 +21,7 @@ import type { AccelEventsSyncService } from "../../application/communications/pu
 import type { CfpService } from "../../application/cfp/public";
 import type { CommunicationsService } from "../../application/communications/public";
 import type { ContentService } from "../../application/content/content-service";
-import type { SpeakerCalendarInviteService } from "../../application/content/speaker-calendar-invites";
+import type { SpeakerCalendarInviteService } from "../../application/content/public";
 import type { CrmService } from "../../application/crm/public";
 import type { EventService } from "../../application/events/event-service";
 import {

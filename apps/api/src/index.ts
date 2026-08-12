@@ -29,7 +29,7 @@ import {
   CommunicationsService,
 } from "./application/communications/public";
 import { ContentService } from "./application/content/content-service";
-import { SpeakerCalendarInviteService } from "./application/content/speaker-calendar-invites";
+import { SpeakerCalendarInviteService } from "./application/content/public";
 import { CrmService } from "./application/crm/crm-service";
 import { OutreachRejectedError } from "./application/crm/public";
 import type { OutreachMessage } from "./application/crm/public";
@@ -67,8 +67,21 @@ export interface Environment {
   AIRTABLE_REFERENCE_FIELD?: string;
   ACCELEVENTS_API_ENDPOINT?: string;
   ACCELEVENTS_TOKEN?: string;
+  /** Origin the inbound registration read is appended to. Distinct from the projection endpoint. */
+  ACCELEVENTS_API_ORIGIN?: string;
   /** The Accelevents event the inbound registration sync reads. Non-secret; a var, not a secret. */
   ACCELEVENTS_EVENT_REF?: string;
+  /** The Greenroom event `ACCELEVENTS_EVENT_REF` corresponds to. Non-secret. */
+  ACCELEVENTS_GREENROOM_EVENT_ID?: string;
+  /**
+   * Fallback `ORGANIZER` for calendar invitations when no mail sender is configured.
+   *
+   * `EMAIL_SENDER` wins when set, because a calendar client checks the organizer against the
+   * sending identity. This exists so the configurations that send no mail — local development,
+   * CI, Playwright, the demo — can still produce an invitation instead of refusing. Defaulted in
+   * `wrangler.toml` to a reserved `.invalid` address.
+   */
+  CALENDAR_ORGANIZER_EMAIL?: string;
   /**
    * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
    * can say which checkout and commit it belongs to. Absent in a deployment.
@@ -242,7 +255,10 @@ export default {
       content,
       communications,
       events: service,
-      organizerEmail: environment.EMAIL_SENDER,
+      // The mail sender when there is one, because the invitation has to come from the identity
+      // the mail comes from. Otherwise the documented placeholder, so a fixture deployment still
+      // sends something rather than refusing a button the demo runbook tells an evaluator to press.
+      organizerEmail: environment.EMAIL_SENDER ?? environment.CALENDAR_ORGANIZER_EMAIL,
       now: () => new Date(),
     });
     /**

@@ -210,11 +210,33 @@ export class AccelEventsSyncService {
       throw new AccelEventsUnavailableError(code);
     }
 
-    const result = await this.dependencies.content.importSpeakers(
-      actor,
-      { eventId, csv: asCsv(registrants), commit: options.commit },
-      correlationId,
-    );
+    let result: SpeakerImportResult;
+    try {
+      result = await this.dependencies.content.importSpeakers(
+        actor,
+        { eventId, csv: asCsv(registrants), commit: options.commit },
+        correlationId,
+      );
+    } catch (error) {
+      // ERROR-INTENT: re-thrown unchanged — this is content's failure and its message is the
+      // caller's to see. What is added is the run record, because an apply that got as far as
+      // writing some speakers and then failed must not leave "never applied" on the organizer's
+      // screen. Only the failure of the *source* was recorded before, so a failing import was the
+      // one way to change the database and report nothing.
+      if (options.commit)
+        await this.dependencies.runs.record({
+          eventId,
+          startedAt,
+          completedAt: this.dependencies.now().toISOString(),
+          outcome: "failed",
+          total: registrants.length,
+          created: 0,
+          skipped: 0,
+          invalid: 0,
+          errorCode: "IMPORT_FAILED",
+        });
+      throw error;
+    }
     // Row order is preserved by the CSV, so row N+2 of the import is registrant N.
     const rows = result.rows.map((row, index): AccelEventsSyncRow => {
       const registrant = registrants[index];

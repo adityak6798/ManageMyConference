@@ -447,9 +447,14 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     if (!recorded.some(({ id }) => id === attempt.id)) throw new Error("Delivery lease lost");
     // The upsert changed no row exactly when its version guard refused it. Without a projection
     // there is nothing to be stale, so nothing to report.
+    //
+    // A missing `meta` defaults to *applied*. D1 and miniflare both return it, so this is the
+    // "driver told us nothing" case, and the safe default for an alarm is silence: reading absence
+    // as a refusal would report a stale external projection on every projection delivery, which
+    // would train an operator to ignore the one signal that is supposed to be rare.
     return {
       projectionApplied:
-        projectionStatement < 0 || (results[projectionStatement]?.meta?.changes ?? 0) > 0,
+        projectionStatement < 0 || (results[projectionStatement]?.meta?.changes ?? 1) > 0,
     };
   }
   async retry(deliveryId: string, organizationId: string, now: string) {
@@ -481,7 +486,13 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     if (delivery.channel === "email" || delivery.projectionVersion === null) return false;
     const result = await this.database
       .prepare(
-        "SELECT id FROM communication_deliveries WHERE id != ? AND channel = ? AND event_id = ? AND recipient_ref = ? AND projection_version > ? LIMIT 1",
+        // `state != 'terminal'` is load-bearing. Supersession means "a newer version has been sent
+        // or is still going to be"; a newer delivery that failed terminally will never be sent, so
+        // treating it as superseding this one abandons the newest version anybody can still
+        // deliver. That is reachable: a v3 that exhausts its retries would otherwise strand v2 —
+        // including the v2 the stale-projection repair just re-queued — leaving the external
+        // system on v1 with nothing left to correct it.
+        "SELECT id FROM communication_deliveries WHERE id != ? AND channel = ? AND event_id = ? AND recipient_ref = ? AND projection_version > ? AND state != 'terminal' LIMIT 1",
       )
       .bind(
         delivery.id,

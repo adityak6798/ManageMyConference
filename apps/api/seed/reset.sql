@@ -4,11 +4,16 @@
 -- against a demo snapshot, and no seeded itinerary exists to restore.
 DELETE FROM attendee_itineraries;
 DELETE FROM public_event_projections;
-
+-- Last-sync state is product-written, not seeded, so nothing here recreates it — but it holds a
+-- foreign key to `events`, and the reset deletes events. Without this line one applied Accelevents
+-- sync makes every later `npm run reset` fail with FOREIGN KEY constraint failed, and the demo the
+-- reset exists to restore stays broken until someone deletes the row by hand.
+DELETE FROM accelevents_sync_runs;
 DELETE FROM outbound_projection_state;
 DELETE FROM communication_attempts;
 DELETE FROM communication_deliveries;
 DELETE FROM message_templates;
+
 DELETE FROM agenda_publications;
 DELETE FROM agenda_drafts;
 DELETE FROM crm_contact_activities;

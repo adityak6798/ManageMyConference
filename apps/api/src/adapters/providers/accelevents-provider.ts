@@ -48,7 +48,15 @@ export class AccelEventsProjectionProvider implements DeliveryProvider {
         headers: {
           authorization: `Bearer ${this.configuration.token}`,
           "content-type": "application/json",
-          "idempotency-key": delivery.idempotencyKey,
+          // Keyed per *attempt*, not per delivery, and that difference is load-bearing.
+          //
+          // This request is an upsert on `externalRef`, so repeating it converges by construction
+          // and needs no provider-side suppression to be safe. Keying it on the delivery instead
+          // would make a provider that honours the header replay its cached first response — and
+          // the stale-projection repair works precisely by re-sending the same delivery, so the
+          // repair would be answered "already done" while the external system kept the older
+          // payload, with nothing left to detect it.
+          "idempotency-key": `${delivery.idempotencyKey}:${delivery.attemptCount + 1}`,
         },
         body: JSON.stringify({
           externalRef: delivery.recipientRef,

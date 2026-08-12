@@ -95,6 +95,43 @@ describe("speaker calendar invitation", () => {
       expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
   });
 
+  /**
+   * A parameter value is not a TEXT value, and getting that wrong breaks the card silently.
+   *
+   * `CN=` is a `param-value` (RFC 5545 §3.1), where `,` `;` `:` `"` are not permitted bare and
+   * backslash is not an escape character. TEXT escaping a name into it yields `CN=Ada\, PhD`,
+   * which parses as two parameter values — and a colon ends the parameter list outright, taking
+   * the `mailto:` with it. The delivery still reports success; the speaker just never sees an
+   * Accept button.
+   */
+  it("quotes a CN containing characters a parameter value cannot carry bare", () => {
+    const invite = buildSpeakerInvite({
+      ...input,
+      organizer: { name: "Greenroom: The Conference", email: "programme@greenroom.test" },
+      speaker: { name: 'Ada Lovelace, PhD "Countess"', email: "ada@example.test" },
+    });
+    const emitted = lines(invite?.ics ?? "");
+
+    // Quoted, not backslash-escaped, and the mailto: value survives intact after the parameter.
+    expect(emitted).toContain(
+      'ORGANIZER;CN="Greenroom: The Conference":mailto:programme@greenroom.test',
+    );
+    expect(emitted).toContain(
+      'ATTENDEE;CN="Ada Lovelace, PhD Countess";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:ada@example.test',
+    );
+    // No TEXT escape ever appears in a parameter: a literal backslash there is the defect.
+    for (const line of emitted.filter(
+      (value) => value.startsWith("ORGANIZER") || value.startsWith("ATTENDEE"),
+    ))
+      expect(line).not.toContain("\\");
+  });
+
+  it("leaves a CN alone when it needs no quoting", () => {
+    // Quoting unconditionally would be legal but noisy, and the common case should stay readable.
+    const emitted = lines(buildSpeakerInvite(input)?.ics ?? "");
+    expect(emitted).toContain("ORGANIZER;CN=Greenroom Conf:mailto:programme@greenroom.test");
+  });
+
   it("never emits a negative sequence", () => {
     // SEQUENCE is a non-negative integer; a caller's bad arithmetic must not produce an ICS a
     // client rejects outright.

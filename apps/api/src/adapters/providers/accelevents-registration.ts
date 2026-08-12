@@ -47,7 +47,13 @@ export const FIXTURE_REGISTRANTS: readonly AccelEventsRegistrant[] = [
 
 export class FixtureAccelEventsRegistrations implements AccelEventsRegistrationSource {
   constructor(private readonly registrants = FIXTURE_REGISTRANTS) {}
-  async listRegistrants(): Promise<readonly AccelEventsRegistrant[]> {
+  /**
+   * The same roster whichever event asks.
+   *
+   * Safe only because this data is invented and lives in the repository. The live client below
+   * must not behave this way, and does not — see `boundEventId`.
+   */
+  async listRegistrants(_eventId: string): Promise<readonly AccelEventsRegistrant[]> {
     return this.registrants;
   }
 }
@@ -56,8 +62,19 @@ export interface AccelEventsRegistrationClientConfiguration {
   /** Origin of the Accelevents API. The event path is appended to it. */
   readonly apiOrigin: string;
   readonly token: string;
-  /** The Accelevents event this Greenroom event corresponds to. */
+  /** The Accelevents event whose registrations this deployment reads. */
   readonly eventRef: string;
+  /**
+   * The **Greenroom** event `eventRef` corresponds to.
+   *
+   * Without this the client would answer the same roster for every event, because `eventRef` is
+   * one deployment-wide binding while `listRegistrants` is asked per event. An organizer holding
+   * `content:manage` on an unrelated event would then import a different conference's attendee
+   * names and addresses as speaker profiles on theirs — authorized, since they may sync *their*
+   * event, and wrong, because the answer was never scoped to it. The capability check upstream
+   * decides who may sync; this decides what they are allowed to receive.
+   */
+  readonly boundEventId: string;
   readonly timeoutMs?: number;
 }
 
@@ -83,7 +100,13 @@ export class HttpAccelEventsRegistrations implements AccelEventsRegistrationSour
     private readonly fetch: Fetch = (input, init) => globalThis.fetch(input, init),
   ) {}
 
-  async listRegistrants(): Promise<readonly AccelEventsRegistrant[]> {
+  async listRegistrants(eventId: string): Promise<readonly AccelEventsRegistrant[]> {
+    // Refused rather than answered with the wrong conference's roster. One deployment maps one
+    // Greenroom event to one Accelevents event; anything else is a configuration question, and
+    // answering it by returning whatever `ACCELEVENTS_EVENT_REF` happens to name would import
+    // other people's names and addresses into this event's speaker list.
+    if (eventId !== this.configuration.boundEventId)
+      throw new AccelEventsUnavailableError("ACCELEVENTS_EVENT_NOT_MAPPED");
     const url = `${this.configuration.apiOrigin.replace(/\/$/, "")}/events/${encodeURIComponent(
       this.configuration.eventRef,
     )}/registrations`;

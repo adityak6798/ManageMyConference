@@ -18,6 +18,8 @@ import type { DeliveryProvider } from "../src/application/communications/ports";
 import type { Delivery } from "../src/domain/communications/delivery";
 
 const TOKEN = "super-secret-token-value";
+/** The one Greenroom event this deployment's Accelevents binding is mapped to. */
+const GREENROOM_EVENT = "00000000-0000-4000-8000-000000000001";
 
 const delivery = (overrides: Partial<Delivery> = {}): Delivery => ({
   id: "delivery-1",
@@ -368,7 +370,12 @@ describe("provider request shapes", () => {
    */
   const registrations = (fetch: (url: string, init: RequestInit) => Promise<Response>) =>
     new HttpAccelEventsRegistrations(
-      { apiOrigin: "https://accelevents.test/api", token: TOKEN, eventRef: "ae-event-1" },
+      {
+        apiOrigin: "https://accelevents.test/api",
+        token: TOKEN,
+        eventRef: "ae-event-1",
+        boundEventId: GREENROOM_EVENT,
+      },
       fetch,
     );
 
@@ -380,13 +387,29 @@ describe("provider request shapes", () => {
       ],
     });
 
-    expect(await registrations(fetch).listRegistrants()).toEqual([
+    expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toEqual([
       { sourceRef: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
       { sourceRef: "ae-2", name: "Grace", email: "grace@example.test" },
     ]);
     expect(recorded[0]?.url).toBe("https://accelevents.test/api/events/ae-event-1/registrations");
     expect(recorded[0]?.url).not.toContain(TOKEN);
     expect(recorded[0]?.init.method).toBe("GET");
+  });
+
+  it("refuses to answer an event it is not bound to, rather than serving another one's roster", async () => {
+    const { fetch, recorded } = stub(200, {
+      registrations: [{ id: "ae-1", name: "Ada", email: "ada@example.test" }],
+    });
+
+    // One deployment maps one Greenroom event to one Accelevents event. Answering any other event
+    // with the configured roster would import a different conference's attendee names and
+    // addresses as speaker profiles — reachable by an organizer who is legitimately authorized on
+    // *their* event, because the capability check upstream cannot know what the roster contains.
+    await expect(
+      registrations(fetch).listRegistrants("00000000-0000-4000-8000-0000000000ff"),
+    ).rejects.toMatchObject({ code: "ACCELEVENTS_EVENT_NOT_MAPPED" });
+    // Refused before the request, so the wrong roster is never even fetched.
+    expect(recorded).toHaveLength(0);
   });
 
   it("drops an incomplete registrant rather than importing a person nobody can reach", async () => {
@@ -398,7 +421,7 @@ describe("provider request shapes", () => {
         null,
       ],
     });
-    expect(await registrations(fetch).listRegistrants()).toHaveLength(1);
+    expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toHaveLength(1);
   });
 
   it("normalizes an unreadable platform without ever storing its message", async () => {
@@ -409,18 +432,26 @@ describe("provider request shapes", () => {
     ] as const) {
       // The error body echoes the credential back, the way a careless API does.
       const { fetch } = stub(status, { message: `rejected token ${TOKEN}` });
-      await expect(registrations(fetch).listRegistrants()).rejects.toMatchObject({ code });
-      await expect(registrations(fetch).listRegistrants()).rejects.not.toMatchObject({
-        message: expect.stringContaining(TOKEN),
+      await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.toMatchObject({
+        code,
       });
+      await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.not.toMatchObject(
+        {
+          message: expect.stringContaining(TOKEN),
+        },
+      );
     }
     // A 2xx that is not the documented shape is malformed, not an empty roster: reporting "0
     // registrants" for an unparsable answer would look like a successful, empty sync.
     const unparsable = stub(200, { items: [] });
-    await expect(registrations(unparsable.fetch).listRegistrants()).rejects.toMatchObject({
+    await expect(
+      registrations(unparsable.fetch).listRegistrants(GREENROOM_EVENT),
+    ).rejects.toMatchObject({
       code: "MALFORMED_PROVIDER_RESPONSE",
     });
-    await expect(registrations(failing(new Error("dns"))).listRegistrants()).rejects.toMatchObject({
+    await expect(
+      registrations(failing(new Error("dns"))).listRegistrants(GREENROOM_EVENT),
+    ).rejects.toMatchObject({
       code: "PROVIDER_UNREACHABLE",
     });
   });

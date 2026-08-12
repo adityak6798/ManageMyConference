@@ -21,6 +21,34 @@ import {
   utcCalendarStamp,
 } from "./content-service";
 
+/**
+ * A `CN=` parameter value, which is **not** escaped the way a property value is.
+ *
+ * RFC 5545 §3.1: `param-value = paramtext / quoted-string`, and `SAFE-CHAR` excludes `,`, `;`,
+ * `:` and `"`. Backslash is not an escape character there — so running a name through
+ * `escapeCalendarText` (§3.3.11 TEXT escaping) produces `CN=Ada Lovelace\, PhD`, which a
+ * conforming parser reads as two parameter values with a literal backslash in the first. A comma
+ * splits the parameter, and a colon — as in an event called `Greenroom: The Conference` — ends the
+ * parameter list early and destroys the `mailto:` value that follows it. Either way the
+ * `ORGANIZER` or `ATTENDEE` is malformed, and a malformed one is exactly what stops Gmail and
+ * Outlook rendering the Accept/Decline card this whole artefact exists to produce.
+ *
+ * So: quote when the value contains anything `paramtext` forbids, and drop the one character a
+ * `quoted-string` cannot itself contain. RFC 6868's `^` encoding would preserve the quote, but it
+ * is not universally implemented and a dropped quote mark in a display name is a smaller loss than
+ * an invitation half the clients refuse.
+ */
+function calendarParameter(value: string): string {
+  const safe = [...value].filter(isCalendarParameterCharacter).join("").replaceAll('"', "");
+  return /[,;:]/.test(safe) ? `"${safe}"` : safe;
+}
+
+/** Control characters are forbidden in a parameter value exactly as they are in a TEXT value. */
+function isCalendarParameterCharacter(character: string) {
+  const code = character.codePointAt(0) ?? 0;
+  return character === "\t" || (code >= 0x20 && code !== 0x7f);
+}
+
 export interface SpeakerInviteInput {
   readonly event: { readonly id: string; readonly name: string };
   /**
@@ -94,10 +122,10 @@ export function buildSpeakerInvite(input: SpeakerInviteInput): SpeakerInvite | n
     // The event name gives the entry context in a calendar that shows only the summary.
     `SUMMARY:${summary || escapeCalendarText(input.event.name)}`,
     ...(location ? [`LOCATION:${location}`] : []),
-    `ORGANIZER;CN=${escapeCalendarText(input.organizer.name)}:mailto:${input.organizer.email}`,
+    `ORGANIZER;CN=${calendarParameter(input.organizer.name)}:mailto:${input.organizer.email}`,
     // RSVP=TRUE is what asks the client for an answer; NEEDS-ACTION is the state it starts in.
     // Without them Outlook shows the entry but no Accept/Decline.
-    `ATTENDEE;CN=${escapeCalendarText(input.speaker.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${input.speaker.email}`,
+    `ATTENDEE;CN=${calendarParameter(input.speaker.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${input.speaker.email}`,
     "END:VEVENT",
     "END:VCALENDAR",
     "",

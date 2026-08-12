@@ -28,8 +28,10 @@ describe("add-to-calendar links", () => {
     expect(url.searchParams.get("rru")).toBe("addevent");
     expect(url.searchParams.get("subject")).toBe("Reliable Systems");
     // Outlook takes ISO 8601, not the compact form, and renders it in the reader's own zone.
-    expect(url.searchParams.get("startdt")).toBe("2026-09-01T16:00:00.000Z");
-    expect(url.searchParams.get("enddt")).toBe("2026-09-01T17:00:00.000Z");
+    // Seconds precision: the deeplink documents ISO 8601, and milliseconds are the least
+    // standard thing we could hand its parser.
+    expect(url.searchParams.get("startdt")).toBe("2026-09-01T16:00:00Z");
+    expect(url.searchParams.get("enddt")).toBe("2026-09-01T17:00:00Z");
     expect(url.searchParams.get("location")).toBe("Main stage");
   });
 
@@ -51,7 +53,7 @@ describe("add-to-calendar links", () => {
       ).toBe("20260901T160000Z/20260901T160000Z");
       expect(
         new URL(outlookCalendarUrl({ ...session, endsAt }) ?? "").searchParams.get("enddt"),
-      ).toBe("2026-09-01T16:00:00.000Z");
+      ).toBe("2026-09-01T16:00:00Z");
     }
   });
 

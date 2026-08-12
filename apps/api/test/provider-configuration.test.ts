@@ -27,6 +27,13 @@ const LIVE = {
   ACCELEVENTS_TOKEN: "accelevents-token",
 };
 
+/** The inbound half, which needs its own origin and the Greenroom event it is bound to. */
+const INBOUND = {
+  ACCELEVENTS_API_ORIGIN: "https://accelevents.test/api",
+  ACCELEVENTS_EVENT_REF: "ae-event-1",
+  ACCELEVENTS_GREENROOM_EVENT_ID: "00000000-0000-4000-8000-000000000001",
+};
+
 describe("provider selection", () => {
   it("defaults to the deterministic providers so a fresh clone needs no credentials", () => {
     const providers = resolveProviders({});
@@ -133,22 +140,26 @@ describe("provider selection", () => {
     });
 
     it("builds the live client when the Accelevents configuration is complete", () => {
-      expect(
-        resolveRegistrationSource({ ...LIVE, ACCELEVENTS_EVENT_REF: "ae-event-1" }),
-      ).toBeInstanceOf(HttpAccelEventsRegistrations);
+      expect(resolveRegistrationSource({ ...LIVE, ...INBOUND })).toBeInstanceOf(
+        HttpAccelEventsRegistrations,
+      );
     });
 
-    it.each(["ACCELEVENTS_API_ENDPOINT", "ACCELEVENTS_TOKEN", "ACCELEVENTS_EVENT_REF"])(
-      "refuses live mode missing %s rather than answering from the fixture roster",
-      (missing) => {
-        const environment = { ...LIVE, ACCELEVENTS_EVENT_REF: "ae-event-1", [missing]: undefined };
-        // The failure that matters is not the throw but what it prevents: a sync reporting
-        // "3 registrants" from an in-repository list while the operator believes it read their
-        // registration platform.
-        expect(() => resolveRegistrationSource(environment)).toThrow(ProviderConfigurationError);
-        expect(() => resolveRegistrationSource(environment)).toThrow(missing);
-      },
-    );
+    it.each([
+      "ACCELEVENTS_API_ORIGIN",
+      "ACCELEVENTS_TOKEN",
+      "ACCELEVENTS_EVENT_REF",
+      // The one that is a data-exposure control rather than a connectivity one: without it a
+      // single roster answers every Greenroom event that asks.
+      "ACCELEVENTS_GREENROOM_EVENT_ID",
+    ])("refuses live mode missing %s rather than answering from the fixture roster", (missing) => {
+      const environment = { ...LIVE, ...INBOUND, [missing]: undefined };
+      // The failure that matters is not the throw but what it prevents: a sync reporting
+      // "3 registrants" from an in-repository list while the operator believes it read their
+      // registration platform.
+      expect(() => resolveRegistrationSource(environment)).toThrow(ProviderConfigurationError);
+      expect(() => resolveRegistrationSource(environment)).toThrow(missing);
+    });
 
     it("refuses the fixture roster where ENVIRONMENT names production", () => {
       for (const name of ["production", "prod", "Live"])
@@ -161,7 +172,7 @@ describe("provider selection", () => {
       // Every configuration failure is read by whoever holds the credentials; none of them may
       // echo one back into a log or a stack trace.
       try {
-        resolveRegistrationSource({ ...LIVE, ACCELEVENTS_EVENT_REF: undefined });
+        resolveRegistrationSource({ ...LIVE, ...INBOUND, ACCELEVENTS_EVENT_REF: undefined });
       } catch (error) {
         // ERROR-INTENT: the refusal is the assertion subject; it is inspected, not swallowed.
         expect(String(error)).toContain("ACCELEVENTS_EVENT_REF");

@@ -39,7 +39,9 @@
     "apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts",
     "apps/api/migrations/1750_delivery_calendar_invite_trigger.sql",
     "apps/api/migrations/1751_accelevents_sync_runs.sql",
-    "apps/api/test/accelevents-sync.test.ts"
+    "apps/api/test/accelevents-sync.test.ts",
+    "apps/api/test/integrations-http.test.ts",
+    "apps/api/test/d1-migration-rebuild.integration.test.ts"
   ],
   "symbols": {
     "CommunicationsEnqueue": "apps/api/src/application/communications/public.ts",

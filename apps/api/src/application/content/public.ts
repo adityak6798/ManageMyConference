@@ -64,3 +64,16 @@ export interface CommunicationsContentQuery {
     }[]
   >;
 }
+
+/**
+ * The calendar-invitation command the transport composes.
+ *
+ * Re-exported here rather than deep-imported, so the crossing it permits — platform reaching
+ * content — is governed by content's declared surface instead of by a path blessed one file at a
+ * time. It is a command rather than one of the read queries above, which is why it names the
+ * service; everything else about it stays inside the domain.
+ */
+export {
+  CalendarOrganizerUnconfiguredError,
+  SpeakerCalendarInviteService,
+} from "./speaker-calendar-invites";

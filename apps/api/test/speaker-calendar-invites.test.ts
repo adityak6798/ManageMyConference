@@ -1,6 +1,10 @@
 // @acceptance ACC-SPEAKER ACC-INTEGRATION
 import { describe, expect, it } from "vitest";
-import type { DeliveryRequest } from "../src/application/communications/public";
+import { MemoryCommunicationsRepository } from "../src/adapters/persistence/memory-communications-repository";
+import {
+  CommunicationsService,
+  type DeliveryRequest,
+} from "../src/application/communications/public";
 import type { ContentWorkspaceView } from "../src/application/content/content-service";
 import {
   CalendarOrganizerUnconfiguredError,
@@ -210,6 +214,89 @@ describe("sending speaker calendar invitations", () => {
       CalendarOrganizerUnconfiguredError,
     );
     expect(test.requests).toHaveLength(0);
+  });
+
+  /**
+   * The send, composed against the real communications service rather than a double.
+   *
+   * Every other test here stubs `enqueue`, which is the right shape for asserting *this* module's
+   * decisions but proves nothing about whether communications will accept what it produces. Four
+   * of that service's coherence rules apply to an invitation — the event must belong to the
+   * organization, an email delivery must name a template, the template's channel must match, and
+   * a projection trigger may not ride `email` — and a fifth, template rendering, refuses the
+   * enqueue outright when a placeholder has no value.
+   *
+   * The rendering rule is the one worth pinning. `payload.calendarInvite` is an object, and
+   * `resolve` throws `TemplateValueError` for any placeholder resolving to a non-scalar. It is
+   * safe only because nothing substitutes a key the template does not mention — an invariant that
+   * holds today and that no test named until this one. A template author writing
+   * `{{calendarInvite}}` would break every send, and should find that out here.
+   */
+  it("produces a delivery the real communications service accepts and renders", async () => {
+    const repository = new MemoryCommunicationsRepository();
+    let id = 0;
+    const communications = new CommunicationsService({
+      repository,
+      eventDirectory: {
+        belongsToOrganization: async (candidateEvent, candidateOrganization) =>
+          candidateEvent === eventId && candidateOrganization === organizationId,
+      },
+      newId: () => `delivery-${++id}`,
+      now: () => new Date("2026-08-12T09:00:00.000Z"),
+    });
+    // The template the seed ships, verbatim in the placeholders that matter.
+    await communications.createTemplate(
+      { ...organizer, capabilities: new Set(["communications:manage"]) },
+      {
+        organizationId,
+        key: "speaker-calendar-invite",
+        version: 1,
+        channel: "email",
+        subject: "Your session at {{eventName}}",
+        body: "Hello {{speakerName}}, here is the calendar invitation for {{sessionTitle}}.",
+      },
+    );
+    const service = new SpeakerCalendarInviteService({
+      content: {
+        workspace: async () =>
+          ({
+            sessions: [session("s1", ["p1"], placed)],
+            speakers: [speaker("p1", "ada@example.test")],
+            tasks: [],
+            assets: [],
+            messages: [],
+          }) as ContentWorkspaceView,
+      },
+      communications,
+      events: {
+        get: async () => ({ id: eventId, organizationId, name: "Greenroom Conf" }),
+      },
+      organizerEmail: "programme@greenroom.test",
+      now: () => new Date("2026-08-12T09:00:00.000Z"),
+    });
+
+    expect(await service.send(organizer, eventId)).toMatchObject({ sent: 1, alreadySent: 0 });
+
+    const [delivery] = await repository.list(organizationId, eventId);
+    if (!delivery) throw new Error("the send wrote no delivery");
+    // The covering note is rendered and stored, so a retry re-sends what was composed.
+    expect(delivery).toMatchObject({
+      channel: "email",
+      triggerType: "speaker.calendar_invite",
+      recipientRef: "ada@example.test",
+      renderedSubject: "Your session at Greenroom Conf",
+      renderedBody: "Hello Speaker p1, here is the calendar invitation for Session s1.",
+    });
+    // The invitation survives the enqueue intact — this is what the email adapter attaches.
+    const { calendarInvite } = delivery.payload as {
+      calendarInvite: { method: string; filename: string; content: string };
+    };
+    expect(calendarInvite).toMatchObject({ method: "REQUEST", filename: "invite.ics" });
+    expect(calendarInvite.content).toContain("METHOD:REQUEST");
+
+    // And it is genuinely idempotent through the real service, not just through the double.
+    expect(await service.send(organizer, eventId)).toMatchObject({ sent: 0, alreadySent: 1 });
+    expect(await repository.list(organizationId, eventId)).toHaveLength(1);
   });
 
   it("refuses an actor without content:manage on the event", async () => {

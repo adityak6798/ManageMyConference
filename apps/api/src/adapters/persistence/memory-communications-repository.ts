@@ -137,7 +137,11 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
   ): Promise<DeliveryCompletion> {
     const delivery = this.deliveries.get(attempt.deliveryId);
     if (!delivery || delivery.leaseToken !== leaseToken) throw new Error("Delivery lease lost");
-    if (this.attemptLog.some((item) => item.id === attempt.id)) return { projectionApplied: false };
+    // `true`, matching the SQL: re-completing an already-recorded attempt re-runs the upsert with
+    // an equal version, which the `>=` guard accepts. Answering `false` here would report a stale
+    // external projection for a completion where nothing was refused and no repair was queued —
+    // and `staleProjectionRepaired` is only worth having because it is normally never true.
+    if (this.attemptLog.some((item) => item.id === attempt.id)) return { projectionApplied: true };
     this.attemptLog.push(attempt);
     this.deliveries.set(delivery.id, {
       ...delivery,
@@ -194,7 +198,11 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
         candidate.eventId === delivery.eventId &&
         candidate.recipientRef === delivery.recipientRef &&
         candidate.projectionVersion !== null &&
-        candidate.projectionVersion > projectionVersion,
+        candidate.projectionVersion > projectionVersion &&
+        // A terminally failed newer version will never be sent, so it must not supersede this one.
+        // See the SQL for why abandoning the newest deliverable version is the failure that
+        // matters.
+        candidate.state !== "terminal",
     );
   }
 }

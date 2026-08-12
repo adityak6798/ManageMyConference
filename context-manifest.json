@@ -59,11 +59,6 @@
         "reason": "Content's declared read interface. Agenda and publishing compose session content through it rather than reading content's tables."
       },
       {
-        "path": "apps/api/src/application/content/speaker-calendar-invites.ts",
-        "governing": "ARC-DOM-001",
-        "reason": "Content's calendar-invitation command, composed by the transport alongside content-service.ts. It is its own entry point rather than a method on that service because it is the one content surface that reaches another domain: it builds the invitation from content's own session and speaker data and hands delivery to communications' declared enqueue interface. Keeping it separate is what lets the boundary be read off the imports \u2014 content generates the calendar payload, communications never does."
-      },
-      {
         "path": "apps/api/src/application/cfp/submitted-proposal-interface.ts",
         "governing": "ARC-FLOW-001",
         "reason": "The reference review uses to reach a submitted proposal without reading cfp_submissions."
@@ -716,7 +711,9 @@
         "apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts",
         "apps/api/migrations/1750_delivery_calendar_invite_trigger.sql",
         "apps/api/migrations/1751_accelevents_sync_runs.sql",
-        "apps/api/test/accelevents-sync.test.ts"
+        "apps/api/test/accelevents-sync.test.ts",
+        "apps/api/test/integrations-http.test.ts",
+        "apps/api/test/d1-migration-rebuild.integration.test.ts"
       ]
     },
     {

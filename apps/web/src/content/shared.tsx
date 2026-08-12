@@ -211,6 +211,11 @@ function instant(value: string | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/** ISO 8601 in UTC without milliseconds, which is what the Outlook deeplink documents. */
+function isoSeconds(value: Date): string {
+  return value.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 /** `YYYYMMDDTHHMMSSZ` — Google's `dates` parameter, and RFC 5545's UTC DATE-TIME form. */
 function compactUtc(value: Date): string {
   return value
@@ -267,10 +272,12 @@ export function googleCalendarUrl(session: CalendarLinkSession): string | null {
 /**
  * Outlook's compose deeplink.
  *
- * `outlook.office.com` is the work/school host; personal accounts live on `outlook.live.com`.
- * Microsoft redirects between them for a signed-in user, and the office host is the one a
- * conference speaker is more likely to be signed in to, so it is the single link offered rather
- * than making the speaker choose which Microsoft they are.
+ * `outlook.office.com` is the work/school host; personal accounts live on `outlook.live.com`, and
+ * Microsoft does **not** reliably redirect between them — a speaker signed in to a personal
+ * account may get an unhelpful page. The office host is offered as the single link because a
+ * conference speaker is more often on a work account and because making them pick which Microsoft
+ * they are is a worse first impression than one link that works for most. The `.ics` download
+ * beside it is the route that works for everyone, which is what makes the trade acceptable.
  *
  * Times go as ISO 8601 in UTC, which is what `startdt`/`enddt` accept; the compose form then
  * renders them in the user's own zone.
@@ -282,8 +289,10 @@ export function outlookCalendarUrl(session: CalendarLinkSession): string | null 
   url.searchParams.set("path", "/calendar/action/compose");
   url.searchParams.set("rru", "addevent");
   url.searchParams.set("subject", session.title);
-  url.searchParams.set("startdt", range.start.toISOString());
-  url.searchParams.set("enddt", range.end.toISOString());
+  // Seconds precision, no milliseconds: the deeplink's parser is documented for ISO 8601 and the
+  // fractional form is the least standard thing we could send it.
+  url.searchParams.set("startdt", isoSeconds(range.start));
+  url.searchParams.set("enddt", isoSeconds(range.end));
   if (session.location) url.searchParams.set("location", session.location);
   return url.toString();
 }

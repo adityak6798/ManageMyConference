@@ -24,7 +24,7 @@ import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
 } from "../../../application/communications/public";
-import { requireCapability } from "../../../application/identity/actor";
+import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
 import { envelope, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -196,6 +196,8 @@ export const communicationsRoutes: RouteModule = {
      */
     app.get("/api/events/:eventId/integrations/accelevents", async (context) => {
       const parsed = eventIdParamsSchema.safeParse(context.req.param());
+      if (parsed.success)
+        requireEventCapability(context.get("actor"), parsed.data.eventId, "content:manage");
       if (!parsed.success)
         return context.json(
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
@@ -208,6 +210,12 @@ export const communicationsRoutes: RouteModule = {
     });
     app.post("/api/events/:eventId/integrations/accelevents/sync", async (context) => {
       const params = eventIdParamsSchema.safeParse(context.req.param());
+      // Denied before the body is read. The service authorizes too, but leaving it to the service
+      // alone means an anonymous caller receives a validation error with field detail instead of
+      // a 401, and has their request body read and parsed on the way to it — and this domain's
+      // stated invariant is that denial happens before request-body parsing.
+      if (params.success)
+        requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
       const body = accelEventsSyncInputSchema.safeParse(await readJson(context.req));
       if (!params.success || !body.success)
         return context.json(

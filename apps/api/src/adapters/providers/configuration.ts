@@ -52,8 +52,18 @@ export interface ProviderEnvironment {
   AIRTABLE_REFERENCE_FIELD?: string | undefined;
   ACCELEVENTS_API_ENDPOINT?: string | undefined;
   ACCELEVENTS_TOKEN?: string | undefined;
+  /**
+   * Origin of the Accelevents API for the **inbound** registration read.
+   *
+   * Separate from `ACCELEVENTS_API_ENDPOINT` because the two directions need different things and
+   * one binding cannot be both: the outbound projection POSTs to a complete endpoint URL verbatim,
+   * while the inbound read appends `/events/{ref}/registrations` to an origin.
+   */
+  ACCELEVENTS_API_ORIGIN?: string | undefined;
   /** The Accelevents event this deployment reads registrations from. */
   ACCELEVENTS_EVENT_REF?: string | undefined;
+  /** The Greenroom event `ACCELEVENTS_EVENT_REF` corresponds to. */
+  ACCELEVENTS_GREENROOM_EVENT_ID?: string | undefined;
 }
 
 /**
@@ -182,11 +192,20 @@ export function resolveRegistrationSource(
       );
     return new FixtureAccelEventsRegistrations();
   }
-  demand(environment, ["ACCELEVENTS_API_ENDPOINT", "ACCELEVENTS_TOKEN", "ACCELEVENTS_EVENT_REF"]);
-  demandHttpsUrl("ACCELEVENTS_API_ENDPOINT", environment.ACCELEVENTS_API_ENDPOINT as string);
+  demand(environment, [
+    "ACCELEVENTS_API_ORIGIN",
+    "ACCELEVENTS_TOKEN",
+    "ACCELEVENTS_EVENT_REF",
+    // Required, not optional: without it one deployment-wide Accelevents roster answers every
+    // Greenroom event that asks, and an organizer authorized on their own event imports another
+    // conference's attendees into it.
+    "ACCELEVENTS_GREENROOM_EVENT_ID",
+  ]);
+  demandHttpsUrl("ACCELEVENTS_API_ORIGIN", environment.ACCELEVENTS_API_ORIGIN as string);
   return new HttpAccelEventsRegistrations({
-    apiOrigin: environment.ACCELEVENTS_API_ENDPOINT as string,
+    apiOrigin: environment.ACCELEVENTS_API_ORIGIN as string,
     token: environment.ACCELEVENTS_TOKEN as string,
     eventRef: environment.ACCELEVENTS_EVENT_REF as string,
+    boundEventId: environment.ACCELEVENTS_GREENROOM_EVENT_ID as string,
   });
 }

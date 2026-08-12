@@ -444,6 +444,48 @@ describe("communications outbox", () => {
     ]);
   });
 
+  /**
+   * A newer version that failed terminally must not supersede an older one that can still be sent.
+   *
+   * Supersession means "a newer version has been sent or still will be". A terminal delivery will
+   * never be sent, so counting it abandons the newest version anybody can still deliver — and it
+   * is reachable exactly where it hurts most: it would strand the delivery the stale-projection
+   * repair just re-queued, leaving the external system on the oldest payload with nothing left to
+   * correct it.
+   */
+  it("does not let a terminally failed newer projection strand a deliverable older one", async () => {
+    const test = harness();
+    const deliverable = await test.service.trigger(organizer, {
+      organizationId,
+      eventId,
+      idempotencyKey: "projection:session:88:v2",
+      triggerType: "projection.requested",
+      channel: "airtable",
+      recipientRef: "session:88",
+      payload: { title: "Deliverable" },
+      projectionVersion: 2,
+    });
+    // v3 exhausted its retries and is terminal — written directly, because what is under test is
+    // the guard's reading of that state rather than the path that produced it.
+    await test.repository.enqueue({
+      ...deliverable,
+      id: "doomed-v3",
+      idempotencyKey: "projection:session:88:v3",
+      payload: { title: "Never arrives" },
+      projectionVersion: 3,
+      state: "terminal",
+      attemptCount: 3,
+    });
+
+    // v2 is still the newest version anyone can deliver, so it is sent rather than superseded.
+    await expect(test.repository.isProjectionSuperseded(deliverable)).resolves.toBe(false);
+    await test.worker.runOne();
+    expect(test.provider.calls.map(({ id }) => id)).toContain(deliverable.id);
+    expect(test.repository.projections.get(`airtable:${eventId}:session:88`)).toMatchObject({
+      version: 2,
+    });
+  });
+
   it("returns bounded cursor pages with attempts already grouped", async () => {
     const test = harness();
     await test.service.createTemplate(organizer, {

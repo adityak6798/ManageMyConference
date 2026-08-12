@@ -54,6 +54,8 @@
     "public_event_projections": "publishing",
     "attendee_itineraries": "publishing",
     "communication_deliveries_next": "communications-integrations",
-    "accelevents_sync_runs": "communications-integrations"
+    "accelevents_sync_runs": "communications-integrations",
+    "communication_attempts_next": "communications-integrations",
+    "outbound_projection_state_next": "communications-integrations"
   }
 }

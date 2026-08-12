@@ -1,16 +1,9 @@
 // @acceptance ACC-INTEGRATION
-import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMigratedDatabase } from "./support/seeded-d1";
 import { D1CommunicationsRepository } from "../src/adapters/persistence/d1-communications-repository";
 import apiWorker, { type Environment } from "../src/index";
-
-const statements = (sql: string) =>
-  sql
-    .split(";")
-    .map((value) => value.trim())
-    .filter(Boolean);
 
 describe("D1CommunicationsRepository", () => {
   let runtime: Miniflare | undefined;

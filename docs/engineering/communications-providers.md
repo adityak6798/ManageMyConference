@@ -19,10 +19,15 @@ verified against a live API.
 The same switch also selects the **inbound** Accelevents registration source
 (`resolveRegistrationSource`): `fixture` answers from a deterministic in-repository roster and
 `live` reads the real platform. It resolves on the request that runs a sync rather than at
-startup, so a misconfigured `live` fails that request naming the missing binding instead of
-taking every other route down with it. The rule is otherwise identical — there is no fallback, and
-a sync must never report a count from the fixture roster while an operator believes it read their
-registration platform. The organizer surface prints the mode on screen for the same reason.
+startup, so a misconfigured `live` fails that request instead of taking every other route down
+with it. Be exact about where that message goes: `ProviderConfigurationError` is not translated by
+any route module, so the operator sees a generic 500 and the organizer's panel says only that the
+platform could not be read. **The text naming the missing binding is in the Worker log, not in the
+response** — check the logs rather than the screen when a `live` sync fails immediately.
+
+The rule is otherwise identical: there is no fallback, and a sync must never report a count from
+the fixture roster while an operator believes it read their registration platform. The organizer
+surface prints the mode on screen for the same reason.
 
 ### Reaching a failure in `fixture` mode
 
@@ -63,9 +68,12 @@ names — are configuration.
 | `AIRTABLE_TABLE_ID` | live | no | Target table |
 | `AIRTABLE_TOKEN` | live | **yes** | Personal access token |
 | `AIRTABLE_REFERENCE_FIELD` | live | no | Column holding the Greenroom reference; defaults to `Greenroom Ref` |
-| `ACCELEVENTS_API_ENDPOINT` | live | no | Full URL of the projection endpoint, and the API origin the inbound registration read is appended to |
+| `ACCELEVENTS_API_ENDPOINT` | live (outbound) | no | Full URL of the projection endpoint, POSTed to verbatim |
+| `ACCELEVENTS_API_ORIGIN` | live (inbound) | no | Origin of the Accelevents API; the registration read appends `/events/{ref}/registrations` to it. Separate from the endpoint above because one binding cannot be both a complete URL and a prefix |
 | `ACCELEVENTS_TOKEN` | live | **yes** | Bearer credential for that endpoint |
-| `ACCELEVENTS_EVENT_REF` | live | no | The Accelevents event whose registrations the inbound sync reads |
+| `ACCELEVENTS_EVENT_REF` | live (inbound) | no | The Accelevents event whose registrations the inbound sync reads |
+| `ACCELEVENTS_GREENROOM_EVENT_ID` | live (inbound) | no | The Greenroom event `ACCELEVENTS_EVENT_REF` corresponds to. Required, because one deployment-wide roster would otherwise answer every event that asks and import another conference's attendees into it; a sync for any other event is refused |
+| `CALENDAR_ORGANIZER_EMAIL` | both | no | Fallback `ORGANIZER` for calendar invitations when `EMAIL_SENDER` is unset. Defaulted in `wrangler.toml` to a reserved `.invalid` address so the configurations that send no mail can still produce an invitation |
 
 ### Least privilege
 
@@ -144,9 +152,12 @@ and `staleProjectionRepaired`. It deliberately carries **no** recipient, rendere
 payload or credential: this goes to a shared sink and the row itself is available under the same
 authorization as the history view.
 
-`staleProjectionRepaired` is true when this projection reached the provider *after* a newer one
-had already been recorded, so the external system was left holding older data and the newer
-delivery has been re-queued to overwrite it. It is the only externally visible trace of a race
+`staleProjectionRepaired` is true when this delivery's projection write was refused because a
+newer version had already been recorded, and the delivery owning that newer version has been
+re-queued to re-send it. That is usually staleness — this call reached the provider after a newer
+one — but it is *commit* order, not provider-landing order, so it over-reports a harmless
+re-send when a slow round trip commits late, and cannot see the case where the late call commits
+first. Read it as "this projection write lost". It is the only externally visible trace of a race
 that is otherwise invisible — both calls succeeded, both attempts read `succeeded`, and the row
 that lost looks like an ordinary success. Seeing it go from never to often means projections are
 being enqueued faster than the outbox drains them. The mechanism, and why a conditional write is

@@ -1,14 +1,17 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-11 (working tree: commit `3630977`)
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12 (working tree: commit `bb637d4`)
 
 ## What this demo is, and is not
 
 It runs locally, from a deterministic seed, with development-only signed demo identities. The built
 frontend is served by the Worker with a configurable API origin. Production emailed-code
 authentication exists; the remaining lifecycle work is tracked by `GAP-007`. Local
-delivery, uploads, and every provider are deterministic fakes: no message leaves the machine, and
-the Accelevents integration the brief names does not exist (`GAP-012`). The honest
+delivery, uploads, and every provider are deterministic fakes: no message leaves the machine. The
+Accelevents integration the brief names is now real and operable — you can preview and apply a
+registration sync, and see its last run — but it reads a built-in sample roster here rather than a
+registration platform, and it has never exchanged a request with the real API (`GAP-012`). The
+panel says so on screen for exactly that reason. The honest
 feature-by-feature picture is in [competition traceability](product/competition-traceability.md);
 the per-journey verdicts and the commands that prove them are in the
 [quality scorecard](quality/scorecard.md).
