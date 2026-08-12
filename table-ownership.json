@@ -56,6 +56,7 @@
     "agenda_publications": "agenda",
     "public_event_projections": "publishing",
     "attendee_itineraries": "publishing",
-    "publication_slug_reservation_audit": "publishing"
+    "publication_slug_reservation_audit": "publishing",
+    "accelevents_sync_runs": "communications-integrations"
   }
 }

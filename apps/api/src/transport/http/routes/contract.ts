@@ -12,8 +12,12 @@
 import type { Hono } from "hono";
 import type { AgendaService } from "../../../application/agenda/public";
 import type { CfpService } from "../../../application/cfp/public";
-import type { CommunicationsService } from "../../../application/communications/public";
+import type {
+  AccelEventsSyncService,
+  CommunicationsService,
+} from "../../../application/communications/public";
 import type { ContentService } from "../../../application/content/content-service";
+import type { SpeakerCalendarInviteService } from "../../../application/content/public";
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
 import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
@@ -52,9 +56,19 @@ export interface HttpDependencies {
   review?: ReviewService | undefined;
   cfp?: CfpService | undefined;
   content?: ContentService | undefined;
+  /**
+   * Sends speakers the iTIP invitation for their own sessions.
+   *
+   * Separate from `content` because it composes two domains — content's session and speaker data
+   * and communications' outbox — and holds the configured sender address that becomes every
+   * invitation's `ORGANIZER`.
+   */
+  speakerCalendarInvites?: SpeakerCalendarInviteService | undefined;
   crm?: CrmService | undefined;
   agenda?: AgendaService | undefined;
   communications?: CommunicationsService | undefined;
+  /** The inbound Accelevents registration sync, and the last-run state its surface reads. */
+  accelEventsSync?: AccelEventsSyncService | undefined;
   publishing?: PublicationService | undefined;
   itineraries?: ItineraryService | undefined;
   build?: BuildIdentity | undefined;

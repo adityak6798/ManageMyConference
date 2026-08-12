@@ -577,7 +577,12 @@
         "apps/web/test/session-withdrawal.test.tsx",
         "apps/web/e2e/speaker-portal.spec.ts",
         "apps/api/src/transport/http/routes/content.ts",
-        "apps/web/src/workspaces/content.tsx"
+        "apps/web/src/workspaces/content.tsx",
+        "apps/api/test/calendar-invite.test.ts",
+        "apps/api/test/speaker-calendar-invites.test.ts",
+        "apps/web/test/calendar-links.test.ts",
+        "apps/web/src/content/AccelEventsSync.tsx",
+        "apps/web/test/accelevents-sync-panel.test.tsx"
       ]
     },
     {
@@ -707,7 +712,14 @@
         "apps/web/test/communications-compose.test.tsx",
         "apps/web/e2e/communications.spec.ts",
         "apps/api/src/transport/http/routes/communications.ts",
-        "apps/web/src/workspaces/communications.tsx"
+        "apps/web/src/workspaces/communications.tsx",
+        "apps/api/src/application/communications/accelevents-sync.ts",
+        "apps/api/src/adapters/providers/accelevents-registration.ts",
+        "apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts",
+        "apps/api/migrations/1751_accelevents_sync_runs.sql",
+        "apps/api/test/accelevents-sync.test.ts",
+        "apps/api/test/integrations-http.test.ts",
+        "apps/api/test/d1-migration-rebuild.integration.test.ts"
       ]
     },
     {
@@ -763,6 +775,7 @@
     }
   ],
   "symbols": {
+    "AccelEventsSyncService": "apps/api/src/application/communications/accelevents-sync.ts",
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
     "App": "apps/web/src/App.tsx",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
@@ -783,7 +796,9 @@
     "PublishingContentQuery": "apps/api/src/application/content/public.ts",
     "ReviewRepository": "apps/api/src/application/review/review-repository.ts",
     "ReviewService": "apps/api/src/application/review/review-service.ts",
+    "SpeakerCalendarInviteService": "apps/api/src/application/content/speaker-calendar-invites.ts",
     "applyPublicationSettings": "apps/api/src/domain/publishing/publication.ts",
+    "buildSpeakerInvite": "apps/api/src/application/content/calendar-invite.ts",
     "composePublicSchedule": "apps/api/src/application/publishing/public.ts",
     "createHttpApp": "apps/api/src/transport/http/app.ts",
     "reconcileItinerary": "apps/api/src/domain/publishing/itinerary.ts"

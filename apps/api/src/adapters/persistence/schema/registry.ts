@@ -66,6 +66,7 @@ export const schema = {
 };
 
 export const {
+  accelEventsSyncRuns,
   agendaDrafts,
   agendaPublications,
   attendeeItineraries,

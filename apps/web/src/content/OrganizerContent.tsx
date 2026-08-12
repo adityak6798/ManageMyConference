@@ -10,12 +10,16 @@
  * that caused it instead of at the bottom of the page.
  */
 
-import type { UpdateContentSessionInput } from "@greenroom/contracts";
+import type {
+  SpeakerCalendarInviteResultDto,
+  UpdateContentSessionInput,
+} from "@greenroom/contracts";
 import { Fragment, useMemo, useState } from "react";
 import {
   clearSpeakerProfilePhoto,
   contentFieldErrors,
   publishSpeakerAsset,
+  sendSpeakerCalendarInvites,
   setSpeakerProfilePhoto,
   unpublishSpeakerAsset,
   updateContentSession,
@@ -97,6 +101,45 @@ export function OrganizerView({
       .toLowerCase()
       .includes(needle);
   });
+
+  /**
+   * Send every speaker of every scheduled session their calendar invitation.
+   *
+   * The report distinguishes three things an organizer would otherwise have to guess at: what was
+   * sent now, what an earlier press already covered, and who could not be reached at all. Pressing
+   * it twice on an unchanged agenda is safe and says so rather than looking like it sent again.
+   */
+  function sendCalendarInvites() {
+    if (busy) return;
+    // `run` reports only success or failure, so the report is captured here and read below.
+    let report: SpeakerCalendarInviteResultDto | null = null;
+    // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
+    void run(async () => {
+      report = await sendSpeakerCalendarInvites(eventId);
+    }).then((result) => {
+      if (!result.ok || !report) {
+        sessionFeedback.announce(
+          "error",
+          withReference(
+            "Calendar invitations could not be sent.",
+            result.ok ? undefined : result.error,
+          ),
+        );
+        return;
+      }
+      const { sent, alreadySent, unreachable } = report as SpeakerCalendarInviteResultDto;
+      const covered =
+        sent === 0 && alreadySent > 0
+          ? `Every speaker already has the current invitation (${alreadySent}).`
+          : `${plural(sent, "invitation")} queued${alreadySent ? `, ${alreadySent} already sent` : ""}.`;
+      sessionFeedback.announce(
+        unreachable.length ? "error" : "success",
+        unreachable.length
+          ? `${covered} Not sent for: ${unreachable.map(({ session, reason }) => `${session} (${reason})`).join("; ")}`
+          : covered,
+      );
+    });
+  }
 
   function saveSession(sessionId: string, input: UpdateContentSessionInput) {
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
@@ -239,6 +282,22 @@ export function OrganizerView({
             labelledBy="accepted-sessions"
             title="Accepted sessions"
             hint="Content that survived review. Edit a row to change how it will be published."
+            actions={
+              // Only offered once the published agenda places something: an invitation needs a
+              // time, and a button that can only report "nothing to send" is not worth a click.
+              workspace.sessions.some((session) => session.schedule) ? (
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={sendCalendarInvites}
+                  disabled={busy}
+                >
+                  Send calendar invitations
+                </button>
+              ) : (
+                <span className="hint">Invitations can be sent once the agenda is published.</span>
+              )
+            }
             tight
           >
             <div className="content-tabs">

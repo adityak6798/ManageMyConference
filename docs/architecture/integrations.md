@@ -1,6 +1,6 @@
 # Integration architecture
 
-Status: canonical | Owner: platform | IDs: `PORT-EMAIL`, `PORT-CALENDAR`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS`, `PORT-AI` | Last verified: 2026-08-09
+Status: canonical | Owner: platform | IDs: `PORT-EMAIL`, `PORT-CALENDAR`, `PORT-AIRTABLE`, `PORT-ACCELEVENTS`, `PORT-AI` | Last verified: 2026-08-12
 
 Application services call typed provider-neutral ports. Live implementations are credential-gated and cannot be required for pull-request CI.
 
@@ -18,8 +18,9 @@ has not run. **No AI port exists at all**: the bullet below is a design constrai
 not a description of code (`GAP-011`, issue #57).
 
 - Email: enqueue template/version plus recipient reference; the delivery carries the message rendered from that template version, and the adapter reports the provider's message reference and a normalized result. *Live adapter implemented and contract-tested against a stub; unverified against a real mail API. Lifecycle events enqueue: acceptance, task assignment, reviewer assignment, an accept/decline decision, and — through the schedule-published event below — a per-speaker schedule confirmation. An organizer can also send from the console.*
-- Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Implemented as a download; nothing delivers an invite to a speaker's calendar (issue #56).*
-- Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; live adapters exist and upsert on the Greenroom reference, but no organizer-facing mapping, dry-run or connection-test workflow does (issue #23's Airtable product surface, issue #58).*
+- Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Two artefacts now, and they are not variations of each other. The download (`GET /api/events/{id}/speaker-calendar.ics`) is an import feed of one speaker's scheduled sessions, unchanged. The invitation (`buildSpeakerInvite`) is one session addressed to one person, carrying `METHOD:REQUEST`, an `ORGANIZER` and an `ATTENDEE`, which is what makes a mail client render Accept/Decline and write to the recipient's own calendar; `POST /api/events/{id}/speaker-calendar-invites` sends one per speaker per session through the outbox, and the speaker portal additionally offers Google and Outlook template links per session. Both share a UID, so a speaker who imported the file and is then invited ends with one entry, not two. The schedule confirmation the fan-out above sends still carries the download's URL rather than the invitation; wiring it to `buildSpeakerInvite` is one call and one payload key (issue #66). **Nothing here has been verified against a real mail client** — the fixture provider sends no mail, so what the suite proves is that the invitation is built correctly and reaches the provider (issue #56).*
+- Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; live adapters exist and upsert on the Greenroom reference. Airtable still has no organizer-facing mapping, dry-run or connection-test workflow (issue #23's Airtable product surface).*
+- Accelevents, inbound: registrations read into Greenroom as speaker profiles. *Implemented, with an organizer surface — preview, apply, last-run state and its failure — and a deterministic in-repository roster as the default source, so the demo and a fresh clone sync with no credential (issue #58). This is a different integration from the `accelevents` delivery channel above and runs the other way; both are one-way. The sync writes through content's public import command and touches no content table, which is what gives it a preview that writes nothing and convergence on re-apply for free. Its client has never exchanged a request with a real Accelevents tenant.*
 - AI: suggestion/draft only, with provenance, explicit acceptance, timeouts, and deterministic manual fallback. *Not implemented.*
 
 Adapters normalize every HTTP result through one table of codes — retryable for throttling,
@@ -89,3 +90,61 @@ The organizer recovery procedure is:
 4. Reinspect history until a new immutable attempt is `succeeded` or yields a new actionable failure.
 
 The retry action never deletes or rewrites prior attempts. Only an organizer in the owning organization has `communications:manage`; denial occurs before request-body parsing.
+
+## A late projection can leave the external system stale
+
+`PROJECTION_SUPERSEDED` is checked before the provider call, so it cannot see a newer version
+requested *during* one. Two projections for the same destination/event/resource can therefore
+both be sent, and nothing orders their arrival: v1's HTTP call, issued first, can land after
+v2's. When it does, the external system keeps v1's data while `outbound_projection_state`
+correctly records v2 — the version guard on that row (`excluded.version >= …`) refuses the older
+write. Both deliveries look like successes afterwards. Nothing in the history says the external
+system disagrees with us, and nothing ever asks it.
+
+**A conditional write would prevent this, and the providers do not offer one.** Airtable's REST
+API has no precondition on a record write: no `If-Match`, no ETag, no compare-and-set, and
+`performUpsert` matches on a field value rather than on a version. There is no request we could
+send that the server would refuse on version grounds, so "only apply if you still hold v1" is not
+expressible. The same is true of the Accelevents contract as documented.
+
+That is why what follows is a repair rather than a prevention — but it is worth being precise that
+a *provider* precondition is not the only prevention imaginable. Serializing the drain per
+destination/event/resource, so two projections for one resource can never be in flight together,
+would close the race inside this system using the lease mechanism that already exists. It is not
+done here: the lease is per delivery, and making it per resource changes the outbox's concurrency
+model for every channel to fix one channel's race. Recorded as the alternative rather than left
+implied, because "the provider makes it impossible" is true of the conditional write and not of
+the problem.
+
+**What the code does instead is detect and repair.** The refusal above is observable — the upsert
+updates no row — so `complete` reports it, and in the same durable batch re-queues the delivery
+that owns the recorded version. That delivery re-sends the winning payload, and because every
+projection adapter upserts on the resource reference, the external system converges rather than
+duplicating. It terminates: the re-send records a version equal to the recorded one, which the
+guard accepts, so no further repair is queued. The repair is in the batch rather than in the
+worker because the refusal is observable exactly once — a worker that noticed it and then failed
+would leave a stale external record that nothing could detect again.
+
+**The window is bounded, not eliminated.** Between the stale write landing and the repair
+draining, the external system genuinely holds older data — at most one outbox tick plus the
+queue ahead of it, and longer if the repair's own attempts fail. A consumer reading Airtable in
+that window reads stale rows. Anything that needs a strict guarantee must read SQL, which is
+canonical by design (`PRD-INT-001`); the projection is a view and is eventually consistent with
+a bounded, now self-correcting, lag.
+
+The repair is visible: `delivery.attempt` carries `staleProjectionRepaired`, the re-send is an
+ordinary second attempt on the winning delivery rather than a rewritten first one, and a rising
+rate of it means projections are being enqueued faster than the outbox drains them. One case is
+deliberately left alone — if the winning delivery has since been manually retried into
+`terminal`, the repair does not resurrect it, because re-sending something an operator has
+watched fail would fight the operator rather than help them.
+
+**Two limits on what that flag can tell you**, both worth knowing before it is used as an alarm.
+It is derived from *database commit* order, not from provider-landing order, and those can differ
+in either direction. So it over-reports: v1's request can be processed by the provider first —
+leaving the external system correctly on v2 — while v1's slower round trip makes its `complete`
+land second, which refuses its projection write and queues a re-send that was not needed. The
+re-send is harmless, because the adapters upsert. It also under-reports: if the late call's
+`complete` happens to commit first, both writes are accepted, the flag is false for both, and the
+identical staleness is invisible. Read it as "this delivery's projection write lost", which is
+what it observes; staleness is the case it covers, not the case it proves.

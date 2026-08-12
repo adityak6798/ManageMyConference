@@ -83,6 +83,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -136,6 +137,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -189,6 +191,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -242,6 +245,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -378,6 +382,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -431,6 +436,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -484,6 +490,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -537,6 +544,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -590,6 +598,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -694,6 +703,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -747,6 +757,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -800,6 +811,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -853,6 +865,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1144,6 +1157,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1197,6 +1211,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1250,6 +1265,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1303,6 +1319,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1356,6 +1373,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1646,6 +1664,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1699,6 +1718,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1752,6 +1772,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1805,6 +1826,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -1858,6 +1880,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2086,6 +2109,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2139,6 +2163,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2192,6 +2217,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2245,6 +2271,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2298,6 +2325,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2351,6 +2379,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2670,6 +2699,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2723,6 +2753,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2776,6 +2807,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2829,6 +2861,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -2958,6 +2991,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3011,6 +3045,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3064,6 +3099,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3117,6 +3153,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3304,6 +3341,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3357,6 +3395,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3410,6 +3449,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3463,6 +3503,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3611,6 +3652,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3664,6 +3706,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3717,6 +3760,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3770,6 +3814,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3916,6 +3961,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -3969,6 +4015,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4022,6 +4069,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4075,6 +4123,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4182,6 +4231,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4235,6 +4285,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4288,6 +4339,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4341,6 +4393,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4394,6 +4447,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -4971,6 +5025,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5024,6 +5079,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5077,6 +5133,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5130,6 +5187,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5183,6 +5241,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5425,6 +5484,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5478,6 +5538,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5531,6 +5592,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5584,6 +5646,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -5637,6 +5700,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6205,6 +6269,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6258,6 +6323,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6311,6 +6377,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6364,6 +6431,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6472,6 +6540,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6525,6 +6594,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6578,6 +6648,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6693,6 +6764,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6746,6 +6818,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6799,6 +6872,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6936,6 +7010,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -6989,6 +7064,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7042,6 +7118,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7095,6 +7172,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7210,6 +7288,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7263,6 +7342,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7410,6 +7490,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7463,6 +7544,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7516,6 +7598,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7569,6 +7652,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7622,6 +7706,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7743,6 +7828,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7796,6 +7882,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7849,6 +7936,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7902,6 +7990,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -7955,6 +8044,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8226,6 +8316,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8279,6 +8370,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8332,6 +8424,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8385,6 +8478,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8438,6 +8532,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8759,6 +8854,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8812,6 +8908,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8865,6 +8962,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8918,6 +9016,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -8971,6 +9070,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9289,6 +9389,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9342,6 +9443,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9395,6 +9497,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9448,6 +9551,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9501,6 +9605,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9588,6 +9693,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9641,6 +9747,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9694,6 +9801,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9747,6 +9855,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -9800,6 +9909,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10072,6 +10182,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10125,6 +10236,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10178,6 +10290,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10231,6 +10344,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10284,6 +10398,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10337,6 +10452,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10697,6 +10813,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10750,6 +10867,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10803,6 +10921,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10856,6 +10975,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -10909,6 +11029,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11209,6 +11330,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11262,6 +11384,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11315,6 +11438,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11368,6 +11492,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11421,6 +11546,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11903,6 +12029,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -11956,6 +12083,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12009,6 +12137,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12062,6 +12191,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12115,6 +12245,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12226,6 +12357,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12279,6 +12411,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12332,6 +12465,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12385,6 +12519,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12708,6 +12843,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12761,6 +12897,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12814,6 +12951,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12867,6 +13005,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -12920,6 +13059,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13489,6 +13629,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13542,6 +13683,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13595,6 +13737,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -13648,6 +13791,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14237,6 +14381,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14290,6 +14435,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14343,6 +14489,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14396,6 +14543,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14449,6 +14597,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -14502,6 +14651,724 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/integrations/accelevents": {
+      "get": {
+        "description": "The inbound Accelevents registration integration and its last apply. `mode` says whether registrants come from the real platform or the in-repository fixture roster, because an organizer reading a count needs to know which.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Integration state and last run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "fixture",
+                        "live"
+                      ]
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "inbound"
+                      ]
+                    },
+                    "lastRun": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "startedAt": {
+                          "type": "string"
+                        },
+                        "completedAt": {
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "succeeded",
+                            "failed"
+                          ]
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "created": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "skipped": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "invalid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "errorCode": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "startedAt",
+                        "completedAt",
+                        "outcome",
+                        "total",
+                        "created",
+                        "skipped",
+                        "invalid",
+                        "errorCode"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "direction",
+                    "lastRun"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/integrations/accelevents/sync": {
+      "post": {
+        "description": "Preview or apply the one-way registration sync from Accelevents into Greenroom. `commit: false` is a dry run that writes nothing anywhere, including the last-run record. Applying twice converges: registrants already imported are reported as skipped rather than duplicated. Answers 502 when the registration platform cannot be read, with a normalized code and never the upstream's own message.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "commit": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "commit"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the sync did, or would do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "preview": {
+                      "type": "boolean"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "created": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "invalid": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "sourceRef": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "disposition": {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "skip",
+                              "invalid"
+                            ]
+                          },
+                          "errors": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "sourceRef",
+                          "name",
+                          "email",
+                          "disposition",
+                          "errors"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "preview",
+                    "total",
+                    "created",
+                    "skipped",
+                    "invalid",
+                    "rows"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15088,6 +15955,7 @@
                                     "CONFLICT",
                                     "AGENDA_CONFLICT",
                                     "RATE_LIMITED",
+                                    "UPSTREAM_UNAVAILABLE",
                                     "INTERNAL_ERROR"
                                   ]
                                 },
@@ -15779,6 +16647,7 @@
                                     "CONFLICT",
                                     "AGENDA_CONFLICT",
                                     "RATE_LIMITED",
+                                    "UPSTREAM_UNAVAILABLE",
                                     "INTERNAL_ERROR"
                                   ]
                                 },
@@ -16029,6 +16898,7 @@
                                     "CONFLICT",
                                     "AGENDA_CONFLICT",
                                     "RATE_LIMITED",
+                                    "UPSTREAM_UNAVAILABLE",
                                     "INTERNAL_ERROR"
                                   ]
                                 },
@@ -16466,6 +17336,7 @@
                                     "CONFLICT",
                                     "AGENDA_CONFLICT",
                                     "RATE_LIMITED",
+                                    "UPSTREAM_UNAVAILABLE",
                                     "INTERNAL_ERROR"
                                   ]
                                 },
@@ -16530,6 +17401,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16583,6 +17455,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16636,6 +17509,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16689,6 +17563,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -16962,6 +17837,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17015,6 +17891,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17068,6 +17945,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17121,6 +17999,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17408,6 +18287,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17461,6 +18341,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17514,6 +18395,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17567,6 +18449,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17678,6 +18561,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17731,6 +18615,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17784,6 +18669,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -17837,6 +18723,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18082,6 +18969,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18135,6 +19023,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18188,6 +19077,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18241,6 +19131,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18294,6 +19185,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18623,6 +19515,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18676,6 +19569,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18729,6 +19623,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18782,6 +19677,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18835,6 +19731,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -18888,6 +19785,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19133,6 +20031,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19186,6 +20085,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19239,6 +20139,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19292,6 +20193,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19345,6 +20247,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19398,6 +20301,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19560,6 +20464,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19613,6 +20518,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19666,6 +20572,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19719,6 +20626,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -19772,6 +20680,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20280,6 +21189,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20333,6 +21243,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20386,6 +21297,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20439,6 +21351,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20619,6 +21532,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20672,6 +21586,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20725,6 +21640,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20778,6 +21694,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20831,6 +21748,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -20971,6 +21889,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21024,6 +21943,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21077,6 +21997,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21130,6 +22051,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21183,6 +22105,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21330,6 +22253,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21383,6 +22307,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21436,6 +22361,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21489,6 +22415,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21707,6 +22634,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21760,6 +22688,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21813,6 +22742,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21866,6 +22796,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -21919,6 +22850,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -22243,6 +23175,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -22296,6 +23229,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -22349,6 +23283,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -22402,6 +23337,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -22455,6 +23391,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23170,6 +24107,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23223,6 +24161,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23276,6 +24215,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23329,6 +24269,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23755,6 +24696,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23808,6 +24750,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23861,6 +24804,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -23914,6 +24858,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24097,6 +25042,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24150,6 +25096,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24203,6 +25150,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24256,6 +25204,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24309,6 +25258,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24475,6 +25425,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24528,6 +25479,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24581,6 +25533,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24634,6 +25587,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24873,6 +25827,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24926,6 +25881,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -24979,6 +25935,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25032,6 +25989,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25085,6 +26043,292 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{eventId}/speaker-calendar-invites": {
+      "post": {
+        "description": "Send every speaker of every scheduled session the iTIP invitation for it. One delivery per speaker per session per schedule: re-running on an unchanged agenda writes nothing, and a moved session produces one new invitation carrying a higher SEQUENCE, which replaces the entry rather than adding a second. Every invitation needs an ORGANIZER, because a calendar client refuses one whose organizer is not the sender: EMAIL_SENDER supplies it wherever mail is real, and CALENDAR_ORGANIZER_EMAIL — defaulted in wrangler.toml — supplies it in the configurations that send no mail. Answers 500 only if neither is configured, which is a deployment fault rather than a caller mistake.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Invitations queued on the outbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "alreadySent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "unreachable": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "session": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "session",
+                          "reason"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "sent",
+                    "alreadySent",
+                    "unreachable"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25174,6 +26418,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25227,6 +26472,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25280,6 +26526,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25333,6 +26580,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25386,6 +26634,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -25964,6 +27213,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26017,6 +27267,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26070,6 +27321,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26123,6 +27375,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26256,6 +27509,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26699,6 +27953,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26752,6 +28007,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26805,6 +28061,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26858,6 +28115,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -26911,6 +28169,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27299,6 +28558,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27352,6 +28612,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27405,6 +28666,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27458,6 +28720,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27511,6 +28774,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27838,6 +29102,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27891,6 +29156,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27944,6 +29210,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -27997,6 +29264,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28050,6 +29318,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28469,6 +29738,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28522,6 +29792,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28575,6 +29846,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28628,6 +29900,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28681,6 +29954,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -28734,6 +30008,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29233,6 +30508,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29286,6 +30562,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29339,6 +30616,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29392,6 +30670,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29445,6 +30724,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29498,6 +30778,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29665,6 +30946,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29718,6 +31000,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29771,6 +31054,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29824,6 +31108,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -29953,6 +31238,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30006,6 +31292,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30059,6 +31346,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30112,6 +31400,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30592,6 +31881,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30645,6 +31935,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30698,6 +31989,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30751,6 +32043,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -30985,6 +32278,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31038,6 +32332,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31091,6 +32386,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31144,6 +32440,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31491,6 +32788,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31544,6 +32842,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31597,6 +32896,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31650,6 +32950,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31703,6 +33004,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31756,6 +33058,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31930,6 +33233,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -31983,6 +33287,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32036,6 +33341,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32089,6 +33395,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32142,6 +33449,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32316,6 +33624,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32369,6 +33678,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32422,6 +33732,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32475,6 +33786,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32528,6 +33840,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32698,6 +34011,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32751,6 +34065,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32804,6 +34119,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -32857,6 +34173,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33086,6 +34403,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33139,6 +34457,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33192,6 +34511,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33245,6 +34565,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33298,6 +34619,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33590,6 +34912,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33643,6 +34966,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33696,6 +35020,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33826,6 +35151,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33879,6 +35205,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33932,6 +35259,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -33985,6 +35313,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34235,6 +35564,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34288,6 +35618,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34426,6 +35757,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34479,6 +35811,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34532,6 +35865,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34585,6 +35919,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34746,6 +36081,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34799,6 +36135,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34909,6 +36246,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -34962,6 +36300,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35093,6 +36432,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35146,6 +36486,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35199,6 +36540,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35657,6 +36999,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35710,6 +37053,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35763,6 +37107,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35816,6 +37161,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -35869,6 +37215,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -36327,6 +37674,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -36380,6 +37728,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -36433,6 +37782,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -36486,6 +37836,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -36539,6 +37890,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37050,6 +38402,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37103,6 +38456,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37156,6 +38510,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37209,6 +38564,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37262,6 +38618,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37315,6 +38672,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37773,6 +39131,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37826,6 +39185,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37879,6 +39239,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37932,6 +39293,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -37985,6 +39347,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38174,6 +39537,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38227,6 +39591,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38429,6 +39794,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38482,6 +39848,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38535,6 +39902,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38588,6 +39956,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38672,6 +40041,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38725,6 +40095,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38778,6 +40149,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38857,6 +40229,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38910,6 +40283,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -38963,6 +40337,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39016,6 +40391,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39176,6 +40552,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39229,6 +40606,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39282,6 +40660,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39335,6 +40714,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39495,6 +40875,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39548,6 +40929,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39601,6 +40983,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39654,6 +41037,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39829,6 +41213,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39882,6 +41267,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39935,6 +41321,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -39988,6 +41375,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40126,6 +41514,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40179,6 +41568,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40232,6 +41622,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40285,6 +41676,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40484,6 +41876,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40537,6 +41930,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40590,6 +41984,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40643,6 +42038,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40696,6 +42092,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40880,6 +42277,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40933,6 +42331,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -40986,6 +42385,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41039,6 +42439,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41202,6 +42603,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41255,6 +42657,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41308,6 +42711,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41361,6 +42765,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41565,6 +42970,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41618,6 +43024,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41671,6 +43078,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41724,6 +43132,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41777,6 +43186,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -41969,6 +43379,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42022,6 +43433,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42075,6 +43487,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42128,6 +43541,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42326,6 +43740,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42379,6 +43794,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42432,6 +43848,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42485,6 +43902,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42564,6 +43982,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42617,6 +44036,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42670,6 +44090,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42723,6 +44144,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42892,6 +44314,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42945,6 +44368,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -42998,6 +44422,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -43051,6 +44476,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -43245,6 +44671,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -43298,6 +44725,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -43351,6 +44779,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -43404,6 +44833,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -43536,6 +44966,7 @@
                             "CONFLICT",
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },

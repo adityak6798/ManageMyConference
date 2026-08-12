@@ -36,6 +36,10 @@ import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "../ui/p
 
 import {
   bytesToBase64,
+  type CalendarLinkSession,
+  googleCalendarUrl,
+  hasCalendarLinks,
+  outlookCalendarUrl,
   DueStatus,
   daysUntil,
   dueLabel,
@@ -59,6 +63,16 @@ type ProfileDraft = {
   organization: string;
   bio: string;
 };
+
+/** The session as the add-to-calendar builders read it; unscheduled leaves every field absent. */
+function calendarSession(session: Workspace["sessions"][number]): CalendarLinkSession {
+  return {
+    title: session.title,
+    startsAt: session.schedule?.startsAt,
+    endsAt: session.schedule?.endsAt,
+    location: session.schedule?.location,
+  };
+}
 
 function profileDraft(profile: SpeakerProfile): ProfileDraft {
   return {
@@ -565,6 +579,38 @@ export function SpeakerView({
                     </span>
                   </span>
                   <span className="session-line-meta">
+                    {/*
+                     * The brief names three clients, and these are the two that take a URL.
+                     * Apple Calendar and everything else use the `.ics` above; an organizer can
+                     * also send the invitation, which is the route that reaches a calendar
+                     * without the speaker doing anything. Absent for an unscheduled session,
+                     * because there is no time to add.
+                     */}
+                    {hasCalendarLinks(calendarSession(session)) ? (
+                      <>
+                        <a
+                          className="ghost small"
+                          href={googleCalendarUrl(calendarSession(session)) ?? undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Google
+                          <span className="visually-hidden">
+                            {" "}
+                            — add {session.title} to Google Calendar
+                          </span>
+                        </a>
+                        <a
+                          className="ghost small"
+                          href={outlookCalendarUrl(calendarSession(session)) ?? undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Outlook
+                          <span className="visually-hidden"> — add {session.title} to Outlook</span>
+                        </a>
+                      </>
+                    ) : null}
                     {session.schedule ? null : (
                       <Pill tone="warn">
                         <IconClock size={12} />

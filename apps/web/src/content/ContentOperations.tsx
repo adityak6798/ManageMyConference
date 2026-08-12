@@ -8,6 +8,7 @@ import {
   updateSpeakerWorkflow,
 } from "../api/content";
 import { Card, EmptyState, Notice, useActionFeedback } from "../ui/primitives";
+import { AccelEventsSync } from "./AccelEventsSync";
 import type { Run, Workspace } from "./shared";
 
 export function ContentOperations({
@@ -107,6 +108,7 @@ export function ContentOperations({
           </>
         ) : null}
       </Card>
+      <AccelEventsSync eventId={eventId} busy={busy} run={run} />
       <Card title="Speaker workflow" hint="Filter progress and maintain logistics per speaker.">
         <label>
           Progress filter

@@ -49,13 +49,20 @@
     "apps/web/test/session-withdrawal.test.tsx",
     "apps/web/e2e/speaker-portal.spec.ts",
     "apps/api/src/transport/http/routes/content.ts",
-    "apps/web/src/workspaces/content.tsx"
+    "apps/web/src/workspaces/content.tsx",
+    "apps/api/test/calendar-invite.test.ts",
+    "apps/api/test/speaker-calendar-invites.test.ts",
+    "apps/web/test/calendar-links.test.ts",
+    "apps/web/src/content/AccelEventsSync.tsx",
+    "apps/web/test/accelevents-sync-panel.test.tsx"
   ],
   "symbols": {
     "ContentService": "apps/api/src/application/content/content-service.ts",
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
     "PublishingContentQuery": "apps/api/src/application/content/public.ts",
     "CrmContentQuery": "apps/api/src/application/content/public.ts",
-    "CommunicationsContentQuery": "apps/api/src/application/content/public.ts"
+    "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",
+    "SpeakerCalendarInviteService": "apps/api/src/application/content/speaker-calendar-invites.ts",
+    "buildSpeakerInvite": "apps/api/src/application/content/calendar-invite.ts"
   }
 }

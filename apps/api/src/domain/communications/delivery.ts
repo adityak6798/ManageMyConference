@@ -24,6 +24,7 @@ export type TriggerType =
   | "speaker.scheduled"
   | "speaker.task_assigned"
   | "speaker.task_reminder"
+  /** An organizer sending a speaker the iTIP invitation for one of their sessions. */
   | "speaker.calendar_invite"
   | "decision.recorded";
 

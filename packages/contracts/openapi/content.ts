@@ -25,6 +25,7 @@ import {
   speakerAssetSchema,
   speakerCsvImportInputSchema,
   speakerCsvImportResultSchema,
+  speakerCalendarInviteResultSchema,
   speakerMessageSchema,
   speakerProfileSchema,
   speakerResourceParamsSchema,
@@ -488,6 +489,24 @@ export const contentPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/speaker-calendar-invites",
+      description:
+        "Send every speaker of every scheduled session the iTIP invitation for it. One delivery per speaker per session per schedule: re-running on an unchanged agenda writes nothing, and a moved session produces one new invitation carrying a higher SEQUENCE, which replaces the entry rather than adding a second. Every invitation needs an ORGANIZER, because a calendar client refuses one whose organizer is not the sender: EMAIL_SENDER supplies it wherever mail is real, and CALENDAR_ORGANIZER_EMAIL — defaulted in wrangler.toml — supplies it in the configurations that send no mail. Answers 500 only if neither is configured, which is a deployment fault rather than a caller mistake.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventContentParamsSchema },
+      responses: {
+        202: {
+          description: "Invitations queued on the outbox",
+          content: json(speakerCalendarInviteResultSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
         500: errorResponse,
       },
     });

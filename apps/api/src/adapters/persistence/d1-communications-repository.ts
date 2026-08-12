@@ -17,7 +17,11 @@ interface Statement {
 }
 type Database = {
   prepare(query: string): Statement;
-  batch(statements: Statement[]): Promise<{ success: boolean; error?: string }[]>;
+  // `meta.changes` is what tells a conditional upsert apart from one whose WHERE guard declined
+  // it: both are successful statements, and only the row count distinguishes them.
+  batch(
+    statements: Statement[],
+  ): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }[]>;
 };
 type TemplateRow = {
   id: string;
@@ -438,7 +442,8 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
           leaseToken,
         ),
     ];
-    if (projection)
+    const projectionStatement = projection ? statements.length : -1;
+    if (projection) {
       statements.push(
         this.database
           .prepare(
@@ -455,10 +460,53 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
             attempt.deliveryId,
           ),
       );
+      // The repair, in the same batch as the attempt that made it necessary.
+      //
+      // Reached only when the upsert above was refused — the recorded version is strictly newer
+      // than this delivery's, so this delivery's provider call was the late one and the external
+      // system is now holding older data than the database records. Re-queuing the delivery that
+      // owns the recorded version re-sends the winning payload; because every projection adapter
+      // upserts on the resource reference, that converges rather than duplicating.
+      //
+      // It is in the batch rather than in the worker because the refusal is observable exactly
+      // once. A worker that noticed it, then failed before writing the repair, would leave a
+      // stale external record nothing could detect again — the attempt is already durable, and
+      // no later drain re-derives it.
+      //
+      // Terminates: the re-send records a version equal to the recorded one, which `>=` accepts,
+      // so `version > ?` is false the second time round and no further repair is queued.
+      statements.push(
+        this.database
+          .prepare(
+            "UPDATE communication_deliveries SET state = 'queued', next_attempt_at = ?, updated_at = ? WHERE id = (SELECT delivery_id FROM outbound_projection_state WHERE destination = ? AND event_id = ? AND resource_ref = ? AND version > ?) AND state = 'succeeded' AND lease_token IS NULL AND EXISTS (SELECT 1 FROM communication_attempts WHERE id = ? AND delivery_id = ?)",
+          )
+          .bind(
+            projection.projectedAt,
+            projection.projectedAt,
+            projection.destination,
+            projection.eventId,
+            projection.resourceRef,
+            projection.version,
+            attempt.id,
+            attempt.deliveryId,
+          ),
+      );
+    }
     const results = await this.database.batch(statements);
     for (const result of results) this.ensure(result, "complete delivery atomically");
     const recorded = await this.attempts(attempt.deliveryId);
     if (!recorded.some(({ id }) => id === attempt.id)) throw new Error("Delivery lease lost");
+    // The upsert changed no row exactly when its version guard refused it. Without a projection
+    // there is nothing to be stale, so nothing to report.
+    //
+    // A missing `meta` defaults to *applied*. D1 and miniflare both return it, so this is the
+    // "driver told us nothing" case, and the safe default for an alarm is silence: reading absence
+    // as a refusal would report a stale external projection on every projection delivery, which
+    // would train an operator to ignore the one signal that is supposed to be rare.
+    return {
+      projectionApplied:
+        projectionStatement < 0 || (results[projectionStatement]?.meta?.changes ?? 1) > 0,
+    };
   }
   async retry(deliveryId: string, organizationId: string, now: string) {
     const result = await this.database
@@ -489,7 +537,13 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     if (delivery.channel === "email" || delivery.projectionVersion === null) return false;
     const result = await this.database
       .prepare(
-        "SELECT id FROM communication_deliveries WHERE id != ? AND channel = ? AND event_id = ? AND recipient_ref = ? AND projection_version > ? LIMIT 1",
+        // `state != 'terminal'` is load-bearing. Supersession means "a newer version has been sent
+        // or is still going to be"; a newer delivery that failed terminally will never be sent, so
+        // treating it as superseding this one abandons the newest version anybody can still
+        // deliver. That is reachable: a v3 that exhausts its retries would otherwise strand v2 —
+        // including the v2 the stale-projection repair just re-queued — leaving the external
+        // system on v1 with nothing left to correct it.
+        "SELECT id FROM communication_deliveries WHERE id != ? AND channel = ? AND event_id = ? AND recipient_ref = ? AND projection_version > ? AND state != 'terminal' LIMIT 1",
       )
       .bind(
         delivery.id,

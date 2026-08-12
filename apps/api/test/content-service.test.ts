@@ -737,6 +737,29 @@ describe("ContentService", () => {
       ].join("\r\n"),
     );
   });
+  it("gives a speaker only their own sessions, never another speaker's", async () => {
+    // The calendar is scoped by the reading actor, not by the event: a speaker's whereabouts —
+    // which room, which hour — is not something a co-speaker is entitled to read off an export.
+    const service = calendarService(
+      [session(), session({ id: "session-2", speakerProfileIds: ["profile-other"] })],
+      [
+        openingPlacement,
+        {
+          sessionId: "session-2",
+          startsAt: "2026-09-16T09:00:00.000Z",
+          endsAt: "2026-09-16T10:00:00.000Z",
+          location: "Side room",
+        },
+      ],
+    );
+    const document = (await service.calendar(
+      await resolveSeededDemoActor("speaker"),
+      eventId,
+    )) as string;
+    expect(document).toContain("UID:session-1@greenroom");
+    expect(document).not.toContain("session-2@greenroom");
+    expect(document).not.toContain("Side room");
+  });
   it("escapes TEXT values and drops characters RFC 5545 cannot carry", async () => {
     const service = calendarService([
       session({ title: "Back\\slash, semi; colon\r\nsecondline\tkept" }),

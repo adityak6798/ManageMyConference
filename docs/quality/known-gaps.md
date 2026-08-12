@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11 (working tree: commit `3630977`)
+Status: canonical | Owner: quality | Last verified: 2026-08-12 (working tree: commit `bb637d4`)
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -99,35 +99,44 @@ feature-by-feature verdict.
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.
 - `GAP-010` **Brief feature 3 is incomplete**: organizer "communications" in the content workspace
-  are still log rows rather than sends, and the speaker calendar is a download rather than an
-  invite delivered to Gmail/Outlook/iCal (issue #56). An organizer can write a template and send
-  it to the event's speakers from the console, and **the product now enqueues on its own**:
-  accepting a proposal welcomes the speaker and announces each onboarding task, requesting a task
-  tells them, assigning or distributing review work tells the reviewer once per round, and an
-  accept/decline decision reaches the submitter (issue #66). A published schedule commits an
-  `EVT-SCHEDULE-PUBLISHED` record whose drain fans out one confirmation per speaker. What that
-  confirmation carries is a **link** to the existing `.ics`, not an attached invitation — the
-  delivery model has no attachment concept, so nothing yet arrives in a calendar client.
-  `ContentService.recordMessage` still writes a `speaker_messages` row and touches no outbox.
-  Provider selection is credential-gated with live adapters behind it (`fixture` remains the
-  default and no live adapter has met a real API).
+  are still log rows rather than sends, and `ContentService.recordMessage` writes a
+  `speaker_messages` row and touches no outbox. An organizer can write a template and send it to
+  the event's speakers from the console, and **the product now enqueues on its own**: accepting a
+  proposal welcomes the speaker and announces each onboarding task, requesting a task tells them,
+  assigning or distributing review work tells the reviewer once per round, and an accept/decline
+  decision reaches the submitter (issue #66). A published schedule commits an
+  `EVT-SCHEDULE-PUBLISHED` record whose drain fans out one confirmation per speaker.
+  The calendar half is no longer a download only: an organizer sends an iTIP `METHOD:REQUEST`
+  invitation per speaker per session through the outbox, and the portal offers Google and Outlook
+  links beside the `.ics` (issue #56). Two things are still open there. The schedule confirmation
+  carries a **link** to the `.ics` rather than the attached invitation — the two halves landed in
+  different pull requests, and wiring them is one call plus one payload key. And the last step is
+  unproven: **no mail client has ever rendered one of these invitations**, because the fixture
+  provider sends no mail, so the evidence covers the invitation being built correctly and reaching
+  the provider and stops there. Provider selection is credential-gated with live adapters behind it
+  (`fixture` remains the default and no live adapter has met a real API).
   Owner: communications-integrations.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
-  (trigger, send, assert rendered content in the browser), #56 (calendar delivery), #23 (production
-  adapters).
+  (trigger, send, assert rendered content in the browser), #23 (production adapters); #56's
+  delivery mechanism has landed and closes when an invitation has been rendered by a real client.
 - `GAP-011` **Brief feature 4 is incomplete**: review is single-round and has no AI assistance, while
   `PRD-AI-001` and the `PORT-AI` entry in [integration architecture](../architecture/integrations.md)
   read as though a port existed. Impact: the documentation currently claims more than the code does.
   Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: issue #57 — either
   a multi-round model plus an honest suggestion port with provenance and manual fallback, or the
   removal of the AI claims from the architecture docs.
-- `GAP-012` **Brief feature 7 is incomplete**: an Accelevents HTTP client with a field mapping now
-  exists behind the credential-gated `live` switch, contract-tested against a stubbed `fetch`. It
-  has never exchanged a request with the real API — no credential exists here, the request shape
-  comes from documentation rather than observation, and the staging smoke has not run. There is
-  still **no organizer surface**: no mapping configuration, connection test, dry-run preview, or
-  visible sync state. Impact: the integration cannot be operated or verified by an organizer, and
-  the adapter's correctness against the real API is unproven.
+- `GAP-012` **Brief feature 7 is verified against nothing**: the inbound Accelevents registration
+  sync now exists end to end — a typed source port, a deterministic in-repository roster as the
+  default, a live HTTP client behind the credential-gated `live` switch, and an organizer surface
+  with a dry run that writes nothing, an idempotent apply, last-run state and a visible failure
+  state. What remains is the part no amount of code can supply here: **it has never exchanged a
+  request with the real API.** No Accelevents credential exists in this repository, the client's
+  tests stub `fetch`, the request and response shapes come from documentation rather than
+  observation, and the staging smoke has not run. Impact: an organizer can operate the integration
+  and see what it did, but its correctness against the real platform is unproven, and the shapes
+  are the most likely thing to be wrong on first contact. The Airtable half of the same gap is
+  unchanged: no mapping configuration, connection test or dry-run preview exists for it (issue
+  #23's Airtable product surface).
   Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: issue
   #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
   plainly it is not implemented.
