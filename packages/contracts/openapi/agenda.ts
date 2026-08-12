@@ -6,9 +6,12 @@
  */
 import { z } from "zod";
 import {
+  agendaAssistedDraftSchema,
+  agendaAutoPlaceSchema,
   agendaDraftSchema,
   agendaIdParamsSchema,
   agendaPlacementSchema,
+  agendaPublicationHeadersSchema,
   agendaResourcesSchema,
   publishedScheduleSchema,
 } from "../src/index";
@@ -90,9 +93,32 @@ export const agendaPaths: OpenApiFragment = {
     });
     registry.registerPath({
       method: "post",
+      path: "/api/events/{eventId}/agenda/assisted-placements",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: agendaIdParamsSchema,
+        body: { required: false, content: json(agendaAutoPlaceSchema) },
+      },
+      responses: {
+        200: {
+          description: "Draft after assisted placement, with any sessions it could not seat",
+          content: json(z.object({ agenda: agendaAssistedDraftSchema })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
       path: "/api/events/{eventId}/agenda/publications",
       security: [{ sessionCookie: [] }, { eventBearer: [] }],
-      request: { params: agendaIdParamsSchema },
+      request: {
+        params: agendaIdParamsSchema,
+        headers: agendaPublicationHeadersSchema,
+      },
       responses: {
         201: {
           description: "Auditable immutable schedule publication",

@@ -21,6 +21,22 @@ export const CFP_FIELD_MAX_LENGTHS = {
 export const CFP_ANSWER_MAX_LENGTH = 10_000;
 /** Answers are keyed by field id, so a submission can never carry more keys than a form has. */
 export const CFP_ANSWER_MAX_FIELDS = 40;
+export const cfpConditionSchema = z.object({
+  fieldId: z.string().min(1).max(80),
+  operator: z.enum(["equals", "in", "notEmpty"]),
+  values: z.array(z.string().max(120)).max(30).default([]),
+});
+export type CfpCondition = z.infer<typeof cfpConditionSchema>;
+export const cfpConditionMatches = (
+  condition: CfpCondition | undefined,
+  answers: Readonly<Record<string, string>>,
+) => {
+  if (!condition) return true;
+  const value = answers[condition.fieldId]?.trim() ?? "";
+  if (condition.operator === "notEmpty") return Boolean(value);
+  if (condition.operator === "equals") return value === (condition.values[0] ?? "");
+  return condition.values.includes(value);
+};
 export const cfpFieldSchema = z.object({
   id: z.string().min(1).max(80),
   type: cfpFieldTypeSchema,
@@ -33,6 +49,12 @@ export const cfpFieldSchema = z.object({
    * still parse; `cfpFieldMaxLength` supplies the type default for those.
    */
   maxLength: z.number().int().min(1).max(CFP_ANSWER_MAX_LENGTH).optional(),
+  visibleWhen: cfpConditionSchema.optional(),
+});
+export const cfpRoutingRuleSchema = z.object({
+  id: z.string().min(1).max(80),
+  when: cfpConditionSchema,
+  routeTo: z.object({ status: z.string().trim().min(1).max(80) }),
 });
 /** The limit the form builder must advertise and the validator must enforce, for one field. */
 export const cfpFieldMaxLength = (field: {
@@ -60,14 +82,44 @@ const cfpFieldsSchema = z
           path: [index, "options"],
           message: "Select fields need at least one option",
         });
+      if (field.visibleWhen) {
+        const sourceIndex = fields.findIndex(({ id }) => id === field.visibleWhen?.fieldId);
+        if (sourceIndex < 0 || sourceIndex >= index)
+          context.addIssue({
+            code: "custom",
+            path: [index, "visibleWhen", "fieldId"],
+            message: "A condition must reference an earlier question",
+          });
+      }
     });
   });
-export const saveCfpInputSchema = z.object({
+const saveCfpBaseSchema = z.object({
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().max(2000).default(""),
   fields: cfpFieldsSchema,
+  routing: z.array(cfpRoutingRuleSchema).max(20).default([]),
+  expectedVersion: z.number().int().nonnegative(),
 });
-export const cfpFormSchema = saveCfpInputSchema.extend({
+export const saveCfpInputSchema = saveCfpBaseSchema.superRefine((form, context) => {
+  const ids = new Set(form.fields.map(({ id }) => id));
+  const ruleIds = new Set<string>();
+  form.routing.forEach((rule, index) => {
+    if (!ids.has(rule.when.fieldId))
+      context.addIssue({
+        code: "custom",
+        path: ["routing", index, "when", "fieldId"],
+        message: "A routing rule must reference a question in this form",
+      });
+    if (ruleIds.has(rule.id))
+      context.addIssue({
+        code: "custom",
+        path: ["routing", index, "id"],
+        message: "Routing rule IDs must be unique",
+      });
+    ruleIds.add(rule.id);
+  });
+});
+export const cfpFormSchema = saveCfpBaseSchema.omit({ expectedVersion: true }).extend({
   eventId: z.string().uuid(),
   status: cfpStatusSchema,
   version: z.number().int().positive(),
@@ -75,6 +127,9 @@ export const cfpFormSchema = saveCfpInputSchema.extend({
   publishedStatus: z.enum(["open", "closed"]).nullable(),
 });
 export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
+export const cfpRoutingStatusesResponseSchema = z.object({
+  statuses: z.array(z.object({ key: z.string(), label: z.string() })),
+});
 export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close", "reopen"]) });
 /**
  * The only unauthenticated write in the API, so its body is bounded before it reaches a domain.
@@ -100,6 +155,7 @@ export const proposalConfirmationResponseSchema = z.object({
   submission: proposalConfirmationSchema,
 });
 export type CfpField = z.infer<typeof cfpFieldSchema>;
+export type CfpRoutingRule = z.infer<typeof cfpRoutingRuleSchema>;
 export type CfpFormDto = z.infer<typeof cfpFormSchema>;
 export type SaveCfpInput = z.infer<typeof saveCfpInputSchema>;
 export type SubmitProposalInput = z.infer<typeof submitProposalInputSchema>;

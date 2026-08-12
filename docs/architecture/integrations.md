@@ -4,16 +4,32 @@ Status: canonical | Owner: platform | IDs: `PORT-EMAIL`, `PORT-CALENDAR`, `PORT-
 
 Application services call typed provider-neutral ports. Live implementations are credential-gated and cannot be required for pull-request CI.
 
-What exists today, verified at commit `c72b796`: one deterministic fake
-(`apps/api/src/adapters/providers/deterministic-provider.ts`) is wired to all three delivery
-channels — `email`, `airtable` and `accelevents` — in `apps/api/src/index.ts`. No live adapter
-exists for any of them (`GAP-012`, issues #23 and #58), and **no AI port exists at all**: the bullet
-below is a design constraint on future work, not a description of code (`GAP-011`, issue #57).
+What exists today: an HTTP adapter exists for each of the three delivery channels — `email`,
+`airtable` and `accelevents` — alongside the deterministic fake, and
+`apps/api/src/adapters/providers/configuration.ts` chooses between them from
+`COMMUNICATIONS_PROVIDERS`. `fixture` is the default and is what local development, CI, Playwright
+and the demo run on; `live` requires every credential and throws rather than falling back to a
+fake. That throw happens in the scheduled drain, not at startup, so a misconfigured deployment
+serves requests normally and simply never sends — deliveries accumulate as `queued`. **No live adapter has ever exchanged a request with its real API** —
+no credential for any of the three exists here — so the request shapes are written from
+documentation and covered by a stubbed contract suite, and the staging smoke in
+[communications providers](../engineering/communications-providers.md#staging-smoke--required-and-not-yet-performed)
+has not run. **No AI port exists at all**: the bullet below is a design constraint on future work,
+not a description of code (`GAP-011`, issue #57).
 
-- Email: enqueue template/version plus recipient reference; adapter reports provider message reference and normalized result. *Implemented against the deterministic fake only; no lifecycle event enqueues a delivery (`GAP-010`).*
+- Email: enqueue template/version plus recipient reference; the delivery carries the message rendered from that template version, and the adapter reports the provider's message reference and a normalized result. *Live adapter implemented and contract-tested against a stub; unverified against a real mail API. No lifecycle event enqueues a delivery yet (`GAP-010`, issue #66) — an organizer sends from the console.*
 - Calendar: generate deterministic ICS from scheduled canonical content; native Google/Microsoft OAuth is out of scope. *Implemented as a download; nothing delivers an invite to a speaker's calendar (issue #56).*
-- Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; the provider call goes to the fake.*
+- Airtable/Accelevents: outbound, versioned, idempotent projections. SQL remains canonical. *Projection state and versioning are implemented; live adapters exist and upsert on the Greenroom reference, but no organizer-facing mapping, dry-run or connection-test workflow does (issue #23's Airtable product surface, issue #58).*
 - AI: suggestion/draft only, with provenance, explicit acceptance, timeouts, and deterministic manual fallback. *Not implemented.*
+
+Adapters normalize every HTTP result through one table of codes — retryable for throttling,
+timeouts and outages; terminal for refusals, unparsable successes and unaddressable recipients —
+so `error_code` in the delivery history means the same thing whichever provider produced it. No
+provider response body ever reaches a stored code. The adapter codes, the credential model and
+the rotation procedure are in
+[communications providers](../engineering/communications-providers.md); the outbox itself adds
+two of its own, `PROJECTION_SUPERSEDED` and `UNEXPECTED_PROVIDER_ERROR`, which are described
+under [delivery lifecycle and recovery](#delivery-lifecycle-and-recovery) below.
 
 Provider calls originate from outbox workers, not open database transactions. Adapters normalize retryable versus terminal errors and never leak SDK types inward.
 

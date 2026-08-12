@@ -117,6 +117,100 @@
   border-top: 1px solid var(--line);
 }
 
+/* Compose. The panel sits above the outbox because the send is what fills it. */
+.comms .comms-compose {
+  display: grid;
+  gap: var(--s-4);
+}
+.comms .comms-compose label,
+.comms .comms-compose-form label {
+  display: grid;
+  gap: var(--s-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.comms .comms-compose-form {
+  display: grid;
+  gap: var(--s-4);
+}
+.comms .comms-compose-form textarea {
+  font-family: inherit;
+  resize: vertical;
+}
+.comms .comms-compose-empty {
+  margin: 0;
+  color: var(--ink-3);
+}
+.comms .comms-compose-failure {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+}
+.comms .comms-compose button.primary,
+.comms .comms-confirm button {
+  display: inline-flex;
+  gap: var(--s-2);
+  align-items: center;
+  justify-self: start;
+}
+
+/* Both the template preview and the message a delivery actually sent. Same treatment on
+   purpose: what the organizer approves and what the speaker received should look alike. */
+.comms .comms-preview,
+.comms .comms-sent-message {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+.comms .comms-sent-message {
+  margin: var(--s-3) 0 var(--s-3) var(--s-4);
+  background: var(--surface-1);
+}
+.comms .comms-preview-subject {
+  margin: 0 0 var(--s-2);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.comms .comms-preview-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.comms .comms-unreachable {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+/* A fieldset for the grouping semantics, reset to behave like the panel it looks like:
+   browsers give it a default border, margin and min-inline-size: min-content, the last of
+   which would stop it shrinking inside the grid. */
+.comms .comms-confirm {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  min-inline-size: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+.comms .comms-confirm p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.comms .comms-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
 @media (max-width: 700px) {
   .comms .comms-toolbar {
     padding: var(--s-3) var(--s-4) 0;

@@ -1,4 +1,9 @@
 export type CfpFieldType = "short_text" | "long_text" | "email" | "select";
+export interface CfpCondition {
+  readonly fieldId: string;
+  readonly operator: "equals" | "in" | "notEmpty";
+  readonly values: readonly string[];
+}
 export interface CfpField {
   readonly id: string;
   readonly type: CfpFieldType;
@@ -11,6 +16,16 @@ export interface CfpField {
    * existed carry no value; `cfpFieldMaxLength` supplies the type default for those.
    */
   readonly maxLength?: number | undefined;
+  readonly visibleWhen?: CfpCondition | undefined;
+}
+export interface CfpRoutingRule {
+  readonly id: string;
+  readonly when: CfpCondition;
+  readonly routeTo: { readonly status: string };
+}
+export interface CfpResolvedRoute {
+  readonly ruleId: string;
+  readonly status: string;
 }
 /**
  * Default answer ceilings per field type.
@@ -35,6 +50,7 @@ export interface CfpForm {
   readonly title: string;
   readonly description: string;
   readonly fields: readonly CfpField[];
+  readonly routing?: readonly CfpRoutingRule[] | undefined;
   readonly status: "draft" | "open" | "closed";
   readonly version: number;
   readonly publishedAt: string | null;
@@ -47,5 +63,6 @@ export interface ProposalSubmission {
   readonly idempotencyKey: string;
   readonly answers: Readonly<Record<string, string>>;
   readonly fields: readonly CfpField[];
+  readonly resolvedRoute?: CfpResolvedRoute | null | undefined;
   readonly submittedAt: string;
 }

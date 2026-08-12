@@ -6,6 +6,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
@@ -36,11 +37,16 @@ export function defineAgendaSchema(references: {
         .notNull()
         .references(() => references.usersId),
       scheduleJson: text("schedule_json").notNull(),
+      /** Caller-supplied idempotency key; null means "a new intent", not "unknown". */
+      commandKey: text("command_key"),
     },
     (table) => [
       primaryKey({ columns: [table.eventId, table.version] }),
       check("agenda_publications_version", sql`${table.version} > 0`),
       index("agenda_publications_latest_idx").on(table.eventId, desc(table.version)),
+      uniqueIndex("agenda_publications_command_key_idx")
+        .on(table.eventId, table.commandKey)
+        .where(sql`${table.commandKey} IS NOT NULL`),
     ],
   );
 
