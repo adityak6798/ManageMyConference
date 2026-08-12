@@ -131,7 +131,11 @@
         "apps/api/test/communications-http.test.ts",
         "apps/api/test/d1-communications-repository.integration.test.ts",
         "apps/web/test/communications.test.tsx",
-        "apps/web/e2e/communications.spec.ts"
+        "apps/web/e2e/communications.spec.ts",
+        "apps/api/test/accelevents-sync.test.ts",
+        "apps/api/test/integrations-http.test.ts",
+        "apps/api/test/d1-migration-rebuild.integration.test.ts",
+        "apps/web/test/accelevents-sync-panel.test.tsx"
       ]
     },
     "ACC-DEMO-SMOKE": {
