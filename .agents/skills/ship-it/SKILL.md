@@ -67,6 +67,16 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
 
 - Create or reuse an intentional branch, stage only scoped files, commit tersely, push, and create or update a draft PR.
 - Write a PR body covering what changed, why, impact, validation, and known limitations.
+- **Close every issue this PR resolves, with one `Closes #N` per issue, in the PR body.** GitHub's
+  closing keywords are per-reference and are read from the PR body and default-branch commit
+  messages — not from a citation. Two failure modes have each cost this repository a manual triage
+  pass over nine issues:
+  - `Closes #28, #90, #29` closes **only #28**. The keyword does not distribute across a list.
+    Write `Closes #28. Closes #90. Closes #29.`
+  - `feat(agenda): place a subset (#96)` in a commit subject closes **nothing**. A bare `(#N)` is a
+    cross-reference; it links the commit to the issue and leaves it open.
+- If a PR only partly satisfies an issue, do not use a closing keyword for it. Say what it did and
+  what remains, and leave the issue open — a wrongly closed issue is harder to notice than an open one.
 - Do not claim hosted checks passed before they finish.
 
 ### 5. Reach green hosted CI
