@@ -24,7 +24,12 @@
  *
  * @spec PORT-EMAIL PORT-AIRTABLE PORT-ACCELEVENTS PRD-INT-001
  */
+import type { AccelEventsRegistrationSource } from "../../application/communications/accelevents-sync";
 import type { DeliveryProvider } from "../../application/communications/ports";
+import {
+  FixtureAccelEventsRegistrations,
+  HttpAccelEventsRegistrations,
+} from "./accelevents-registration";
 import { AccelEventsProjectionProvider } from "./accelevents-provider";
 import { AirtableProjectionProvider } from "./airtable-provider";
 import { DeterministicProvider } from "./deterministic-provider";
@@ -47,6 +52,8 @@ export interface ProviderEnvironment {
   AIRTABLE_REFERENCE_FIELD?: string | undefined;
   ACCELEVENTS_API_ENDPOINT?: string | undefined;
   ACCELEVENTS_TOKEN?: string | undefined;
+  /** The Accelevents event this deployment reads registrations from. */
+  ACCELEVENTS_EVENT_REF?: string | undefined;
 }
 
 /**
@@ -147,4 +154,39 @@ export function resolveProviders(environment: ProviderEnvironment): DeliveryProv
       token: environment.ACCELEVENTS_TOKEN as string,
     }),
   };
+}
+
+/**
+ * The Accelevents registration source, chosen by the same switch and on the same terms.
+ *
+ * Separate from `resolveProviders` because it is read on a request rather than in the scheduled
+ * drain — an organizer presses Preview and expects an answer — but the rule is identical:
+ * `fixture` is the default and needs no credential, `live` requires the full Accelevents set and
+ * throws naming what is missing rather than quietly answering from the fixture roster. A sync
+ * that reports "3 registrants" from an in-repository list while the operator believes it read
+ * their registration platform is the failure this refuses to produce.
+ */
+export function resolveRegistrationSource(
+  environment: ProviderEnvironment,
+): AccelEventsRegistrationSource {
+  const mode = environment.COMMUNICATIONS_PROVIDERS ?? "fixture";
+  if (mode !== "fixture" && mode !== "live")
+    throw new ProviderConfigurationError(
+      `COMMUNICATIONS_PROVIDERS must be "fixture" or "live", not "${mode}"`,
+    );
+  if (mode === "fixture") {
+    if (PRODUCTION_NAMES.has((environment.ENVIRONMENT ?? "").trim().toLowerCase()))
+      throw new ProviderConfigurationError(
+        `The Accelevents fixture roster is refused when ENVIRONMENT names a production deployment (got "${environment.ENVIRONMENT}"). ` +
+          "Set COMMUNICATIONS_PROVIDERS=live with real credentials, or do not run this build there.",
+      );
+    return new FixtureAccelEventsRegistrations();
+  }
+  demand(environment, ["ACCELEVENTS_API_ENDPOINT", "ACCELEVENTS_TOKEN", "ACCELEVENTS_EVENT_REF"]);
+  demandHttpsUrl("ACCELEVENTS_API_ENDPOINT", environment.ACCELEVENTS_API_ENDPOINT as string);
+  return new HttpAccelEventsRegistrations({
+    apiOrigin: environment.ACCELEVENTS_API_ENDPOINT as string,
+    token: environment.ACCELEVENTS_TOKEN as string,
+    eventRef: environment.ACCELEVENTS_EVENT_REF as string,
+  });
 }

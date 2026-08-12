@@ -1,10 +1,6 @@
 // @acceptance ACC-SPEAKER
 import { describe, expect, it } from "vitest";
-import {
-  googleCalendarUrl,
-  hasCalendarLinks,
-  outlookCalendarUrl,
-} from "../src/content/calendar-links";
+import { googleCalendarUrl, hasCalendarLinks, outlookCalendarUrl } from "../src/content/shared";
 
 const session = {
   title: "Reliable Systems",

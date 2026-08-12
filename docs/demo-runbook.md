@@ -65,6 +65,21 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    upload can be marked publishable and made private again, and any image can be named — or
    un-named — as that speaker's profile photo; both decisions are reversible. Download hands you
    the file itself, whatever its visibility.
+
+   Two integration surfaces live here. **Accelevents registrations** reads the registration
+   platform and turns registrants into speaker profiles. Press **Preview registrations** first:
+   nothing is written, and the panel lists exactly what an import would create, what is already
+   present, and the one deliberately malformed address the sample roster carries so the failure
+   path is reachable without editing code. Then **Import registrants**, and press it a second
+   time — the counts move to "already present" rather than importing anybody twice. The panel
+   says **Fixture mode** throughout, because a demo has no Accelevents credential and a surface
+   that let you read those numbers as live ones would be lying to you.
+
+   **Send calendar invitations** (beside *Accepted sessions*, once the agenda is published) sends
+   each speaker the iTIP invitation for their own session through the outbox. Pressing it twice
+   on an unchanged agenda reports that everyone already has the current invitation rather than
+   sending again. Note the honest limit: the demo runs on the deterministic provider, so the
+   invitations reach the delivery history, not a mailbox.
 4. **Agenda** (`/agenda`) — place sessions on the room × time board by drag-and-drop or by
    keyboard (Enter to pick up, arrows to move, Enter to drop, Escape to cancel). Switch between
    List, Day, Week, Room, Track, and Conflicts; the chosen view is in the URL. Publish the schedule.
@@ -116,6 +131,8 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    evaluation plan; unscored criteria are refused rather than silently scored at the minimum.
 9. Switch to **speaker** — only `/portal` is reachable. Complete a task, edit the profile, upload a
    private asset, name one of your own images as your profile photo, and download the calendar file.
+   Each scheduled session also offers **Google** and **Outlook** links that open a pre-filled
+   event in those calendars — the two clients the brief names that take a URL rather than a file.
    Choosing a headshot is not publishing it: the file keeps the visibility it had, the portal says so
    in a sentence beside the preview, and the public gallery keeps showing initials until an organizer
    marks that file publishable.

@@ -583,8 +583,9 @@
         "apps/web/src/workspaces/content.tsx",
         "apps/api/test/calendar-invite.test.ts",
         "apps/api/test/speaker-calendar-invites.test.ts",
-        "apps/web/src/content/calendar-links.ts",
-        "apps/web/test/calendar-links.test.ts"
+        "apps/web/test/calendar-links.test.ts",
+        "apps/web/src/content/AccelEventsSync.tsx",
+        "apps/web/test/accelevents-sync-panel.test.tsx"
       ]
     },
     {
@@ -709,7 +710,13 @@
         "apps/web/test/communications-compose.test.tsx",
         "apps/web/e2e/communications.spec.ts",
         "apps/api/src/transport/http/routes/communications.ts",
-        "apps/web/src/workspaces/communications.tsx"
+        "apps/web/src/workspaces/communications.tsx",
+        "apps/api/src/application/communications/accelevents-sync.ts",
+        "apps/api/src/adapters/providers/accelevents-registration.ts",
+        "apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts",
+        "apps/api/migrations/1750_delivery_calendar_invite_trigger.sql",
+        "apps/api/migrations/1751_accelevents_sync_runs.sql",
+        "apps/api/test/accelevents-sync.test.ts"
       ]
     },
     {
@@ -764,6 +771,7 @@
     }
   ],
   "symbols": {
+    "AccelEventsSyncService": "apps/api/src/application/communications/accelevents-sync.ts",
     "AgendaContentQuery": "apps/api/src/application/content/public.ts",
     "App": "apps/web/src/App.tsx",
     "CommunicationsContentQuery": "apps/api/src/application/content/public.ts",

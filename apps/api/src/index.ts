@@ -7,6 +7,7 @@ import {
 } from "./adapters/content/sanitize-resource-html";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
+import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import { D1CommunicationsRepository } from "./adapters/persistence/d1-communications-repository";
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
@@ -16,12 +17,13 @@ import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repos
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
-import { resolveProviders } from "./adapters/providers/configuration";
+import { resolveProviders, resolveRegistrationSource } from "./adapters/providers/configuration";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { AgendaService } from "./application/agenda/agenda-service";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { OutboxWorker } from "./application/communications/outbox-worker";
 import {
+  AccelEventsSyncService,
   CommunicationsInputError,
   CommunicationsNotFoundError,
   CommunicationsService,
@@ -65,6 +67,8 @@ export interface Environment {
   AIRTABLE_REFERENCE_FIELD?: string;
   ACCELEVENTS_API_ENDPOINT?: string;
   ACCELEVENTS_TOKEN?: string;
+  /** The Accelevents event the inbound registration sync reads. Non-secret; a var, not a secret. */
+  ACCELEVENTS_EVENT_REF?: string;
   /**
    * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
    * can say which checkout and commit it belongs to. Absent in a deployment.
@@ -205,6 +209,28 @@ export default {
       // Who an event's speakers are is identity's answer, not a read of content's profiles.
       speakerDirectory: identityDirectory,
       newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    // The inbound Accelevents registration sync (#58). `fixture` is the default and answers from
+    // an in-repository roster, which is what lets the demo and a fresh clone sync with no
+    // credential; `live` requires the Accelevents bindings and throws naming the missing ones.
+    // Registrants reach content through its own public import command, never through its tables.
+    const communicationsMode = environment.COMMUNICATIONS_PROVIDERS === "live" ? "live" : "fixture";
+    const accelEventsSync = new AccelEventsSyncService({
+      // Resolved when a sync actually runs, not when the Worker builds its services. `live`
+      // throws on a missing binding, and doing that here would take down every route in the
+      // application — the health check, the public schedule, the CFP form — because one
+      // integration is misconfigured. Deferred, the failure lands on the request that needed it,
+      // naming the binding, and nothing else notices.
+      source: {
+        listRegistrants: (eventId) =>
+          resolveRegistrationSource(environment).listRegistrants(eventId),
+      },
+      content,
+      runs: new D1AccelEventsSyncRuns(
+        environment.DB as ConstructorParameters<typeof D1AccelEventsSyncRuns>[0],
+      ),
+      mode: communicationsMode,
       now: () => new Date(),
     });
     // Sending a speaker the iTIP invitation for their own session (#56). Composes content's
@@ -361,6 +387,7 @@ export default {
         : undefined,
       itineraries,
       speakerCalendarInvites,
+      accelEventsSync,
     );
     return Promise.resolve(app.fetch(request));
   },

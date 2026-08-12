@@ -24,12 +24,6 @@ import {
 } from "../api/content";
 import "../styles/content.css";
 import {
-  type CalendarLinkSession,
-  googleCalendarUrl,
-  hasCalendarLinks,
-  outlookCalendarUrl,
-} from "./calendar-links";
-import {
   IconCalendar,
   IconCheck,
   IconClock,
@@ -42,6 +36,10 @@ import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "../ui/p
 
 import {
   bytesToBase64,
+  type CalendarLinkSession,
+  googleCalendarUrl,
+  hasCalendarLinks,
+  outlookCalendarUrl,
   DueStatus,
   daysUntil,
   dueLabel,

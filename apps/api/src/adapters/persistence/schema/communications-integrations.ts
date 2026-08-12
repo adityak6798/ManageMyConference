@@ -148,10 +148,34 @@ export function defineCommunicationsIntegrationsSchema(references: {
     ],
   );
 
+  // Last-sync state for the inbound Accelevents registration import. One row per event; a dry run
+  // never writes here. See migration 1751 for why this is the only run state kept.
+  const accelEventsSyncRuns = sqliteTable(
+    "accelevents_sync_runs",
+    {
+      eventId: text("event_id")
+        .primaryKey()
+        .notNull()
+        .references(() => references.eventsId),
+      startedAt: text("started_at").notNull(),
+      completedAt: text("completed_at").notNull(),
+      outcome: text("outcome").notNull(),
+      total: integer("total").notNull(),
+      created: integer("created").notNull(),
+      skipped: integer("skipped").notNull(),
+      invalid: integer("invalid").notNull(),
+      errorCode: text("error_code"),
+    },
+    (table) => [
+      check("accelevents_sync_runs_outcome", sql`${table.outcome} IN ('succeeded', 'failed')`),
+    ],
+  );
+
   return {
     messageTemplates,
     communicationDeliveries,
     communicationAttempts,
     outboundProjectionState,
+    accelEventsSyncRuns,
   };
 }

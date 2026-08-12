@@ -5,6 +5,9 @@
  * fragment, and the aggregate `openapi.json` is still generated from all of them together.
  */
 import {
+  accelEventsIntegrationSchema,
+  accelEventsSyncInputSchema,
+  accelEventsSyncReportSchema,
   broadcastInputSchema,
   broadcastRecipientsParamsSchema,
   broadcastRecipientsResponseSchema,
@@ -18,6 +21,7 @@ import {
   templateListParamsSchema,
   templateListResponseSchema,
   templateResponseSchema,
+  eventIdParamsSchema,
   triggerDeliveryInputSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
@@ -132,6 +136,46 @@ export const communicationsPaths: OpenApiFragment = {
         403: errorResponse,
         404: errorResponse,
         409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/integrations/accelevents",
+      description:
+        "The inbound Accelevents registration integration and its last apply. `mode` says whether registrants come from the real platform or the in-repository fixture roster, because an organizer reading a count needs to know which.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description: "Integration state and last run",
+          content: json(accelEventsIntegrationSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/integrations/accelevents/sync",
+      description:
+        "Preview or apply the one-way registration sync from Accelevents into Greenroom. `commit: false` is a dry run that writes nothing anywhere, including the last-run record. Applying twice converges: registrants already imported are reported as skipped rather than duplicated. Answers 502 when the registration platform cannot be read, with a normalized code and never the upstream's own message.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventIdParamsSchema,
+        body: { required: true, content: json(accelEventsSyncInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "What the sync did, or would do",
+          content: json(accelEventsSyncReportSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        502: errorResponse,
         500: errorResponse,
       },
     });

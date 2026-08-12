@@ -12,7 +12,10 @@
 import type { Hono } from "hono";
 import type { AgendaService } from "../../../application/agenda/public";
 import type { CfpService } from "../../../application/cfp/public";
-import type { CommunicationsService } from "../../../application/communications/public";
+import type {
+  AccelEventsSyncService,
+  CommunicationsService,
+} from "../../../application/communications/public";
 import type { ContentService } from "../../../application/content/content-service";
 import type { SpeakerCalendarInviteService } from "../../../application/content/speaker-calendar-invites";
 import type { CrmService } from "../../../application/crm/public";
@@ -64,6 +67,8 @@ export interface HttpDependencies {
   crm?: CrmService | undefined;
   agenda?: AgendaService | undefined;
   communications?: CommunicationsService | undefined;
+  /** The inbound Accelevents registration sync, and the last-run state its surface reads. */
+  accelEventsSync?: AccelEventsSyncService | undefined;
   publishing?: PublicationService | undefined;
   itineraries?: ItineraryService | undefined;
   build?: BuildIdentity | undefined;

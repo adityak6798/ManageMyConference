@@ -17,6 +17,7 @@ import { getCookie } from "hono/cookie";
 import { cors } from "hono/cors";
 import { etag, RETAINED_304_HEADERS } from "hono/etag";
 import type { AgendaService } from "../../application/agenda/public";
+import type { AccelEventsSyncService } from "../../application/communications/public";
 import type { CfpService } from "../../application/cfp/public";
 import type { CommunicationsService } from "../../application/communications/public";
 import type { ContentService } from "../../application/content/content-service";
@@ -283,6 +284,7 @@ export function createHttpApp(
   buildIdentity?: BuildIdentity,
   itineraries?: ItineraryService,
   speakerCalendarInvites?: SpeakerCalendarInviteService,
+  accelEventsSync?: AccelEventsSyncService,
 ) {
   const review =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -315,6 +317,7 @@ export function createHttpApp(
     publishing,
     itineraries,
     speakerCalendarInvites,
+    accelEventsSync,
     build: buildIdentity,
   });
 }

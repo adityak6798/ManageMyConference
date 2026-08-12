@@ -11,6 +11,7 @@
 // staging smoke documented in docs/engineering/communications-providers.md, and it has not run.
 import { describe, expect, it } from "vitest";
 import { AccelEventsProjectionProvider } from "../src/adapters/providers/accelevents-provider";
+import { HttpAccelEventsRegistrations } from "../src/adapters/providers/accelevents-registration";
 import { AirtableProjectionProvider } from "../src/adapters/providers/airtable-provider";
 import { HttpEmailProvider } from "../src/adapters/providers/email-provider";
 import type { DeliveryProvider } from "../src/application/communications/ports";
@@ -358,6 +359,69 @@ describe("provider request shapes", () => {
       to: "ada@example.test",
       subject: "You're speaking",
       text: "Hello Ada",
+    });
+  });
+
+  /*
+   * The inbound registration client (#58). Same normalization table as the delivery adapters,
+   * because an operator reading a failed sync should be reading the same vocabulary.
+   */
+  const registrations = (fetch: (url: string, init: RequestInit) => Promise<Response>) =>
+    new HttpAccelEventsRegistrations(
+      { apiOrigin: "https://accelevents.test/api", token: TOKEN, eventRef: "ae-event-1" },
+      fetch,
+    );
+
+  it("reads registrants and never puts its credential in the URL", async () => {
+    const { fetch, recorded } = stub(200, {
+      registrations: [
+        { id: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
+        { id: "ae-2", name: "Grace", email: "grace@example.test" },
+      ],
+    });
+
+    expect(await registrations(fetch).listRegistrants()).toEqual([
+      { sourceRef: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
+      { sourceRef: "ae-2", name: "Grace", email: "grace@example.test" },
+    ]);
+    expect(recorded[0]?.url).toBe("https://accelevents.test/api/events/ae-event-1/registrations");
+    expect(recorded[0]?.url).not.toContain(TOKEN);
+    expect(recorded[0]?.init.method).toBe("GET");
+  });
+
+  it("drops an incomplete registrant rather than importing a person nobody can reach", async () => {
+    const { fetch } = stub(200, {
+      registrations: [
+        { id: "ae-1", name: "Ada", email: "ada@example.test" },
+        { id: "ae-2", name: "No address" },
+        { name: "No id", email: "x@example.test" },
+        null,
+      ],
+    });
+    expect(await registrations(fetch).listRegistrants()).toHaveLength(1);
+  });
+
+  it("normalizes an unreadable platform without ever storing its message", async () => {
+    for (const [status, code] of [
+      [429, "PROVIDER_RATE_LIMITED"],
+      [503, "PROVIDER_UNAVAILABLE:503"],
+      [401, "PROVIDER_UNAUTHORIZED:401"],
+    ] as const) {
+      // The error body echoes the credential back, the way a careless API does.
+      const { fetch } = stub(status, { message: `rejected token ${TOKEN}` });
+      await expect(registrations(fetch).listRegistrants()).rejects.toMatchObject({ code });
+      await expect(registrations(fetch).listRegistrants()).rejects.not.toMatchObject({
+        message: expect.stringContaining(TOKEN),
+      });
+    }
+    // A 2xx that is not the documented shape is malformed, not an empty roster: reporting "0
+    // registrants" for an unparsable answer would look like a successful, empty sync.
+    const unparsable = stub(200, { items: [] });
+    await expect(registrations(unparsable.fetch).listRegistrants()).rejects.toMatchObject({
+      code: "MALFORMED_PROVIDER_RESPONSE",
+    });
+    await expect(registrations(failing(new Error("dns"))).listRegistrants()).rejects.toMatchObject({
+      code: "PROVIDER_UNREACHABLE",
     });
   });
 

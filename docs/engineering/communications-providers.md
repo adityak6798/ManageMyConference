@@ -16,6 +16,14 @@ verified against a live API.
 | `fixture` (default) | `DeterministicProvider` on all three channels | no | local development, `npm run check`, Playwright, the demo reset |
 | `live` | `HttpEmailProvider`, `AirtableProjectionProvider`, `AccelEventsProjectionProvider` | yes, all of them | a deployment that really sends |
 
+The same switch also selects the **inbound** Accelevents registration source
+(`resolveRegistrationSource`): `fixture` answers from a deterministic in-repository roster and
+`live` reads the real platform. It resolves on the request that runs a sync rather than at
+startup, so a misconfigured `live` fails that request naming the missing binding instead of
+taking every other route down with it. The rule is otherwise identical — there is no fallback, and
+a sync must never report a count from the fixture roster while an operator believes it read their
+registration platform. The organizer surface prints the mode on screen for the same reason.
+
 ### Reaching a failure in `fixture` mode
 
 The deterministic provider succeeds for every recipient except three sub-address tags, which let
@@ -55,8 +63,9 @@ names — are configuration.
 | `AIRTABLE_TABLE_ID` | live | no | Target table |
 | `AIRTABLE_TOKEN` | live | **yes** | Personal access token |
 | `AIRTABLE_REFERENCE_FIELD` | live | no | Column holding the Greenroom reference; defaults to `Greenroom Ref` |
-| `ACCELEVENTS_API_ENDPOINT` | live | no | Full URL of the projection endpoint |
+| `ACCELEVENTS_API_ENDPOINT` | live | no | Full URL of the projection endpoint, and the API origin the inbound registration read is appended to |
 | `ACCELEVENTS_TOKEN` | live | **yes** | Bearer credential for that endpoint |
+| `ACCELEVENTS_EVENT_REF` | live | no | The Accelevents event whose registrations the inbound sync reads |
 
 ### Least privilege
 
@@ -67,7 +76,15 @@ names — are configuration.
   column, and a missing column is meant to surface as an actionable failure rather than be
   silently created. The reference column must be unique in the table — it is the upsert merge key.
 - **Accelevents.** The narrowest token the tenant offers for writing session/registration
-  projections. It never needs read access to attendee personal data.
+  projections, plus read access to the one event's registration list, which is what the inbound
+  sync needs. Note that the inbound direction is the one that reads people: it pulls names and
+  addresses and turns them into speaker profiles, so this token is the only one here that touches
+  attendee personal data, and it must be scoped to the single event named by
+  `ACCELEVENTS_EVENT_REF`. It never needs access to payments, orders or account settings.
+
+  Both directions share `ACCELEVENTS_TOKEN`. If the tenant can issue two — one write-only for
+  projections, one read-only for registrations — prefer that, and split the binding then rather
+  than pretending one credential is narrower than it is.
 
 ### Rotation and revocation
 
