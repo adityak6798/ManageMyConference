@@ -17,6 +17,17 @@ export class AgendaConflictError extends Error {
 }
 export class AgendaNotFoundError extends Error {}
 export class AgendaResourceInUseError extends Error {}
+/** Version allocation kept losing to concurrent publications; the caller should retry. */
+export class AgendaPublicationConflictError extends Error {}
+
+/**
+ * How many versions to try before giving up.
+ *
+ * Each attempt loses only to a publication that committed between this one's read and its
+ * write, so exhausting five means five publications landed during one request. That is not
+ * contention to wait out, it is a signal worth surfacing.
+ */
+const PUBLISH_ALLOCATION_ATTEMPTS = 5;
 
 // @spec PRD-AGD-001
 export class AgendaService implements ContentAgendaInterface {
@@ -84,22 +95,68 @@ export class AgendaService implements ContentAgendaInterface {
     await this.repository.removePlacement(eventId, placementId);
   }
 
-  async publish(actor: Actor | null, eventId: string): Promise<PublishedSchedule> {
+  /**
+   * Freeze the board into the next immutable snapshot, and announce it.
+   *
+   * Versions are allocated by attempt rather than reserved in advance: read the version in
+   * force, try to commit the next one, and if a concurrent publication got there first, read
+   * again and try the one after. Two organizers publishing at the same instant therefore end
+   * up with two publications numbered `n` and `n+1` — both durable, neither overwriting the
+   * other, and neither operator shown a constraint violation for a race they could not see.
+   *
+   * The alternative, allocating from the value read before the write, is what made the
+   * previous version lose a publication: both attempts computed the same number and the second
+   * insert failed against the primary key. Nothing here is retried on a *real* failure, only on
+   * a taken version, so a broken publication surfaces immediately.
+   *
+   * The bound exists because an unbounded loop under sustained concurrent publication is a
+   * request that never returns. Exhausting it means the event is being published faster than
+   * this can allocate, which is a condition an organizer should be told about rather than one
+   * to hide behind a spinner.
+   */
+  async publish(
+    actor: Actor | null,
+    eventId: string,
+    commandKey?: string,
+  ): Promise<PublishedSchedule> {
     const authorized = await this.organizer(actor, eventId);
+    /*
+     * A retried command answers with what its first attempt committed, rather than freezing the
+     * board a second time. Checked before the conflict test as well as inside the loop: the
+     * board may have moved into conflict since the publication this command already produced,
+     * and refusing a retry for a conflict introduced afterwards would report a failure for
+     * something that succeeded.
+     */
+    if (commandKey) {
+      const replayed = await this.repository.findByCommandKey(eventId, commandKey);
+      if (replayed) return replayed;
+    }
     const draft = await this.readDraft(eventId);
     const conflicts = conflictsFor(draft);
     if (conflicts.length) throw new AgendaConflictError(conflicts);
-    const previous = await this.repository.getPublished(eventId);
     const { conflicts: _computedConflicts, ...agenda } = draft;
-    const schedule = {
-      eventId,
-      version: (previous?.version ?? 0) + 1,
-      publishedAt: this.now().toISOString(),
-      publishedBy: authorized.id,
-      agenda: structuredClone(agenda),
-    };
-    await this.repository.publish(schedule);
-    return schedule;
+    const snapshot = structuredClone(agenda);
+    for (let attempt = 0; attempt < PUBLISH_ALLOCATION_ATTEMPTS; attempt += 1) {
+      const previous = await this.repository.getPublished(eventId);
+      const schedule = {
+        eventId,
+        version: (previous?.version ?? 0) + 1,
+        publishedAt: this.now().toISOString(),
+        publishedBy: authorized.id,
+        agenda: snapshot,
+        ...(commandKey ? { commandKey } : {}),
+      };
+      const outcome = await this.repository.publish(schedule);
+      if (outcome === "committed") return schedule;
+      // A concurrent retry of this same command won the race; its publication is the answer.
+      if (outcome === "command-replayed" && commandKey) {
+        const replayed = await this.repository.findByCommandKey(eventId, commandKey);
+        if (replayed) return replayed;
+      }
+    }
+    throw new AgendaPublicationConflictError(
+      "Another publication is in progress; try publishing again.",
+    );
   }
 
   async published(eventId: string) {

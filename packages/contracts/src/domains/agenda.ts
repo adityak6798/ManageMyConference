@@ -70,6 +70,16 @@ export const agendaDraftSchema = z.object({
   ),
 });
 export type AgendaDraftDto = z.infer<typeof agendaDraftSchema>;
+/**
+ * Optional idempotency key for the publish command.
+ *
+ * Supplying it means "this is a retry of one intent": the same key returns the publication the
+ * first attempt committed instead of freezing the board again. Omitting it means a new intent,
+ * which is what an organizer pressing Publish a second time after editing actually wants.
+ */
+export const agendaPublicationHeadersSchema = z.object({
+  "idempotency-key": z.string().min(1).max(200).optional(),
+});
 export const publishedScheduleSchema = z.object({
   eventId: z.string().uuid(),
   version: z.number().int().positive(),

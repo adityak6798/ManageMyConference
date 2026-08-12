@@ -14,6 +14,7 @@ import {
 import {
   AgendaConflictError,
   AgendaNotFoundError,
+  AgendaPublicationConflictError,
   AgendaResourceInUseError,
 } from "../../../application/agenda/public";
 import { requireEventCapability } from "../../../application/identity/actor";
@@ -101,10 +102,21 @@ export const agendaRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
-      return context.json(
-        { schedule: await agenda.publish(context.get("actor"), parsed.data.eventId) },
-        201,
+      /*
+       * `Idempotency-Key` is optional and means "this is a retry of one intent, not a new one".
+       * Without it every call allocates the next version, which is correct for an organizer
+       * pressing Publish again after editing; with it, a client that never saw the first
+       * response gets that response rather than a second immutable version of the same board.
+       */
+      const commandKey = context.req.header("idempotency-key")?.trim();
+      // The key is stored for idempotency and not echoed: it tells the caller only what the
+      // caller already sent, and `publishedScheduleSchema` is the shape this route promises.
+      const { commandKey: _storedKey, ...schedule } = await agenda.publish(
+        context.get("actor"),
+        parsed.data.eventId,
+        commandKey || undefined,
       );
+      return context.json({ schedule }, 201);
     });
     /*
      * The public schedule is addressed by the event's public slug, like every other public
@@ -158,6 +170,10 @@ export const agendaRoutes: RouteModule = {
       };
     if (error instanceof AgendaResourceInUseError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 409 as const };
+    // Losing the version race repeatedly is contention, not a malformed request: the board is
+    // publishable and the same command will succeed once the concurrent publications settle.
+    if (error instanceof AgendaPublicationConflictError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     return null;
   },
 };

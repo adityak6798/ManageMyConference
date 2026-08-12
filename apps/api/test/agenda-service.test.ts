@@ -1,7 +1,11 @@
 // @acceptance ACC-AGENDA
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
-import { AgendaConflictError, AgendaService } from "../src/application/agenda/agenda-service";
+import {
+  AgendaConflictError,
+  AgendaPublicationConflictError,
+  AgendaService,
+} from "../src/application/agenda/agenda-service";
 import type { Actor } from "../src/application/identity/actor";
 import { conflictsFor, type AgendaDraft } from "../src/domain/agenda/agenda";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
@@ -199,6 +203,88 @@ describe("agenda conflicts and publication", () => {
     expect(publicSchedule?.agenda.placements).toHaveLength(1);
     expect(publicSchedule).not.toHaveProperty("publishedBy");
     expect((await service.draft(organizer, eventId)).placements).toHaveLength(2);
+  });
+  it("emits exactly one event per committed publication, naming that publication", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      content,
+    );
+    await service.remove(organizer, eventId, "place-b");
+
+    const first = await service.publish(organizer, eventId);
+    const second = await service.publish(organizer, eventId);
+
+    // Republishing allocates the next version rather than reusing or overwriting one, and each
+    // committed publication carries one event that identifies it.
+    expect([first.version, second.version]).toEqual([1, 2]);
+    expect(repository.publishedEvents()).toEqual([
+      expect.objectContaining({
+        type: "EVT-SCHEDULE-PUBLISHED",
+        version: 1,
+        id: `EVT-SCHEDULE-PUBLISHED:${eventId}:1`,
+        publicationVersion: 1,
+      }),
+      expect.objectContaining({
+        id: `EVT-SCHEDULE-PUBLISHED:${eventId}:2`,
+        publicationVersion: 2,
+      }),
+    ]);
+  });
+  it("answers a retried publish command with the publication it already made", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      content,
+    );
+    await service.remove(organizer, eventId, "place-b");
+
+    const first = await service.publish(organizer, eventId, "command-1");
+    const retried = await service.publish(organizer, eventId, "command-1");
+
+    // One intent, one immutable version, one event — however many times the client asked.
+    expect(retried).toEqual(first);
+    expect(repository.publishedEvents()).toHaveLength(1);
+
+    // A *different* command is a new intent and still gets its own version.
+    const deliberate = await service.publish(organizer, eventId, "command-2");
+    expect(deliberate.version).toBe(2);
+    expect(repository.publishedEvents()).toHaveLength(2);
+  });
+
+  it("replays a retried command even after the board has moved into conflict", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    const service = new AgendaService(
+      repository,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      content,
+    );
+    await service.remove(organizer, eventId, "place-b");
+    const first = await service.publish(organizer, eventId, "command-1");
+
+    // Put the board into conflict after the publication this command already committed.
+    const second = draft.placements[1];
+    if (!second) throw new Error("Fixture placement is required");
+    await service.place(organizer, eventId, { ...second, slotId: "slot-9" });
+
+    // The retry describes work that already succeeded, so it must not be refused for a
+    // conflict introduced afterwards.
+    expect(await service.publish(organizer, eventId, "command-1")).toEqual(first);
+  });
+
+  it("gives up rather than looping when versions keep being taken", async () => {
+    const repository = new MemoryAgendaRepository([draft]);
+    // A repository that never commits stands in for sustained concurrent publication: the
+    // allocation loop must end and say so, not spin until the request times out.
+    vi.spyOn(repository, "publish").mockResolvedValue("version-taken");
+    const service = new AgendaService(repository, () => new Date(), content);
+    await service.remove(organizer, eventId, "place-b");
+
+    await expect(service.publish(organizer, eventId)).rejects.toBeInstanceOf(
+      AgendaPublicationConflictError,
+    );
   });
   it("requires a freshly created event role before agenda initialization", async () => {
     const organizationOwner = { ...organizer, eventAccess: [] };

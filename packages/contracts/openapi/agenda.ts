@@ -9,6 +9,7 @@ import {
   agendaDraftSchema,
   agendaIdParamsSchema,
   agendaPlacementSchema,
+  agendaPublicationHeadersSchema,
   agendaResourcesSchema,
   publishedScheduleSchema,
 } from "../src/index";
@@ -92,7 +93,10 @@ export const agendaPaths: OpenApiFragment = {
       method: "post",
       path: "/api/events/{eventId}/agenda/publications",
       security: [{ sessionCookie: [] }, { eventBearer: [] }],
-      request: { params: agendaIdParamsSchema },
+      request: {
+        params: agendaIdParamsSchema,
+        headers: agendaPublicationHeadersSchema,
+      },
       responses: {
         201: {
           description: "Auditable immutable schedule publication",
