@@ -18,21 +18,24 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createMigratedDatabase } from "./support/seeded-d1";
 
 /**
- * Split on statement boundaries, stripping comment *lines* rather than comment-led chunks.
+ * Strip comments first, *then* split on statement boundaries. The order is the whole trick.
  *
- * Dropping any chunk that starts with `--` silently swallows the first real statement, because
- * this file opens with a long header comment and the split lands after it.
+ * Splitting first breaks a comment line that contains a semicolon into two pieces, and only the
+ * first still begins with `--` — so the remainder survives comment-stripping and is handed to
+ * SQLite as prose (`near "they": syntax error`). Migration headers here are long and explanatory,
+ * so they do contain semicolons. Stripping whole comment lines up front cannot produce that.
+ *
+ * Dropping comment-led *chunks* instead is the other trap: the first chunk is the file's header
+ * plus the first real statement, so the statement disappears silently and the test then fails
+ * somewhere unrelated.
  */
 const statements = (sql: string) =>
   sql
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("--"))
+    .join("\n")
     .split(";")
-    .map((value) =>
-      value
-        .split("\n")
-        .filter((line) => !line.trimStart().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
+    .map((value) => value.trim())
     .filter(Boolean);
 
 describe("communication_deliveries rebuild", () => {
