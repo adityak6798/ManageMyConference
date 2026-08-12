@@ -4,9 +4,9 @@ Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-
 
 ## What this demo is, and is not
 
-It runs locally, from a deterministic seed, with development-only signed demo identities. There is
-no production authentication (`GAP-007`) and nothing serves the built frontend against a
-configurable API origin (`GAP-008`), so the product cannot yet be handed over as a URL. Local
+It runs locally, from a deterministic seed, with development-only signed demo identities. The built
+frontend is served by the Worker with a configurable API origin, but there is no production
+authentication (`GAP-007`), so the product still cannot be handed over as an organizer URL. Local
 delivery, uploads, and every provider are deterministic fakes: no message leaves the machine, and
 the Accelevents integration the brief names does not exist (`GAP-012`). The honest
 feature-by-feature picture is in [competition traceability](product/competition-traceability.md);
@@ -119,6 +119,25 @@ apply. A static file server that does not read `_headers` needs the same rule co
 
 The role switcher establishes signed development-only sessions and does not bypass application
 authorization. The API refuses demo mode outside the exact development environment.
+
+## Built artifact and deployment
+
+`npm run build` creates `apps/web/dist` and performs a Wrangler dry-run of the Worker that serves
+those files. In that deployed shape, `/api/*` runs through Hono while unknown non-API paths fall back
+to the SPA entry point, so direct navigation to the public and embed URLs above works without Vite.
+The domain API clients default to that same origin. `VITE_API_BASE_URL=https://api.example.com`
+compiles an alternate origin into those clients, but the separate host must provide its own
+compatible browser CORS and credential policy. The documented Worker deployment avoids that
+boundary and needs no override.
+
+Once the D1 and R2 bindings in `apps/api/wrangler.toml` point at provisioned Cloudflare resources,
+set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, then run `npm run deploy`. Wrangler prints
+the resulting Worker URL. No hosted URL is recorded yet because production authentication remains
+unimplemented (`GAP-007`); enabling demo mode in production is explicitly refused by the runtime.
+
+On either the local or deployed Worker, open `/docs` for the browsable API reference or
+`/openapi.json` for the generated source document. Both are public discovery routes; they expose the
+already-checked contract and introduce no authentication mechanism.
 
 ## Reproduce the evidence
 

@@ -52,7 +52,7 @@ issues #28 and #90).
 | Command | Result |
 |---|---|
 | `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (376 tests across the `node --test` tool suite, `@greenroom/api` and `@greenroom/web`, plus both production builds), then `gate:d1` (28 tests in 12 files), then `gate:evidence` |
-| `npm run gate:browser` (`setup:local`, `reset`, then the suite) | 30 passed, on derived ports with no manual port assignment. This is the clean-reset run |
+| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 30 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
 | `npm run test:e2e` again against the same still-running servers | 30 passed — re-runnable on one fixture without a reset |
 | `npm run test:quality` | 3 passed |
 | `npm run gate:security` | exit 0 — `npm audit --audit-level=high` found 0 vulnerabilities |

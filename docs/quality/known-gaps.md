@@ -89,11 +89,12 @@ feature-by-feature verdict.
   proves is proved against demo identities. Owner: identity-access. Governing ID: `PRD-IAM-001`,
   `ARC-AUTH-001`. Closure: issues #60 and #12 — a real credential path with session lifecycle,
   covered by the same authorization-negative matrix the demo path is covered by.
-- `GAP-008` Nothing serves the built frontend against a configurable API origin, so the product runs
-  only from a local dev server on localhost. Impact: the demo cannot be handed to anyone as a URL,
-  and no deployment smoke, preview, or rollback gate can exist until it can. Owner: platform.
-  Governing ID: `ENG-CI-001`. Closure: issue #61 — a built frontend served with a configured API
-  origin, plus the preview-smoke gate `ENG-CI-001` lists as planned.
+- `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
+  fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
+  by default). What remains is a provisioned preview/production target and its smoke and rollback
+  gates; without those, deployability is locally verified but no hosted URL is evidenced. Owner:
+  platform. Governing ID: `ENG-CI-001`. Closure: provision the target, run public/embed/API smoke
+  against its URL, and prevent promotion or roll back when that smoke fails.
 - `GAP-009` **Brief feature 1 is incomplete**: the CFP form model has no conditional field logic and
   no category-based routing. Impact: the feature's two named differentiators are absent while the
   rest of the CFP is shipped. Owner: cfp. Governing ID: `PRD-CFP-001`, `ACC-CFP`. Closure: issue #49

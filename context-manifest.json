@@ -99,6 +99,11 @@
         "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
       },
       {
+        "path": "apps/web/src/api/config.ts",
+        "governing": "ARC-001",
+        "reason": "The browser transport's shared origin and fetch adapter. Every domain API client uses it so development proxying, same-origin deployment, and optional split hosting resolve requests consistently."
+      },
+      {
         "path": "apps/web/src/ui/primitives.tsx",
         "governing": "ARC-DOM-001",
         "reason": "The design system. Eight domains' workspaces render through the same Card, Notice, EmptyState and PageHeader, which is what makes the console read as one product."
@@ -303,11 +308,14 @@
         "apps/api/src/transport/http/throttle.ts",
         "apps/api/src/transport/http/routes/contract.ts",
         "apps/api/src/transport/http/routes/registry.ts",
+        "apps/api/src/transport/http/routes/platform.ts",
         "apps/api/src/adapters/persistence/schema.ts",
         "apps/api/src/adapters/persistence/schema/registry.ts",
         "apps/web/src/App.tsx",
         "apps/web/src/main.tsx",
+        "apps/web/src/api/config.ts",
         "apps/api/test/http.test.ts",
+        "apps/api/test/api-docs.test.ts",
         "apps/api/test/runtime-auth.test.ts",
         "apps/api/vitest.config.ts",
         "apps/api/vitest.integration.config.ts",
@@ -324,6 +332,7 @@
         "apps/web/test/shell-error-surface.test.tsx",
         "apps/web/src/router.ts",
         "apps/web/test/router.test.tsx",
+        "apps/web/test/api-config.test.ts",
         "apps/web/src/ui/primitives.tsx",
         "apps/web/src/ui/icons.tsx",
         "apps/api/test/seed-state.integration.test.ts",

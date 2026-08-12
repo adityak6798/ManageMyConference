@@ -11,6 +11,7 @@ import {
   sessionResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
+import { apiFetch as fetch } from "./config";
 
 export class ApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {

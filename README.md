@@ -6,9 +6,10 @@ The repository is deliberately organized as an agent-readable context graph. Sta
 
 ## What is shipped, and what is not
 
-The product runs **locally**, from a deterministic seed, with development-only demo identities:
-there is no production authentication and nothing serves the built frontend against a configurable
-API origin, so it cannot yet be handed over as a URL. Every provider is a deterministic fake. Of the
+The product runs from a deterministic seed with development-only demo identities. The production
+bundle is deployable as one Cloudflare Worker serving both the API and SPA, but there is no
+production authentication, so a public deployment is not yet a usable organizer handoff. Every
+provider is a deterministic fake. Of the
 nine competition features, four are shipped — one of those with a named hole, one with no test on its
 rows — three are partial, and two are missing. The per-feature verdict with a deciding file for each
 is the [traceability table](docs/product/competition-traceability.md); the per-journey verdict, the
@@ -30,5 +31,29 @@ npm run context -- map
 npm run reset
 npm run dev
 ```
+
+## Build and deploy
+
+`npm run build` produces `apps/web/dist` and then verifies the Worker bundle that serves it. The
+Worker asset configuration sends `/api/*` to Hono and falls back to `index.html` for client routes,
+including `/events/*` and `/embed/*`. API clients use the same origin by default. A separately
+hosted API may be selected with `VITE_API_BASE_URL` before the build, but that host must supply its
+own browser CORS and credential policy; this repository's deploy command avoids that cross-origin
+boundary by serving both artifacts from one Worker.
+
+After provisioning the D1 and R2 bindings named in `apps/api/wrangler.toml`, replace the
+`local-development` D1 ID and bucket name there with those resource identifiers, authenticate
+Wrangler with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, then deploy both artifacts in one
+command:
+
+```bash
+npm run deploy
+```
+
+The production runtime deliberately does not enable `DEMO_MODE`; issue #12 owns a deployable
+credential path. Do not publish a demo signing secret as a substitute.
+
+The running Worker serves its generated API contract at `/openapi.json` and a self-contained,
+browsable reference at `/docs`. The docs page loads no third-party runtime assets.
 
 Run `npm run check` before opening a pull request; it runs the same three gates CI's `integrity`, `test-build`, and `d1` jobs run, including the production builds. It deliberately does **not** run the `browser` and `security` gates — [AGENTS.md](AGENTS.md#the-handoff-gate-is-not-the-whole-merge-gate) says why, and `npm run gate:browser` / `npm run gate:security` run them by hand. Product behavior and the implementation roadmap live under `docs/`; this README is only an entrypoint.
