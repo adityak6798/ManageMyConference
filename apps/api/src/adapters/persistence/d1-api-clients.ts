@@ -66,6 +66,19 @@ export class D1ApiClientRepository implements ApiClientRepository {
     return found.results?.[0]?.key_prefix ?? null;
   }
 
+  async findRevocationState(
+    organizationId: string,
+    clientId: string,
+  ): Promise<{ revokedAt: number | null } | null> {
+    const found = await this.database
+      .prepare("SELECT revoked_at FROM api_clients WHERE organization_id = ? AND id = ?")
+      .bind(organizationId, clientId)
+      .all<{ revoked_at: number | null }>();
+    this.assertRead(found, "find API client revocation state");
+    const row = found.results?.[0];
+    return row ? { revokedAt: row.revoked_at } : null;
+  }
+
   async list(organizationId: string): Promise<readonly ApiClientRecord[]> {
     const found = await this.database
       .prepare(`${SELECT_CLIENT} WHERE organization_id = ? ORDER BY created_at DESC, id`)

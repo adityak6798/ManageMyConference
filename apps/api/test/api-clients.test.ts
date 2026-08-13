@@ -57,6 +57,13 @@ class MemoryRepository implements ApiClientRepository {
       )?.keyPrefix ?? null
     );
   }
+  async findRevocationState(organizationId: string, clientId: string) {
+  async findRevocationState(organizationId: string, clientId: string) {
+    const client = this.clients.find(
+      (candidate) => candidate.id === clientId && candidate.organizationId === organizationId,
+    );
+    return client ? { revokedAt: client.revokedAt } : null;
+  }
   async list(organizationId: string) {
     return this.clients.filter((client) => client.organizationId === organizationId);
   }
@@ -410,11 +417,13 @@ describe("API client credentials", () => {
       { method: "DELETE", headers: sessionHeaders },
     );
     expect(revoked.status).toBe(204);
+    const list = vi.spyOn(repository, "list");
     const replayed = await app.request(
       `/api/organizations/${ORGANIZATION}/api-clients/00000000-0000-4000-8000-000000000100`,
       { method: "DELETE", headers: sessionHeaders },
     );
     expect(replayed.status).toBe(204);
+    expect(list).not.toHaveBeenCalled();
     expect(
       (await app.request("/api/session", { headers: { authorization: `Bearer ${CREDENTIAL}` } }))
         .status,

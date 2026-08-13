@@ -89,6 +89,44 @@ describe("API clients against D1", () => {
     expect(listed[0]?.eventIds).toEqual([EVENT]);
   });
 
+  it("reads revocation state with an organization-scoped lightweight lookup", async () => {
+    const { repository } = await stack();
+    await repository.create(
+      {
+        id: CLIENT,
+        organizationId: ORGANIZATION,
+        name: "Automation",
+        keyPrefix: "0123456789abcdef", // gitleaks:allow — public deterministic prefix fixture.
+        secretHash: await hashApiClientSecret("secret"),
+        previousSecretHash: null,
+        previousSecretExpiresAt: null,
+        createdBy: "seed-organizer",
+        createdAt: NOW,
+        expiresAt: null,
+        revokedAt: null,
+        scopes: ["events:read"],
+        eventIds: [EVENT],
+      },
+      context,
+    );
+
+    await expect(repository.findRevocationState(ORGANIZATION, CLIENT)).resolves.toEqual({
+      revokedAt: null,
+    });
+    await expect(
+      repository.findRevocationState("00000000-0000-4000-8000-000000000020", CLIENT),
+    ).resolves.toBeNull();
+    await repository.revoke({
+      organizationId: ORGANIZATION,
+      clientId: CLIENT,
+      now: NOW + 1,
+      context,
+    });
+    await expect(repository.findRevocationState(ORGANIZATION, CLIENT)).resolves.toEqual({
+      revokedAt: NOW + 1,
+    });
+  });
+
   it("reports exactly one changed row for a concurrent double revoke", async () => {
     const { database, repository } = await stack();
     await repository.create(
