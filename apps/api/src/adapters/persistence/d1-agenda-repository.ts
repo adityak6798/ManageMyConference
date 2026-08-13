@@ -3,10 +3,12 @@ import type {
   PublishedSchedule,
 } from "../../application/agenda/agenda-repository";
 import {
+  nextSessionScheduleRevisions,
   schedulePublishedEvent,
   type AgendaDraft,
   type Placement,
   type SchedulePublishedEvent,
+  type SessionScheduleRevision,
 } from "../../domain/agenda/agenda";
 import { changedRows, type D1WriteResult } from "./d1-write-result";
 interface D1Result<T> {
@@ -60,6 +62,30 @@ interface PublicationRow {
   schedule_json: string;
   command_key: string | null;
 }
+interface SessionScheduleRow {
+  session_id: string;
+  starts_at: string;
+  ends_at: string;
+  location: string;
+  revision: number;
+  revised_at: string;
+}
+
+const SESSION_SCHEDULE_COLUMNS = "session_id, starts_at, ends_at, location, revision, revised_at";
+
+const sessionScheduleMap = (rows: readonly SessionScheduleRow[]) =>
+  new Map<string, SessionScheduleRevision>(
+    rows.map((row) => [
+      row.session_id,
+      {
+        startsAt: row.starts_at,
+        endsAt: row.ends_at,
+        location: row.location,
+        revision: row.revision,
+        revisedAt: row.revised_at,
+      },
+    ]),
+  );
 
 const publicationFromRow = (row: PublicationRow | undefined): PublishedSchedule | null =>
   row
@@ -124,7 +150,10 @@ export class D1AgendaRepository implements AgendaRepository {
       throw new Error(`D1 failed to read agenda draft: ${result.error ?? "unknown error"}`);
     const row = result.results?.[0];
     return row
-      ? { draft: JSON.parse(row.draft_json) as AgendaDraft, revision: row.revision }
+      ? {
+          draft: JSON.parse(row.draft_json) as AgendaDraft,
+          revision: row.revision,
+        }
       : null;
   }
   async saveDraft(draft: AgendaDraft) {
@@ -161,7 +190,12 @@ export class D1AgendaRepository implements AgendaRepository {
   }
   async saveResources(eventId: string, resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">) {
     if (!(await this.getDraftRow(eventId))) {
-      await this.saveDraft({ eventId, ...resources, sessions: [], placements: [] });
+      await this.saveDraft({
+        eventId,
+        ...resources,
+        sessions: [],
+        placements: [],
+      });
       return true;
     }
     return (
@@ -217,8 +251,39 @@ export class D1AgendaRepository implements AgendaRepository {
    * is reported as `false` rather than thrown — the caller's retry is the allocation loop. Any
    * other failure is a real one and propagates, because silently returning `false` for it would
    * put the caller into a retry that can never succeed.
+   *
+   * The per-session revisions advance in this same batch, so they share the snapshot's fate: a
+   * publication that rolls back cannot leave a revision behind, and one that commits cannot
+   * fail to advance them. That is what lets the read be a single indexed lookup instead of a
+   * replay of every board this event has ever published (issue #141).
+   *
+   * **Why the read-then-write below needs no extra locking.** `AgendaService.publish` allocates
+   * `version = previous.version + 1`, and `(event_id, version)` is the primary key. Any
+   * publication that commits between this method's read of the revisions and its batch
+   * necessarily takes the version being inserted here, so this whole batch — materialization
+   * included — rolls back on that constraint and the service's allocation loop retries with a
+   * fresh read. A batch that commits is therefore proof that the revisions it read were current.
+   * The read lives here rather than in the service precisely so each retry attempt re-reads it.
+   *
+   * The materialization is a delete-then-insert over this event's rows rather than targeted
+   * per-session upserts, which keeps `meta.changes` out of the correctness argument: a first
+   * publication legitimately deletes nothing, so no count here is load-bearing and none needs
+   * `changedRows`. Targeted statements would make every count load-bearing and each would have
+   * to be refused when the driver omitted it.
+   *
+   * One insert statement per placed session, rather than one multi-row insert. That looks like
+   * the obvious saving and is not available: D1 caps a query at **100 bound parameters**, this
+   * table has seven columns, so a multi-row insert holds fourteen sessions and fails on the
+   * fifteenth — on every board large enough for the saving to matter. Chunking to fourteen would
+   * work, but D1 documents no limit on statements per batch, so it would trade a plain loop for
+   * an arithmetic one to relieve a limit that does not exist. `d1-content-repository.ts` writes
+   * its speakers, tasks and messages the same way for the same reason.
    */
   async publish(schedule: PublishedSchedule) {
+    const revisions = nextSessionScheduleRevisions(
+      await this.sessionScheduleRevisions(schedule.eventId),
+      schedule,
+    );
     const statements = [
       this.database
         .prepare(
@@ -232,6 +297,24 @@ export class D1AgendaRepository implements AgendaRepository {
           JSON.stringify(schedule.agenda),
           schedule.commandKey ?? null,
         ),
+      this.database
+        .prepare("DELETE FROM agenda_session_schedules WHERE event_id = ?")
+        .bind(schedule.eventId),
+      ...[...revisions].map(([sessionId, revision]) =>
+        this.database
+          .prepare(
+            `INSERT INTO agenda_session_schedules (event_id, ${SESSION_SCHEDULE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            schedule.eventId,
+            sessionId,
+            revision.startsAt,
+            revision.endsAt,
+            revision.location,
+            revision.revision,
+            revision.revisedAt,
+          ),
+      ),
       ...((await this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule))) ??
         []),
     ];
@@ -261,16 +344,31 @@ export class D1AgendaRepository implements AgendaRepository {
       throw new Error(`D1 failed to read published agenda: ${result.error ?? "unknown error"}`);
     return publicationFromRow(result.results?.[0]);
   }
-  async listPublished(eventId: string): Promise<readonly PublishedSchedule[]> {
+  /**
+   * One statement, at most one row per session, whatever the length of the history.
+   *
+   * No index beyond the primary key: `(event_id, session_id)` already leads with `event_id`, so
+   * this is a range scan of exactly the rows it returns.
+   *
+   * `ORDER BY session_id` costs nothing — the primary key already walks in that order — and makes
+   * the returned map's iteration order a stated property rather than one that happens to hold.
+   * Every caller today reads by key, so nothing depends on it; the point is that nothing later
+   * can come to depend on an accident of the engine either.
+   */
+  async sessionScheduleRevisions(
+    eventId: string,
+  ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
     const result = await this.database
       .prepare(
-        "SELECT event_id, version, published_at, published_by, schedule_json, command_key FROM agenda_publications WHERE event_id = ? ORDER BY version",
+        `SELECT ${SESSION_SCHEDULE_COLUMNS} FROM agenda_session_schedules WHERE event_id = ? ORDER BY session_id`,
       )
       .bind(eventId)
-      .all<PublicationRow>();
+      .all<SessionScheduleRow>();
     if (!result.success)
-      throw new Error(`D1 failed to list published agendas: ${result.error ?? "unknown error"}`);
-    return (result.results ?? []).map((row) => publicationFromRow(row) as PublishedSchedule);
+      throw new Error(
+        `D1 failed to read session schedule revisions: ${result.error ?? "unknown error"}`,
+      );
+    return sessionScheduleMap(result.results ?? []);
   }
 
   /**

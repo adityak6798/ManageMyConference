@@ -4,16 +4,29 @@ import type {
   PublishOutcome,
 } from "../../application/agenda/agenda-repository";
 import {
+  nextSessionScheduleRevisions,
   schedulePublishedEvent,
   type AgendaDraft,
   type Placement,
   type SchedulePublishedEvent,
+  type SessionScheduleRevision,
 } from "../../domain/agenda/agenda";
 
 export class MemoryAgendaRepository implements AgendaRepository {
   private readonly drafts = new Map<string, AgendaDraft>();
   private readonly publications = new Map<string, PublishedSchedule>();
-  private readonly publicationHistory = new Map<string, PublishedSchedule[]>();
+  /**
+   * The same materialized answer D1 stores, maintained by the same domain function.
+   *
+   * Held per event rather than re-derived from a kept history, because that is the contract
+   * being doubled: D1 advances these rows inside the publication's batch and never replays.
+   * A double that folded a history on read would keep passing if the write path stopped
+   * maintaining the table at all.
+   */
+  private readonly sessionSchedules = new Map<
+    string,
+    ReadonlyMap<string, SessionScheduleRevision>
+  >();
   /** Versions already taken per event, so a second publication cannot reuse one. */
   private readonly versions = new Map<string, Set<number>>();
   /** Publications by `eventId~commandKey`, mirroring D1's partial unique index. */
@@ -28,13 +41,26 @@ export class MemoryAgendaRepository implements AgendaRepository {
     for (const draft of drafts) this.drafts.set(draft.eventId, structuredClone(draft));
     for (const schedule of publications) {
       this.publications.set(schedule.eventId, structuredClone(schedule));
-      this.publicationHistory.set(schedule.eventId, [structuredClone(schedule)]);
       // A seeded snapshot has taken its version too, so the next publication allocates past it.
       this.versions.set(
         schedule.eventId,
         (this.versions.get(schedule.eventId) ?? new Set<number>()).add(schedule.version),
       );
     }
+    /*
+     * Seeded snapshots are folded in version order, not in argument order, because the fold is
+     * only meaningful oldest-first: applied out of order an absence would reset a session that
+     * a later-numbered publication had already placed. Sorting by version is enough — the sort
+     * is stable, so each event's own subsequence keeps its relative order.
+     */
+    for (const schedule of [...publications].sort((left, right) => left.version - right.version))
+      this.sessionSchedules.set(
+        schedule.eventId,
+        nextSessionScheduleRevisions(
+          this.sessionSchedules.get(schedule.eventId) ?? new Map(),
+          schedule,
+        ),
+      );
   }
   async getDraft(eventId: string) {
     return structuredClone(this.drafts.get(eventId) ?? null);
@@ -54,7 +80,12 @@ export class MemoryAgendaRepository implements AgendaRepository {
       )
     )
       return false;
-    this.drafts.set(eventId, { eventId, ...resources, sessions: [], placements });
+    this.drafts.set(eventId, {
+      eventId,
+      ...resources,
+      sessions: [],
+      placements,
+    });
     return true;
   }
   async savePlacement(eventId: string, placement: Placement) {
@@ -103,10 +134,14 @@ export class MemoryAgendaRepository implements AgendaRepository {
     versions.add(schedule.version);
     this.versions.set(schedule.eventId, versions);
     this.publications.set(schedule.eventId, structuredClone(schedule));
-    this.publicationHistory.set(schedule.eventId, [
-      ...(this.publicationHistory.get(schedule.eventId) ?? []),
-      structuredClone(schedule),
-    ]);
+    // Advanced with the publication, exactly as D1 advances it inside the publication's batch.
+    this.sessionSchedules.set(
+      schedule.eventId,
+      nextSessionScheduleRevisions(
+        this.sessionSchedules.get(schedule.eventId) ?? new Map(),
+        schedule,
+      ),
+    );
     if (schedule.commandKey)
       this.byCommandKey.set(
         `${schedule.eventId}~${schedule.commandKey}`,
@@ -125,7 +160,9 @@ export class MemoryAgendaRepository implements AgendaRepository {
   async getPublished(eventId: string) {
     return structuredClone(this.publications.get(eventId) ?? null);
   }
-  async listPublished(eventId: string) {
-    return structuredClone(this.publicationHistory.get(eventId) ?? []);
+  async sessionScheduleRevisions(
+    eventId: string,
+  ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
+    return new Map(this.sessionSchedules.get(eventId) ?? new Map());
   }
 }

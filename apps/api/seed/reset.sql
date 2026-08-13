@@ -15,6 +15,7 @@ DELETE FROM communication_attempts;
 DELETE FROM communication_deliveries;
 DELETE FROM message_templates;
 
+DELETE FROM agenda_session_schedules;
 DELETE FROM agenda_publications;
 DELETE FROM agenda_drafts;
 DELETE FROM crm_contact_activities;
@@ -189,6 +190,16 @@ INSERT INTO agenda_drafts (event_id, draft_json, updated_at) VALUES (
 INSERT INTO agenda_publications (event_id, version, published_at, published_by, schedule_json) VALUES (
   '00000000-0000-4000-8000-000000000001', 1, '2026-08-10T20:00:00.000Z', 'seed-organizer',
   '{"eventId":"00000000-0000-4000-8000-000000000001","rooms":[{"id":"room-main","name":"Main stage"},{"id":"room-lab","name":"Workshop lab"}],"tracks":[{"id":"track-platform","name":"Platform","color":"#6257d9"}],"slots":[{"id":"slot-0900","startsAt":"2026-09-01T16:00:00.000Z","endsAt":"2026-09-01T17:00:00.000Z"}],"sessions":[{"id":"20000000-0000-4000-8000-000000000001","title":"Designing the calm conference","speakerIds":["10000000-0000-4000-8000-000000000001"]}],"placements":[{"id":"placement-opening","sessionId":"20000000-0000-4000-8000-000000000001","roomId":"room-main","trackId":"track-platform","slotId":"slot-0900"}]}'
+);
+-- What version 1 above places, materialized. The seed writes `agenda_publications` directly
+-- rather than through `D1AgendaRepository.publish`, so nothing else would maintain this row, and
+-- a reset would leave the seeded publication with no schedule in force for its one session.
+INSERT INTO agenda_session_schedules (
+  event_id, session_id, starts_at, ends_at, location, revision, revised_at
+) VALUES (
+  '00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
+  '2026-09-01T16:00:00.000Z', '2026-09-01T17:00:00.000Z', 'Main stage',
+  1, '2026-08-10T20:00:00.000Z'
 );
 -- Jordan carries the seeded headshot so the public gallery demonstrates both avatar
 -- paths — a real portrait and a monogram — and so Sam's open "Upload a headshot" task

@@ -1,6 +1,7 @@
 // @acceptance ACC-AGENDA
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
+import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
 import {
   AgendaConflictError,
   AgendaPublicationConflictError,
@@ -336,6 +337,85 @@ describe("published session schedule revisions", () => {
 
     expect(schedules.get("session-a")?.revision).toBe(5);
     expect(schedules.get("session-b")?.revision).toBe(4);
+  });
+
+  const revisionsAfter = async (...history: readonly PublishedSchedule[]) => {
+    const [seeded, ...rest] = history;
+    const repository = new MemoryAgendaRepository([], seeded ? [seeded] : []);
+    for (const publication of rest) await repository.publish(publication);
+    return new AgendaService(repository, () => new Date(), content).publishedSessionSchedules(
+      eventId,
+    );
+  };
+
+  /**
+   * The comparison is on the hour and the place, not on the ids that produced them. A board
+   * rebuilt with new slot and placement ids — a common enough consequence of editing the
+   * resource list — must not resend an invitation to every speaker on it.
+   */
+  it("does not advance when a session moves to a different slot at the same hour", async () => {
+    const twin = {
+      id: "slot-9-twin",
+      startsAt: "2026-09-01T16:00:00.000Z",
+      endsAt: "2026-09-01T17:00:00.000Z",
+    };
+    const movedToTwin = {
+      ...draft,
+      slots: [...draft.slots, twin],
+      placements: draft.placements.map((placement) =>
+        placement.sessionId === "session-a"
+          ? { ...placement, id: "place-a-twin", slotId: twin.id }
+          : placement,
+      ),
+    };
+
+    const schedules = await revisionsAfter(publication(1, draft), publication(2, movedToTwin));
+
+    // A different slot and a different placement id, but the same instants in the same room.
+    expect(schedules.get("session-a")).toEqual({
+      startsAt: "2026-09-01T16:00:00.000Z",
+      endsAt: "2026-09-01T17:00:00.000Z",
+      location: "Main stage",
+      revision: 1,
+      revisedAt: "2026-08-12T00:00:01.000Z",
+    });
+  });
+
+  /** A removed room is a changed location, and the hour it was booked for is still true. */
+  it("keeps the hour and empties the location when the room leaves the snapshot", async () => {
+    const withoutMainStage = {
+      ...draft,
+      rooms: draft.rooms.filter(({ id }) => id !== "room-main"),
+    };
+
+    const schedules = await revisionsAfter(publication(1, draft), publication(2, withoutMainStage));
+
+    expect(schedules.get("session-a")).toEqual({
+      startsAt: "2026-09-01T16:00:00.000Z",
+      endsAt: "2026-09-01T17:00:00.000Z",
+      location: "",
+      revision: 2,
+      revisedAt: "2026-08-12T00:00:02.000Z",
+    });
+  });
+
+  /**
+   * Absence resets even when nobody was watching during it.
+   *
+   * An empty board publishes every session out of the programme at once, so the identical
+   * placement that follows is a genuinely new statement to a calendar client that dropped the
+   * event. Carrying the old revision across the gap would suppress the REQUEST that puts it
+   * back (issue #136).
+   */
+  it("treats a published empty board as an absence that resets the revision", async () => {
+    const schedules = await revisionsAfter(
+      publication(1, draft),
+      publication(2, { ...draft, placements: [] }),
+      publication(3, draft),
+    );
+
+    expect(schedules.get("session-a")?.revision).toBe(3);
+    expect(schedules.get("session-b")?.revision).toBe(3);
   });
 });
 

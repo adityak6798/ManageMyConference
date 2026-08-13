@@ -70,6 +70,7 @@ export const {
   calendarInviteStates,
   agendaDrafts,
   agendaPublications,
+  agendaSessionSchedules,
   attendeeItineraries,
   cfpForms,
   cfpStatusAudit,
