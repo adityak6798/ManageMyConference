@@ -145,10 +145,10 @@ feature-by-feature verdict.
   Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: a
   paid account credential becomes available and the staging smoke records the date, commit, and
   observed request/response behavior.
-- `GAP-016` The generated OpenAPI document is checked for drift but not served, and there is no API
-  documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
-  Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable
-  route with a rendered docs page, covered by a route test.
+- `GAP-016` **Closed by issue #59.** The generated OpenAPI document is served at
+  `GET /openapi.json`, and `GET /docs` renders the documentation page. Both stable routes are
+  covered by `apps/api/test/api-docs.test.ts`. Owner: platform. Governing ID: `ENG-CI-001`,
+  `API-PUBLIC-*`.
 - `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Three
   times observed here: once locally on 2026-08-11 after roughly 45 minutes of uptime, once in the
   `browser` job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with

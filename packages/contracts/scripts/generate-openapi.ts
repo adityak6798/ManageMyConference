@@ -35,7 +35,7 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
 registry.registerComponent("securitySchemes", "eventBearer", {
   type: "http",
   scheme: "bearer",
-  bearerFormat: "Greenroom event token",
+  bearerFormat: "Greenroom event token or grn_ API-client credential",
 });
 
 // A path claimed by two fragments would silently produce one merged entry, so the domains

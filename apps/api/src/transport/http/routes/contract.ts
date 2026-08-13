@@ -22,6 +22,7 @@ import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
 import type { EventTemplateService } from "../../../application/events/public";
 import type { MembershipService } from "../../../application/identity/membership";
+import type { ApiClientService } from "../../../application/identity/public";
 import type { PlatformOperationsService } from "../../../application/platform/public";
 import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
@@ -78,6 +79,8 @@ export interface HttpDependencies {
    * persona.
    */
   membership?: MembershipService | undefined;
+  /** Organization-scoped machine-credential administration. */
+  apiClients?: ApiClientService | undefined;
   agenda?: AgendaService | undefined;
   communications?: CommunicationsService | undefined;
   /** The inbound Accelevents registration sync, and the last-run state its surface reads. */

@@ -1,12 +1,12 @@
 # Interface catalog
 
-Status: canonical | Owner: architecture | Last verified: 2026-08-12
+Status: canonical | Owner: architecture | Last verified: 2026-08-13
 
 Shared Zod schemas own every current request and response shape: event mutations/lists/basic metadata, agenda draft/placement/publication/public projection, current session/capabilities, demo session, health, and the standard error envelope. They generate [`packages/contracts/openapi.json`](../../packages/contracts/openapi.json), and CI rejects drift. The OpenAPI document covers health, the internal demo-cookie route, session, event, agenda, and public-schedule routes, cookie security, and implemented success/error statuses. Domain types own business semantics. Drizzle declares intended storage, immutable SQL migrations own deployed history, and the D1 adapter owns persistence behavior. Explicit tested mappers connect transport, domain, and storage models.
 
 ## Route groups
 
-- `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration.
+- `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration, and organization API clients.
 - `API-ORG-*`, `API-EVENT-*`: organization/event commands and queries.
 - `API-CFP-*`, `API-REVIEW-*`: forms, submissions, assignments, evaluations.
 - `API-CONTENT-*`, `API-CRM-*`: speakers, sessions, tasks/assets, prospects/activity/conversion.
@@ -28,7 +28,14 @@ CRM routes come in two scopes, and the addressing is the boundary rather than a 
 POST /api/auth/code returns the same response and sends the same fixed-content mail whether or not
 an address is registered; POST /api/auth/verify establishes a production signed cookie only for a
 linked identity. POST /api/auth/tokens mints a bearer identity reduced to
-one authorized event. GET /api/auth/config reports which doors this deployment actually offers —
+one authorized event. Organization API clients use the distinct
+`Authorization: Bearer grn_<prefix>.<secret>` grammar and are administered at
+`/api/organizations/{organizationId}/api-clients`. Create, list, rotate, and revoke require a
+real organizer session; listing never returns a secret or digest. Creation and rotation return
+the plaintext once, rotation accepts the previous credential for 24 hours, and revocation is
+observed on the next request. A client resolves to exactly its owning organization and the
+intersection of its declared capability/event grants with its creator's current access.
+GET /api/auth/config reports which doors this deployment actually offers —
 `demoMode` and `google` — so a sign-in surface renders what can complete rather than what exists in
 the codebase. GET /api/auth/google/start is a plain 302 to Google rather than a JSON endpoint the
 client follows, so the button is an ordinary link with no script and no preflight; it sets a

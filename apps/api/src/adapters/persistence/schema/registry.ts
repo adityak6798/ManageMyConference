@@ -73,6 +73,9 @@ export const schema = {
 };
 
 export const {
+  apiClientEvents,
+  apiClientScopes,
+  apiClients,
   accelEventsSyncRuns,
   calendarInviteStates,
   agendaDrafts,

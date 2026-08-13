@@ -8,6 +8,7 @@
  */
 import {
   acceptInvitationSchema,
+  createApiClientSchema,
   createInvitationSchema,
   demoSessionInputSchema,
   eventRoleSchema,
@@ -15,16 +16,24 @@ import {
   loginCodeRequestSchema,
   loginCodeVerifySchema,
 } from "@greenroom/contracts";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
   AuthenticationRequiredError,
+  type Capability,
   requireEventCapability,
 } from "../../../application/identity/actor";
-import { createDemoSession, isDemoPersonaId } from "../../../application/identity/demo-session";
+import {
+  ApiClientConflictError,
+  ApiClientInputError,
+  ApiClientNotFoundError,
+  type PublicApiClient,
+} from "../../../application/identity/api-clients";
 import type { AuditContext } from "../../../application/identity/audit";
+import { createDemoSession, isDemoPersonaId } from "../../../application/identity/demo-session";
 import {
   EventOutsideOrganizationError,
-  InvitationInvalidError,
   type InvitableRole,
+  InvitationInvalidError,
   MembershipRefusedError,
 } from "../../../application/identity/membership";
 import {
@@ -34,7 +43,6 @@ import {
   exchangeLoginChallenge,
   sessionIdFrom,
 } from "../../../application/identity/real-auth";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { envelope, type HttpContext, readJson, validationFields } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
@@ -58,6 +66,10 @@ const routes = [
   "PUT /api/organizations/{organizationId}/events/{eventId}/roles/{userId}",
   "DELETE /api/organizations/{organizationId}/events/{eventId}/roles/{userId}",
   "GET /api/organizations/{organizationId}/audit-events",
+  "POST /api/organizations/{organizationId}/api-clients",
+  "GET /api/organizations/{organizationId}/api-clients",
+  "POST /api/organizations/{organizationId}/api-clients/{clientId}/rotate",
+  "DELETE /api/organizations/{organizationId}/api-clients/{clientId}",
 ] as const;
 const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
 /**
@@ -102,6 +114,13 @@ const auditContext = (context: HttpContext): AuditContext => ({
   correlationId: context.get("correlationId"),
   actorUserId: context.get("actor")?.id ?? null,
   source: "human",
+});
+
+const apiClientDto = (client: PublicApiClient) => ({
+  ...client,
+  createdAt: new Date(client.createdAt).toISOString(),
+  expiresAt: client.expiresAt === null ? null : new Date(client.expiresAt).toISOString(),
+  revokedAt: client.revokedAt === null ? null : new Date(client.revokedAt).toISOString(),
 });
 
 export const identityRoutes: RouteModule = {
@@ -713,6 +732,76 @@ export const identityRoutes: RouteModule = {
         201,
       );
     });
+    app.post("/api/organizations/:organizationId/api-clients", async (context) => {
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to create an API client");
+      if (!dependencies.apiClients) throw new Error("API client service is not configured");
+      const parsed = createApiClientSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "API client details are invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      const created = await dependencies.apiClients.create(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        {
+          name: parsed.data.name,
+          scopes: parsed.data.scopes as Capability[],
+          eventIds: parsed.data.eventIds,
+          ...(parsed.data.expiresAt
+            ? { expiresAt: new Date(parsed.data.expiresAt).getTime() }
+            : {}),
+        },
+        auditContext(context),
+      );
+      return context.json(
+        { client: apiClientDto(created.client), credential: created.credential },
+        201,
+      );
+    });
+    app.get("/api/organizations/:organizationId/api-clients", async (context) => {
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to list API clients");
+      if (!dependencies.apiClients) throw new Error("API client service is not configured");
+      const clients = await dependencies.apiClients.list(
+        context.get("actor"),
+        context.req.param("organizationId"),
+      );
+      return context.json({ clients: clients.map(apiClientDto) });
+    });
+    app.post("/api/organizations/:organizationId/api-clients/:clientId/rotate", async (context) => {
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to rotate an API client");
+      if (!dependencies.apiClients) throw new Error("API client service is not configured");
+      const rotated = await dependencies.apiClients.rotate(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        context.req.param("clientId"),
+        auditContext(context),
+      );
+      return context.json({
+        credential: rotated.credential,
+        previousCredentialExpiresAt: new Date(rotated.previousCredentialExpiresAt).toISOString(),
+      });
+    });
+    app.delete("/api/organizations/:organizationId/api-clients/:clientId", async (context) => {
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to revoke an API client");
+      if (!dependencies.apiClients) throw new Error("API client service is not configured");
+      await dependencies.apiClients.revoke(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        context.req.param("clientId"),
+        auditContext(context),
+      );
+      return context.body(null, 204);
+    });
     app.post("/api/demo-session", async (context) => {
       if (!auth.demoMode)
         return context.json(
@@ -778,6 +867,20 @@ export const identityRoutes: RouteModule = {
    * because telling them apart would say whether a guessed token named a real invitation.
    */
   translateError(error: unknown) {
+    if (error instanceof ApiClientNotFoundError)
+      return { code: "NOT_FOUND" as const, message: "API client not found.", status: 404 as const };
+    if (error instanceof ApiClientConflictError)
+      return {
+        code: "CONFLICT" as const,
+        message: "That API client is already revoked or unavailable.",
+        status: 409 as const,
+      };
+    if (error instanceof ApiClientInputError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+      };
     if (error instanceof InvitationInvalidError)
       return {
         code: "NOT_FOUND" as const,

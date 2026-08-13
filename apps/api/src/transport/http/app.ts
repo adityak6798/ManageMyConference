@@ -128,9 +128,15 @@ export function createHttpAppFrom(
     } else if (auth.sessionSecret) {
       if (authorization) {
         resolved = bearer
-          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor, (id, now) =>
-              auth.sessions.find(id, now),
-            )
+          ? bearer.startsWith("grn_")
+            ? await (auth.resolveApiClient?.(bearer) ?? Promise.resolve(null))
+            : await resolveEventToken(
+                bearer,
+                auth.sessionSecret,
+                at,
+                auth.resolveActor,
+                (id, now) => auth.sessions.find(id, now),
+              )
           : null;
         kind = "bearer";
       } else {

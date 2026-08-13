@@ -86,7 +86,9 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-HARNESS`
+- `test` / `repository-fact`: [apps/api/test/api-clients.test.ts](../../apps/api/test/api-clients.test.ts)
 - `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-api-clients.integration.test.ts](../../apps/api/test/d1-api-clients.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-harness.integration.test.ts](../../apps/api/test/d1-harness.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-write-result.test.ts](../../apps/api/test/d1-write-result.test.ts)
@@ -125,6 +127,7 @@
 - `test` / `repository-fact`: [apps/api/test/membership-service.test.ts](../../apps/api/test/membership-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/real-auth.test.ts](../../apps/api/test/real-auth.test.ts)
 - `test` / `repository-fact`: [apps/api/test/signup-service.test.ts](../../apps/api/test/signup-service.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/api-clients.spec.ts](../../apps/web/e2e/api-clients.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/members.spec.ts](../../apps/web/e2e/members.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
@@ -529,6 +532,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-sessions.ts](../../apps/api/src/adapters/persistence/d1-identity-sessions.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/identity-revocation-statements.mjs](../../apps/api/src/adapters/persistence/identity-revocation-statements.mjs)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/identity-access.ts](../../apps/api/src/adapters/persistence/schema/identity-access.ts)
+- `code` / `repository-fact`: [apps/api/src/application/identity/api-clients.ts](../../apps/api/src/application/identity/api-clients.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/audit.ts](../../apps/api/src/application/identity/audit.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/google-oauth.ts](../../apps/api/src/application/identity/google-oauth.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/identity-directory.ts](../../apps/api/src/application/identity/identity-directory.ts)
@@ -554,6 +558,7 @@
 ### `PRD-IAM-002`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-membership.ts](../../apps/api/src/adapters/persistence/d1-identity-membership.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/crm-service.ts](../../apps/api/src/application/crm/crm-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/identity/api-clients.ts](../../apps/api/src/application/identity/api-clients.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/identity-directory.ts](../../apps/api/src/application/identity/identity-directory.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/membership.ts](../../apps/api/src/application/identity/membership.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)

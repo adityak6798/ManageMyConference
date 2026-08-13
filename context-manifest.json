@@ -64,6 +64,11 @@
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
       },
       {
+        "path": "apps/api/src/application/identity/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "Identity-access's declared machine-credential application surface. The transport composition contract depends on the service type through this module while credential policy, hashing, resolution, and persistence stay inside identity-access."
+      },
+      {
         "path": "apps/api/src/application/communications/public.ts",
         "governing": "PRD-COM-001",
         "reason": "Communications' declared export surface: the enqueue interface a lifecycle event uses when there is no request actor, the prepared-delivery writer a caller commits in its own batch, the service type the transport composes, and the three typed errors both translate. Narrowed from communications-service.ts, which #92 recorded as the one entry naming a service instead of an export surface."
@@ -459,7 +464,16 @@
         "apps/api/src/adapters/persistence/identity-revocation-statements.mjs",
         "apps/web/src/AcceptInvitationPage.tsx",
         "apps/web/test/accept-invitation.test.tsx",
-        "apps/web/test/members-workspace.test.tsx"
+        "apps/web/test/members-workspace.test.tsx",
+        "apps/api/migrations/1004_api_clients.sql",
+        "apps/api/src/application/identity/api-clients.ts",
+        "apps/api/src/application/identity/public.ts",
+        "apps/api/src/adapters/persistence/d1-api-clients.ts",
+        "apps/api/test/api-clients.test.ts",
+        "apps/api/test/d1-api-clients.integration.test.ts",
+        "apps/web/src/api/api-clients.ts",
+        "apps/web/src/workspaces/api-clients.tsx",
+        "apps/web/e2e/api-clients.spec.ts"
       ]
     },
     {

@@ -176,6 +176,41 @@ export const capabilitySchema = z.enum([
   "identity:manage",
 ]);
 
+/** Organization-scoped machine credentials. Plaintext credentials exist only in create/rotate. */
+export const createApiClientSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  scopes: z.array(capabilitySchema).min(1).max(12),
+  eventIds: z.array(z.string().uuid()).min(1).max(100),
+  expiresAt: z.string().datetime().optional(),
+});
+export const apiClientSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  name: z.string(),
+  keyPrefix: z.string(),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  scopes: z.array(capabilitySchema),
+  eventIds: z.array(z.string().uuid()),
+});
+export const createApiClientResponseSchema = z.object({
+  client: apiClientSchema,
+  credential: z.string().startsWith("grn_"),
+});
+export const apiClientsResponseSchema = z.object({ clients: z.array(apiClientSchema) });
+export const apiClientOrganizationParamsSchema = z.object({
+  organizationId: z.string().uuid(),
+});
+export const apiClientParamsSchema = apiClientOrganizationParamsSchema.extend({
+  clientId: z.string().uuid(),
+});
+export const rotateApiClientResponseSchema = z.object({
+  credential: z.string().startsWith("grn_"),
+  previousCredentialExpiresAt: z.string().datetime(),
+});
+
 export const sessionEventAccessSchema = z.object({
   eventId: z.string().uuid(),
   role: demoPersonaSchema,

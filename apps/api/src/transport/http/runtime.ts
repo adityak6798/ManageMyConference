@@ -120,6 +120,8 @@ export type RuntimeAuthConfig =
         expiresAt: number;
       }) => Promise<void>;
       consumeLoginChallenge: (id: string, codeProof: string, now: number) => Promise<string | null>;
+      /** Resolve the distinct `grn_` machine-credential grammar against durable D1 state. */
+      resolveApiClient?: ((credential: string) => Promise<Actor | null>) | undefined;
       google?: GoogleAuthProvider;
     };
 

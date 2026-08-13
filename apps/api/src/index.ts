@@ -8,6 +8,7 @@ import {
 import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
+import { D1ApiClientRepository } from "./adapters/persistence/d1-api-clients";
 import {
   D1AuditRecordStore,
   preparedAuditWriter,
@@ -65,6 +66,11 @@ import {
   stateProof,
 } from "./application/identity/google-oauth";
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
+import {
+  ApiClientResolver,
+  ApiClientService,
+  mintApiClientCredential,
+} from "./application/identity/api-clients";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
 import {
@@ -1031,6 +1037,20 @@ export default {
       now: () => Date.now(),
       mintToken: mintInvitationToken,
     });
+    const apiClientRepository = new D1ApiClientRepository(environment.DB);
+    const apiClients = new ApiClientService({
+      repository: apiClientRepository,
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+      mintCredential: mintApiClientCredential,
+    });
+    const apiClientResolver = new ApiClientResolver({
+      repository: apiClientRepository,
+      resolveCreator: (userId) => identityDirectory.findByUserId(userId),
+      events: service,
+      now: () => Date.now(),
+    });
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
       speakerConversion,
@@ -1237,6 +1257,7 @@ export default {
             sessions,
             ...(googleAuth ? { google: googleAuth } : {}),
             resolveActor: (userId: string) => identityDirectory.findByUserId(userId),
+            resolveApiClient: (credential: string) => apiClientResolver.resolve(credential),
             resolveEmail: async (email: string) => {
               if (
                 environment.INITIAL_ORGANIZER_USER_ID &&
@@ -1279,6 +1300,7 @@ export default {
       speakerCalendarInvites,
       accelEventsSync,
       membership,
+      apiClients,
       eventTemplates,
       platformOps,
       build:
