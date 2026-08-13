@@ -158,6 +158,13 @@ export interface SliceContext {
    *
    * So the slice that knows declares it. A provision is a promise about a specific fact, made by
    * the category that will make it true, and a dependent slice tests for exactly that fact.
+   *
+   * One limit survives and must not be forgotten: a provision is **category-grained**. Review can
+   * promise that its status set will be written; it cannot promise that the set contains the
+   * particular status a routing rule names, because saying which keys it holds would put review's
+   * payload across this boundary — the one thing the design forbids. A dependent slice therefore
+   * still words its preview as a dependency ("once the triage statuses category creates that
+   * status") rather than as a guarantee, and CFP's own comment says so where it reads this.
    */
   readonly providedBefore: readonly SliceProvision[];
 }

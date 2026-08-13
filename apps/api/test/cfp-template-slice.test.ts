@@ -117,8 +117,9 @@ async function setup(options: { readonly destinationProposalStatus?: string } = 
       : [],
   );
   const cfp = new CfpService(new MemoryCfpRepository(), newId, now, proposals);
+  const reviewRepository = new MemoryReviewRepository();
   const review = new ReviewService({
-    repository: new MemoryReviewRepository(),
+    repository: reviewRepository,
     proposals,
     identities: {
       isReviewerForEvent: async () => false,
@@ -138,7 +139,7 @@ async function setup(options: { readonly destinationProposalStatus?: string } = 
     newId,
     now,
   });
-  return { actor: organizer(), cfp, proposals, review, templates };
+  return { actor: organizer(), cfp, proposals, review, reviewRepository, templates };
 }
 
 const capture = (templates: EventTemplateService, actor: Actor) =>
@@ -214,8 +215,9 @@ describe("CFP template slice, applied behind the triage statuses", () => {
    * reading of that verdict can separate them — which is why the seam carries a promise the
    * review slice makes about itself instead. Here review refuses its whole status set because the
    * destination's own abstracts hold a status the template omits, so nothing is written and the
-   * rule must stay refused on both sides. The sibling case above is the other one: a rubric locked
-   * by existing assignments, also `incompatible`, where the status set lands and the rule copies.
+   * rule must stay refused on both sides. Its opposite — a rubric locked by existing assignments,
+   * also `incompatible`, where the status set lands anyway and the rule copies — is the test
+   * below, and the pair is the whole argument for a declared promise over a read verdict.
    */
   it("refuses a rule when review reports incompatible and writes no statuses at all", async () => {
     const { actor, cfp, proposals, review, templates } = await setup({
@@ -255,6 +257,57 @@ describe("CFP template slice, applied behind the triage statuses", () => {
     expect(previewed?.copies.map(({ id }) => id)).not.toContain("route-shortlist");
     expect(applied?.incompatible.map(({ id }) => id)).toContain("route-shortlist");
     expect((await cfp.getForOrganizer(actor, DESTINATION))?.routing ?? []).toEqual([]);
+  });
+
+  it("copies a rule when review reports incompatible but its statuses still land", async () => {
+    const { actor, cfp, proposals, review, reviewRepository, templates } = await setup();
+    await review.configureStatuses(actor, SOURCE, [
+      { key: "submitted", label: "Submitted", sortOrder: 0 },
+      { key: "shortlisted", label: "Shortlisted", sortOrder: 1 },
+      ...RESERVED,
+    ]);
+    await review.configurePlan(actor, SOURCE, [
+      { id: "fit", name: "Fit", description: "", minScore: 1, maxScore: 5 },
+    ]);
+    await cfp.save(actor, {
+      eventId: SOURCE,
+      title: "Share your conference story",
+      description: "Submit a practical session.",
+      fields: FIELDS,
+      routing: [routingRule("route-shortlist", "shortlisted")],
+      expectedVersion: 0,
+    });
+    await proposals.saveStatuses(DESTINATION, []);
+    /*
+     * The destination already scores against different criteria and a reviewer holds an
+     * assignment, which locks its rubric. Review therefore reports the whole category
+     * `incompatible` — and still writes its triage statuses, which is the half CFP depends on.
+     */
+    await review.configurePlan(actor, DESTINATION, [
+      { id: "clarity", name: "Clarity", description: "", minScore: 1, maxScore: 5 },
+    ]);
+    await reviewRepository.createAssignments([
+      {
+        id: "00000000-0000-4000-8000-0000000000b1",
+        eventId: DESTINATION,
+        proposalId: "00000000-0000-4000-8000-0000000000b2",
+        reviewerId: "seed-reviewer",
+        createdAt: "2026-08-11T00:00:00.000Z",
+      },
+    ]);
+    const { template } = await capture(templates, actor);
+
+    const plan = await previewInto(templates, actor, template.id);
+    const result = await applyInto(templates, actor, template.id);
+
+    expect(reviewSlice(plan.slices)?.outcome).toBe("incompatible");
+    expect(reviewSlice(result.slices)?.outcome).toBe("incompatible");
+    // The promise is kept: the statuses landed, so the rule is copyable on both sides.
+    expect(cfpSlice(plan.slices)?.copies.map(({ id }) => id)).toContain("route-shortlist");
+    expect(cfpSlice(result.slices)?.applied.map(({ id }) => id)).toContain("route-shortlist");
+    expect((await cfp.getForOrganizer(actor, DESTINATION))?.routing?.map(({ id }) => id)).toEqual([
+      "route-shortlist",
+    ]);
   });
 
   it("still refuses a rule whose status nothing in this clone creates", async () => {
