@@ -60,12 +60,19 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
     // Absent `main` is a broken page, not a clean one — reported rather than counted as zero.
     if (!main) return ["<no main landmark on the page>"];
     const width = document.documentElement.clientWidth;
-    return [...main.querySelectorAll<HTMLElement>("button, a[href]")]
+    // Every interactive control, not only buttons and links: the guarantee is about what an
+    // organizer can reach, and an off-screen select, textarea or disclosure summary fails it
+    // exactly as a button does.
+    const interactive =
+      'button, a[href], input:not([type="hidden"]), select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+    return [...main.querySelectorAll<HTMLElement>(interactive)]
       .filter((element) => {
         if (element.hasAttribute("disabled") || element.getAttribute("aria-hidden") === "true")
           return false;
         const style = getComputedStyle(element);
         if (style.display === "none" || style.visibility === "hidden") return false;
+        // `.visually-hidden` parks a 1px clipped box off-layout; it is announced, not pointed at.
+        if (element.classList.contains("visually-hidden")) return false;
         const box = element.getBoundingClientRect();
         // A zero-box control is collapsed or inside a closed disclosure, not misplaced.
         if (box.width === 0 || box.height === 0) return false;

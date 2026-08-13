@@ -135,9 +135,20 @@ export function ResourceEditor({
   // focus back. Without this a keyboard user is dropped to the document and has to traverse the
   // whole dashboard again to return to a roster that sits at the bottom of the page.
   const toggles = useRef<Record<string, HTMLButtonElement | null>>({});
-  function close(returnFocusTo: string) {
-    setOpen(null);
-    toggles.current[returnFocusTo]?.focus();
+  /**
+   * Close the editor that just finished, and only that one.
+   *
+   * The functional update matters: a save is asynchronous, so by the time it lands the organizer
+   * may have opened a different resource. Clearing `open` unconditionally would unmount whatever
+   * they had opened since, along with anything typed into it. Focus is only recovered when this
+   * editor really was the one on screen.
+   */
+  function close(id: string) {
+    setOpen((current) => {
+      if (current !== id) return current;
+      toggles.current[id]?.focus();
+      return null;
+    });
   }
 
   function submit(event: FormEvent<HTMLFormElement>, id?: string) {
@@ -242,7 +253,14 @@ export function ResourceEditor({
                       ref={(node) => {
                         toggles.current[resource.id] = node;
                       }}
-                      onClick={() => setOpen(isOpen ? null : resource.id)}
+                      // Inert while a request is in flight, for the same reason as the New
+                      // resource toggle: `aria-disabled` keeps focus where it is, and the guard
+                      // is what actually stops the click.
+                      aria-disabled={busy}
+                      onClick={() => {
+                        if (busy) return;
+                        setOpen(isOpen ? null : resource.id);
+                      }}
                     >
                       {isOpen ? "Close" : "Edit"}
                       <span className="visually-hidden"> {resource.title}</span>
