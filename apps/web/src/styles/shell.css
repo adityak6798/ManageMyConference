@@ -426,28 +426,27 @@ dl.grid-auto {
      content left to reach, and disappears at both ends — a container that does not
      scroll never paints one.
 
-     `--ink-3` at 62% rather than `--ink-4` at 34%: this shadow is the *only* cue that the
-     table continues, so it is a graphical object needed to understand the content and owes
-     WCAG 1.4.11's 3:1. The first attempt composited to about #D6DBD8 — roughly 1.4:1 on
-     white, which measured as invisible on a glare-washed screen. It is still occluded across
-     the sticky header row and under a hovered row, both of which paint opaque backgrounds
-     over the container; that is a thin band rather than the whole edge, and fixing it would
-     mean moving the affordance onto a pseudo-element above the table. */
+     This shadow is the *only* cue that the table continues, so it is a graphical object
+     needed to understand the content and owes WCAG 1.4.11's 3:1. Two revisions to get
+     there. `--ink-4` at 34% composited to about #D6DBD8, roughly 1.4:1 on white and
+     invisible on a glare-washed screen. `--ink-3` at 62% was darker but still short, and
+     it was a `farthest-side` *ellipse* centred at 50% height — so whatever it measured at
+     the vertical middle, it decayed to nothing at the top and bottom of a tall table,
+     including the top, where the sticky header already occludes it.
+
+     A horizontal `linear-gradient` has no vertical falloff, so the edge holds one value
+     down the whole container: `--ink-3` at 75% over `--surface` is about #859089, ~3.2:1
+     on white. It is still occluded across the sticky header row and under a hovered row,
+     both of which paint opaque backgrounds over the container; that is a thin band rather
+     than the whole edge, and removing it would mean moving the affordance onto a
+     pseudo-element stacked above the table. */
   background:
     linear-gradient(to right, var(--surface) 30%, transparent) left center,
     linear-gradient(to left, var(--surface) 30%, transparent) right center,
-    radial-gradient(
-      farthest-side at 0 50%,
-      color-mix(in srgb, var(--ink-3) 62%, transparent),
-      transparent
-    )
-    left center,
-    radial-gradient(
-      farthest-side at 100% 50%,
-      color-mix(in srgb, var(--ink-3) 62%, transparent),
-      transparent
-    )
-    right center;
+    linear-gradient(to right, color-mix(in srgb, var(--ink-3) 75%, transparent), transparent) left
+    center,
+    linear-gradient(to left, color-mix(in srgb, var(--ink-3) 75%, transparent), transparent) right
+    center;
   background-repeat: no-repeat;
   background-size:
     32px 100%,

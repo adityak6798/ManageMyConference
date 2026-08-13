@@ -293,9 +293,16 @@ export function ContentOperations({
               <span className="visually-hidden"> for {workflowSpeaker.name}</span>
             </button>
           </form>
-        ) : (
+        ) : workspace.speakers.length ? (
           <EmptyState title="No speakers match">
             Choose another progress filter to see the rest of the roster.
+          </EmptyState>
+        ) : (
+          // Advice an organizer can act on. Telling somebody with an empty roster to change a
+          // filter sends them round a loop no filter setting can end.
+          <EmptyState title="No speakers yet">
+            Speaker records are created when you accept a proposal, import a CSV, or sync
+            registrations.
           </EmptyState>
         )}
       </ToolPanel>

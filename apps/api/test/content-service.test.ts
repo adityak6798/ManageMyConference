@@ -14,7 +14,10 @@ import {
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
-import type { SpeakerNotificationPort } from "../src/application/content/content-service";
+import type {
+  ContentActorDirectoryPort,
+  SpeakerNotificationPort,
+} from "../src/application/content/content-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
 import { CapabilityDeniedError } from "../src/application/identity/actor";
@@ -88,6 +91,8 @@ function setup(
     drafts?: readonly AgendaDraft[];
     /** Records what content asked to have sent, for the lifecycle-trigger tests (issue #66). */
     speakerNotifications?: SpeakerNotificationPort;
+    /** Identity's answer to "what is this person called?" (issue #154). */
+    identities?: ContentActorDirectoryPort;
   } = {},
 ) {
   const publishedEvents = options.publishedEvents ?? new Set([eventId]);
@@ -112,6 +117,7 @@ function setup(
       ...(options.speakerNotifications
         ? { speakerNotifications: options.speakerNotifications }
         : {}),
+      ...(options.identities ? { identities: options.identities } : {}),
       assetStorage: storage,
       proposals:
         options.proposals ??
@@ -276,6 +282,53 @@ describe("ContentService", () => {
     };
     const organizerWorkspace = await service.workspace(organizerSpeaker, eventId);
     expect(organizerWorkspace.speakers).toHaveLength(2);
+  });
+
+  it("names an event's staff to organizers and to nobody else", async () => {
+    // `listAssignableOwnersForEvent` returns the event's organizers *and* its reviewers, so this
+    // directory is the roster of everyone staffing the event. It exists to turn the actor id on a
+    // revision into a name in Edit history (#154), which only organizers see — and the speaker
+    // projection carries no revisions to attribute. Publishing it to a speaker reading their own
+    // portal would be an information disclosure with nothing asking for it, so the guard that
+    // withholds it is asserted in both directions rather than left to the one client that reads it.
+    const asked: string[] = [];
+    const identities: ContentActorDirectoryPort = {
+      listAssignableOwnersForEvent: async (id) => {
+        asked.push(id);
+        return [
+          { id: "seed-organizer", name: "Olivia Organizer" },
+          { id: "seed-reviewer", name: "Ravi Reviewer" },
+        ];
+      },
+    };
+    const { service } = setup({ identities });
+
+    const organizerWorkspace = await service.workspace(
+      await resolveSeededDemoActor("organizer"),
+      eventId,
+    );
+    expect(organizerWorkspace.actorDirectory).toEqual([
+      { id: "seed-organizer", name: "Olivia Organizer" },
+      { id: "seed-reviewer", name: "Ravi Reviewer" },
+    ]);
+    expect(asked).toEqual([eventId]);
+
+    const speakerWorkspace = await service.workspace(
+      await resolveSeededDemoActor("speaker"),
+      eventId,
+    );
+    expect(speakerWorkspace.actorDirectory).toBeUndefined();
+    // Not merely absent from the response — never asked for, so a speaker's read does not spend a
+    // query on a roster they must not receive.
+    expect(asked).toEqual([eventId]);
+  });
+
+  it("falls back to unattributed history when no identity directory is bound", async () => {
+    // `identities` is optional, and a composition without it must still serve the workspace —
+    // the console then prints the stored id, which is what it did before #154.
+    const { service } = setup();
+    const workspace = await service.workspace(await resolveSeededDemoActor("organizer"), eventId);
+    expect(workspace.actorDirectory).toBeUndefined();
   });
 
   it("refuses to invent content for a proposal the review domain does not vouch for", async () => {

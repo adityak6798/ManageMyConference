@@ -192,8 +192,15 @@ export function ResourceEditor({
           ref={(node) => {
             toggles.current.new = node;
           }}
-          onClick={() => setOpen(open === "new" ? null : "new")}
-          disabled={busy}
+          onClick={() => {
+            if (busy) return;
+            setOpen(open === "new" ? null : "new");
+          }}
+          // aria-disabled, not disabled: after a successful create, `close("new")` returns focus
+          // to this button while the request is still settling, and the browser refuses to focus a
+          // disabled element — focus fell to the document instead. This is also the convention
+          // content.css:33-38 already documents and styles for exactly this failure.
+          aria-disabled={busy}
         >
           {open === "new" ? "Cancel new resource" : "New resource"}
         </button>

@@ -73,6 +73,11 @@ function isExemptFrom155(surface: string): boolean {
  * counted, because "3 controls are off-screen" is not something anyone can act on.
  */
 async function expectNoHorizontalOverflow(page: Page, surface: string) {
+  // The shell paints its `<h1>` before the workspace fetch resolves, so a check that runs on the
+  // heading alone can measure an empty `main` and pass because there was nothing to measure. The
+  // tables are the things that overflow; waiting for the network settles them first.
+  await settled(page);
+
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
@@ -82,7 +87,8 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
 
   const offscreen = await page.evaluate(() => {
     const main = document.querySelector("main");
-    if (!main) return [];
+    // Absent `main` is a broken page, not a clean one — reported rather than counted as zero.
+    if (!main) return ["<no main landmark on the page>"];
     const width = document.documentElement.clientWidth;
     return [...main.querySelectorAll<HTMLElement>("button, a[href]")]
       .filter((element) => {
@@ -108,19 +114,47 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
 }
 
 /**
+ * The workspace's own content has arrived, not just the shell that frames it.
+ *
+ * An element wait, not `networkidle`: these destinations are reached by clicking a nav link, so
+ * the SPA starts no document load and the idle state is already satisfied before the workspace
+ * fetch is issued — and on this app `networkidle` never resolves at all. Waiting for a control
+ * inside `main` is the signal that the page has something to measure.
+ */
+async function settled(page: Page) {
+  await expect(page.locator("main").locator("button, a[href]").first()).toBeVisible();
+}
+
+/**
  * Expand every disclosure on the current page, so an audit sees their contents.
  *
  * Sets `open` directly rather than clicking: the point is to expose the content to axe, and a
  * click-per-panel would make the sweep depend on each summary's hit target. Whether the
  * disclosure *works* is asserted separately, and in the unit suite.
+ *
+ * The wait is the whole mechanism. The first version of this helper ran ~25ms after the
+ * navigation, while the panels first exist ~50ms in, so it found zero of them on every run — and
+ * because it only verified a count it had itself computed as zero, it reported success while the
+ * axe sweep went on auditing a page with all seven tools closed. A helper that cannot tell "there
+ * are no panels here" from "the panels have not rendered yet" is not a check.
  */
-async function openEveryToolPanel(page: Page) {
+async function openEveryToolPanel(page: Page, expected?: number) {
+  await settled(page);
+  // `networkidle` is not enough on its own here. These destinations are reached by clicking a
+  // nav link, so the SPA never starts a document load and the idle state is already satisfied
+  // before the workspace fetch has even been issued. A route that says how many panels it has
+  // waits for them to exist; that wait is what makes the count meaningful.
+  if (expected !== undefined)
+    await expect(page.locator("details.tool-panel")).toHaveCount(expected);
   const opened = await page.evaluate(() => {
     const panels = [...document.querySelectorAll<HTMLDetailsElement>("details.tool-panel")];
     for (const panel of panels) panel.open = true;
     return panels.length;
   });
-  if (opened) await expect(page.locator("details.tool-panel[open]")).toHaveCount(opened);
+  // Routes with no tool panels are legitimate; a route that is supposed to have them says how
+  // many, so "found none" fails here instead of passing quietly into the audit.
+  if (expected !== undefined) expect(opened, "tool panels found to expand").toBe(expected);
+  await expect(page.locator("details.tool-panel:not([open])")).toHaveCount(0);
 }
 
 async function openOrganizer(page: Page) {
@@ -174,7 +208,7 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     // resource editor — into closed panels, which would have quietly narrowed this audit to the
     // dashboard while the scorecard still called the destination clean. They are opened first so
     // the sweep covers at least what it covered when they were expanded Cards.
-    await openEveryToolPanel(page);
+    await openEveryToolPanel(page, destination.href.startsWith("/sessions") ? 7 : undefined);
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 
@@ -188,10 +222,14 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   const resourcesBox = await resourcesHeading.boundingBox();
   expect(sessionsBox, "the accepted-sessions table is rendered").not.toBeNull();
   expect(resourcesBox, "the resource tool is rendered").not.toBeNull();
+  // Measured against the viewport actually in use, not a number that happens to exceed it —
+  // neither Playwright config sets a viewport, so this runs at the 1280x720 default and a 900px
+  // threshold would have accepted a table 130px below the fold while claiming it was above it.
+  const firstScreen = page.viewportSize()?.height ?? 720;
   expect(
     sessionsBox?.y ?? 0,
-    "accepted sessions is visible without scrolling past authoring forms",
-  ).toBeLessThan(900);
+    `accepted sessions is inside the first ${firstScreen}px screen, not behind authoring forms`,
+  ).toBeLessThan(firstScreen);
   expect(sessionsBox?.y ?? 0, "the dashboard is above the authoring tools").toBeLessThan(
     resourcesBox?.y ?? 0,
   );
