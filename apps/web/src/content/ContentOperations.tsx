@@ -22,6 +22,7 @@ import {
 } from "../api/content";
 import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import { AccelEventsSync } from "./AccelEventsSync";
+import { ChecklistEditor } from "./ChecklistEditor";
 import { ResourceEditor } from "./ResourceEditor";
 import { memberName, type Run, shortDateTime, type Workspace } from "./shared";
 
@@ -166,6 +167,16 @@ export function ContentOperations({
         hint="Handbook and reference pages for the speaker portal."
       >
         <ResourceEditor eventId={eventId} workspace={workspace} busy={busy} run={run} />
+      </ToolPanel>
+
+      {/* Declared once as event configuration, then instantiated as dated work for named
+          people. Beside Speaker resources because they are the same kind of job — what this
+          event asks of every speaker — and both are set up rarely and read often. */}
+      <ToolPanel
+        title="Speaker checklist"
+        hint="What every speaker is asked for, written once and assigned to the people who need it."
+      >
+        <ChecklistEditor eventId={eventId} workspace={workspace} busy={busy} run={run} />
       </ToolPanel>
 
       <ToolPanel

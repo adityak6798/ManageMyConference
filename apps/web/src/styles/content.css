@@ -355,14 +355,20 @@
   min-width: 0;
 }
 
-/* One editor at a time, so these are single forms rather than a grid of them. */
+/* One editor at a time, so these are single forms rather than a grid of them.
+   The checklist editor shares the arrangement because it is the same job: a roster of declared
+   things with one form open. Sharing the rules rather than copying them is what keeps the two
+   panels from drifting into looking like different products. */
 .resource-manager,
+.checklist-manager,
+.checklist-list,
 .resource-list {
   display: grid;
   gap: var(--s-3);
   min-width: 0;
 }
-.resource-list {
+.resource-list,
+.checklist-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -372,6 +378,7 @@
    source order and silently restyles /agenda — including the row-level error text agenda.css
    spans across the row. Scoped under .resource-list as well, so a future collision cannot
    reach outside this list either. */
+.checklist-list .checklist-entry,
 .resource-list .resource-entry {
   display: flex;
   align-items: center;
@@ -383,11 +390,13 @@
   background: var(--surface-2);
   font-size: var(--text-sm);
 }
+.checklist-list .checklist-entry-name,
 .resource-list .resource-entry-name {
   flex: 1 1 200px;
   min-width: 0;
   font-weight: 600;
 }
+.checklist-list .checklist-entry-name .sub,
 .resource-list .resource-entry-name .sub {
   display: block;
   color: var(--muted);
@@ -397,7 +406,8 @@
 /* `display: grid` has to be declared here. `.form-stack` has no rule in any stylesheet, so
    without this the track definition below and `.resource-form-wide`'s `grid-column` were both
    inert and the fields never paired into columns. */
-.resource-form {
+.resource-form,
+.checklist-form {
   display: grid;
   gap: var(--s-4);
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -406,8 +416,18 @@
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
-.resource-form-wide {
+.resource-form-wide,
+.checklist-form-wide {
   grid-column: 1 / -1;
+}
+
+/* The assign control is a different act from declaring the lines, and is separated to say so:
+   the rule above it is the line between writing configuration and writing somebody's work. */
+.checklist-assign {
+  display: grid;
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
 }
 
 .workflow-picker {

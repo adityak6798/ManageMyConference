@@ -14,6 +14,7 @@ import {
   type ApiErrorEnvelope,
   type ApplyEventTemplateInput,
   type EventTemplateDto,
+  eventTemplateApplicationListResponseSchema,
   eventTemplateCaptureResponseSchema,
   eventTemplateDetailResponseSchema,
   eventTemplateListResponseSchema,
@@ -58,6 +59,9 @@ export type TemplateApplicationResultDto = ReturnType<
 >["application"];
 export type SlicePreviewDto = TemplateApplicationPlanDto["slices"][number];
 export type SliceResultDto = TemplateApplicationResultDto["slices"][number];
+export type EventTemplateApplicationDto = ReturnType<
+  typeof eventTemplateApplicationListResponseSchema.parse
+>["applications"][number];
 
 // @spec PRD-EVT-002
 export async function listEventTemplates(
@@ -155,6 +159,26 @@ export async function previewTemplateApplication(
     json(input),
   );
   return (await decode(response, templateApplicationPlanResponseSchema)).plan;
+}
+
+/**
+ * Which template versions this event was configured from, and what each application did.
+ *
+ * The reason this exists is that an apply's per-category outcome used to be visible exactly
+ * once — in the response to the click that caused it. An organizer who closed the tab, or who
+ * inherited the event from a colleague, had no way to learn that one category never landed
+ * (issue #175). Reading it back is what turns "applied in part" from a sentence that scrolls
+ * away into a state the console can keep showing until somebody repairs it.
+ */
+// @spec PRD-EVT-002 ARC-FLOW-006
+export async function listTemplateApplications(
+  eventId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<EventTemplateApplicationDto[]> {
+  const response = await fetcher(
+    `/api/events/${encodeURIComponent(eventId)}/template-applications`,
+  );
+  return (await decode(response, eventTemplateApplicationListResponseSchema)).applications;
 }
 
 /**

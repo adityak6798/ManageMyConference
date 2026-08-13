@@ -5,7 +5,11 @@ import {
   contentWorkspaceSchema,
   setSpeakerPhotoInputSchema,
   speakerCalendarInviteResultSchema,
+  speakerChecklistAssignmentResponseSchema,
   speakerCsvImportResultSchema,
+  type SpeakerTaskTemplateDto,
+  type SpeakerTaskTemplateInput,
+  speakerTaskTemplateListResponseSchema,
   type UpdateContentSessionInput,
   type UpdateSpeakerProfileInput,
   updateContentSessionInputSchema,
@@ -346,4 +350,77 @@ export async function unpublishSpeakerAsset(
 ): Promise<void> {
   const response = await fetcher(`/api/speaker-assets/${assetId}/unpublish`, { method: "POST" });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+
+/*
+ * The event's speaker checklist, from the console (issue #176).
+ *
+ * Every write here answers with the *whole* checklist rather than the line it touched, and the
+ * client returns that rather than reloading: a reorder changes rows the request never named, so
+ * a caller reconstructing the order from one row would render an order the server does not hold.
+ */
+export async function listSpeakerTaskTemplates(
+  eventId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerTaskTemplateDto[]> {
+  const response = await fetcher(`/api/events/${eventId}/speaker-task-templates`);
+  return (await decode(response, speakerTaskTemplateListResponseSchema)).templates;
+}
+
+/** Add a line. A title this event already uses is refused rather than converged on. */
+export async function createSpeakerTaskTemplate(
+  eventId: string,
+  input: SpeakerTaskTemplateInput,
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerTaskTemplateDto[]> {
+  const response = await fetcher(`/api/events/${eventId}/speaker-task-template-entries`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return (await decode(response, speakerTaskTemplateListResponseSchema)).templates;
+}
+
+/** Edit a line, including its title — the one thing the bulk declaration cannot do. */
+export async function updateSpeakerTaskTemplate(
+  templateId: string,
+  input: SpeakerTaskTemplateInput,
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerTaskTemplateDto[]> {
+  const response = await fetcher(`/api/speaker-task-templates/${templateId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return (await decode(response, speakerTaskTemplateListResponseSchema)).templates;
+}
+
+/** Remove a line. Tasks already assigned from it are the speakers' and are not touched. */
+export async function deleteSpeakerTaskTemplate(
+  templateId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerTaskTemplateDto[]> {
+  const response = await fetcher(`/api/speaker-task-templates/${templateId}`, { method: "DELETE" });
+  return (await decode(response, speakerTaskTemplateListResponseSchema)).templates;
+}
+
+/**
+ * Instantiate the checklist as real, dated work for the speakers named.
+ *
+ * Deliberately a separate act from declaring the lines: this is what puts tasks in people's
+ * portals and mails them about it. Idempotent per speaker and line, so running it again after a
+ * speaker joins brings only the newcomer up to date — and answers only the tasks it created,
+ * which is an empty list when there was nothing left to assign.
+ */
+export async function assignSpeakerChecklist(
+  eventId: string,
+  profileIds: string[],
+  fetcher: typeof fetch = fetch,
+): Promise<z.infer<typeof speakerChecklistAssignmentResponseSchema>["tasks"]> {
+  const response = await contentMutation(
+    `/api/events/${eventId}/speaker-checklist-assignments`,
+    { profileIds },
+    fetcher,
+  );
+  return (await decode(response, speakerChecklistAssignmentResponseSchema)).tasks;
 }

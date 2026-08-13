@@ -650,4 +650,61 @@ describe("D1ContentRepository template imports", () => {
       { ...template, description: "PDF, 16:9, no video." },
     ]);
   });
+
+  /**
+   * The authoring path, which addresses the row rather than the title (issue #176).
+   *
+   * The renaming half is what the re-import above cannot do, and the constraint it has to
+   * survive is the same `UNIQUE(event_id, title)` — so this asserts against real SQLite rather
+   * than against a double that could be more permissive than the column.
+   */
+  it("adds, renames and removes one checklist line, and refuses a duplicate title", async () => {
+    const store = await repository();
+    const line = {
+      id: "80000000-0000-4000-8000-000000000010",
+      eventId,
+      title: "Book your travel",
+      description: "Flights and hotel, through the events desk.",
+      sortOrder: 4,
+      dueOffsetDays: -30,
+      createdAt: "2026-08-12T10:00:00.000Z",
+    };
+    const other = {
+      ...line,
+      id: "80000000-0000-4000-8000-000000000011",
+      title: "Record a 30-second intro",
+    };
+    const mine = async () =>
+      (await store.listTaskTemplates(eventId)).filter(({ id }) => id.startsWith("80000000"));
+
+    await store.addTaskTemplate(line);
+    await store.addTaskTemplate(other);
+
+    await expect(store.findTaskTemplate(line.id)).resolves.toEqual(line);
+    // The rename, which is the whole point of addressing a line by id.
+    await store.updateTaskTemplate({
+      ...line,
+      title: "Book your travel and hotel",
+      dueOffsetDays: -21,
+    });
+    await expect(store.findTaskTemplate(line.id)).resolves.toEqual({
+      ...line,
+      title: "Book your travel and hotel",
+      dueOffsetDays: -21,
+    });
+
+    // The database is what refuses a duplicate title, on both write paths, so the service has a
+    // constraint violation to translate rather than a silent overwrite to explain.
+    await expect(
+      store.addTaskTemplate({ ...other, id: "80000000-0000-4000-8000-000000000012" }),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+    await expect(store.updateTaskTemplate({ ...line, title: other.title })).rejects.toThrow(
+      /UNIQUE constraint failed/,
+    );
+    expect(await mine()).toHaveLength(2);
+
+    await store.deleteTaskTemplate(line.id);
+    expect(await mine()).toEqual([other]);
+    await expect(store.findTaskTemplate(line.id)).resolves.toBeNull();
+  });
 });

@@ -1142,6 +1142,13 @@ export default {
         speakerResourceTemplateSlice(content, []),
         speakerChecklistTemplateSlice(content),
       ],
+      /*
+       * So the console names the person who captured a version and the person who applied one,
+       * rather than printing the stored account id (#176). Structural: the directory satisfies
+       * the narrow `TemplateActorNamePort` events declares, and events imports nothing from
+       * identity's adapter to say so.
+       */
+      actorNames: identityDirectory,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
       /*

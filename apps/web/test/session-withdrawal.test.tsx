@@ -68,6 +68,11 @@ function stubApi(next: () => unknown) {
       if (init?.method && init.method !== "GET") sent.push({ url, method: init.method });
       if (url.endsWith(`/api/events/${eventId}/content`))
         return Promise.resolve(new Response(JSON.stringify(next()), { status: 200 }));
+      // The checklist panel reads the event's own checklist on mount, exactly as the
+      // Accelevents panel reads its status. Unanswered, it would put its own failure notice
+      // inside a workspace these tests are asserting something else about.
+      if (url.endsWith("/speaker-task-templates"))
+        return Promise.resolve(new Response(JSON.stringify({ templates: [] }), { status: 200 }));
       return Promise.resolve(new Response("{}", { status: 200 }));
     }),
   );

@@ -131,6 +131,23 @@ export interface ContentRepository {
   listTaskTemplates(eventId: string): Promise<readonly SpeakerTaskTemplate[]>;
   /** `upsertResourceBySlug` for a checklist line, whose identity is `(event_id, title)`. */
   upsertTaskTemplateByTitle(template: SpeakerTaskTemplate): Promise<void>;
+  /**
+   * One line by its own id, which is what the authoring surface edits and deletes.
+   *
+   * Deliberately separate from `upsertTaskTemplateByTitle`. That one converges a *clone* on the
+   * title, which is a line's identity across events; this one addresses the row, which is the
+   * only way to rename a line rather than leave the old title behind as a second one.
+   */
+  findTaskTemplate(templateId: string): Promise<SpeakerTaskTemplate | null>;
+  addTaskTemplate(template: SpeakerTaskTemplate): Promise<void>;
+  updateTaskTemplate(template: SpeakerTaskTemplate): Promise<void>;
+  /**
+   * Remove a line from the checklist. Tasks already assigned from it are untouched, because a
+   * task is keyed by its title rather than by a pointer here: once assigned, the work is that
+   * speaker's, and deleting a line an organizer no longer plans to give out must not delete
+   * somebody's homework.
+   */
+  deleteTaskTemplate(templateId: string): Promise<void>;
   addComment(comment: ContentComment): Promise<void>;
   /**
    * Record what the profile was and write what it becomes, as one indivisible operation.

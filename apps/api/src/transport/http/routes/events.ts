@@ -29,6 +29,7 @@ import {
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
 import {
   createEventInputToCommand,
+  eventTemplateApplicationToDto,
   eventTemplateToDto,
   eventTemplateVersionToDto,
   eventToDto,
@@ -74,6 +75,7 @@ const routes = [
   "POST /api/event-templates/:templateId/versions",
   "POST /api/event-templates/:templateId/duplications",
   "POST /api/events/:eventId/template-application-previews",
+  "GET /api/events/:eventId/template-applications",
   "POST /api/events/:eventId/template-applications",
 ] as const;
 
@@ -270,6 +272,25 @@ export const eventsRoutes: RouteModule = {
       if (!body.success) return invalid(context, "The preview could not be built.", body.error);
       const plan = await templates().preview(context.get("actor"), params.data.eventId, body.data);
       return context.json({ plan });
+    });
+    /*
+     * What this event was configured from, and what each of those applications actually did.
+     *
+     * `EventTemplateService.applications` existed, was authorized, and no route reached it — so
+     * the per-category outcome was written on every apply and read by nothing (issue #175). The
+     * failure mode that closes is quiet: an application whose agenda category was refused looks
+     * from every other surface exactly like one that landed whole, and the organizer who would
+     * repair it is the one person who never hears about it again.
+     */
+    app.get("/api/events/:eventId/template-applications", async (context) => {
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success) return malformed(context, "Event ID is malformed.");
+      requireEventCapability(context.get("actor"), params.data.eventId, "events:settings:read");
+      const applications = await templates().applications(
+        context.get("actor"),
+        params.data.eventId,
+      );
+      return context.json({ applications: applications.map(eventTemplateApplicationToDto) });
     });
     app.post("/api/events/:eventId/template-applications", async (context) => {
       const params = eventIdParamsSchema.safeParse(context.req.param());

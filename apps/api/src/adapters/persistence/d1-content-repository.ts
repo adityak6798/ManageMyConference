@@ -693,6 +693,42 @@ export class D1ContentRepository
       template.createdAt,
     );
   }
+  async findTaskTemplate(templateId: string) {
+    const row = (
+      await this.rows("SELECT * FROM speaker_task_templates WHERE id = ? LIMIT 1", templateId)
+    )[0];
+    return row ? this.taskTemplate(row) : null;
+  }
+  async addTaskTemplate(template: SpeakerTaskTemplate) {
+    // No `ON CONFLICT`: a title this event already uses is the organizer's answer, and the
+    // service turns the constraint into one. Converging here would silently overwrite the line
+    // they meant to add beside the existing one.
+    await this.run(
+      "INSERT INTO speaker_task_templates (id,event_id,title,description,sort_order,due_offset_days,created_at) VALUES (?,?,?,?,?,?,?)",
+      template.id,
+      template.eventId,
+      template.title,
+      template.description,
+      template.sortOrder,
+      template.dueOffsetDays,
+      template.createdAt,
+    );
+  }
+  async updateTaskTemplate(template: SpeakerTaskTemplate) {
+    // `created_at` is not in the SET list: a line was declared when it was declared, and editing
+    // its wording is not a new declaration.
+    await this.run(
+      "UPDATE speaker_task_templates SET title=?,description=?,sort_order=?,due_offset_days=? WHERE id=?",
+      template.title,
+      template.description,
+      template.sortOrder,
+      template.dueOffsetDays,
+      template.id,
+    );
+  }
+  async deleteTaskTemplate(templateId: string) {
+    await this.run("DELETE FROM speaker_task_templates WHERE id = ?", templateId);
+  }
   async addComment(comment: ContentComment) {
     await this.run(
       "INSERT INTO content_asset_comments (id,event_id,asset_id,author_id,author_name,body,created_at) VALUES (?,?,?,?,?,?,?)",

@@ -260,18 +260,27 @@ feature-by-feature verdict.
   `partial` rather than `applied` when any category failed, and `ARC-FLOW-006` states the guarantee
   rather than implying a stronger one.
 
-  What is still missing is everything after the response. Re-applying is the repair and it is safe,
-  because every slice converges on a natural key — but nothing *prompts* it. No surface lists events
-  whose most recent application was `partial`, the recorded outcome in
-  `event_template_applications.outcome_json` is written and never read back by any query, and an
-  organizer who closes the tab before reading the summary has no way to learn that one category did
-  not land. The failure mode is quiet and shaped exactly like success: an event configured from a
-  template, missing one thing nobody mentioned again.
+  **The half that was missing is closed by issue #175.** The stored outcome is read back:
+  `EventTemplateService.applications` carries `event_template_applications.outcome_json` out through
+  `GET /api/events/{eventId}/template-applications`, and the event templates workspace leads with a
+  card for any application whose stored envelope reads `partial` or `failed`. It names the
+  categories that did not land with the destination's own reason for each, says who applied the
+  version and when, and its one button re-applies **that version, onto the stored destination range,
+  with the categories the original command named** — the row records the selection for exactly that
+  reason, so a repair repeats the request that was made rather than a wider one. The card is derived
+  from storage on every load, so it clears when the repair lands and cannot outlive it.
+  `event-templates.test.ts` drives a slice that fails once and then succeeds, asserts the event
+  still reports itself configured in part afterwards, and asserts the second apply clears it.
 
-  Owner: events. Governing ID: `PRD-EVT-002`. Closure: the stored per-slice outcome becomes readable
-  — a `partial` application is surfaced where the organizer will see it, with the re-apply that
-  repairs it one action away — and a test drives a failing slice through apply, asserts the event is
-  reported as partially configured afterwards, and asserts a second apply clears it.
+  What remains, and is the residual risk this entry now records: **the surface is the templates
+  workspace**, which an organizer reaches deliberately. A partial application is not raised on the
+  console's landing page or in the operational inbox, both of which are platform-owned surfaces
+  (`PRD-OPS-002`); an inbox category for it is the natural next home and is a decision about
+  platform's product surface rather than about events. Non-atomicity itself is unchanged and stays
+  documented rather than fixed.
+
+  Owner: events. Governing ID: `PRD-EVT-002`. Closure: an operator who never opens Event templates
+  is still told, which means an inbox category derived from the same stored outcome.
 - `GAP-020` **Google sign-in has never exchanged a request with Google.** The adapter at
   `apps/api/src/adapters/identity/google-oauth-client.ts` is the entire boundary — one POST to the
   token endpoint, one GET for the key set — and its request shape comes from Google's documentation

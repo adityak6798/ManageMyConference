@@ -174,6 +174,18 @@ test("an organizer creates an event, previews a template into it, applies it, an
   await expect(resultPanel(page)).toContainText("roll back the categories that succeeded");
   await expect(resultPanel(page)).toContainText("Applying this same version again is the repair");
 
+  /*
+   * Every category landed, so there is nothing outstanding and the repair card stays away
+   * (issue #175). The card is driven from the *stored* outcome rather than from the response
+   * on screen, so this is also the assertion that a clean application does not leave a row
+   * saying otherwise — and it re-reads the page to prove it, because the card would be built
+   * from a fresh read of what storage holds.
+   */
+  await openTemplates(page, destination.id);
+  await expect(
+    page.getByRole("region", { name: `${destination.name} is configured in part` }),
+  ).toHaveCount(0);
+
   // ---- the same version again converges rather than duplicating ---------------
   await apply.getByRole("button", { name: "Preview this clone" }).click();
   await expect(category(previewPanel(page), "CFP form and routing")).toContainText(
@@ -230,6 +242,10 @@ test("an organizer saves this event as a template, then archives it", async ({ p
   const saved = page.getByRole("region", { name, exact: true });
   await expect(saved.getByRole("heading", { name: "Version 1" })).toBeVisible();
   await expect(saved).toContainText(`Captured from ${DEMO_EVENT_NAME}`);
+  // A person, not the account id it is stored under (issue #176). The id is what storage holds
+  // and `seed-organizer` is not anybody's name; identity is what turns one into the other.
+  await expect(saved).toContainText("by Olivia Organizer");
+  await expect(saved).not.toContainText("seed-organizer");
   await expect(category(library(page), name)).toContainText("Active");
 
   const manage = page.getByRole("region", { name: "Manage this template" });

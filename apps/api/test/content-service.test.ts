@@ -11,6 +11,7 @@ import type { PublishedSchedule } from "../src/application/agenda/agenda-reposit
 import { AgendaService } from "../src/application/agenda/agenda-service";
 import {
   ContentService,
+  SpeakerChecklistTitleTakenError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
@@ -1144,4 +1145,124 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
 
     expect(workspace.sessions).toHaveLength(1);
   });
+});
+
+/**
+ * The console's authoring path for the event's speaker checklist (issue #176).
+ *
+ * `importTaskTemplates` writes at `(event_id, title)`, which is right for a clone and wrong for
+ * a person: it cannot rename a line and cannot remove one. These three commands are what the
+ * console actually uses, and what they refuse matters as much as what they write.
+ */
+describe("speaker checklist authoring", () => {
+  const line = {
+    title: "Upload a headshot",
+    description: "Square, at least 800px.",
+    sortOrder: 0,
+    dueOffsetDays: -30,
+  };
+
+  it("adds a line, edits it including its title, and removes it", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    expect(await service.taskTemplates(organizer, eventId)).toMatchObject([{ title: line.title }]);
+
+    /*
+     * The rename is the whole reason this command exists. Through the import path the corrected
+     * title would write a *second* line and leave the mistyped one behind for ever, since
+     * nothing there removes anything.
+     */
+    await service.updateTaskTemplate(organizer, created.id, {
+      ...line,
+      title: "Upload a portrait",
+      dueOffsetDays: -21,
+    });
+    expect(await service.taskTemplates(organizer, eventId)).toMatchObject([
+      { id: created.id, title: "Upload a portrait", dueOffsetDays: -21 },
+    ]);
+
+    await service.deleteTaskTemplate(organizer, created.id);
+    expect(await service.taskTemplates(organizer, eventId)).toEqual([]);
+  });
+
+  it("refuses a title another line already holds rather than overwriting it", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.createTaskTemplate(organizer, { eventId, ...line });
+    const second = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+      title: "Send slides",
+      sortOrder: 1,
+    });
+
+    // Converging here — which is what the import path does — would replace a line the organizer
+    // can still see on the screen in front of them with the one they are typing.
+    await expect(
+      service.createTaskTemplate(organizer, { eventId, ...line }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+    await expect(
+      service.updateTaskTemplate(organizer, second.id, { ...line, sortOrder: 1 }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+    expect(await service.taskTemplates(organizer, eventId)).toHaveLength(2);
+  });
+
+  it("keeps the declaration date through an edit", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+
+    await service.updateTaskTemplate(organizer, created.id, { ...line, description: "800px." });
+
+    // A line was declared when it was declared; rewording it is not a new declaration.
+    expect((await service.taskTemplates(organizer, eventId))[0]?.createdAt).toBe(created.createdAt);
+  });
+
+  it("leaves work already assigned from a line alone when the line goes", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+
+    await service.deleteTaskTemplate(organizer, created.id);
+
+    /*
+     * `speaker_tasks` holds no pointer back to the line, deliberately: once assigned, the work
+     * is that speaker's. Deleting a line an organizer has stopped asking for must not delete
+     * the homework of everybody who was already asked for it.
+     */
+    const workspace = await service.workspace(organizer, eventId);
+    expect(workspace.tasks.map(({ title }) => title)).toEqual([line.title]);
+  });
+
+  it("refuses a line to an actor who does not administer its event, as one that does not exist", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const speaker = await resolveSeededDemoActor("speaker");
+
+    await expect(
+      service.createTaskTemplate(speaker, { eventId, ...line, title: "Something else" }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(service.updateTaskTemplate(speaker, created.id, line)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    await expect(service.deleteTaskTemplate(speaker, created.id)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // The same refusal for an id that names nothing, so this is not an existence oracle either.
+    await expect(
+      service.deleteTaskTemplate(organizer, "00000000-0000-4000-8000-0000000000ff"),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    expect(await service.taskTemplates(organizer, eventId)).toHaveLength(1);
+  });
+
+  /*
+   * The cross-event refusal is asserted over HTTP instead of here. The seeded demo organizer
+   * carries actor-level capabilities that satisfy `requireEventCapability` for any event id, so
+   * this fixture cannot express "an event they do not administer" — `content-http.test.ts` uses
+   * a real session and can.
+   */
 });

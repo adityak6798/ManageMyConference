@@ -317,6 +317,41 @@ export class MemoryContentRepository
         )
       : [...this.taskTemplates, template];
   }
+  async findTaskTemplate(templateId: string) {
+    return this.taskTemplates.find((item) => item.id === templateId) ?? null;
+  }
+  /**
+   * The database's `UNIQUE(event_id, title)` is enforced here too.
+   *
+   * A double that accepts a duplicate title would let the console's own "that title is taken"
+   * path go untested while the real store raises a constraint the service has to translate.
+   */
+  async addTaskTemplate(template: SpeakerTaskTemplate) {
+    this.assertTitleFree(template);
+    this.taskTemplates = [...this.taskTemplates, template];
+  }
+  async updateTaskTemplate(template: SpeakerTaskTemplate) {
+    this.assertTitleFree(template);
+    this.taskTemplates = this.taskTemplates.map((item) =>
+      item.id === template.id ? { ...template, createdAt: item.createdAt } : item,
+    );
+  }
+  async deleteTaskTemplate(templateId: string) {
+    this.taskTemplates = this.taskTemplates.filter((item) => item.id !== templateId);
+  }
+  private assertTitleFree(template: SpeakerTaskTemplate) {
+    if (
+      this.taskTemplates.some(
+        (item) =>
+          item.id !== template.id &&
+          item.eventId === template.eventId &&
+          item.title === template.title,
+      )
+    )
+      throw new Error(
+        `UNIQUE constraint failed: speaker_task_templates.event_id, speaker_task_templates.title`,
+      );
+  }
   async addComment(comment: ContentComment) {
     this.comments = [...this.comments, comment];
   }

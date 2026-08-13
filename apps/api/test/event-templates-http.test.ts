@@ -216,6 +216,63 @@ describe("Event template HTTP journey", () => {
     await expect((await readCfp()).text()).resolves.toBe(applied);
   });
 
+  /**
+   * Issue #175: the stored per-category outcome is reachable over HTTP.
+   *
+   * `EventTemplateService.applications` existed and was authorized before this; what it did not
+   * have was a route, so nothing outside the process could ever read what an apply concluded.
+   */
+  it("reports what this event has been configured from, and how each one went", async () => {
+    const { app, headers } = await setup();
+    const organizer = await headers("organizer");
+    const created = await saveTemplate(app, organizer);
+    const url = `/api/events/${DESTINATION}/template-applications`;
+
+    await expect((await app.request(url, { headers: organizer })).json()).resolves.toEqual({
+      applications: [],
+    });
+    await post(app, url, organizer, {
+      templateId: created.template.id,
+      version: 1,
+      destination: DESTINATION_RANGE,
+    });
+
+    const listed = await app.request(url, { headers: organizer });
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toMatchObject({
+      applications: [
+        {
+          templateId: created.template.id,
+          templateName: "Annual summit",
+          templateState: "active",
+          version: 1,
+          outcome: "applied",
+          // The range, which is a parameter of the clone rather than a property of the event,
+          // and therefore the one thing a repair could not reconstruct from anywhere else.
+          destination: DESTINATION_RANGE,
+          // Every category, including the declared exclusion, exactly as the apply reported it.
+          slices: [
+            { key: "cfp", outcome: "applied" },
+            { key: "communications", outcome: "skipped" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("refuses the history to a persona that may not read this event's settings", async () => {
+    const { app, headers } = await setup();
+    const organizer = await headers("organizer");
+    await saveTemplate(app, organizer);
+    const url = `/api/events/${DESTINATION}/template-applications`;
+
+    const speaker = await app.request(url, { headers: await headers("speaker") });
+    const anonymous = await app.request(url, { headers: { "content-type": "application/json" } });
+
+    expect(speaker.status).toBe(403);
+    expect(anonymous.status).toBe(401);
+  });
+
   it("answers 409 for a name another active template already holds", async () => {
     const { app, headers } = await setup();
     const organizer = await headers("organizer");

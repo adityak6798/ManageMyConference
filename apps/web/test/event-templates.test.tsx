@@ -34,6 +34,8 @@ const version = {
   sourceEventName: "Greenroom Demo Summit",
   createdAt: "2026-08-01T09:00:00.000Z",
   createdBy: "seed-organizer",
+  // Null so the fallback stays under test: the resolved-name path has its own case.
+  createdByName: null,
   slices: ["cfp"],
 };
 
@@ -105,11 +107,17 @@ function stubTemplates(
   application: unknown = { ...partial, outcome: "applied" },
   listed: EventTemplateDto = template,
   held: readonly EventTemplateVersionDto[] = [version],
+  applications: readonly unknown[] = [],
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/template-application-previews")) return jsonResponse({ plan });
-    if (url.endsWith("/template-applications")) return jsonResponse({ application });
+    // GET and POST share this URL: one reads what has already been applied to the event, the
+    // other applies. Answering the read with the write's body would decode as a schema failure.
+    if (url.endsWith("/template-applications"))
+      return _init?.method === "POST"
+        ? jsonResponse({ application })
+        : jsonResponse({ applications });
     if (url.endsWith(`/event-templates/${templateId}`))
       return jsonResponse({ template: listed, versions: held });
     return jsonResponse({ templates: [listed] });
@@ -129,12 +137,14 @@ const renderWorkspace = () =>
     />,
   );
 
-const bodyOf = (fetchMock: ReturnType<typeof stubTemplates>, suffix: string) =>
-  JSON.parse(
-    String(
-      fetchMock.mock.calls.find(([input]) => String(input).endsWith(suffix))?.[1]?.body ?? "null",
-    ),
+/** Calls that *wrote*. The applications URL is also read on load, and a read carries no body. */
+const postsTo = (fetchMock: ReturnType<typeof stubTemplates>, suffix: string) =>
+  fetchMock.mock.calls.filter(
+    ([input, init]) => String(input).endsWith(suffix) && init?.method === "POST",
   );
+
+const bodyOf = (fetchMock: ReturnType<typeof stubTemplates>, suffix: string) =>
+  JSON.parse(String(postsTo(fetchMock, suffix)[0]?.[1]?.body ?? "null"));
 
 /** Open the seeded template, confirm a destination range, and take a preview. */
 async function previewTheClone(startsOn = "2027-03-08", endsOn = "2027-03-10") {
@@ -226,9 +236,7 @@ describe("event templates", () => {
       destination: { startsOn: "2027-03-08", endsOn: "2027-03-10" },
     });
     // The claim in the copy, asserted on the wire: nothing has been applied.
-    expect(
-      fetchMock.mock.calls.some(([input]) => String(input).endsWith("/template-applications")),
-    ).toBe(false);
+    expect(postsTo(fetchMock, "/template-applications")).toHaveLength(0);
   });
 
   it("applies the command the preview resolved, not the controls' later values", async () => {
@@ -242,9 +250,7 @@ describe("event templates", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply version 1 to Greenroom Summit" }));
 
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(([input]) => String(input).endsWith("/template-applications")),
-      ).toBe(true),
+      expect(postsTo(fetchMock, "/template-applications").length).toBeGreaterThan(0),
     );
     expect(bodyOf(fetchMock, "/template-applications")).toEqual({
       templateId,
@@ -270,5 +276,134 @@ describe("event templates", () => {
     // Read from the panel's text because the sentence emphasises one word inside itself.
     expect(panel.textContent).toContain("does not roll back the categories that succeeded");
     expect(panel.textContent).toContain("Applying this same version again is the repair");
+  });
+
+  /*
+   * Issue #175. Everything below is about the state *after* the response that reported it: an
+   * organizer who was never here when the clone ran, opening the workspace cold.
+   */
+  describe("an application that landed in part", () => {
+    /** As storage holds it: the envelope word, the range, and the categories, read back. */
+    const storedPartial = {
+      templateId,
+      templateName: template.name,
+      templateState: "active" as const,
+      templateVersionId: versionId,
+      version: 1,
+      appliedAt: "2027-01-05T12:00:00.000Z",
+      appliedBy: "seed-organizer",
+      appliedByName: "Olivia Organizer",
+      outcome: "partial" as const,
+      destination: { startsOn: "2027-03-08", endsOn: "2027-03-10" },
+      slices: partial.slices,
+    };
+
+    it("says so on a page nobody applied anything on, and names what is missing", async () => {
+      stubTemplates(undefined, template, [version], [storedPartial]);
+      renderWorkspace();
+
+      const card = within(
+        await screen.findByRole("region", { name: "Greenroom Summit is configured in part" }),
+      );
+      // The category that did not land, with the destination's own reason for refusing it.
+      expect(card.getByText("Rooms and time slots")).toBeInTheDocument();
+      expect(card.getByText(/no room matching/)).toBeInTheDocument();
+      // And not the one that did: this card is what is still outstanding, not a full history.
+      expect(card.queryByText("CFP form and routing")).toBeNull();
+      // Named rather than an account id, and dated, because "who and when" is the first thing
+      // an organizer inheriting a half-configured event asks.
+      expect(card.getByText(/by Olivia Organizer/)).toBeInTheDocument();
+    });
+
+    it("repairs it with the stored command rather than whatever the controls hold", async () => {
+      const selected = { ...storedPartial, selection: ["cfp", "agenda"] };
+      const fetchMock = stubTemplates(partial, template, [version], [selected]);
+      renderWorkspace();
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+      );
+
+      await waitFor(() =>
+        expect(postsTo(fetchMock, "/template-applications").length).toBeGreaterThan(0),
+      );
+      /*
+       * The version, the range and the category selection all come from the stored row. The
+       * page's own date boxes were never filled in, so a repair built from the controls would
+       * have sent an empty range — and a repair built from "everything the version carries"
+       * would have applied two categories the original command deliberately left out.
+       */
+      expect(bodyOf(fetchMock, "/template-applications")).toEqual({
+        templateId,
+        version: 1,
+        destination: { startsOn: "2027-03-08", endsOn: "2027-03-10" },
+        slices: ["cfp", "agenda"],
+      });
+    });
+
+    it("clears once the repair lands, because the surface re-reads what is stored", async () => {
+      // The second attempt writes the category the first one could not, so both the stored row
+      // and the response the click gets back say every category landed.
+      const landed = partial.slices.map((slice) => ({ ...slice, outcome: "applied" as const }));
+      const repaired = { ...storedPartial, outcome: "applied" as const, slices: landed };
+      let read = 0;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/template-applications") && init?.method === "POST")
+          return jsonResponse({ application: { ...partial, outcome: "applied", slices: landed } });
+        // The second read is the one taken after the repair, and the server's answer has moved.
+        if (url.endsWith("/template-applications"))
+          return jsonResponse({ applications: [read++ === 0 ? storedPartial : repaired] });
+        if (url.endsWith(`/event-templates/${templateId}`))
+          return jsonResponse({ template, versions: [version] });
+        return jsonResponse({ templates: [template] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      renderWorkspace();
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+      );
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("region", { name: "Greenroom Summit is configured in part" }),
+        ).toBeNull(),
+      );
+      expect(await screen.findByText(/re-applied in full/)).toBeInTheDocument();
+    });
+
+    it("will not offer a repair the server would refuse", async () => {
+      stubTemplates(
+        undefined,
+        template,
+        [version],
+        [{ ...storedPartial, templateState: "archived" as const }],
+      );
+      renderWorkspace();
+
+      const card = within(
+        await screen.findByRole("region", { name: "Greenroom Summit is configured in part" }),
+      );
+      expect(
+        card.getByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+      ).toBeDisabled();
+      expect(card.getByText(/archived template cannot be applied/)).toBeInTheDocument();
+    });
+
+    it("stays quiet about an application that landed whole", async () => {
+      stubTemplates(
+        undefined,
+        template,
+        [version],
+        [{ ...storedPartial, outcome: "applied" as const }],
+      );
+      renderWorkspace();
+
+      await screen.findByRole("button", { name: "Annual summit starter" });
+      expect(
+        screen.queryByRole("region", { name: "Greenroom Summit is configured in part" }),
+      ).toBeNull();
+    });
   });
 });
