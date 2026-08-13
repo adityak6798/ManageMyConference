@@ -46,7 +46,7 @@ export function SignInPanel({
   variant: "landing" | "signin";
   /** Something the surface already knows and this panel does not, such as a refused callback. */
   notice?: ReactNode;
-  /** The session is live. `realSession` is false for a demo persona, which cannot sign out. */
+  /** The session is live. `realSession` distinguishes durable login from a demo persona. */
   onSignedIn: (realSession: boolean) => void;
 }) {
   const linkProps = useLinkProps();

@@ -120,36 +120,31 @@ feature-by-feature verdict.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #23 (production adapters); #56's
   delivery mechanism has landed and closes when an invitation has been rendered by a real client.
-- `GAP-011` **Brief feature 4's AI half is built but unverified against a real model.** Both named
-  differentiators now exist: multiple rounds shipped with `1300_review_rounds.sql`, and the
-  suggestion port shipped with issue #110 — draft-only by construction, with provenance the
-  reviewer reads, a deterministic credential-free fake as the default, and an `off` mode. What is
-  *not* proven is the half no amount of code can supply here: **the live adapter has never
-  exchanged a request with the Anthropic API.** No credential exists in this repository, its tests
-  stub `fetch`, the request shape comes from the Messages API's documentation rather than
-  observation, and the staging smoke in
-  [review suggestions](../engineering/review-suggestions.md#staging-smoke--required-and-not-yet-performed)
-  has not run. Impact: reviewers can use the assistant and see exactly where each draft came from,
-  and the draft-only guarantee is enforced in storage and asserted against real D1 — but the
-  quality of a *live* suggestion is unmeasured, and the request shape is the most likely thing to
-  be wrong on first contact. The same shape of gap as `GAP-012`, for the same reason.
-  Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: the staging smoke
-  run and recorded, with the date, commit and serving model written into that section.
-- `GAP-012` **Brief feature 7 is verified against nothing**: the inbound Accelevents registration
+- `GAP-011` **Closed 2026-08-13.** Multiple rounds and AI-assisted review both exist. The temporary
+  staging deployment at commit `83c757389a2468500172fc2a5f7aeeeb46497345` completed the full
+  [review-suggestion smoke](../engineering/review-suggestions.md#staging-smoke--completed-2026-08-13):
+  deployed fail-safe and manual fallback, schema-valid `claude-opus-5` generation, persisted
+  provenance, accept-as-draft with no aggregate, separate completion, revoked-key and live safety
+  refusal normalization, and inspection of the identity-free outbound request. The deterministic
+  fake remains the credential-free default and CI still stubs the provider boundary.
+  Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`.
+- `GAP-012` **Brief feature 7 conforms to the published Accelevents contract but is not live-verified**: the inbound Accelevents registration
   sync now exists end to end — a typed source port, a deterministic in-repository roster as the
   default, a live HTTP client behind the credential-gated `live` switch, and an organizer surface
   with a dry run that writes nothing, an idempotent apply, last-run state and a visible failure
   state. What remains is the part no amount of code can supply here: **it has never exchanged a
   request with the real API.** No Accelevents credential exists in this repository, the client's
-  tests stub `fetch`, the request and response shapes come from documentation rather than
-  observation, and the staging smoke has not run. Impact: an organizer can operate the integration
-  and see what it did, but its correctness against the real platform is unproven, and the shapes
-  are the most likely thing to be wrong on first contact. The Airtable half of the same gap is
+  tests stub `fetch`, and the staging smoke has not run. A 2026-08-12 conformance pass corrected
+  the path, authentication header, pagination, and response envelope against API reference v1.0;
+  its test records that retrieval date. Live verification is blocked because API-key creation is
+  restricted to an organizer/Enterprise account and the free account exposes no usable key.
+  Impact: an organizer can operate the integration and its request matches the published
+  specification, but no real tenant has answered it. The Airtable half of the same gap is
   unchanged: no mapping configuration, connection test or dry-run preview exists for it (issue
   #23's Airtable product surface).
-  Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: issue
-  #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
-  plainly it is not implemented.
+  Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: a
+  paid account credential becomes available and the staging smoke records the date, commit, and
+  observed request/response behavior.
 - `GAP-016` The generated OpenAPI document is checked for drift but not served, and there is no API
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable

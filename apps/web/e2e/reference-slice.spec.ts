@@ -41,6 +41,19 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await expect(page.getByRole("link", { name: /Event settings/ })).toHaveCount(0);
 });
 
+test("a demo persona signs out and returns to the landing page", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("link", { name: "Explore the demo" }).first()).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("link", { name: "Explore the demo" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCount(0);
+});
+
 // @acceptance ACC-AGENDA
 test("publishes a clean agenda, explains draft conflicts, and keeps publication stable", async ({
   page,

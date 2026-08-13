@@ -138,6 +138,9 @@ test("keeps a two-session itinerary across a reload and downloads it as a calend
   // row it addresses.
   await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "My itinerary" })).toBeVisible();
+  // The heading is static shell content; the cards arrive from the itinerary read. Waiting on
+  // the count keeps this assertion about reload persistence rather than response timing.
+  await expect(page.getByRole("status")).toHaveText("2 sessions in your itinerary");
   const titles = await page.locator(".pub-session h3").allInnerTexts();
   expect(titles.sort()).toEqual([first, second].sort());
 

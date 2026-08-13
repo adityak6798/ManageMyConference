@@ -3,7 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { parseSpeakerCsv } from "../src/adapters/content/parse-speaker-csv";
 import { MemoryAccelEventsSyncRuns } from "../src/adapters/persistence/d1-accelevents-sync-runs";
-import { FixtureAccelEventsRegistrations } from "../src/adapters/providers/accelevents-registration";
+import {
+  FIXTURE_ATTENDEE_RESPONSE,
+  FixtureAccelEventsRegistrations,
+} from "../src/adapters/providers/accelevents-registration";
 import {
   type AccelEventsRegistrant,
   AccelEventsSyncService,
@@ -65,7 +68,9 @@ function harness(registrants?: readonly AccelEventsRegistrant[]) {
   const content = contentDouble();
   const runs = new MemoryAccelEventsSyncRuns();
   const service = new AccelEventsSyncService({
-    source: new FixtureAccelEventsRegistrations(registrants),
+    source: registrants
+      ? { listRegistrants: async () => registrants }
+      : new FixtureAccelEventsRegistrations(),
     content,
     runs,
     mode: "fixture",
@@ -75,6 +80,44 @@ function harness(registrants?: readonly AccelEventsRegistrant[]) {
 }
 
 describe("Accelevents registration sync", () => {
+  it("keeps the fixture on the published attendee envelope (retrieved 2026-08-12)", async () => {
+    expect(FIXTURE_ATTENDEE_RESPONSE.recordsFiltered).toBe(
+      FIXTURE_ATTENDEE_RESPONSE.attendees.length,
+    );
+    expect(FIXTURE_ATTENDEE_RESPONSE.recordsTotal).toBe(FIXTURE_ATTENDEE_RESPONSE.attendees.length);
+    expect(FIXTURE_ATTENDEE_RESPONSE.ticketTypeCountDtos).toEqual([
+      { ticketTypeId: 1, ticketTypeName: "Speaker", totalTickets: 3 },
+      { ticketTypeId: 2, ticketTypeName: "Workshop lead", totalTickets: 1 },
+    ]);
+    expect(
+      FIXTURE_ATTENDEE_RESPONSE.ticketTypeCountDtos.reduce(
+        (total, ticketType) => total + ticketType.totalTickets,
+        0,
+      ),
+    ).toBe(FIXTURE_ATTENDEE_RESPONSE.recordsTotal);
+    expect(FIXTURE_ATTENDEE_RESPONSE).toMatchObject({
+      totalBookedTickets: 4,
+      totalCheckedInTickets: 0,
+      totalFreeTickets: 4,
+      totalPaidTickets: 0,
+    });
+    for (const attendee of FIXTURE_ATTENDEE_RESPONSE.attendees)
+      expect(attendee).toEqual(
+        expect.objectContaining({
+          attendeeId: expect.any(String),
+          firstName: expect.any(String),
+          lastName: expect.any(String),
+          email: expect.any(String),
+          barcode: expect.any(String),
+          status: expect.any(String),
+          ticketStatus: expect.any(String),
+        }),
+      );
+    await expect(
+      new FixtureAccelEventsRegistrations().listRegistrants(eventId),
+    ).resolves.toHaveLength(FIXTURE_ATTENDEE_RESPONSE.recordsTotal);
+  });
+
   it("predicts exactly what an apply will do and writes nothing", async () => {
     const test = harness();
 

@@ -1,6 +1,6 @@
 # Review suggestions: configuration and operations
 
-Status: canonical | Owner: review | IDs: `PORT-AI`, `PRD-AI-001` | Last verified: 2026-08-12
+Status: canonical | Owner: review | IDs: `PORT-AI`, `PRD-AI-001` | Last verified: 2026-08-13
 
 How AI-drafted review suggestions are produced, what has to be configured, what an operator does
 when the assistant fails, and — stated plainly below — what has not been verified against a live
@@ -145,33 +145,42 @@ which is the overclaim `GAP-011` exists to prevent.
 Both failure modes are reachable without a network — `new DeterministicSuggestionProvider("timeout")`
 and `("error")` — which is how the degradation path is tested at every level.
 
-## Staging smoke — required, and not yet performed
+## Staging smoke — completed 2026-08-13
 
-**This has not been run. No Anthropic credential exists in this repository, and none was used to
-build the adapter.** The request shape is written from the Messages API's documented contract, not
-from an observed exchange, and `apps/api/test/suggestion-provider.test.ts` stubs `fetch` — it
+No Anthropic credential exists in this repository. The request shape was built from the Messages
+API's documented contract, and `apps/api/test/suggestion-provider.test.ts` stubs `fetch` — it
 proves our normalization, not their API.
 
-Before enabling `live` anywhere real, someone with a non-production key must run this and record
-the result here:
+On 2026-08-13, commit `83c757389a2468500172fc2a5f7aeeeb46497345` was deployed to the
+temporary Worker `project-greenroom-ai-staging`, backed by dedicated D1 and R2 staging resources.
+A workspace key held outside the repository was installed as a Worker secret. No credential,
+provider response body, or generated prose was stored or committed. The serving model was
+`claude-opus-5`; the stored prompt version was `review-suggestion/v1`.
 
-1. Provision a workspace-scoped Anthropic API key with a low spend limit.
-2. Deploy a staging Worker with `REVIEW_AI_PROVIDER=live` and that secret.
-3. **Confirm the fail-safe first.** Deploy once with `REVIEW_AI_PROVIDER=live` and the key absent.
-   The deploy will **succeed** and the reviewer's queue will load; the Draft button answers `502`
-   with `PROVIDER_UNCONFIGURED`, and the Worker log carries the binding name. Confirm the reviewer
-   can still score and complete by hand in that state.
-4. Draft one suggestion against a real abstract. Confirm the response satisfies the pinned schema
-   — one entry per criterion, values inside each criterion's own scale — and that the stored
-   provenance names the model the API actually served rather than `REVIEW_AI_MODEL`.
-5. Accept it. Confirm the evaluation is a **draft**, that the organizer's board shows no aggregate,
-   and that completing it separately is what moves the average.
-6. Force each failure: a revoked key (`PROVIDER_UNAUTHORIZED`), a request that trips the safety
-   classifiers (`PROVIDER_REFUSED`). Confirm the reviewer can score manually in each case.
-7. Check the request that left: confirm no submitter name or address appears in it.
-8. Record the date, the commit, the model that served, and any request-shape corrections here.
+The checklist completed as follows:
 
-Until step 8 exists, treat `live` as unverified and keep deployments on `fixture` or `off`.
+1. With `REVIEW_AI_PROVIDER=live` and no key, deployment and queue loading succeeded. Drafting
+   answered `502 UPSTREAM_UNAVAILABLE` with `PROVIDER_UNCONFIGURED`; manual evaluation still saved.
+2. With the secret installed, a deployed draft returned `201` and persisted a nonempty summary,
+   exactly one numeric, dropdown, and text score in its criterion's allowed shape, nonempty
+   rationales, proposal revision, model, and prompt version.
+3. Accepting that suggestion produced a `source = suggested` evaluation in `draft` state. D1 held
+   no `review_outcomes` row. A separate `complete: true` evaluation request changed the state to
+   completed and only then produced the aggregate (`completed_evaluation_count = 1`).
+4. Replacing the secret with a revoked value made drafting answer `PROVIDER_UNAUTHORIZED`; manual
+   evaluation still saved. The valid secret was restored afterward.
+5. A live safety-classifier request returned HTTP 200 with Anthropic `stop_reason = refusal`; the
+   production adapter normalized it to `PROVIDER_REFUSED`. Manual fallback is the same independent
+   evaluation route exercised in the missing- and revoked-key cases and covered at service, HTTP,
+   and rendered-card levels.
+6. The live request was intercepted immediately before the same fetch was forwarded. Its top-level
+   fields were `max_tokens`, `messages`, `model`, `output_config`, and `system`; it contained no
+   submitter field, known submitter name, or address.
+
+No request-shape correction was required after deployment. Earlier pre-deployment attempts exposed
+only account credit propagation, correctly normalized to `PROVIDER_REJECTED`. This run closes the
+live-verification part of `GAP-011`; deployment credentials remain operator-owned and `fixture`
+remains the safe default for local development and CI.
 
 ## Why raw `fetch` rather than the Anthropic SDK
 

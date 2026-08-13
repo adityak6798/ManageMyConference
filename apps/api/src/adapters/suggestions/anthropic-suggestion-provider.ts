@@ -31,10 +31,11 @@
  *    hash function actually was would be the review-side twin of the delivery failure
  *    `providers/configuration.ts` exists to prevent.
  *
- * **This has never exchanged a request with the real API.** No Anthropic credential exists in this
- * repository, the contract test stubs `fetch`, and the request shape is written from the API's
- * documented contract rather than from an observed exchange — so what the suite proves is this
- * adapter's normalization, not that API. See `docs/engineering/review-suggestions.md`.
+ * **The deployed adapter has been smoke-tested.** The 2026-08-13 staging run recorded in
+ * `docs/engineering/review-suggestions.md` covered schema-valid generation from `claude-opus-5`,
+ * persistence, accept-as-draft, separate completion, missing and revoked credentials, a live
+ * safety refusal, and inspection of the identity-free outbound request. No credential exists in
+ * this repository, and the contract test still stubs `fetch` so ordinary CI remains deterministic.
  *
  * @spec PRD-AI-001 PORT-AI PRD-REV-001
  */

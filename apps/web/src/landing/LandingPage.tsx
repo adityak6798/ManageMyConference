@@ -311,9 +311,8 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
    * Hand the document to the console.
    *
    * The session is passed along when the probe already read one, so the shell does not ask the
-   * same question twice on the same page load. `realSession` is what decides whether the shell
-   * offers a sign-out: a demo persona is switched, not signed out, and the two must not be
-   * confused for each other.
+   * same question twice on the same page load. `realSession` is only a pre-probe hint; once the
+   * server reports an authentication kind, both real and demo sessions can be signed out.
    */
   const openWorkspace = useCallback((session: SessionDto | null, realSession: boolean) => {
     // ERROR-INTENT: callers cannot await; a console chunk that never arrives is reported below,
@@ -344,8 +343,8 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
         setDoors(identity.doors);
         if (identity.failure) setError(describeIdentityFailure(identity.failure));
         // A deployment offering demo personas cannot tell a real session from a persona at this
-        // distance — both arrive in the same cookie — so it never offers sign-out. Everywhere
-        // else, a session that already exists can only have been signed in for.
+        // distance — both arrive in the same cookie. The session DTO carries the authoritative
+        // authentication kind into the shell; this hint only covers an older API or first frame.
         if (identity.session) openWorkspace(identity.session, identity.doors?.demoMode === false);
         else setChecking(false);
       })
