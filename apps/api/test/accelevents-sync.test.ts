@@ -85,7 +85,22 @@ describe("Accelevents registration sync", () => {
       FIXTURE_ATTENDEE_RESPONSE.attendees.length,
     );
     expect(FIXTURE_ATTENDEE_RESPONSE.recordsTotal).toBe(FIXTURE_ATTENDEE_RESPONSE.attendees.length);
-    expect(FIXTURE_ATTENDEE_RESPONSE.ticketTypeCountDtos).not.toHaveLength(0);
+    expect(FIXTURE_ATTENDEE_RESPONSE.ticketTypeCountDtos).toEqual([
+      { ticketTypeId: 1, ticketTypeName: "Speaker", totalTickets: 3 },
+      { ticketTypeId: 2, ticketTypeName: "Workshop lead", totalTickets: 1 },
+    ]);
+    expect(
+      FIXTURE_ATTENDEE_RESPONSE.ticketTypeCountDtos.reduce(
+        (total, ticketType) => total + ticketType.totalTickets,
+        0,
+      ),
+    ).toBe(FIXTURE_ATTENDEE_RESPONSE.recordsTotal);
+    expect(FIXTURE_ATTENDEE_RESPONSE).toMatchObject({
+      totalBookedTickets: 4,
+      totalCheckedInTickets: 0,
+      totalFreeTickets: 4,
+      totalPaidTickets: 0,
+    });
     for (const attendee of FIXTURE_ATTENDEE_RESPONSE.attendees)
       expect(attendee).toEqual(
         expect.objectContaining({

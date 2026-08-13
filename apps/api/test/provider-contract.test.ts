@@ -515,6 +515,45 @@ describe("provider request shapes", () => {
     });
   });
 
+  it("refuses an empty page before the filtered roster is complete", async () => {
+    const { fetch } = stub(200, {
+      attendees: [],
+      recordsFiltered: 1,
+      recordsTotal: 1,
+    });
+
+    await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.toMatchObject({
+      code: "MALFORMED_PROVIDER_RESPONSE",
+    });
+  });
+
+  it("bounds requests when a provider-controlled total cannot be satisfied", async () => {
+    let requests = 0;
+    const fetch = async () => {
+      requests += 1;
+      return new Response(
+        JSON.stringify({
+          attendees: [
+            {
+              attendeeId: `ae-${requests}`,
+              firstName: "Ada",
+              lastName: String(requests),
+              email: `ada-${requests}@example.test`,
+            },
+          ],
+          recordsFiltered: 100_001,
+          recordsTotal: 100_001,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.toMatchObject({
+      code: "MALFORMED_PROVIDER_RESPONSE",
+    });
+    expect(requests).toBe(1_000);
+  });
+
   it("normalizes an unreadable platform without ever storing its message", async () => {
     for (const [status, code] of [
       [429, "PROVIDER_RATE_LIMITED"],

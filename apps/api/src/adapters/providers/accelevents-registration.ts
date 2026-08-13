@@ -68,7 +68,10 @@ export const FIXTURE_ATTENDEE_RESPONSE = {
   ],
   recordsFiltered: 4,
   recordsTotal: 4,
-  ticketTypeCountDtos: [{ ticketTypeId: 1, ticketTypeName: "Speaker", totalTickets: 4 }],
+  ticketTypeCountDtos: [
+    { ticketTypeId: 1, ticketTypeName: "Speaker", totalTickets: 3 },
+    { ticketTypeId: 2, ticketTypeName: "Workshop lead", totalTickets: 1 },
+  ],
   totalBookedTickets: 4,
   totalCheckedInTickets: 0,
   totalFreeTickets: 4,
@@ -148,6 +151,10 @@ export interface AccelEventsRegistrationClientConfiguration {
 
 type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
+// A live sync must have a finite request budget even when the provider returns a malicious or
+// corrupt total. At the documented maximum page size this still permits 100,000 registrations.
+const MAX_PAGE_REQUESTS = 1_000;
+
 /**
  * The live registration client.
  *
@@ -184,6 +191,8 @@ export class HttpAccelEventsRegistrations implements AccelEventsRegistrationSour
     let recordsFiltered: number | null = null;
     let providerRowsSeen = 0;
     while (recordsFiltered === null || providerRowsSeen < recordsFiltered) {
+      if (page >= MAX_PAGE_REQUESTS)
+        throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
       const url = `${baseUrl}?page=${page}&size=${pageSize}&dataType=TICKET`;
       let response: Response;
       try {
@@ -216,7 +225,8 @@ export class HttpAccelEventsRegistrations implements AccelEventsRegistrationSour
       if (providerRowsSeen > recordsFiltered)
         throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
       registrants.push(...parsed);
-      if (providerRows === 0) break;
+      if (providerRows === 0 && providerRowsSeen < recordsFiltered)
+        throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
       page += 1;
     }
     return registrants;
