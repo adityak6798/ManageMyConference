@@ -203,7 +203,8 @@ describe("the organizer's tool panels", () => {
 
     const panels = Array.from(document.querySelectorAll<HTMLDetailsElement>("details.tool-panel"));
     // Seven jobs; none of them is what an organizer came to this page for, so none of them is
-    // open. Before #144 four of these were expanded Cards above the dashboard.
+    // open. Before #144 all seven were expanded Cards rendered above the dashboard — six here
+    // and the resource editor's own, which is why the page opened on its settings.
     expect(panels.length).toBeGreaterThan(0);
     expect(panels.filter((element) => element.open)).toHaveLength(0);
     // Closed is a claim about what can be seen, not only about an attribute: the CSV field is in
@@ -255,5 +256,63 @@ describe("the organizer's tool panels", () => {
     expect(within(resources).getAllByLabelText("Title")).toHaveLength(1);
     expect(within(resources).getByRole("button", { name: "Create resource" })).toBeInTheDocument();
     expect(within(resources).queryByRole("button", { name: "Save changes" })).toBeNull();
+  });
+
+  it("appends a new resource rather than dropping it on top of the list", () => {
+    mount(
+      workspace({
+        resources: [
+          resource(0, "Speaker handbook", "handbook"),
+          resource(1, "Travel and expenses", "travel"),
+          resource(2, "Stage tech", "stage"),
+        ],
+      }),
+    );
+
+    const resources = open("Speaker resources");
+    fireEvent.click(within(resources).getByRole("button", { name: "New resource" }));
+    // Reads are `ORDER BY sort_order,title`, so a new page defaulting to 0 does not land at the
+    // bottom of the speaker portal — it ties with whatever already sits at 0 and is then ordered
+    // alphabetically, which is how authoring three pages in a row scrambles the portal.
+    expect(within(resources).getByLabelText("Order")).toHaveValue(3);
+
+    // An existing resource keeps the position it has; only a new one is placed.
+    fireEvent.click(within(resources).getByRole("button", { name: "Edit Speaker handbook" }));
+    expect(within(resources).getByLabelText("Order")).toHaveValue(0);
+  });
+
+  it("keeps the workflow form on the speaker chosen when the roster changes underneath it", () => {
+    const { rerender } = mount(
+      workspace({ speakers: [speaker(2, "Ada Speaker"), speaker(3, "Zoe Speaker")] }),
+    );
+
+    const workflow = open("Speaker workflow");
+    // Nobody has touched the picker, so the form defaults to the first speaker offered.
+    expect(
+      within(workflow).getByRole("button", { name: "Save workflow for Ada Speaker" }),
+    ).toBeInTheDocument();
+
+    // A CSV import commits and the workspace refetches, and the roster arrives ordered by name,
+    // so a newly imported earlier name becomes the first entry. The form must not follow it: the
+    // organizer may have typed logistics into it that are not saved yet.
+    rerender(
+      <ContentOperations
+        eventId={eventId}
+        workspace={workspace({
+          speakers: [
+            speaker(1, "Aaron Speaker"),
+            speaker(2, "Ada Speaker"),
+            speaker(3, "Zoe Speaker"),
+          ],
+        })}
+        busy={false}
+        run={run}
+      />,
+    );
+    expect(
+      within(panel("Speaker workflow")).getByRole("button", {
+        name: "Save workflow for Ada Speaker",
+      }),
+    ).toBeInTheDocument();
   });
 });

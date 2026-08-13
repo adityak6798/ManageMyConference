@@ -367,7 +367,12 @@
   margin: 0;
   padding: 0;
 }
-.resource-row {
+/* Named `resource-entry`, not `resource-row`: `.resource-row` is workspaces.css's global
+   (agenda's room, track and slot rows use it), and an unscoped redefinition here wins on
+   source order and silently restyles /agenda — including the row-level error text agenda.css
+   spans across the row. Scoped under .resource-list as well, so a future collision cannot
+   reach outside this list either. */
+.resource-list .resource-entry {
   display: flex;
   align-items: center;
   gap: var(--s-3);
@@ -378,18 +383,23 @@
   background: var(--surface-2);
   font-size: var(--text-sm);
 }
-.resource-name {
+.resource-list .resource-entry-name {
   flex: 1 1 200px;
   min-width: 0;
   font-weight: 600;
 }
-.resource-name .sub {
+.resource-list .resource-entry-name .sub {
   display: block;
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: 500;
 }
+/* `display: grid` has to be declared here. `.form-stack` has no rule in any stylesheet, so
+   without this the track definition below and `.resource-form-wide`'s `grid-column` were both
+   inert and the fields never paired into columns. */
 .resource-form {
+  display: grid;
+  gap: var(--s-4);
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   padding: var(--s-4);
   border: 1px solid var(--line);

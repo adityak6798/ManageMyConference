@@ -41,8 +41,24 @@ async function expectNoAxeViolations(page: Page, surface: string) {
  * This list is the honest form of a partial fix: the check runs everywhere, and the three
  * surfaces that cannot pass it yet are enumerated with a reason instead of the assertion being
  * quietly weakened for all eleven. Deleting an entry is how the next lane proves its restack.
+ *
+ * Entries are whole labels, not path fragments. `/sessions` as a fragment also matched the label
+ * `public /sessions` — the public listing, which has no `table.data` and is not part of this
+ * defect — and silently exempted a route nobody had measured.
  */
 const OFFSCREEN_ACTIONS_PENDING_155 = ["/abstracts", "/communications", "/sessions"];
+
+/**
+ * Whether `surface` is one of the exempt organizer routes.
+ *
+ * Matched on the organizer prefix and the route alone, with the query string dropped: organizer
+ * labels carry `?event=…`, and the public listing's label is `public /sessions`, which a bare
+ * substring test on `/sessions` also matched.
+ */
+function isExemptFrom155(surface: string): boolean {
+  const organizerRoute = surface.match(/^organizer (\/[^?]*)/);
+  return organizerRoute !== null && OFFSCREEN_ACTIONS_PENDING_155.includes(organizerRoute[1] ?? "");
+}
 
 /**
  * The document does not pan sideways, *and* the things an organizer came to press are on screen.
@@ -62,7 +78,7 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
   );
   expect(overflow, `${surface} overflows horizontally by ${overflow}px`).toBeLessThanOrEqual(0);
 
-  if (OFFSCREEN_ACTIONS_PENDING_155.some((path) => surface.includes(path))) return;
+  if (isExemptFrom155(surface)) return;
 
   const offscreen = await page.evaluate(() => {
     const main = document.querySelector("main");
@@ -89,6 +105,22 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
     offscreen,
     `${surface} puts ${offscreen.length} control(s) outside the viewport: ${offscreen.join("; ")}`,
   ).toEqual([]);
+}
+
+/**
+ * Expand every disclosure on the current page, so an audit sees their contents.
+ *
+ * Sets `open` directly rather than clicking: the point is to expose the content to axe, and a
+ * click-per-panel would make the sweep depend on each summary's hit target. Whether the
+ * disclosure *works* is asserted separately, and in the unit suite.
+ */
+async function openEveryToolPanel(page: Page) {
+  const opened = await page.evaluate(() => {
+    const panels = [...document.querySelectorAll<HTMLDetailsElement>("details.tool-panel")];
+    for (const panel of panels) panel.open = true;
+    return panels.length;
+  });
+  if (opened) await expect(page.locator("details.tool-panel[open]")).toHaveCount(opened);
 }
 
 async function openOrganizer(page: Page) {
@@ -136,6 +168,13 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     await expect(page).toHaveURL(destination.href);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(page.getByRole("banner")).toHaveCount(1);
+    // A closed <details> renders nothing, and axe skips what is not rendered. #144 moved seven
+    // tools — the CSV import form, the Accelevents controls, the workflow selects and textareas,
+    // the bulk-assignment list, the deliverables inputs, the edit-history table and the whole
+    // resource editor — into closed panels, which would have quietly narrowed this audit to the
+    // dashboard while the scorecard still called the destination clean. They are opened first so
+    // the sweep covers at least what it covered when they were expanded Cards.
+    await openEveryToolPanel(page);
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 

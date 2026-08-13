@@ -424,19 +424,27 @@ dl.grid-auto {
      rest a cover sits exactly on top of its shadow and hides it, and scrolling slides the
      cover away to reveal it. The affordance therefore appears only on the side that has
      content left to reach, and disappears at both ends — a container that does not
-     scroll never paints one. */
+     scroll never paints one.
+
+     `--ink-3` at 62% rather than `--ink-4` at 34%: this shadow is the *only* cue that the
+     table continues, so it is a graphical object needed to understand the content and owes
+     WCAG 1.4.11's 3:1. The first attempt composited to about #D6DBD8 — roughly 1.4:1 on
+     white, which measured as invisible on a glare-washed screen. It is still occluded across
+     the sticky header row and under a hovered row, both of which paint opaque backgrounds
+     over the container; that is a thin band rather than the whole edge, and fixing it would
+     mean moving the affordance onto a pseudo-element above the table. */
   background:
     linear-gradient(to right, var(--surface) 30%, transparent) left center,
     linear-gradient(to left, var(--surface) 30%, transparent) right center,
     radial-gradient(
       farthest-side at 0 50%,
-      color-mix(in srgb, var(--ink-4) 34%, transparent),
+      color-mix(in srgb, var(--ink-3) 62%, transparent),
       transparent
     )
     left center,
     radial-gradient(
       farthest-side at 100% 50%,
-      color-mix(in srgb, var(--ink-4) 34%, transparent),
+      color-mix(in srgb, var(--ink-3) 62%, transparent),
       transparent
     )
     right center;

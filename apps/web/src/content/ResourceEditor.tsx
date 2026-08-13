@@ -7,7 +7,7 @@
  * fields are only on screen when somebody chose to author something.
  */
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { ContentApiError, deleteSpeakerResource, saveSpeakerResource } from "../api/content";
 import { EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
 import type { Run, Workspace } from "./shared";
@@ -22,11 +22,14 @@ type Resource = NonNullable<Workspace["resources"]>[number];
  */
 function ResourceForm({
   resource,
+  nextSortOrder,
   busy,
   onSubmit,
   onCancel,
 }: {
   resource?: Resource;
+  /** Where a new resource lands: after everything already authored. */
+  nextSortOrder: number;
   busy: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
@@ -75,7 +78,15 @@ function ResourceForm({
       </label>
       <label>
         Order
-        <input name="sortOrder" type="number" min={0} defaultValue={resource?.sortOrder ?? 0} />
+        {/* A new resource appends; an existing one keeps the order it has. Defaulting a new
+            page to 0 put it at the top of the portal list, tie-broken by title against
+            whatever already sat at 0 — reads are `ORDER BY sort_order,title`. */}
+        <input
+          name="sortOrder"
+          type="number"
+          min={0}
+          defaultValue={resource ? resource.sortOrder : nextSortOrder}
+        />
       </label>
       <label className="resource-form-wide">
         <input
@@ -113,6 +124,19 @@ export function ResourceEditor({
   // One editor at a time: "new", a resource id, or nothing open at all.
   const [open, setOpen] = useState<string | null>(null);
   const editing = resources.find(({ id }) => id === open);
+  // A new page goes after the last one, not on top of it.
+  const nextSortOrder = resources.reduce(
+    (highest, { sortOrder }) => Math.max(highest, sortOrder + 1),
+    0,
+  );
+  // Closing an editor unmounts the control that has focus, so the toggle that opened it takes
+  // focus back. Without this a keyboard user is dropped to the document and has to traverse the
+  // whole dashboard again to return to a roster that sits at the bottom of the page.
+  const toggles = useRef<Record<string, HTMLButtonElement | null>>({});
+  function close(returnFocusTo: string) {
+    setOpen(null);
+    toggles.current[returnFocusTo]?.focus();
+  }
 
   function submit(event: FormEvent<HTMLFormElement>, id?: string) {
     event.preventDefault();
@@ -133,7 +157,7 @@ export function ResourceEditor({
         sortOrder: Number(data.get("sortOrder")),
       }),
     ).then((result) => {
-      if (result.ok) setOpen(null);
+      if (result.ok) close(id ?? "new");
       feedback.announce(
         result.ok ? "success" : "error",
         result.ok
@@ -165,6 +189,9 @@ export function ResourceEditor({
           className="secondary small"
           aria-expanded={open === "new"}
           aria-controls="resource-new-form"
+          ref={(node) => {
+            toggles.current.new = node;
+          }}
           onClick={() => setOpen(open === "new" ? null : "new")}
           disabled={busy}
         >
@@ -174,7 +201,12 @@ export function ResourceEditor({
 
       {open === "new" ? (
         <div id="resource-new-form">
-          <ResourceForm busy={busy} onSubmit={submit} onCancel={() => setOpen(null)} />
+          <ResourceForm
+            nextSortOrder={nextSortOrder}
+            busy={busy}
+            onSubmit={submit}
+            onCancel={() => close("new")}
+          />
         </div>
       ) : null}
 
@@ -184,8 +216,8 @@ export function ResourceEditor({
             const isOpen = open === resource.id;
             return (
               <li key={resource.id}>
-                <div className="resource-row">
-                  <span className="resource-name">
+                <div className="resource-entry">
+                  <span className="resource-entry-name">
                     {resource.title}
                     <span className="sub">/{resource.slug}</span>
                   </span>
@@ -198,6 +230,9 @@ export function ResourceEditor({
                       className="secondary small"
                       aria-expanded={isOpen}
                       aria-controls={`resource-form-${resource.id}`}
+                      ref={(node) => {
+                        toggles.current[resource.id] = node;
+                      }}
                       onClick={() => setOpen(isOpen ? null : resource.id)}
                     >
                       {isOpen ? "Close" : "Edit"}
@@ -219,9 +254,10 @@ export function ResourceEditor({
                     <ResourceForm
                       key={editing.id}
                       resource={editing}
+                      nextSortOrder={nextSortOrder}
                       busy={busy}
                       onSubmit={(event) => submit(event, editing.id)}
-                      onCancel={() => setOpen(null)}
+                      onCancel={() => close(editing.id)}
                     />
                   </div>
                 ) : null}

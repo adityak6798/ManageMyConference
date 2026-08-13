@@ -11,7 +11,7 @@
  * per row — Speaker workflow edits the one speaker chosen, so the panel is O(1) in roster size.
  */
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
   addContentComment,
   bulkRequestSpeakerTasks,
@@ -40,7 +40,7 @@ function ToolPanel({
 }: {
   title: string;
   hint: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <details className="tool-panel">
@@ -141,8 +141,20 @@ export function ContentOperations({
   );
   // The chosen speaker, or the first one the filter still admits — so narrowing the filter past
   // the current selection lands on a real speaker rather than an empty form.
+  //
+  // The picker below writes `workflowSpeakerId` on mount-time default as well as on change, so
+  // the selection is stored rather than derived. It used to fall through to `filteredSpeakers[0]`
+  // whenever nothing had been picked, and the roster arrives `ORDER BY name`: committing a CSV
+  // import that added an earlier name changed which speaker `[0]` was, remounted the form on its
+  // `key`, and replaced logistics the organizer had typed but not saved.
   const workflowSpeaker =
     filteredSpeakers.find(({ id }) => id === workflowSpeakerId) ?? filteredSpeakers[0];
+  // Commit the defaulted choice, so "whoever sorts first" becomes "the speaker on screen" and a
+  // later refetch cannot move it. Re-runs only when the current selection is no longer offered.
+  useEffect(() => {
+    if (workflowSpeaker && workflowSpeaker.id !== workflowSpeakerId)
+      setWorkflowSpeakerId(workflowSpeaker.id);
+  }, [workflowSpeaker, workflowSpeakerId]);
   const revisions = workspace.revisions ?? [];
 
   return (
