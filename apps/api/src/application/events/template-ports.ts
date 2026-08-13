@@ -59,11 +59,15 @@ export class SliceRefusalError extends Error {}
  * one category's trouble from becoming a 500 that hides every other category's outcome, and by
  * then the slices ordered before the failing one have already written — so a throwing sink would
  * lose the per-category report *and* the application record describing what landed, which is the
- * one thing this design promises when it declines to be atomic. It is stated here rather than
- * guarded in the service because the guard would be an empty catch, which this repository's error
- * policy forbids outright and is right to: a `catch {}` that is correct here is indistinguishable
- * from the hundred that are not. The composition root's sink in `apps/api/src/index.ts` is total
- * by construction — it stringifies five primitives and calls the structured logger.
+ * one thing this design promises when it declines to be atomic.
+ *
+ * This is a requirement on the implementer rather than a guard in the service, and the reason is
+ * that there is nothing the application layer could do in that guard. It holds no second sink and
+ * no logger, so the catch would have to swallow — and a swallow here is indistinguishable, to
+ * every later reader and to `tools/check-errors.mjs`, from the swallows that policy exists to
+ * catch. Stating the obligation where it is met is the honest version. The composition root's
+ * sink in `apps/api/src/index.ts` meets it for every value this application throws: each throw
+ * site constructs an `Error`, and the sink reads `message` and `name` off it.
  */
 export interface SliceFault {
   readonly sliceKey: string;
@@ -125,11 +129,25 @@ export interface SliceResult {
  * read, and without this it would report against a state the apply will never actually meet.
  *
  * Only slice **keys** cross this boundary, never another domain's payload. A slice learns that a
- * category it depends on is landing first; it does not learn what that category contains, which
+ * category it depends on is about to write; it does not learn what that category contains, which
  * is the whole reason the payloads are opaque to everyone but the slice that wrote them.
  */
 export interface SliceContext {
-  /** Keys of the slices applied before this one in this application, that carry a payload. */
+  /**
+   * Keys of the earlier slices in this application that will **attempt to write**.
+   *
+   * Read the predicate exactly, because two neighbouring readings are both wrong. It is not
+   * "every selected slice carrying a payload": one whose own preview answered `unauthorized`,
+   * `failed` or `skipped` writes nothing and is absent. Nor is it "every slice that will fully
+   * succeed": a slice reports `incompatible` when *part* of its payload is refused while the rest
+   * lands — review says that when the destination's rubric is locked and still writes the whole
+   * triage status set — so `incompatible` is present.
+   *
+   * A key here is therefore an intention, not a guarantee. A slice depending on one must word its
+   * preview as a dependency ("once the triage statuses category creates that status") rather than
+   * as a promise, because the upstream category may land without carrying the particular thing
+   * this one needs, and no key can say otherwise.
+   */
   readonly appliedBefore: readonly string[];
 }
 

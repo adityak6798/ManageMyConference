@@ -789,4 +789,49 @@ describe("Event templates: the per-slice contract", () => {
     expect(seen.get("cfp")).toEqual(["review"]);
     expect(seen.has("agenda")).toBe(false);
   });
+
+  /*
+   * The predicate itself, outcome by outcome, because both neighbouring readings of it are wrong
+   * and each produced a shipped defect. Reading it as "every selected slice with a payload" let a
+   * category that could not be written announce itself as landing; narrowing it to `copies` alone
+   * then hid a category that reports `incompatible` for a refused *part* while the rest of it
+   * writes — which is review whenever the destination's rubric is locked. One test, five outcomes,
+   * so the next person to change this line has to say which reading they meant.
+   */
+  it("counts a category as landing before the next one when it will attempt to write", async () => {
+    const outcomes = ["copies", "incompatible", "unauthorized", "failed", "skipped"] as const;
+    const seen = new Map<string, readonly string[]>();
+    const answering = (key: string, outcome: SlicePreview["outcome"]): EventConfigurationSlice => ({
+      key,
+      label: key,
+      export: () => Promise.resolve({ captured: key }),
+      preview(_actor, _eventId, _payload, _remap, context: SliceContext) {
+        seen.set(key, context.appliedBefore);
+        return Promise.resolve({ outcome, reason: "", copies: [], excludes: [], incompatible: [] });
+      },
+      apply: () =>
+        Promise.resolve({ outcome: "applied" as const, reason: "", applied: [], incompatible: [] }),
+    });
+    // Each answering slice is followed by an observer, so the observer's list says whether the
+    // slice before it counted. Ordering matters, so they are composed in pairs.
+    const composed = outcomes.flatMap((outcome) => [
+      answering(outcome, outcome),
+      answering(`after-${outcome}`, "skipped"),
+    ]);
+    const { actor, templates, templateId } = await orchestrate(composed);
+
+    await templates.preview(actor, DESTINATION, {
+      templateId,
+      version: 1,
+      destination: DESTINATION_RANGE,
+    });
+
+    // A slice that will write something — even a slice refusing part of its payload — counts.
+    expect(seen.get("after-copies")).toContain("copies");
+    expect(seen.get("after-incompatible")).toContain("incompatible");
+    // A slice that writes nothing at all does not, whatever the reason it writes nothing.
+    expect(seen.get("after-unauthorized")).not.toContain("unauthorized");
+    expect(seen.get("after-failed")).not.toContain("failed");
+    expect(seen.get("after-skipped")).not.toContain("skipped");
+  });
 });

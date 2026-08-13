@@ -93,6 +93,11 @@ export interface EventTemplateServiceDependencies {
    * the composition root decides what a fault is written to. Optional because a caller that
    * omits it is choosing to run the orchestrator with no sink — every test in this repository —
    * not because a fault is ever discardable in a deployment.
+   *
+   * **It must not throw**, and the obligation is repeated here rather than left on `SliceFault`
+   * because this is the line an implementer actually fills in. `SliceFault` says why: the call
+   * sits inside the catch that keeps one category's trouble from becoming a 500 hiding all the
+   * others, after earlier slices have already written.
    */
   onSliceFault?: ((fault: SliceFault) => void) | undefined;
 }
@@ -272,15 +277,24 @@ export class EventTemplateService {
       });
       slices.push({ key: slice.key, label: slice.label, ...report });
       /*
-       * Only a category that will actually land counts as landing before the next one.
+       * A category counts as landing before the next one when it will *attempt to write*.
        *
-       * Being selected and carrying a payload is not the same as being about to succeed: a slice
-       * whose own preview just answered `unauthorized`, `incompatible`, `failed` or `skipped` is
-       * one this application will not write. Announcing it anyway would have CFP report a routing
-       * rule as copied on the strength of triage statuses that are never coming — the same
-       * preview-versus-apply disagreement this list exists to remove, pointing the other way.
+       * Being selected and carrying a payload is not enough: a slice whose own preview just
+       * answered `unauthorized`, `failed` or `skipped` writes nothing at all, and announcing it
+       * anyway would have CFP report a routing rule as copied on the strength of triage statuses
+       * that are never coming.
+       *
+       * `incompatible` is the interesting one, and it belongs on the landing side. A slice reports
+       * it as soon as *any* part of its payload is refused, while the rest still lands — review
+       * says `incompatible` when the destination's rubric is locked by existing assignments and
+       * goes on to write the whole triage status set regardless. Excluding it made CFP preview a
+       * routing rule as refused that the apply then copied: the same disagreement this list exists
+       * to remove, running the other way. A dependent slice's wording already hedges ("once the
+       * triage statuses category creates that status"), which is the honest answer when the
+       * upstream set may or may not carry what it needs.
        */
-      if (report.outcome === "copies") appliedBefore.push(slice.key);
+      if (report.outcome === "copies" || report.outcome === "incompatible")
+        appliedBefore.push(slice.key);
     }
     return {
       ...context.identity,
