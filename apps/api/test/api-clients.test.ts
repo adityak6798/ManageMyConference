@@ -410,6 +410,11 @@ describe("API client credentials", () => {
       { method: "DELETE", headers: sessionHeaders },
     );
     expect(revoked.status).toBe(204);
+    const replayed = await app.request(
+      `/api/organizations/${ORGANIZATION}/api-clients/00000000-0000-4000-8000-000000000100`,
+      { method: "DELETE", headers: sessionHeaders },
+    );
+    expect(replayed.status).toBe(204);
     expect(
       (await app.request("/api/session", { headers: { authorization: `Bearer ${CREDENTIAL}` } }))
         .status,

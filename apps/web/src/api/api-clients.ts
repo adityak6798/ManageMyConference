@@ -32,7 +32,7 @@ export function createApiClient(
 ) {
   return fetcher(`/api/organizations/${organizationId}/api-clients`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(command),
   }).then((response) => decode(response, createApiClientResponseSchema));
 }
@@ -44,7 +44,6 @@ export function rotateApiClient(
 ) {
   return fetcher(`/api/organizations/${organizationId}/api-clients/${clientId}/rotate`, {
     method: "POST",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
   }).then((response) => decode(response, rotateApiClientResponseSchema));
 }
 
@@ -55,7 +54,6 @@ export async function revokeApiClient(
 ) {
   const response = await fetcher(`/api/organizations/${organizationId}/api-clients/${clientId}`, {
     method: "DELETE",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
   });
   if (!response.ok) await decode(response, apiClientsResponseSchema); // Always throws through the envelope path.
 }

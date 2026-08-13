@@ -36,6 +36,7 @@
     "apps/web/src/api/overview.ts",
     "apps/api/test/http.test.ts",
     "apps/api/test/api-docs.test.ts",
+    "apps/api/test/api-compatibility.test.ts",
     "apps/api/test/runtime-auth.test.ts",
     "apps/api/vitest.config.ts",
     "apps/api/vitest.integration.config.ts",

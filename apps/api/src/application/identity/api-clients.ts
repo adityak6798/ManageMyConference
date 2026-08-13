@@ -308,8 +308,16 @@ export class ApiClientService {
       now: this.dependencies.now(),
       context,
     });
-    if (changed === 0)
-      throw new ApiClientConflictError("API client is already revoked or not yours");
+    if (changed === 0) {
+      // Revocation is a target state, so a lost response can be retried without turning success
+      // into a conflict. Still distinguish an owned, already-revoked client from an unknown or
+      // cross-organization id; otherwise this route becomes an ownership oracle.
+      const existing = (await this.dependencies.repository.list(organizationId)).find(
+        ({ id }) => id === clientId,
+      );
+      if (!existing || existing.revokedAt === null)
+        throw new ApiClientConflictError("API client is not active or not yours");
+    }
   }
 }
 

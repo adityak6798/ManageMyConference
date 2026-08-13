@@ -4,6 +4,10 @@ Status: canonical | Owner: architecture | Last verified: 2026-08-13
 
 Shared Zod schemas own every current request and response shape: event mutations/lists/basic metadata, agenda draft/placement/publication/public projection, current session/capabilities, demo session, health, and the standard error envelope. They generate [`packages/contracts/openapi.json`](../../packages/contracts/openapi.json), and CI rejects drift. The OpenAPI document covers health, the internal demo-cookie route, session, event, agenda, and public-schedule routes, cookie security, and implemented success/error statuses. Domain types own business semantics. Drizzle declares intended storage, immutable SQL migrations own deployed history, and the D1 adapter owns persistence behavior. Explicit tested mappers connect transport, domain, and storage models.
 
+The canonical [API compatibility policy](api-compatibility.md) versions the contract rather than
+the URL, defines additive and breaking changes, sets the deprecation procedure, and owns the
+shared cursor-pagination and public `Idempotency-Key` rulings.
+
 ## Route groups
 
 - `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration, and organization API clients.

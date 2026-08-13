@@ -329,7 +329,9 @@ export const identityPaths: OpenApiFragment = {
       method: "delete",
       path: "/api/organizations/{organizationId}/api-clients/{clientId}",
       security: [{ sessionCookie: [] }],
-      description: "Revoke a client. Revocation takes effect on its next request.",
+      description:
+        "Revoke a client. Revocation takes effect on its next request, and replaying the " +
+        "operation converges on the same revoked state.",
       request: { params: apiClientParamsSchema },
       responses: {
         204: { description: "API client revoked" },

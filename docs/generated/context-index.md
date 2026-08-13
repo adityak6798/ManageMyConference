@@ -87,6 +87,7 @@
 
 ### `ACC-HARNESS`
 - `test` / `repository-fact`: [apps/api/test/api-clients.test.ts](../../apps/api/test/api-clients.test.ts)
+- `test` / `repository-fact`: [apps/api/test/api-compatibility.test.ts](../../apps/api/test/api-compatibility.test.ts)
 - `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-api-clients.integration.test.ts](../../apps/api/test/d1-api-clients.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-api-clients.test.ts](../../apps/api/test/d1-api-clients.test.ts)
@@ -99,6 +100,7 @@
 - `test` / `repository-fact`: [apps/api/test/http.test.ts](../../apps/api/test/http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/runtime-auth.test.ts](../../apps/api/test/runtime-auth.test.ts)
 - `test` / `repository-fact`: [apps/web/test/api-clients-workspace.test.tsx](../../apps/web/test/api-clients-workspace.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/api-clients-api.test.ts](../../apps/web/test/api-clients-api.test.ts)
 - `test` / `repository-fact`: [apps/web/test/api-config.test.ts](../../apps/web/test/api-config.test.ts)
 - `test` / `repository-fact`: [apps/web/test/error-fallback.test.tsx](../../apps/web/test/error-fallback.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/overview-dashboard.test.tsx](../../apps/web/test/overview-dashboard.test.tsx)

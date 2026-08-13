@@ -17,7 +17,7 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { z, type ZodType } from "zod";
 import { openApiFragments } from "../openapi/registry";
-import { apiErrorEnvelopeSchema } from "../src/index";
+import { API_CONTRACT_VERSION, apiErrorEnvelopeSchema } from "../src/index";
 
 extendZodWithOpenApi(z);
 
@@ -62,7 +62,7 @@ for (const fragment of openApiFragments) {
 
 const document = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: "3.0.3",
-  info: { title: "Project Greenroom API", version: "0.1.0" },
+  info: { title: "Project Greenroom API", version: API_CONTRACT_VERSION },
 });
 const patchOperation = document.paths["/api/events/{eventId}/prospects/{prospectId}"]?.patch as
   | { requestBody?: { content?: Record<string, { schema?: { minProperties?: number } }> } }

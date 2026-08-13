@@ -3160,24 +3160,6 @@
         "parameters": [
           {
             "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "organizationId",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "eventId",
-            "in": "query"
-          },
-          {
-            "schema": {
               "type": "integer",
               "minimum": 1,
               "maximum": 50,
@@ -3195,6 +3177,24 @@
             },
             "required": false,
             "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "organizationId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
             "in": "query"
           }
         ],
@@ -38770,7 +38770,7 @@
             "sessionCookie": []
           }
         ],
-        "description": "Revoke a client. Revocation takes effect on its next request.",
+        "description": "Revoke a client. Revocation takes effect on its next request, and replaying the operation converges on the same revoked state.",
         "parameters": [
           {
             "schema": {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cursorPage, cursorPageParams } from "./platform";
 
 // @spec PRD-COM-001 PRD-INT-001
 /**
@@ -112,11 +113,9 @@ export const triggerDeliveryInputSchema = z
         message: "Projection delivery requires a version",
       });
   });
-export const communicationsHistoryParamsSchema = z.object({
+export const communicationsHistoryParamsSchema = cursorPageParams({ max: 50, default: 25 }).extend({
   organizationId: z.string().uuid(),
   eventId: z.string().uuid(),
-  limit: z.coerce.number().int().min(1).max(50).default(25),
-  cursor: z.string().min(1).max(500).optional(),
 });
 export const retryDeliveryInputSchema = z.object({ organizationId: z.string().uuid() });
 export const templateListParamsSchema = z.object({ organizationId: z.string().uuid() });
@@ -205,12 +204,10 @@ export const broadcastResponseSchema = z.object({
   deliveries: z.array(deliverySchema),
 });
 export const deliveryResponseSchema = z.object({ delivery: deliverySchema });
-export const communicationsHistoryResponseSchema = z.object({
-  history: z.array(
-    z.object({ delivery: deliverySchema, attempts: z.array(deliveryAttemptSchema) }),
-  ),
-  nextCursor: z.string().nullable(),
-});
+export const communicationsHistoryResponseSchema = cursorPage(
+  z.object({ delivery: deliverySchema, attempts: z.array(deliveryAttemptSchema) }),
+  "history",
+);
 export type CreateTemplateInput = z.infer<typeof createTemplateInputSchema>;
 export type MessageTemplateDto = z.infer<typeof messageTemplateSchema>;
 export type BroadcastInput = z.infer<typeof broadcastInputSchema>;

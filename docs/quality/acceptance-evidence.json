@@ -21,6 +21,7 @@
         "tools/tests/worktree-env.test.mjs",
         "tools/tests/test_context.py",
         "apps/api/test/http.test.ts",
+        "apps/api/test/api-compatibility.test.ts",
         "apps/api/test/demo-session.test.ts",
         "apps/api/test/runtime-auth.test.ts",
         "apps/api/test/event-service.test.ts",
@@ -32,7 +33,8 @@
         "apps/api/test/d1-harness.integration.test.ts",
         "apps/api/test/api-clients.test.ts",
         "apps/api/test/d1-api-clients.test.ts",
-        "apps/api/test/d1-api-clients.integration.test.ts"
+        "apps/api/test/d1-api-clients.integration.test.ts",
+        "apps/web/test/api-clients-api.test.ts"
       ]
     },
     "ACC-IDENTITY-EVENTS": {
