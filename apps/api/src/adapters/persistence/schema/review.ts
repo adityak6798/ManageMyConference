@@ -233,6 +233,8 @@ export function defineReviewSchema(references: {
         .references(() => references.usersId),
       decidedAt: text("decided_at").notNull(),
       note: text("note").notNull(),
+      /** Advances only when the outcome changes; see migration 1311. */
+      revision: integer("revision").notNull().default(1),
     },
     (table) => [
       primaryKey({ columns: [table.eventId, table.proposalId] }),

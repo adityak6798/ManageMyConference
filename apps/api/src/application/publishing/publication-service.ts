@@ -328,6 +328,14 @@ export class PublicationService {
     return published;
   }
 
+  /**
+   * Take the public page down.
+   *
+   * The fact reported is that a **live** page was withdrawn, so the instant is read before the
+   * write and the repository's update is conditional on the page still being published. A second
+   * unpublish changes no row and therefore reports nothing: without both halves, a double-click
+   * announced a take-down that did not happen, and an append-only observer recorded it forever.
+   */
   async unpublish(actor: Actor | null, eventId: string) {
     if (!this.requireOrganizer(actor, eventId, "events:settings:update")) return null;
     const unpublishedAt = this.now().toISOString();

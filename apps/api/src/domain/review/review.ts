@@ -97,6 +97,15 @@ export type ProposalDecision = {
   readonly decidedBy: string;
   readonly decidedAt: string;
   readonly note: string;
+  /**
+   * How many times this proposal has actually been decided.
+   *
+   * Advances only when the outcome changes, so re-deciding the same way — the retry `decide`
+   * documents as how a half-finished decision heals — leaves it alone, while accept → decline →
+   * accept reaches 3. It is the one fact that separates those two, because every other column
+   * moves on both. Allocated by storage inside the upsert, never by a caller.
+   */
+  readonly revision: number;
 };
 
 export type ReviewCompletedEvent = {

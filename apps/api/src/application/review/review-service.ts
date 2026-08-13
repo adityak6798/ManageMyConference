@@ -97,6 +97,15 @@ export interface ReviewNotificationPort {
     readonly submitterName: string;
     readonly submitterEmail: string | null;
     readonly proposalTitle: string;
+    /**
+     * How many times this proposal has been decided, storage-allocated.
+     *
+     * Reported because an observer cannot otherwise tell a retry from a reinstatement: every
+     * other field, `decidedAt` included, moves on both. Re-deciding the same way holds this
+     * value, so an observer keyed on it converges on a retry; accept → decline → accept
+     * advances it, so the third decision is a third thing that happened. See migration 1311.
+     */
+    readonly revision: number;
   }): Promise<void>;
 }
 
@@ -771,19 +780,35 @@ export class ReviewService implements AcceptedProposalQuery {
       occurredAt: decidedAt,
       auditIds: uniqueProposalIds.map(() => this.dependencies.newId()),
     });
-    const decisions = uniqueProposalIds.map((proposalId) => ({
-      eventId,
-      proposalId,
-      outcome,
-      decidedBy: authorized.id,
-      decidedAt,
-      note,
-    }));
-    for (const decision of decisions) await this.dependencies.repository.saveDecision(decision);
+    /*
+     * The revision each decision now stands at, allocated by storage rather than by this loop.
+     *
+     * `saveDecision` computes it inside its own upsert, so two organizers deciding one proposal
+     * at once cannot both read the old value and write the same new one. Re-deciding the same way
+     * holds it; deciding differently advances it. That is the only fact separating a retry from a
+     * reinstatement, and the audit timeline needs it (`PRD-OPS-003`, migration 1311).
+     */
+    const decisions = await Promise.all(
+      uniqueProposalIds.map(async (proposalId) => {
+        const pending = {
+          eventId,
+          proposalId,
+          outcome,
+          decidedBy: authorized.id,
+          decidedAt,
+          note,
+        };
+        return { ...pending, revision: await this.dependencies.repository.saveDecision(pending) };
+      }),
+    );
+    const revisionOf = new Map(decisions.map((entry) => [entry.proposalId, entry.revision]));
     // Told after both the status transition and the decision record are durable. A submitter who
     // hears "accepted" from a decision that did not save would be told again on the retry, and
     // the two messages would disagree about which one was real.
-    for (const proposal of proposals)
+    for (const proposal of proposals) {
+      const revision = revisionOf.get(proposal.id);
+      if (revision === undefined)
+        throw new Error(`No persisted decision revision was returned for proposal ${proposal.id}`);
       await this.dependencies.notifications?.decisionRecorded({
         eventId,
         proposalId: proposal.id,
@@ -793,7 +818,9 @@ export class ReviewService implements AcceptedProposalQuery {
         // and inventing one would send somebody else's decision to somebody else.
         submitterEmail: proposal.submitter?.email ?? null,
         proposalTitle: proposal.title,
+        revision,
       });
+    }
     return { proposals, decisions };
   }
 

@@ -512,8 +512,8 @@ scorecard row states the count that is true of it.
 triggers are declared in `UNMODELLED_OBJECTS` in `tools/check-schema-drift.mjs`, because Drizzle
 cannot express a trigger and the gate refuses one that is not acknowledged.
 
-**A reinstated decision is not recorded twice, and that is a limitation this lane could not fix
-from where it stands.** Two attempts were made and both were wrong.
+**A reinstated decision *is* recorded, and getting there took three attempts of which two were
+wrong.**
 
 The audit key for a decision wants an occurrence component: accept, decline, accept again is three
 decisions, and the outcome carried in the action separates only the first two. The first attempt
@@ -525,11 +525,19 @@ including the retry, so the "fact-derived" instant was the attempt's clock one l
 change was backed out rather than left in place looking like a fix.
 
 Distinguishing a retry from a reinstatement needs something monotonic that a real decision advances
-and a retry does not, and a stored `ProposalDecision` has no such field. Giving it one is review's
-change to make, not platform's. So `PRD-OPS-003`'s stated priority decides it — a replayed command
-produces exactly one record — and the reinstatement is the loss. `GAP-022` names it with the
-closure condition, and `lifecycleAuditKey`'s `occurrence` parameter is the extension point that
-takes it the day review can number a decision.
+and a retry does not, and a stored `ProposalDecision` had no such field. The third attempt gives it
+one: migration `1311` adds `revision`, advanced inside the upsert **only when the outcome changes**,
+which is exactly the definition of a new decision. Storage allocates it and `RETURNING` hands it
+back, so two organizers deciding at once cannot both read the old value and write the same new one.
+`decisionRecorded` reports it and the audit key uses it as the occurrence, so a retry converges on
+one record and accept → decline → accept produces three.
+
+That is a review-domain change with its own migration, which is beyond what this lane was scoped to
+touch, and it is deliberate rather than incidental: keying the log on anything the review domain
+already had would have been wrong in one direction or the other, and shipping either would have put
+a false statement on an append-only table. It is announced here for the same reason the publishing
+port is, and it lands in its own commit so a lane rebasing around review can take or leave it
+independently of the rest of #99.
 
 #### 99d — the one edit that leaves platform's files
 

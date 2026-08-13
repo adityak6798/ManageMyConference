@@ -38,7 +38,14 @@ export interface ReviewRepository {
   completeEvaluation(evaluation: Evaluation, event: ReviewCompletedEvent): Promise<void>;
   listCompletedEvaluations(eventId: string, proposalId: string): Promise<readonly Evaluation[]>;
   listOutcomes(eventId: string): Promise<readonly ReviewOutcome[]>;
-  saveDecision(decision: ProposalDecision): Promise<void>;
+  /**
+   * Upsert the decision and answer the revision it now stands at.
+   *
+   * Storage allocates the revision inside its own statement, so the caller cannot race another
+   * writer by reading it first. Re-deciding the same way holds the value; deciding differently
+   * advances it. See migration 1311.
+   */
+  saveDecision(decision: Omit<ProposalDecision, "revision">): Promise<number>;
   findDecision(eventId: string, proposalId: string): Promise<ProposalDecision | null>;
   listDecisions(eventId: string): Promise<readonly ProposalDecision[]>;
 
