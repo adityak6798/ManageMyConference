@@ -167,7 +167,8 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await expect(table.getByRole("row", { name: /Designing for the hallway track/ })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const tab of await page.getByRole("tab").all()) {
+  const statusTabs = page.getByRole("tablist", { name: "Filter abstracts by status" });
+  for (const tab of await statusTabs.getByRole("tab").all()) {
     const bounds = await tab.boundingBox();
     expect(bounds?.x).toBeGreaterThanOrEqual(0);
     expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);

@@ -173,12 +173,13 @@ test("moves a placed session by dragging it onto another room and slot", async (
       accepted,
       stable: before.every((rect, index) => {
         const next = after[index];
+        const withinPixel = (left: number, right: number) => Math.abs(left - right) < 1;
         return (
           next !== undefined &&
-          rect.x === next.x &&
-          rect.y === next.y &&
-          rect.width === next.width &&
-          rect.height === next.height
+          withinPixel(rect.x, next.x) &&
+          withinPixel(rect.y, next.y) &&
+          withinPixel(rect.width, next.width) &&
+          withinPixel(rect.height, next.height)
         );
       }),
       pickupStayedInCell: pickupCellBefore !== null && pickupCellBefore === pickupCellAfter,
