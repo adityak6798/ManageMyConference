@@ -31,11 +31,11 @@
  *    hash function actually was would be the review-side twin of the delivery failure
  *    `providers/configuration.ts` exists to prevent.
  *
- * **The adapter has generated successfully, but the deployment smoke is incomplete.** A
- * 2026-08-13 credentialed request returned a schema-valid suggestion from `claude-opus-5`. No
- * credential exists in this repository, and the contract test still stubs `fetch`; staging
- * persistence, acceptance, and forced-failure checks remain in
- * `docs/engineering/review-suggestions.md`.
+ * **The deployed adapter has been smoke-tested.** The 2026-08-13 staging run recorded in
+ * `docs/engineering/review-suggestions.md` covered schema-valid generation from `claude-opus-5`,
+ * persistence, accept-as-draft, separate completion, missing and revoked credentials, a live
+ * safety refusal, and inspection of the identity-free outbound request. No credential exists in
+ * this repository, and the contract test still stubs `fetch` so ordinary CI remains deterministic.
  *
  * @spec PRD-AI-001 PORT-AI PRD-REV-001
  */

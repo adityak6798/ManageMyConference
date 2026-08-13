@@ -120,23 +120,14 @@ feature-by-feature verdict.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #23 (production adapters); #56's
   delivery mechanism has landed and closes when an invitation has been rendered by a real client.
-- `GAP-011` **Brief feature 4's AI half is built but unverified against a real model.** Both named
-  differentiators now exist: multiple rounds shipped with `1300_review_rounds.sql`, and the
-  suggestion port shipped with issue #110 — draft-only by construction, with provenance the
-  reviewer reads, a deterministic credential-free fake as the default, and an `off` mode. What is
-  *not* proven is now narrower: **the live adapter generated successfully, but the deployed path
-  has not completed the staging checklist.** No credential exists in this repository and its tests
-  stub `fetch`. On 2026-08-13, credentialed calls through the adapter returned schema-valid numeric
-  and dropdown suggestions from `claude-opus-5`, proving the request shape, response conversion,
-  and model provenance. The staging smoke in
-  [review suggestions](../engineering/review-suggestions.md#staging-smoke--live-adapter-verified-deployment-checks-remain)
-  still lacks deployed fail-safe, persistence, accept-as-draft, forced-failure, and request-inspection
-  checks. Impact: reviewers can use the assistant and see exactly where each draft came from,
-  and the draft-only guarantee is enforced in storage and asserted against real D1 — but the
-  quality of a *live* suggestion is unmeasured, and the request shape is the most likely thing to
-  be wrong on first contact. The same shape of gap as `GAP-012`, for the same reason.
-  Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: the staging smoke
-  run and recorded, with the date, commit and serving model written into that section.
+- `GAP-011` **Closed 2026-08-13.** Multiple rounds and AI-assisted review both exist. The temporary
+  staging deployment at commit `83c757389a2468500172fc2a5f7aeeeb46497345` completed the full
+  [review-suggestion smoke](../engineering/review-suggestions.md#staging-smoke--completed-2026-08-13):
+  deployed fail-safe and manual fallback, schema-valid `claude-opus-5` generation, persisted
+  provenance, accept-as-draft with no aggregate, separate completion, revoked-key and live safety
+  refusal normalization, and inspection of the identity-free outbound request. The deterministic
+  fake remains the credential-free default and CI still stubs the provider boundary.
+  Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`.
 - `GAP-012` **Brief feature 7 conforms to the published Accelevents contract but is not live-verified**: the inbound Accelevents registration
   sync now exists end to end — a typed source port, a deterministic in-repository roster as the
   default, a live HTTP client behind the credential-gated `live` switch, and an organizer surface
