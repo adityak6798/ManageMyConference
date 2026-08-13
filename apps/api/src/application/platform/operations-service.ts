@@ -9,7 +9,12 @@
  * @spec PRD-OPS-001 ARC-DOM-001
  */
 import type { Actor } from "../identity/actor";
-import type { AuditPage, AuditRecorder, RequestIdentity } from "./audit-service";
+import type {
+  AuditPage,
+  AuditRecorder,
+  RequestIdentity,
+  RequestIdentityScope,
+} from "./audit-service";
 import type { InboxDismissal, InboxDismissalStore, PlatformInboxAnswer } from "./inbox-service";
 import { PlatformInboxService } from "./inbox-service";
 import type { PlatformSearchAnswer } from "./search-service";
@@ -30,6 +35,9 @@ export interface PlatformOperationsDependencies {
   readonly identity?: RequestIdentity | undefined;
 }
 
+/** Nothing is holding an identity, so there is nothing to release when the request ends. */
+const UNOBSERVED: RequestIdentityScope = { end: () => undefined };
+
 export class PlatformOperationsService {
   private readonly searchService: PlatformSearchService;
   private readonly inboxService: PlatformInboxService;
@@ -40,17 +48,20 @@ export class PlatformOperationsService {
   }
 
   /**
-   * Tell platform whose request this is.
+   * Tell platform whose request this is, until the returned scope is ended.
    *
-   * Called once per request by platform's own transport middleware, which is the first thing the
-   * route registry mounts. Everything that records an audit row afterwards is deep inside a
-   * domain that has no business being handed an actor, so the identity is held for the length of
-   * the request instead of threaded through nine call sites. The Worker builds every service
-   * inside `fetch`, so this holder is per invocation and two concurrent requests cannot see each
-   * other's.
+   * Called once per request by platform's own transport middleware, which the transport mounts
+   * before any route handler whatever order the modules are registered in (issue #178).
+   * Everything that records an audit row afterwards is deep inside a domain that has no business
+   * being handed an actor, so the identity is held for the length of the request instead of
+   * threaded through nine call sites.
+   *
+   * The caller ends the scope in a `finally`, which is what keeps the holder empty between
+   * requests and is what lets it notice two requests sharing it (issue #179). A composition
+   * without an identity holder — search and the inbox alone — gets a scope that does nothing.
    */
-  observeRequest(actor: Actor | null, correlationId: string | null): void {
-    this.dependencies.identity?.set({ actor, correlationId });
+  observeRequest(actor: Actor | null, correlationId: string | null): RequestIdentityScope {
+    return this.dependencies.identity?.begin({ actor, correlationId }) ?? UNOBSERVED;
   }
 
   auditTimeline(

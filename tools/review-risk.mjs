@@ -102,6 +102,9 @@ export const GENERATED = [
   "packages/contracts/openapi.json",
   "context-manifest.json",
   "docs/generated/context-index.md",
+  // Composed from `apps/api/seed/domains/*` by `npm run seed:generate`, and now says so in its
+  // own first line (issue #173). A change here is a change to a fragment, reviewed there.
+  "apps/api/seed/reset.sql",
 ];
 
 export function isGenerated(file) {

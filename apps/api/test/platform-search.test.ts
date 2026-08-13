@@ -142,6 +142,7 @@ function dependencies(overrides: Partial<PlatformSources> = {}): PlatformSources
         placements: [
           { id: "placement-1", sessionId: "session-1", roomId: "room-1", slotId: "slot-1" },
         ],
+        occurrences: { sessions: { "session-1": 1 } },
       }),
     },
     communications: {

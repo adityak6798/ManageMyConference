@@ -34,7 +34,7 @@ import { resolveDemoSession } from "../../application/identity/demo-session";
 import { resolveEventToken, resolveUserSession } from "../../application/identity/real-auth";
 import type { ItineraryService, PublicationService } from "../../application/publishing/public";
 import type { ReviewService } from "../../application/review/review-service";
-import type { HttpDependencies } from "./routes/contract";
+import type { HttpDependencies, RouteModule } from "./routes/contract";
 import { assertNoDuplicateRoutes, routeModules } from "./routes/registry";
 import {
   type BuildIdentity,
@@ -63,11 +63,20 @@ const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
  * Prefer this over `createHttpApp`. The positional form is kept because a great many tests
  * call it, and rewriting them all is a change of a different shape than this one.
  */
-export function createHttpAppFrom(dependencies: HttpDependencies) {
+export function createHttpAppFrom(
+  dependencies: HttpDependencies,
+  /**
+   * The modules to mount, for a test that needs a surface this registry does not describe.
+   *
+   * Production passes nothing. It exists so the properties that must hold *whatever* the
+   * registration order is can be asserted against an order deliberately chosen to break them.
+   */
+  modules: readonly RouteModule[] = routeModules,
+) {
   const { logger, auth, build } = dependencies;
   // A route claimed by two domains is a merge accident, and the losing registration simply
   // never runs. Failing at construction names both domains instead.
-  assertNoDuplicateRoutes(routeModules);
+  assertNoDuplicateRoutes(modules);
   const app = new Hono<{ Variables: Variables }>();
   app.use("*", async (context, next) => {
     const supplied = context.req.header("x-correlation-id");
@@ -235,7 +244,19 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
   app.get("/health", health);
   app.get("/api/health", health);
 
-  for (const module of routeModules) module.register(app, dependencies);
+  /*
+   * Every module's request-scoped middleware, before any module's routes.
+   *
+   * Two loops rather than one, and the separation is the point. Hono applies middleware only to
+   * handlers registered after it, so a module mounting `app.use` inside `register` covers the
+   * modules listed below it and no others — which made "platform is first in the registry" a
+   * load-bearing fact about an array's order that no type, test or comment enforced, and whose
+   * breakage would show up as audit records attributed to nobody rather than as a failure
+   * (issue #178). Hoisting the mount makes the guarantee independent of the order.
+   */
+  for (const module of modules) module.registerRequestScope?.(app, dependencies);
+
+  for (const module of modules) module.register(app, dependencies);
 
   app.notFound((context) =>
     context.json(
@@ -259,7 +280,7 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
         envelope("VALIDATION_FAILED", "Request body must be valid JSON.", correlationId),
         400,
       );
-    for (const module of routeModules) {
+    for (const module of modules) {
       const translated = module.translateError?.(error);
       if (translated)
         return context.json(

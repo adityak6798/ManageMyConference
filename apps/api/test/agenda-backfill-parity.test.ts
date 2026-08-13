@@ -225,7 +225,16 @@ describe("migration 1601 backfill", () => {
    * One database per case rather than one shared one, so a case cannot inherit rows from the
    * case before it — the backfill inserts, it does not reconcile.
    */
-  it("agrees with nextSessionScheduleRevisions on every generated history", () => {
+  /*
+   * The generous timeout is about load, not about this test. It folds 2,000 histories twice and
+   * takes ~2.4 s alone — comfortably inside the 5 s default until the suite runs beside two other
+   * checkouts, at which point it is the one test in `apps/api` that intermittently times out.
+   * Raising the bound rather than shrinking the corpus keeps the property it proves: a smaller
+   * generator was already shown to stop discriminating the two implementations (issue #141).
+   */
+  it("agrees with nextSessionScheduleRevisions on every generated history", {
+    timeout: 30_000,
+  }, () => {
     const disagreements: string[] = [];
     // Compared as key-sorted entry lists: the answer is a map, so its iteration order is not
     // part of it, and comparing stringified objects would fail on an irrelevant ordering change.

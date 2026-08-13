@@ -402,7 +402,8 @@
         "apps/api/src/adapters/persistence/d1-audit-repository.ts",
         "apps/api/test/platform-audit.test.ts",
         "apps/web/test/platform-audit.test.tsx",
-        "apps/api/test/publication-notifications.test.ts"
+        "apps/api/test/publication-notifications.test.ts",
+        "apps/api/test/platform-attribution.test.ts"
       ]
     },
     {

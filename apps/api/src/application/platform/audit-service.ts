@@ -111,30 +111,92 @@ export interface AuditRecordStore {
 }
 
 /**
+ * One request's claim on the identity holder, released when the request ends.
+ *
+ * Handed back by `begin` and ended in a `finally`, so the holder is empty between requests
+ * rather than holding the last caller's actor indefinitely. Ending twice is a no-op: the
+ * middleware's `finally` is the only caller, but a holder whose bookkeeping a double release
+ * could corrupt would be a worse thing to reason about than an idempotent one.
+ */
+export interface RequestIdentityScope {
+  end(): void;
+}
+
+/**
  * Whose request this is, for the length of one request.
  *
- * The Worker constructs every service inside `fetch`, so one of these exists per invocation and
- * two concurrent requests cannot see each other's. It is a mutable holder rather than a
- * parameter because the writers that need it — the lifecycle ports the composition root binds —
- * are called from deep inside domains that have no business being told about auditing.
+ * It is a mutable holder rather than a parameter because the writers that need it — the
+ * lifecycle ports the composition root binds — are called from deep inside domains that have no
+ * business being told about auditing.
+ *
+ * **What makes that safe is request-scoped construction, and this is the thing that checks it.**
+ * The Worker builds every service inside `fetch`, so one holder exists per invocation and two
+ * concurrent requests cannot see each other's. Hoisting those services for reuse — a change that
+ * looks like a pure optimization and that nothing else in the system would refuse — would put
+ * two requests on one holder, and the second to arrive would silently rename the first's audit
+ * records. So a scope that opens while another is still open is treated as exactly that
+ * discovery: it is reported through `report`, and while it lasts the holder answers *nobody*
+ * rather than somebody. An audit record naming the wrong organizer is worse than one naming
+ * none, and `PRD-OPS-003` already says a record with no request behind it names nobody rather
+ * than inventing an identity (issue #179).
  */
 export interface RequestIdentity {
-  set(identity: { actor: Actor | null; correlationId: string | null }): void;
+  begin(identity: { actor: Actor | null; correlationId: string | null }): RequestIdentityScope;
   actor(): Actor | null;
   correlationId(): string | null;
 }
 
-export function createRequestIdentity(): RequestIdentity {
-  let current: { actor: Actor | null; correlationId: string | null } = {
-    actor: null,
-    correlationId: null,
-  };
+export interface RequestIdentityDependencies {
+  /**
+   * Where a composition that shares one holder across concurrent requests is reported.
+   *
+   * Required rather than optional, exactly as `AuditRecorder`'s is: refusing to attribute is a
+   * quiet degradation, and this is the only thing that makes the cause visible.
+   */
+  readonly report: (error: unknown, context: Record<string, unknown>) => void;
+}
+
+export function createRequestIdentity({ report }: RequestIdentityDependencies): RequestIdentity {
+  const unattributed = { actor: null, correlationId: null } as const;
+  let current: { actor: Actor | null; correlationId: string | null } = unattributed;
+  let open = 0;
+  /*
+   * Stays true until the last overlapping scope closes rather than until the count drops back to
+   * one. Between two overlapping requests there is no way to tell whose actor `current` holds,
+   * and the request that arrived first is still running: guessing at that point is the mistake
+   * the flag exists to refuse.
+   */
+  let ambiguous = false;
   return {
-    set(identity) {
+    begin(identity) {
+      open += 1;
+      if (open > 1) {
+        ambiguous = true;
+        report(
+          new Error(
+            "Two requests are sharing one platform request-identity holder; audit records " +
+              "written while they overlap will name nobody rather than risk naming the wrong " +
+              "actor. The services that hold it must be constructed per request.",
+          ),
+          { openScopes: open, correlationId: identity.correlationId },
+        );
+      }
       current = identity;
+      let ended = false;
+      return {
+        end() {
+          if (ended) return;
+          ended = true;
+          open -= 1;
+          if (open === 0) {
+            current = unattributed;
+            ambiguous = false;
+          }
+        },
+      };
     },
-    actor: () => current.actor,
-    correlationId: () => current.correlationId,
+    actor: () => (ambiguous ? null : current.actor),
+    correlationId: () => (ambiguous ? null : current.correlationId),
   };
 }
 

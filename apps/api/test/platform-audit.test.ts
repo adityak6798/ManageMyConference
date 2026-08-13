@@ -52,8 +52,8 @@ const otherOrganizer = actorOf("seed-organizer", "Olivia Organizer", OTHER_EVENT
 
 function recorder(now = "2026-08-12T12:00:00.000Z") {
   const store = new MemoryAuditRecordStore();
-  const identity = createRequestIdentity();
   const report = vi.fn();
+  const identity = createRequestIdentity({ report });
   let issued = 0;
   return {
     store,
@@ -85,7 +85,7 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
 describe("the audit recorder", () => {
   it("attributes a record to the request's actor and carries its correlation id", async () => {
     const { audit, identity } = recorder();
-    identity.set({ actor: organizer, correlationId: "corr-1" });
+    identity.begin({ actor: organizer, correlationId: "corr-1" });
 
     await audit.record(entry());
 

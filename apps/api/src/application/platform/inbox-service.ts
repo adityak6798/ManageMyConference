@@ -297,6 +297,14 @@ export class PlatformInboxService {
    * Both are agenda questions and both are read under `agenda:manage`, but they are not the same
    * kind of thing — a conflict blocks publication outright, while an unplaced session is simply
    * work left to do — so they carry different priorities rather than one undifferentiated count.
+   *
+   * **Both keys carry the agenda's own occurrence**, which is the one thing this category used to
+   * be missing (`GAP-022`, issue #180). A conflict is identified by its kind and the two
+   * placements it names, and an unplaced session by its id — identifiers a resolved condition
+   * reuses exactly when it comes back, so a dismissal used to outlive the thing it was about and
+   * hide the recreated one. The agenda now says at which board revision each session's placements
+   * last changed and at which revision each clash began, so "the same unplaced session" and "this
+   * session, taken off the board again" are different strings.
    */
   private async programme(actor: Actor, eventId: string): Promise<readonly InboxItem[]> {
     const agenda = requireSource(this.dependencies.sources.agenda, "Agenda");
@@ -310,7 +318,7 @@ export class PlatformInboxService {
     const href = consoleHref("/agenda", eventId);
     const placed = new Set(draft.placements.map((placement) => placement.sessionId));
     const conflicts = (draft.conflicts ?? []).map((conflict) => ({
-      key: `agenda-conflict:${conflict.kind}:${conflict.placementId}:${conflict.conflictingPlacementId}`,
+      key: `agenda-conflict:${conflict.kind}:${conflict.placementId}:${conflict.conflictingPlacementId}:${conflict.occurrence}`,
       category: "programme" as const,
       title: conflict.message,
       subtitle: "Blocks publication of the schedule",
@@ -321,7 +329,11 @@ export class PlatformInboxService {
     const unplaced = draft.sessions
       .filter((session) => !placed.has(session.id))
       .map((session) => ({
-        key: `agenda-unplaced:${session.id}`,
+        // The revision at which this session's placements last changed is the occurrence: a
+        // session that has never been placed reads 0 and keeps its dismissal across every
+        // unrelated edit to the board, while one that was placed and taken off again comes back
+        // under a new key. A session the organizer has not touched is not news twice.
+        key: `agenda-unplaced:${session.id}:${draft.occurrences.sessions[session.id] ?? 0}`,
         category: "programme" as const,
         title: session.title,
         subtitle: "Not on the board yet",

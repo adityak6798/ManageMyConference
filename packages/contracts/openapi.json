@@ -10677,6 +10677,29 @@
                             ]
                           }
                         },
+                        "occurrences": {
+                          "type": "object",
+                          "properties": {
+                            "sessions": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "slots": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "required": [
+                            "sessions",
+                            "slots"
+                          ]
+                        },
                         "conflicts": {
                           "type": "array",
                           "items": {
@@ -10702,6 +10725,10 @@
                               },
                               "message": {
                                 "type": "string"
+                              },
+                              "occurrence": {
+                                "type": "integer",
+                                "minimum": 0
                               }
                             },
                             "required": [
@@ -10709,7 +10736,8 @@
                               "placementId",
                               "conflictingPlacementId",
                               "resourceId",
-                              "message"
+                              "message",
+                              "occurrence"
                             ]
                           }
                         }
@@ -10721,6 +10749,7 @@
                         "slots",
                         "sessions",
                         "placements",
+                        "occurrences",
                         "conflicts"
                       ]
                     }
@@ -11185,6 +11214,29 @@
                             ]
                           }
                         },
+                        "occurrences": {
+                          "type": "object",
+                          "properties": {
+                            "sessions": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "slots": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "required": [
+                            "sessions",
+                            "slots"
+                          ]
+                        },
                         "conflicts": {
                           "type": "array",
                           "items": {
@@ -11210,6 +11262,10 @@
                               },
                               "message": {
                                 "type": "string"
+                              },
+                              "occurrence": {
+                                "type": "integer",
+                                "minimum": 0
                               }
                             },
                             "required": [
@@ -11217,7 +11273,8 @@
                               "placementId",
                               "conflictingPlacementId",
                               "resourceId",
-                              "message"
+                              "message",
+                              "occurrence"
                             ]
                           }
                         },
@@ -11257,6 +11314,7 @@
                         "slots",
                         "sessions",
                         "placements",
+                        "occurrences",
                         "conflicts",
                         "placed",
                         "unplaced"
@@ -11750,6 +11808,29 @@
                             ]
                           }
                         },
+                        "occurrences": {
+                          "type": "object",
+                          "properties": {
+                            "sessions": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "slots": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "required": [
+                            "sessions",
+                            "slots"
+                          ]
+                        },
                         "conflicts": {
                           "type": "array",
                           "items": {
@@ -11775,6 +11856,10 @@
                               },
                               "message": {
                                 "type": "string"
+                              },
+                              "occurrence": {
+                                "type": "integer",
+                                "minimum": 0
                               }
                             },
                             "required": [
@@ -11782,7 +11867,8 @@
                               "placementId",
                               "conflictingPlacementId",
                               "resourceId",
-                              "message"
+                              "message",
+                              "occurrence"
                             ]
                           }
                         }
@@ -11794,6 +11880,7 @@
                         "slots",
                         "sessions",
                         "placements",
+                        "occurrences",
                         "conflicts"
                       ]
                     }
@@ -13174,6 +13261,29 @@
                             ]
                           }
                         },
+                        "occurrences": {
+                          "type": "object",
+                          "properties": {
+                            "sessions": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "slots": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "required": [
+                            "sessions",
+                            "slots"
+                          ]
+                        },
                         "conflicts": {
                           "type": "array",
                           "items": {
@@ -13199,6 +13309,10 @@
                               },
                               "message": {
                                 "type": "string"
+                              },
+                              "occurrence": {
+                                "type": "integer",
+                                "minimum": 0
                               }
                             },
                             "required": [
@@ -13206,7 +13320,8 @@
                               "placementId",
                               "conflictingPlacementId",
                               "resourceId",
-                              "message"
+                              "message",
+                              "occurrence"
                             ]
                           }
                         }
@@ -13218,6 +13333,7 @@
                         "slots",
                         "sessions",
                         "placements",
+                        "occurrences",
                         "conflicts"
                       ]
                     }
@@ -21276,6 +21392,29 @@
                                     ]
                                   }
                                 },
+                                "occurrences": {
+                                  "type": "object",
+                                  "properties": {
+                                    "sessions": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "slots": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "sessions",
+                                    "slots"
+                                  ]
+                                },
                                 "conflicts": {
                                   "type": "array",
                                   "items": {
@@ -21301,6 +21440,10 @@
                                       },
                                       "message": {
                                         "type": "string"
+                                      },
+                                      "occurrence": {
+                                        "type": "integer",
+                                        "minimum": 0
                                       }
                                     },
                                     "required": [
@@ -21308,7 +21451,8 @@
                                       "placementId",
                                       "conflictingPlacementId",
                                       "resourceId",
-                                      "message"
+                                      "message",
+                                      "occurrence"
                                     ]
                                   }
                                 }
@@ -21320,6 +21464,7 @@
                                 "slots",
                                 "sessions",
                                 "placements",
+                                "occurrences",
                                 "conflicts"
                               ]
                             }

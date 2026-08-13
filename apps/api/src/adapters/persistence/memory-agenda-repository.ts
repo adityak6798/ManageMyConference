@@ -4,6 +4,8 @@ import type {
   PublishOutcome,
 } from "../../application/agenda/agenda-repository";
 import {
+  advanceBoardOccurrences,
+  EMPTY_BOARD_OCCURRENCES,
   nextSessionScheduleRevisions,
   schedulePublishedEvent,
   type AgendaDraft,
@@ -14,6 +16,12 @@ import {
 
 export class MemoryAgendaRepository implements AgendaRepository {
   private readonly drafts = new Map<string, AgendaDraft>();
+  /**
+   * The board revision D1 keeps in its own column, kept here for the same reason the session
+   * schedules are: it is the clock the occurrences are expressed in, and a double that did not
+   * advance it would let a service suite pass against a repository that never moved them.
+   */
+  private readonly revisions = new Map<string, number>();
   private readonly publications = new Map<string, PublishedSchedule>();
   /**
    * The same materialized answer D1 stores, maintained by the same domain function.
@@ -38,7 +46,22 @@ export class MemoryAgendaRepository implements AgendaRepository {
     /** Snapshots already in force, so a board can start out published. */
     publications: readonly PublishedSchedule[] = [],
   ) {
-    for (const draft of drafts) this.drafts.set(draft.eventId, structuredClone(draft));
+    for (const draft of drafts) {
+      this.drafts.set(draft.eventId, structuredClone(draft));
+      /*
+       * A seeded board's occurrences are already expressed in revisions, so the counter starts
+       * above the highest of them. Starting at zero would let the first edit write a number
+       * lower than one the fixture already holds, which D1 cannot do — the revision lives in its
+       * own column there and is read back before every fold — and a double that can go backwards
+       * is a double that proves less than the thing it stands for.
+       */
+      const seeded = draft.occurrences;
+      if (seeded)
+        this.revisions.set(
+          draft.eventId,
+          Math.max(0, ...Object.values(seeded.sessions), ...Object.values(seeded.slots)),
+        );
+    }
     for (const schedule of publications) {
       this.publications.set(schedule.eventId, structuredClone(schedule));
       // A seeded snapshot has taken its version too, so the next publication allocates past it.
@@ -63,10 +86,36 @@ export class MemoryAgendaRepository implements AgendaRepository {
       );
   }
   async getDraft(eventId: string) {
-    return structuredClone(this.drafts.get(eventId) ?? null);
+    const draft = this.drafts.get(eventId);
+    // Normalized on the way out, exactly as D1 does: a fixture — like a row written before the
+    // occurrences existed — may carry none, and no caller should have to know that.
+    return draft
+      ? structuredClone({ ...draft, occurrences: draft.occurrences ?? EMPTY_BOARD_OCCURRENCES })
+      : null;
   }
   async saveDraft(draft: AgendaDraft) {
-    this.drafts.set(draft.eventId, structuredClone(draft));
+    // The create path, as in D1: a board that has only just appeared has no occurrences yet.
+    this.drafts.set(draft.eventId, {
+      ...structuredClone(draft),
+      occurrences: draft.occurrences ?? EMPTY_BOARD_OCCURRENCES,
+    });
+  }
+  /**
+   * Store one edited board, advancing the revision and the occurrences with it.
+   *
+   * The single write path, so that no mutator can forget the fold — which is the arrangement D1
+   * gets from `updateDraft` and which the double has to match, or a service suite would prove a
+   * property the real repository does not have.
+   */
+  private commit(eventId: string, previous: AgendaDraft, next: AgendaDraft): AgendaDraft {
+    const revision = (this.revisions.get(eventId) ?? 0) + 1;
+    this.revisions.set(eventId, revision);
+    const stored: AgendaDraft = {
+      ...next,
+      occurrences: advanceBoardOccurrences(previous, next, revision),
+    };
+    this.drafts.set(eventId, stored);
+    return structuredClone(stored);
   }
   async saveResources(eventId: string, resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">) {
     const current = this.drafts.get(eventId);
@@ -80,41 +129,38 @@ export class MemoryAgendaRepository implements AgendaRepository {
       )
     )
       return false;
-    this.drafts.set(eventId, {
-      eventId,
-      ...resources,
-      sessions: [],
-      placements,
-    });
+    if (!current) {
+      await this.saveDraft({ eventId, ...resources, sessions: [], placements });
+      return true;
+    }
+    this.commit(eventId, current, { ...current, ...resources, sessions: [] });
     return true;
   }
   async savePlacement(eventId: string, placement: Placement) {
     const draft = this.drafts.get(eventId);
     if (!draft) return null;
-    const updated = {
+    return this.commit(eventId, draft, {
       ...draft,
       placements: [...draft.placements.filter(({ id }) => id !== placement.id), placement],
-    };
-    this.drafts.set(eventId, updated);
-    return structuredClone(updated);
+    });
   }
   async savePlacements(eventId: string, plan: (draft: AgendaDraft) => readonly Placement[]) {
     const draft = this.drafts.get(eventId);
     if (!draft) return null;
     const placements = plan(structuredClone(draft));
-    if (!placements.length) return structuredClone(draft);
+    // The board as a caller must see it, occurrences included — a plan that seats nothing is an
+    // ordinary answer on a full board, and the one path that returns a board it did not write.
+    if (!placements.length) return this.getDraft(eventId);
     const replaced = new Set(placements.map(({ id }) => id));
-    const updated = {
+    return this.commit(eventId, draft, {
       ...draft,
       placements: [...draft.placements.filter(({ id }) => !replaced.has(id)), ...placements],
-    };
-    this.drafts.set(eventId, updated);
-    return structuredClone(updated);
+    });
   }
   async removePlacement(eventId: string, placementId: string) {
     const draft = this.drafts.get(eventId);
     if (draft)
-      this.drafts.set(eventId, {
+      this.commit(eventId, draft, {
         ...draft,
         placements: draft.placements.filter(({ id }) => id !== placementId),
       });

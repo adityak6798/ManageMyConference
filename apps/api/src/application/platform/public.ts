@@ -22,6 +22,8 @@ export type {
   PreparedAuditRecord,
   PreparedAuditWriter,
   RequestIdentity,
+  RequestIdentityDependencies,
+  RequestIdentityScope,
 } from "./audit-service";
 export {
   AUDIT_PAGE_LIMIT_MAX,

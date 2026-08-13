@@ -8,8 +8,10 @@
  * rather than refusing the surface.
  */
 import { describe, expect, it, vi } from "vitest";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { MemoryInboxDismissalStore } from "../src/adapters/persistence/d1-platform-repository";
-import { AgendaNotFoundError } from "../src/application/agenda/public";
+import { AgendaNotFoundError, AgendaService } from "../src/application/agenda/public";
+import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -149,6 +151,9 @@ function sources(overrides: Partial<PlatformSources> = {}): PlatformSources {
         placements: [
           { id: "placement-1", sessionId: "session-1", roomId: "room-main", slotId: "slot-0900" },
         ],
+        // Session one was placed at revision 1; session two has never been on the board, which is
+        // what an absent entry means.
+        occurrences: { sessions: { "session-1": 1 } },
         conflicts: [],
       }),
     },
@@ -483,12 +488,14 @@ describe("the operational inbox", () => {
           placements: [
             { id: "placement-1", sessionId: "session-1", roomId: "room-main", slotId: "slot-0900" },
           ],
+          occurrences: { sessions: { "session-1": 1 } },
           conflicts: [
             {
               kind: "ROOM_OVERLAP",
               placementId: "placement-1",
               conflictingPlacementId: "placement-2",
               message: "Main stage is double-booked at 09:00",
+              occurrence: 1,
             },
           ],
         }),
@@ -501,6 +508,173 @@ describe("the operational inbox", () => {
         subtitle: "Blocks publication of the schedule",
       }),
     ]);
+  });
+
+  it("brings back an unplaced session that was placed and taken off the board again", async () => {
+    /*
+     * `GAP-022`'s programme half, closed (issue #180). The board is the real one — an
+     * `AgendaService` over the in-memory repository, satisfying the platform source structurally
+     * — because what is under test is a fact the agenda has to produce on its *write* path, and a
+     * hand-written fixture would only prove that the inbox can read a number somebody typed.
+     */
+    const eventId = EVENT_ONE;
+    const board = new MemoryAgendaRepository([
+      { eventId, rooms: [], tracks: [], slots: [], sessions: [], placements: [] },
+    ]);
+    const agenda = new AgendaService(
+      board,
+      () => NOW,
+      new FixtureSchedulableContentQuery(
+        new Map([
+          [eventId, [{ id: "session-1", title: "Designing the calm conference", speakerIds: [] }]],
+        ]),
+      ),
+    );
+    await agenda.configure(organizer, eventId, {
+      rooms: [{ id: "room-main", name: "Main stage" }],
+      tracks: [{ id: "track-1", name: "General", color: "#123456" }],
+      slots: [
+        {
+          id: "slot-0900",
+          startsAt: "2026-09-01T16:00:00.000Z",
+          endsAt: "2026-09-01T17:00:00.000Z",
+        },
+      ],
+    });
+    const dismissals = new MemoryInboxDismissalStore();
+    const inbox = new PlatformInboxService({
+      sources: sources({ agenda }),
+      dismissals,
+      now: () => NOW,
+    });
+
+    // Unplaced, and the organizer says they know.
+    const first = itemsOf(await inbox.inbox(organizer, eventId), "programme");
+    expect(first.map(({ title }) => title)).toEqual(["Designing the calm conference"]);
+    const dismissedKey = first[0]?.key ?? "";
+    await inbox.dismiss(organizer, eventId, dismissedKey);
+    expect(itemsOf(await inbox.inbox(organizer, eventId), "programme")[0]).toMatchObject({
+      status: "dismissed",
+    });
+
+    // Placed: the condition is resolved and the item is gone, with nothing written to close it.
+    await agenda.place(organizer, eventId, {
+      id: "placement-1",
+      sessionId: "session-1",
+      roomId: "room-main",
+      trackId: "track-1",
+      slotId: "slot-0900",
+    });
+    expect(itemsOf(await inbox.inbox(organizer, eventId), "programme")).toEqual([]);
+
+    // Taken off again: the same session, the same id, and a condition the organizer has not seen.
+    await agenda.remove(organizer, eventId, "placement-1");
+    const returned = itemsOf(await inbox.inbox(organizer, eventId), "programme");
+    expect(returned).toEqual([
+      expect.objectContaining({ title: "Designing the calm conference", status: "open" }),
+    ]);
+    expect(returned[0]?.key).not.toEqual(dismissedKey);
+    // The old dismissal is still stored and still valid — it named an occurrence that is over,
+    // which is why nothing has to be cleaned up for this to be correct.
+    expect(await dismissals.list(eventId, organizer.id)).toHaveLength(1);
+  });
+
+  it("keeps a programme dismissal across an edit to a different session", async () => {
+    // The other half of the same rule, and the reason the key carries the *session's* occurrence
+    // rather than the board's: a dismissal that evaporated whenever any card moved would be
+    // useless on a board anybody is actually working on.
+    const withTwo = (occurrences: { sessions: Record<string, number> }) => ({
+      agenda: {
+        draft: async () => ({
+          rooms: [{ id: "room-main", name: "Main stage" }],
+          slots: [
+            {
+              id: "slot-0900",
+              startsAt: "2026-09-01T16:00:00.000Z",
+              endsAt: "2026-09-01T17:00:00.000Z",
+            },
+          ],
+          sessions: [
+            { id: "session-1", title: "Designing the calm conference" },
+            { id: "session-2", title: "Accessible by default" },
+          ],
+          placements: [],
+          occurrences,
+          conflicts: [],
+        }),
+      },
+    });
+    const dismissals = new MemoryInboxDismissalStore();
+    const inboxWith = (occurrences: { sessions: Record<string, number> }) =>
+      new PlatformInboxService({
+        sources: sources(withTwo(occurrences)),
+        dismissals,
+        now: () => NOW,
+      });
+
+    const before = itemsOf(
+      await inboxWith({ sessions: {} }).inbox(organizer, EVENT_ONE),
+      "programme",
+    );
+    const dismissed = before.find(({ title }) => title === "Accessible by default")?.key ?? "";
+    await inboxWith({ sessions: {} }).dismiss(organizer, EVENT_ONE, dismissed);
+
+    // The organizer places and unplaces the *other* session, twice, and edits the resources.
+    const after = itemsOf(
+      await inboxWith({ sessions: { "session-1": 7 } }).inbox(organizer, EVENT_ONE),
+      "programme",
+    );
+
+    expect(after.find(({ title }) => title === "Accessible by default")).toMatchObject({
+      key: dismissed,
+      status: "dismissed",
+    });
+  });
+
+  it("brings back a conflict that was resolved and reintroduced between the same placements", async () => {
+    const dismissals = new MemoryInboxDismissalStore();
+    const clash = (occurrence: number) => ({
+      agenda: {
+        draft: async () => ({
+          rooms: [{ id: "room-main", name: "Main stage" }],
+          slots: [
+            {
+              id: "slot-0900",
+              startsAt: "2026-09-01T16:00:00.000Z",
+              endsAt: "2026-09-01T17:00:00.000Z",
+            },
+          ],
+          sessions: [{ id: "session-1", title: "Designing the calm conference" }],
+          placements: [
+            { id: "placement-1", sessionId: "session-1", roomId: "room-main", slotId: "slot-0900" },
+          ],
+          occurrences: { sessions: { "session-1": occurrence } },
+          conflicts: [
+            {
+              kind: "ROOM_OVERLAP",
+              placementId: "placement-1",
+              conflictingPlacementId: "placement-2",
+              message: "Main stage is double-booked at 09:00",
+              occurrence,
+            },
+          ],
+        }),
+      },
+    });
+    const inboxAt = (occurrence: number) =>
+      new PlatformInboxService({ sources: sources(clash(occurrence)), dismissals, now: () => NOW });
+
+    const first = itemsOf(await inboxAt(2).inbox(organizer, EVENT_ONE), "programme")[0];
+    await inboxAt(2).dismiss(organizer, EVENT_ONE, first?.key ?? "");
+    expect(itemsOf(await inboxAt(2).inbox(organizer, EVENT_ONE), "programme")[0]).toMatchObject({
+      status: "dismissed",
+    });
+
+    // The organizer moved one of the two placements away and then back: the clash is described by
+    // the same kind and the same pair of ids, and is a different clash.
+    expect(itemsOf(await inboxAt(5).inbox(organizer, EVENT_ONE), "programme")[0]).toMatchObject({
+      status: "open",
+    });
   });
 
   it("refuses an anonymous caller and one without events:read on this event", async () => {
