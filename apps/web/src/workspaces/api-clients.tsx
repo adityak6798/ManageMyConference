@@ -32,7 +32,7 @@ const describe = (reason: unknown) =>
     ? `${reason.message} Reference: ${reason.envelope.error.correlationId}`
     : "Something went wrong. Please retry; if it continues, contact support.";
 
-function ApiClientsWorkspace({
+export function ApiClientsWorkspace({
   organizationId,
   eventId,
   realSession,
@@ -109,6 +109,18 @@ function ApiClientsWorkspace({
     }
   }
 
+  async function copyCredential() {
+    if (!credential) return;
+    try {
+      await navigator.clipboard.writeText(credential);
+      announce("success", "API credential copied to the clipboard.");
+    } catch {
+      // ERROR-INTENT: clipboard access can be blocked; the credential remains visible and
+      // selectable beside this keyboard-operable control for a manual copy.
+      announce("error", "Copying was blocked. Select the credential and copy it manually.");
+    }
+  }
+
   return (
     <div className="members">
       {feedback}
@@ -163,6 +175,16 @@ function ApiClientsWorkspace({
           <Notice tone="info" role="status">
             <strong>Copy this credential now. It is shown once.</strong>
             <code className="invitation-link">{credential}</code>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                // ERROR-INTENT: event handlers cannot await; copyCredential announces failures.
+                void copyCredential();
+              }}
+            >
+              Copy credential
+            </button>
           </Notice>
         ) : null}
       </Card>

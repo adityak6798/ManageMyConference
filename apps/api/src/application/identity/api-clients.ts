@@ -159,6 +159,9 @@ export class ApiClientResolver {
     );
     const allowedEvents = new Set(client.eventIds.filter((id) => organizationEventIds.has(id)));
     const scopes = new Set(client.scopes);
+    const organizationCapabilities = new Set<Capability>();
+    if (scopes.has("events:create") && creator.capabilities.has("events:create"))
+      organizationCapabilities.add("events:create");
     const eventAccess = creator.eventAccess
       .filter(({ eventId }) => allowedEvents.has(eventId))
       .map((access) => ({
@@ -166,6 +169,7 @@ export class ApiClientResolver {
         capabilities: new Set([...access.capabilities].filter((value) => scopes.has(value))),
       }));
     const capabilities = new Set<Capability>();
+    for (const capability of organizationCapabilities) capabilities.add(capability);
     for (const access of eventAccess)
       for (const capability of access.capabilities) capabilities.add(capability);
     return {
@@ -173,6 +177,8 @@ export class ApiClientResolver {
       name: client.name,
       persona: creator.persona,
       organizations: [{ id: client.organizationId }],
+      organizationAccess: [{ id: client.organizationId, capabilities: organizationCapabilities }],
+      roleGrantSubjectId: creator.id,
       eventAccess,
       capabilities,
     };

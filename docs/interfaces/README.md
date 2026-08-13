@@ -34,7 +34,9 @@ one authorized event. Organization API clients use the distinct
 real organizer session; listing never returns a secret or digest. Creation and rotation return
 the plaintext once, rotation accepts the previous credential for 24 hours, and revocation is
 observed on the next request. A client resolves to exactly its owning organization and the
-intersection of its declared capability/event grants with its creator's current access.
+intersection of its declared capability/event grants with its creator's current access. Tenant
+identity does not widen event reads beyond the allowlist; the organization-level `events:create`
+scope grants the resulting organizer role to the human who created the client.
 GET /api/auth/config reports which doors this deployment actually offers —
 `demoMode` and `google` — so a sign-in surface renders what can complete rather than what exists in
 the codebase. GET /api/auth/google/start is a plain 302 to Google rather than a JSON endpoint the

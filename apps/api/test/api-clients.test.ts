@@ -21,6 +21,7 @@ const EVENT = "00000000-0000-4000-8000-000000000001";
 const NOW = 1_760_000_000_000;
 const PREFIX = "0123456789abcdef";
 const SECRET = "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678";
+const ROTATED_SECRET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
 const CREDENTIAL = `grn_${PREFIX}.${SECRET}`;
 const audit: AuditContext = {
   correlationId: "correlation-test",
@@ -40,7 +41,7 @@ const creator: Actor = {
       capabilities: new Set<Capability>(["events:read", "identity:manage"]),
     },
   ],
-  capabilities: new Set<Capability>(["events:read", "identity:manage"]),
+  capabilities: new Set<Capability>(["events:read", "events:create", "identity:manage"]),
 };
 
 class MemoryRepository implements ApiClientRepository {
@@ -129,6 +130,34 @@ describe("API client credentials", () => {
     expect(actor?.eventAccess.map(({ eventId }) => eventId)).toEqual([EVENT]);
   });
 
+  it("resolves organization-scoped creation and delegates the new organizer role to its creator", async () => {
+    const repository = new MemoryRepository();
+    repository.clients.push(await record({ scopes: ["events:create"] }));
+    const resolver = new ApiClientResolver({
+      repository,
+      resolveCreator: async () => creator,
+      events,
+      now: () => NOW,
+    });
+    const machine = await resolver.resolve(CREDENTIAL);
+    const grantOrganizer = vi.fn().mockResolvedValue(undefined);
+    const service = new EventService({
+      repository: new MemoryEventRepository(),
+      newId: () => "00000000-0000-4000-8000-000000000110",
+      now: () => new Date(NOW),
+      grantOrganizer,
+    });
+
+    await expect(
+      service.create(machine, {
+        organizationId: ORGANIZATION,
+        name: "Created by API",
+        timezone: "UTC",
+      }),
+    ).resolves.toMatchObject({ name: "Created by API" });
+    expect(grantOrganizer).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000110", creator.id);
+  });
+
   it("makes unknown prefixes, wrong secrets, revocation, and expiry indistinguishable", async () => {
     const repository = new MemoryRepository();
     const client = await record();
@@ -174,6 +203,39 @@ describe("API client credentials", () => {
 
     await expect(before.resolve(CREDENTIAL)).resolves.not.toBeNull();
     await expect(after.resolve(CREDENTIAL)).resolves.toBeNull();
+  });
+
+  it("rotates through the service and accepts both credentials during the overlap", async () => {
+    const repository = new MemoryRepository();
+    repository.clients.push(await record());
+    const service = new ApiClientService({
+      repository,
+      events,
+      newId: () => crypto.randomUUID(),
+      now: () => NOW,
+      mintCredential: async () => ({
+        credential: `grn_${PREFIX}.${ROTATED_SECRET}`,
+        prefix: PREFIX,
+        secretHash: await hashApiClientSecret(ROTATED_SECRET),
+      }),
+    });
+    const resolver = new ApiClientResolver({
+      repository,
+      resolveCreator: async () => creator,
+      events,
+      now: () => NOW,
+    });
+
+    const rotated = await service.rotate(
+      creator,
+      ORGANIZATION,
+      repository.clients[0]?.id ?? "",
+      audit,
+    );
+
+    expect(rotated.credential).toBe(`grn_${PREFIX}.${ROTATED_SECRET}`);
+    await expect(resolver.resolve(CREDENTIAL)).resolves.not.toBeNull();
+    await expect(resolver.resolve(rotated.credential)).resolves.not.toBeNull();
   });
 
   it("refuses cross-organization event grants at creation", async () => {
@@ -251,9 +313,25 @@ describe("API client credentials", () => {
       issuedAt: NOW - 1,
       expiresAt: NOW + 1_000,
     });
+    const eventRepository = new MemoryEventRepository();
+    const otherEvent = "00000000-0000-4000-8000-000000000002";
+    await eventRepository.create({
+      id: EVENT,
+      organizationId: ORGANIZATION,
+      name: "Allowed event",
+      timezone: "UTC",
+      createdAt: new Date(NOW).toISOString(),
+    });
+    await eventRepository.create({
+      id: otherEvent,
+      organizationId: ORGANIZATION,
+      name: "Not allowlisted",
+      timezone: "UTC",
+      createdAt: new Date(NOW).toISOString(),
+    });
     const app = createHttpAppFrom({
       events: new EventService({
-        repository: new MemoryEventRepository(),
+        repository: eventRepository,
         newId: () => crypto.randomUUID(),
         now: () => new Date(NOW),
       }),
@@ -298,6 +376,15 @@ describe("API client credentials", () => {
       (await app.request("/api/session", { headers: { authorization: `Bearer ${CREDENTIAL}` } }))
         .status,
     ).toBe(200);
+    const eventList = await app.request("/api/events", {
+      headers: { authorization: `Bearer ${CREDENTIAL}` },
+    });
+    expect(eventList.status).toBe(200);
+    await expect(eventList.json()).resolves.toMatchObject({ events: [{ id: EVENT }] });
+    const deniedEvent = await app.request(`/api/events/${otherEvent}`, {
+      headers: { authorization: `Bearer ${CREDENTIAL}` },
+    });
+    expect(deniedEvent.status).toBe(404);
     const bearerMint = await app.request(`/api/organizations/${ORGANIZATION}/api-clients`, {
       method: "POST",
       headers: { authorization: `Bearer ${CREDENTIAL}`, "content-type": "application/json" },

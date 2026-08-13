@@ -31,8 +31,13 @@ export class EventService {
   constructor(private readonly dependencies: EventServiceDependencies) {}
 
   private scope(actor: Actor) {
+    const organizationIds = actor.organizationAccess
+      ? actor.organizationAccess
+          .filter(({ capabilities }) => capabilities.has("events:read"))
+          .map(({ id }) => id)
+      : actor.organizations.map(({ id }) => id);
     return {
-      organizationIds: actor.organizations.map(({ id }) => id),
+      organizationIds,
       eventIds: actor.eventAccess
         .filter(({ capabilities }) => capabilities.has("events:read"))
         .map(({ eventId }) => eventId),
@@ -41,7 +46,13 @@ export class EventService {
 
   async create(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
     const authorized = requireCapability(actor, "events:create");
-    if (!authorized.organizations.some(({ id }) => id === command.organizationId)) {
+    const canCreateInOrganization = authorized.organizationAccess
+      ? authorized.organizationAccess.some(
+          ({ id, capabilities }) =>
+            id === command.organizationId && capabilities.has("events:create"),
+        )
+      : authorized.organizations.some(({ id }) => id === command.organizationId);
+    if (!canCreateInOrganization) {
       throw new CapabilityDeniedError("Organization access denied");
     }
     const event: Event = {
@@ -52,7 +63,8 @@ export class EventService {
       createdAt: this.dependencies.now().toISOString(),
     };
     await this.dependencies.repository.create(event);
-    await this.dependencies.grantOrganizer?.(event.id, authorized.id);
+    const roleGrantSubjectId = authorized.roleGrantSubjectId ?? authorized.id;
+    if (roleGrantSubjectId) await this.dependencies.grantOrganizer?.(event.id, roleGrantSubjectId);
     return event;
   }
 

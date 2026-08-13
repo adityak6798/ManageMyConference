@@ -120,4 +120,63 @@ describe("API clients against D1", () => {
       .all();
     expect(audits.results).toHaveLength(1);
   });
+
+  it("rotates both hashes and its audit atomically", async () => {
+    const { database, repository } = await stack();
+    const originalHash = await hashApiClientSecret("original");
+    const rotatedHash = await hashApiClientSecret("rotated");
+    await repository.create(
+      {
+        id: CLIENT,
+        organizationId: ORGANIZATION,
+        name: "Automation",
+        keyPrefix: "0123456789abcdef", // gitleaks:allow — public deterministic prefix fixture.
+        secretHash: originalHash,
+        previousSecretHash: null,
+        previousSecretExpiresAt: null,
+        createdBy: "seed-organizer",
+        createdAt: NOW,
+        expiresAt: null,
+        revokedAt: null,
+        scopes: ["events:read"],
+        eventIds: [EVENT],
+      },
+      context,
+    );
+    await expect(
+      repository.rotate({
+        organizationId: ORGANIZATION,
+        clientId: CLIENT,
+        secretHash: rotatedHash,
+        overlapExpiresAt: NOW + 86_400_000,
+        now: NOW + 1,
+        context,
+      }),
+    ).resolves.toBe(1);
+    const rotated = await repository.findByPrefix("0123456789abcdef");
+    expect(rotated).toMatchObject({
+      secretHash: rotatedHash,
+      previousSecretHash: originalHash,
+      previousSecretExpiresAt: NOW + 86_400_000,
+    });
+    const audits = await database
+      .prepare("SELECT action FROM identity_audit_events WHERE action = 'api_client.rotated'")
+      .all();
+    expect(audits.results).toHaveLength(1);
+
+    await expect(
+      repository.rotate({
+        organizationId: ORGANIZATION,
+        clientId: CLIENT,
+        secretHash: await hashApiClientSecret("must-roll-back"),
+        overlapExpiresAt: NOW + 172_800_000,
+        now: NOW + 2,
+        context: { ...context, correlationId: null } as unknown as AuditContext,
+      }),
+    ).rejects.toThrow();
+    await expect(repository.findByPrefix("0123456789abcdef")).resolves.toMatchObject({
+      secretHash: rotatedHash,
+      previousSecretHash: originalHash,
+    });
+  });
 });

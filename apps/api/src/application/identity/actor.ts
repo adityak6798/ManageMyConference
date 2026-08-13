@@ -33,6 +33,13 @@ export interface Actor {
   readonly organizations: readonly { id: string }[];
   readonly eventAccess: readonly EventAccess[];
   readonly capabilities: ReadonlySet<Capability>;
+  /** Explicit organization-level grants for delegated machine identities. Humans omit this. */
+  readonly organizationAccess?: readonly {
+    id: string;
+    capabilities: ReadonlySet<Capability>;
+  }[];
+  /** User eligible to receive a role created by this actor; machines delegate to their creator. */
+  readonly roleGrantSubjectId?: string;
 }
 
 export class AuthenticationRequiredError extends Error {}
