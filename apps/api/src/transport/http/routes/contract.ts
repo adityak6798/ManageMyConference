@@ -100,6 +100,24 @@ export interface RouteModule {
    * quietly winning.
    */
   readonly routes: readonly string[];
+  /**
+   * Middleware this module needs to run before *any* route handler in the app, whoever owns it.
+   *
+   * Hono's matching order is registration order, and middleware only applies to handlers
+   * registered after it. So a module that mounts middleware inside `register` covers the modules
+   * listed below it and nothing above — an invariant carried by the order of an array, which the
+   * next person to sort it alphabetically would silently delete.
+   *
+   * `createHttpAppFrom` runs every module's `registerRequestScope` before it registers any
+   * module's routes, so what is mounted here applies to the whole surface regardless of where its
+   * module sits in the registry. Platform's audit attribution is the case this exists for
+   * (issue #178): it has to see the resolved actor of a request whose mutation happens in another
+   * domain's route.
+   *
+   * Mount only per-request middleware here, and only middleware that must precede other domains'
+   * handlers. Anything scoped to this module's own routes belongs in `register`.
+   */
+  registerRequestScope?(app: HttpApp, dependencies: HttpDependencies): void;
   register(app: HttpApp, dependencies: HttpDependencies): void;
   /**
    * Translate this domain's application errors into a caller-facing refusal, or return null

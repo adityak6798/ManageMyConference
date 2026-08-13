@@ -7,6 +7,11 @@
  * registers `/api/public/events/:slug` and `cfp` registers `/api/public/events/:eventId/cfp`,
  * and the more specific of the two has to be reachable.
  *
+ * **Route matching is the only thing this order decides.** Middleware a module needs to run
+ * before other domains' handlers is declared as `registerRequestScope` and mounted by `app.ts`
+ * ahead of every route, so nothing in the system depends on which module is listed first
+ * (issue #178). Platform stays at the top because it was, not because anything requires it.
+ *
  * @spec ARC-001 ARC-DOM-001
  */
 import { agendaRoutes } from "./agenda";

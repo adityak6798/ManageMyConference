@@ -393,8 +393,8 @@ describe("one ordered timeline across domains", () => {
   it("records review, content, agenda and communications mutations with correct actor and source", async () => {
     const harness = await migrated();
     const store = new D1AuditRecordStore(harness.database as never);
-    const identity = createRequestIdentity();
     const report = vi.fn();
+    const identity = createRequestIdentity({ report });
     let issued = 0;
     let tick = 0;
     const audit = new AuditRecorder({
@@ -428,7 +428,7 @@ describe("one ordered timeline across domains", () => {
     };
 
     // A request: three lifecycle consequences of things an organizer did.
-    identity.set({ actor: organizer, correlationId: "corr-request" });
+    const request = identity.begin({ actor: organizer, correlationId: "corr-request" });
     await audit.record({
       organizationId: ORGANIZATION,
       eventId: EVENT,
@@ -463,8 +463,10 @@ describe("one ordered timeline across domains", () => {
     });
 
     // The agenda's publication, committed in the batch its own write runs in — and with nobody
-    // signed in, which is how a record with no request behind it reaches the log.
-    identity.set({ actor: null, correlationId: null });
+    // signed in, which is how a record with no request behind it reaches the log. Ending the
+    // request's scope is what empties the holder: a consequence that outlives its request is
+    // attributed to nobody rather than to whoever was last through the door.
+    request.end();
     const write = preparedAuditWriter(harness.database as never);
     const database = harness.database as unknown as {
       batch(statements: readonly unknown[]): Promise<unknown>;
