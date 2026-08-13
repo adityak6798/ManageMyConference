@@ -135,6 +135,18 @@ export class EventService {
     );
   }
 
+  /**
+   * Every event of an organization, for a domain scoping its own tables by them.
+   *
+   * Identity-access uses it to list and remove event roles without reading `events`, which
+   * `table-ownership.json` says belongs here. Addressing facts rather than grants, like
+   * `organizationOf`: knowing which events an organization owns confers nothing, and the caller
+   * has already authorized the action that led here.
+   */
+  listEventIdsForOrganization(organizationId: string): Promise<readonly string[]> {
+    return this.dependencies.repository.listAllIdsInOrganization(organizationId);
+  }
+
   /** Public application query for domains that must validate several event candidates at once. */
   listEventIdsInOrganization(
     organizationId: string,

@@ -21,6 +21,10 @@ single run and hands the fixture back. What remains before this plan can close:
   (lifecycle-triggered communications and calendar delivery),
   `GAP-011` (multi-round and AI-assisted review), and `GAP-012` (Accelevents). Portal resource
   and wiki pages shipped with issue #54.
+Issue #12 is closed: durable session records and revocation
+([`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md)), organization invitation and
+membership administration, and credential rotation and recovery with a
+[security-operations runbook](../engineering/security-operations.md). `GAP-007` is deleted with it.
 
 ## `PLAN-003` Evaluation artifact
 

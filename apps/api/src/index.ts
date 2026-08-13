@@ -18,6 +18,8 @@ import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1EventTemplateRepository } from "./adapters/persistence/d1-event-template-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
+import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -57,6 +59,8 @@ import {
   startGoogleAuthorization,
   stateProof,
 } from "./application/identity/google-oauth";
+import { MembershipService, mintInvitationToken } from "./application/identity/membership";
+import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { publishingTemplateSlice } from "./application/publishing/public";
@@ -73,6 +77,15 @@ export interface Environment {
   ASSETS: R2BucketPort;
   DEMO_MODE?: string;
   SESSION_SECRET?: string;
+  /**
+   * The secret being rotated *away from*, set only while a rotation is in flight.
+   *
+   * Issuance always uses `SESSION_SECRET`; verification tries it and then this. Set it to the old
+   * value, deploy, and unset it after one full session lifetime — see
+   * docs/engineering/security-operations.md. Refused at boot when it equals `SESSION_SECRET` or
+   * is the development placeholder, because either is a rotation that did not happen.
+   */
+  SESSION_SECRET_PREVIOUS?: string;
   AUTH_EMAIL_ENDPOINT?: string;
   AUTH_EMAIL_TOKEN?: string;
   INITIAL_ORGANIZER_USER_ID?: string;
@@ -307,6 +320,7 @@ export function runtimeAuth(
     Environment,
     | "DEMO_MODE"
     | "SESSION_SECRET"
+    | "SESSION_SECRET_PREVIOUS"
     | "ENVIRONMENT"
     | "AUTH_EMAIL_ENDPOINT"
     | "AUTH_EMAIL_TOKEN"
@@ -320,6 +334,25 @@ export function runtimeAuth(
     throw new Error("DEMO_MODE is allowed only when ENVIRONMENT=development");
   if (!environment.SESSION_SECRET || environment.SESSION_SECRET === "local-development-secret")
     throw new Error("Authentication requires a non-default SESSION_SECRET binding");
+  /*
+   * The optional second secret a rotation is in flight across.
+   *
+   * Both refusals are the same kind as the one above — a configuration that looks like a
+   * rotation and is not. `previous === current` is a rotation somebody believes they performed:
+   * every token still verifies, nothing has moved, and the operator would unset `previous` after
+   * the window believing they were done. The placeholder is the default-secret refusal again, in
+   * the one place it would otherwise be admitted through the back door.
+   */
+  const previous = environment.SESSION_SECRET_PREVIOUS;
+  if (previous !== undefined) {
+    if (previous === environment.SESSION_SECRET)
+      throw new Error("SESSION_SECRET_PREVIOUS must differ from SESSION_SECRET");
+    if (!previous || previous === "local-development-secret")
+      throw new Error("SESSION_SECRET_PREVIOUS must be a non-default secret, or unset");
+  }
+  const sessionSecret = previous
+    ? { current: environment.SESSION_SECRET, previous }
+    : environment.SESSION_SECRET;
   // Checked in both modes and before either return, so a half-configured Google binding is a
   // boot failure rather than a surprise on somebody's first sign-in. Omitted from the result
   // when absent, so a deployment without it is byte-for-byte the configuration it was before.
@@ -327,7 +360,7 @@ export function runtimeAuth(
   if (demoMode)
     return {
       demoMode: true as const,
-      sessionSecret: environment.SESSION_SECRET as string,
+      sessionSecret,
       ...(google ? { google } : {}),
     };
   // Emailed-code sign-in remains this deployment's requirement even with Google configured:
@@ -339,7 +372,7 @@ export function runtimeAuth(
     );
   return {
     demoMode: false as const,
-    sessionSecret: environment.SESSION_SECRET,
+    sessionSecret,
     ...(google ? { google } : {}),
   };
 }
@@ -349,6 +382,9 @@ export default {
   fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
     const identityDirectory = new D1IdentityDirectory(environment.DB);
+    // Behaviour, not credentials: the transport is handed this object and never the signing
+    // secret, the same rule `GoogleAuthProvider` follows.
+    const sessions = new D1SessionStore(environment.DB);
     const service = new EventService({
       repository: new D1EventRepository(environment.DB),
       newId: () => crypto.randomUUID(),
@@ -536,7 +572,16 @@ export default {
             },
             resolveUserActor: (userId: string) => identityDirectory.findByUserId(userId),
           };
-        })(auth.google, auth.sessionSecret)
+        })(
+          auth.google,
+          // The current secret only, deliberately. The `state` proof is the one piece of
+          // signed state a rotation cannot span cheaply: an attempt lives ten minutes
+          // (`ATTEMPT_LIFETIME_MS`), so the whole exposure of rotating is that sign-ins begun
+          // in the ten minutes before the deploy fail their `state` check and the person
+          // presses the button again. That is a smaller cost than carrying a second secret
+          // through the attempt table, and it is what the runbook documents.
+          issuingSecret(auth.sessionSecret),
+        )
       : undefined;
     /**
      * Turns a lifecycle fact into a queued delivery, and never lets that failure become the
@@ -790,6 +835,15 @@ export default {
         return new OutreachRejectedError(error.message);
       return error;
     };
+    // `service` is the events domain's own application interface, which is how identity reaches
+    // "does this event belong to that organization" without reading the events tables.
+    const membership = new MembershipService({
+      repository: new D1MembershipRepository(environment.DB),
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+      mintToken: mintInvitationToken,
+    });
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
       speakerConversion,
@@ -926,12 +980,15 @@ export default {
             resolveActor: (persona: "organizer" | "reviewer" | "speaker" | "public") =>
               identityDirectory.findByPersona(persona),
             // `auth.google` is the *configuration*; the transport is handed the *provider*, so
-            // no credential is reachable from a route module.
-            ...(googleAuth ? { google: googleAuth } : {}),
+            // no credential is reachable from a route module. The session store travels with
+            // it: a demo deployment issues no session of its own, and the one case where it can
+            // hold a real one is the case where Google is configured beside the personas.
+            ...(googleAuth ? { google: googleAuth, sessions } : {}),
           }
         : {
             demoMode: false as const,
             sessionSecret: auth.sessionSecret,
+            sessions,
             ...(googleAuth ? { google: googleAuth } : {}),
             resolveActor: (userId: string) => identityDirectory.findByUserId(userId),
             resolveEmail: async (email: string) => {
@@ -975,6 +1032,7 @@ export default {
       itineraries,
       speakerCalendarInvites,
       accelEventsSync,
+      membership,
       eventTemplates,
       build:
         environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT

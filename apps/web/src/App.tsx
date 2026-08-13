@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AcceptInvitationPage } from "./AcceptInvitationPage";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
 import { ApiError, createEvent, listAssignedEvents, updateEvent } from "./api/events";
 import {
@@ -16,6 +17,7 @@ import {
   getSession,
   IdentityApiError,
   requestLoginCode,
+  revokeAllSessions,
   signOut,
   startDemoSession,
   verifyLoginCode,
@@ -68,6 +70,17 @@ interface NavEntry {
   order: number;
   icon: ReactNode;
 }
+
+/**
+ * Where an invitation link lands.
+ *
+ * Reachable by every signed-in persona and listed in nobody's sidebar: an invitee is usually
+ * being offered a reviewer or speaker role, and those personas can reach neither `/settings` nor
+ * the members workspace — which requires `identity:manage`, the thing somebody being invited does
+ * not yet have. A permanent nav entry for a once-ever action would be clutter, so the route is
+ * addressable without being advertised.
+ */
+const ACCEPT_INVITATION_PATH = "/invitations/accept";
 
 /**
  * The two surfaces the shell owns itself. Every other entry comes from a domain's workspace
@@ -268,6 +281,7 @@ export function App({
   // an empty frame — switching identity used to leave the page blank.
   useEffect(() => {
     if (loading || !session) return;
+    if (path === ACCEPT_INVITATION_PATH) return;
     if (allowed.some((route) => route.href === path)) return;
     navigate(`${allowed[0]?.href ?? "/"}${query}`, { replace: true });
   }, [allowed, loading, path, query, session]);
@@ -322,6 +336,25 @@ export function App({
     setError(null);
     try {
       await signOut();
+      window.location.assign("/");
+    } catch (reason: unknown) {
+      setError(readableError(reason));
+      setBusy(false);
+    }
+  }
+
+  /**
+   * End every session this account holds, this browser's included, and go back to "/".
+   *
+   * Same full document load as `endSession`, for the same reason. The count the API answers is
+   * deliberately not shown afterwards: the surface that could show it is the one being torn
+   * down, and a number on the landing page would outlive the action it describes.
+   */
+  async function endEverySession() {
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeAllSessions();
       window.location.assign("/");
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -588,6 +621,10 @@ export function App({
         </>
       );
     }
+    // The location's own search string, not the shell's `query` — that one is the selected
+    // event, and the token lives in the link the organizer sent.
+    if (path === ACCEPT_INVITATION_PATH)
+      return <AcceptInvitationPage search={location.split("?")[1] ?? ""} />;
     if (path === "/settings")
       return (
         <>
@@ -683,6 +720,10 @@ export function App({
             onSignOut: () => {
               // ERROR-INTENT: handlers cannot await; endSession renders its own failure.
               void endSession();
+            },
+            onSignOutEverywhere: () => {
+              // ERROR-INTENT: handlers cannot await; endEverySession renders its own failure.
+              void endEverySession();
             },
           }
         : {})}

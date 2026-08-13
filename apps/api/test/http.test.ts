@@ -31,6 +31,7 @@ import {
   type GoogleAuthProvider,
   type StructuredLogger,
 } from "../src/transport/http/app";
+import { memorySessionStore } from "./support/memory-session-store";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 
@@ -77,6 +78,21 @@ const createTestApp = () => {
 };
 const cookieFor = async (persona: "organizer" | "reviewer" | "speaker" | "public") => ({
   cookie: `greenroom_session=${await createDemoSession(persona, secret, 2_000)}`,
+});
+
+/**
+ * A real signed-in organizer: the seeded persona's shape, under an id that is not a seeded one.
+ *
+ * The id is the whole point. Both issuing routes refuse a subject for which `isDemoPersonaId`
+ * holds, because `seed/reset.sql` gives the personas real addresses and a real sign-in must never
+ * land on one (`docs/architecture/authorization.md`, rule 3). A fixture that signs in *as*
+ * `seed-organizer` is exercising a path the product deliberately refuses, which is not what these
+ * cases are about.
+ */
+const realOrganizer = async () => ({
+  ...(await resolveSeededDemoActor("organizer")),
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Odele Organizer",
 });
 
 describe("events HTTP transport", () => {
@@ -148,7 +164,8 @@ describe("events HTTP transport", () => {
 
     // A real user session on the same demo-mode deployment, which is the configuration the
     // middleware exists to support and the one where the distinction is load-bearing.
-    const actor = await resolveSeededDemoActor("organizer");
+    const actor = await realOrganizer();
+    const googleSessions = memorySessionStore();
     const withGoogle = createHttpApp(
       new EventService({
         repository: new MemoryEventRepository(),
@@ -166,10 +183,12 @@ describe("events HTTP transport", () => {
           complete: async () => null,
           resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
         },
+        sessions: googleSessions,
       },
       testCrm(),
     );
-    const session = await createUserSession(actor.id, secret, 2_000);
+    googleSessions.seed({ id: "sid-real", userId: actor.id, issuedAt: 0, expiresAt: 2_000 });
+    const session = await createUserSession("sid-real", actor.id, secret, 2_000);
     const real = await withGoogle.request("/api/session", {
       headers: { cookie: `greenroom_session=${session}` },
     });
@@ -179,6 +198,7 @@ describe("events HTTP transport", () => {
     // a token holder out of a session they never had. Asserted on a production app, because a
     // demo-mode deployment resolves no bearer at all — the middleware's demo branch reads the
     // cookie and nothing else, which is why `/api/auth/tokens` is 404 there in the first place.
+    const bearerSessions = memorySessionStore();
     const production = createHttpApp(
       new EventService({
         repository: new MemoryEventRepository(),
@@ -195,10 +215,13 @@ describe("events HTTP transport", () => {
         sendLoginCode: async () => undefined,
         saveLoginChallenge: async () => undefined,
         consumeLoginChallenge: async () => null,
+        sessions: bearerSessions,
       },
       testCrm(),
     );
+    bearerSessions.seed({ id: "sid-bearer", userId: actor.id, issuedAt: 0, expiresAt: 2_000 });
     const bearer = await createEventToken(
+      "sid-bearer",
       actor.id,
       "00000000-0000-4000-8000-000000000001",
       secret,
@@ -296,6 +319,7 @@ describe("events HTTP transport", () => {
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
+        listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -515,6 +539,7 @@ describe("events HTTP transport", () => {
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
+        listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -590,10 +615,11 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const actor = await resolveSeededDemoActor("organizer");
+    const actor = await realOrganizer();
     let deliveredCode = "";
     let savedChallenge: { id: string; email: string; codeProof: string; expiresAt: number } | null =
       null;
+    const sessions = memorySessionStore();
     const app = createHttpApp(
       service,
       logger,
@@ -616,6 +642,7 @@ describe("events HTTP transport", () => {
           savedChallenge = null;
           return saved.email;
         },
+        sessions,
       },
       testCrm(),
     );
@@ -644,7 +671,11 @@ describe("events HTTP transport", () => {
         })
       ).status,
     ).toBe(201);
+    // A bearer that genuinely resolves, so the 401 below is the `authentication === "session"`
+    // guard refusing it rather than the token failing to resolve for some other reason.
+    sessions.seed({ id: "sid-token", userId: actor.id, issuedAt: 0, expiresAt: 2_000 });
     const bearer = await createEventToken(
+      "sid-token",
       actor.id,
       "00000000-0000-4000-8000-000000000001",
       secret,
@@ -747,6 +778,7 @@ describe("events HTTP transport", () => {
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
+        listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -803,6 +835,7 @@ describe("events HTTP transport", () => {
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
+        listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
@@ -876,6 +909,7 @@ describe("events HTTP transport", () => {
         now: () => 1_000,
         resolveActor: resolveSeededDemoActor,
         google,
+        sessions: memorySessionStore(),
       },
       testCrm(),
     );
@@ -914,7 +948,7 @@ describe("events HTTP transport", () => {
    * not.
    */
   it("issues a real session on a successful Google callback, and welcomes only a new account", async () => {
-    const actor = await resolveSeededDemoActor("organizer");
+    const actor = await realOrganizer();
     const google = (provisioned: boolean): GoogleAuthProvider => ({
       start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a1" }),
       complete: async () => ({ actor, provisioned }),
@@ -934,6 +968,7 @@ describe("events HTTP transport", () => {
           now: () => 1_000,
           resolveActor: resolveSeededDemoActor,
           google: google(provisioned),
+          sessions: memorySessionStore(),
         },
         testCrm(),
       );

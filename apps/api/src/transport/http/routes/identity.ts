@@ -7,7 +7,10 @@
  * @spec PRD-IAM-001 PRD-IAM-002
  */
 import {
+  acceptInvitationSchema,
+  createInvitationSchema,
   demoSessionInputSchema,
+  eventRoleSchema,
   eventTokenRequestSchema,
   loginCodeRequestSchema,
   loginCodeVerifySchema,
@@ -16,15 +19,23 @@ import {
   AuthenticationRequiredError,
   requireEventCapability,
 } from "../../../application/identity/actor";
-import { createDemoSession } from "../../../application/identity/demo-session";
+import { createDemoSession, isDemoPersonaId } from "../../../application/identity/demo-session";
+import type { AuditContext } from "../../../application/identity/audit";
+import {
+  EventOutsideOrganizationError,
+  InvitationInvalidError,
+  type InvitableRole,
+  MembershipRefusedError,
+} from "../../../application/identity/membership";
 import {
   createEventToken,
   createLoginChallenge,
   createUserSession,
   exchangeLoginChallenge,
+  sessionIdFrom,
 } from "../../../application/identity/real-auth";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { envelope, readJson } from "../runtime";
+import { envelope, type HttpContext, readJson, validationFields } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -36,8 +47,17 @@ const routes = [
   "GET /api/auth/google/start",
   "GET /api/auth/google/callback",
   "POST /api/auth/signout",
+  "POST /api/auth/sessions/revoke-all",
   "POST /api/demo-session",
   "GET /api/session",
+  "GET /api/organizations/{organizationId}/members",
+  "POST /api/organizations/{organizationId}/invitations",
+  "DELETE /api/organizations/{organizationId}/invitations/{invitationId}",
+  "POST /api/invitations/accept",
+  "DELETE /api/organizations/{organizationId}/members/{userId}",
+  "PUT /api/organizations/{organizationId}/events/{eventId}/roles/{userId}",
+  "DELETE /api/organizations/{organizationId}/events/{eventId}/roles/{userId}",
+  "GET /api/organizations/{organizationId}/audit-events",
 ] as const;
 const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
 /**
@@ -68,6 +88,20 @@ const oauthCookieOptions = (secure: boolean) => ({
   secure,
   path: "/",
   maxAge: 600,
+});
+
+/**
+ * The request half of an audit row.
+ *
+ * `source` is `human` for every audited action in this module, and that is a fact about the
+ * module rather than a default: each of them is somebody pressing something in a browser. An
+ * `api` source belongs to a bearer-authenticated caller, and the one bearer-minting route here
+ * writes no audit row.
+ */
+const auditContext = (context: HttpContext): AuditContext => ({
+  correlationId: context.get("correlationId"),
+  actorUserId: context.get("actor")?.id ?? null,
+  source: "human",
 });
 
 export const identityRoutes: RouteModule = {
@@ -176,13 +210,64 @@ export const identityRoutes: RouteModule = {
         correlationId: context.get("correlationId"),
       });
       if (!outcome) return failed();
+      // A verified Google identity that resolved *to a seeded demo persona* is refused here, and
+      // this is the crossing the guard exists for. On a demo deployment with Google configured,
+      // account linking matches a verified address, and `seed/reset.sql` gives the personas real
+      // addresses — so signing in as `organizer@greenroom.test` would otherwise link the provider
+      // account to `seed-organizer` and mint a real session for the identity the landing page
+      // hands to the next visitor who presses "Continue as organizer".
+      if (isDemoPersonaId(outcome.actor.id)) {
+        // ERROR-INTENT: reported rather than swallowed, and as a refusal rather than a failure —
+        // the deployment is misconfigured (a seeded address is claimable by a real provider
+        // account), not broken. The caller gets the same indistinguishable redirect as every
+        // other callback refusal, for the reason this route's own docstring gives.
+        dependencies.logger.warn(
+          { correlationId: context.get("correlationId"), reason: "demo-persona-subject" },
+          "auth.google.refused",
+        );
+        return failed();
+      }
+      const expiresAt = now + SESSION_LIFETIME_MS;
+      const sessionId = crypto.randomUUID();
+      // The record comes before the cookie, and its failure is a failed sign-in rather than a
+      // 500: this is a top-level navigation, so the transport's JSON error envelope would be
+      // rendered as raw text in the address bar. A cookie issued without its record would
+      // resolve to nothing on the very next request anyway, which is a sign-in that silently
+      // did not happen.
+      try {
+        await auth.sessions.issue(
+          {
+            id: sessionId,
+            userId: outcome.actor.id,
+            issuedAt: now,
+            expiresAt,
+          },
+          {
+            correlationId: context.get("correlationId"),
+            actorUserId: outcome.actor.id,
+            source: "human",
+          },
+        );
+      } catch (error) {
+        // ERROR-INTENT: reported at error level, because a sign-in that verified and then could
+        // not be recorded is this deployment failing rather than a caller being refused.
+        dependencies.logger.error(
+          {
+            correlationId: context.get("correlationId"),
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          "auth.session.issue_failed",
+        );
+        return failed();
+      }
       setCookie(
         context,
         "greenroom_session",
         await createUserSession(
+          sessionId,
           outcome.actor.id,
           auth.sessionSecret as string,
-          now + SESSION_LIFETIME_MS,
+          expiresAt,
         ),
         {
           httpOnly: true,
@@ -198,12 +283,36 @@ export const identityRoutes: RouteModule = {
     });
 
     /**
-     * End this browser's session.
+     * End this browser's session — and the session itself.
      *
-     * Clearing the cookie, and nothing more — see `signOutResponseSchema`. Answering 200 whether
-     * or not a session was present keeps this from reporting whether the caller had one.
+     * Revocation first, cookie second. The record named by the cookie's `sid` is marked revoked,
+     * which is what stops a copy of the same cookie taken from another device, and what stops an
+     * event bearer token minted from that session; then the cookie is cleared.
+     *
+     * Still 200 whether or not a session was present, and still `{ signedOut: true }` rather than
+     * a count: the response must not report whether the caller held a session, and the number of
+     * rows revoked would. `POST /api/auth/sessions/revoke-all` reports a count because it
+     * requires a session first, so the count is the caller's own data.
+     *
+     * A demo persona cookie carries no `sid`, so it takes no lookup at all. Nor does an expired
+     * one: `sessionIdFrom` refuses a payload past its expiry, which is what stops a dead but
+     * validly-signed cookie being replayed here as an unlimited supply of database writes.
+     *
+     * A store failure is deliberately *not* swallowed. `{ signedOut: true }` on a session that is
+     * still live is the pre-#12 behaviour with a more reassuring label, which is the more
+     * dangerous product; the caller gets a 500 and the correlation id instead.
      */
-    app.post("/api/auth/signout", (context) => {
+    app.post("/api/auth/signout", async (context) => {
+      const now = (auth.now ?? Date.now)();
+      const sessionId = auth.sessionSecret
+        ? await sessionIdFrom(getCookie(context, "greenroom_session"), auth.sessionSecret, now)
+        : null;
+      // `auth.sessions` is absent only on a deployment that records no sessions — demo without
+      // Google, or no signing secret at all — and on those no cookie can resolve as a real
+      // session in the first place, so there is nothing here to revoke. Cookie clearing below
+      // still runs, which is the whole of what sign-out meant on such a deployment before.
+      if (sessionId && auth.sessions)
+        await auth.sessions.revoke(sessionId, now, auditContext(context));
       deleteCookie(context, "greenroom_session", {
         path: "/",
         secure: isSecure(context),
@@ -212,6 +321,244 @@ export const identityRoutes: RouteModule = {
       });
       return context.json({ signedOut: true as const });
     });
+
+    /**
+     * Sign out on every device.
+     *
+     * Requires a real session — a persona cookie resolves as `demo` and is refused here, so no
+     * demo caller can end anything. The count is safe to report because the caller had to prove
+     * the identity it counts: these are their own sessions and nobody else's.
+     *
+     * 404 where the deployment records no sessions at all, matching every other door this
+     * module offers conditionally.
+     */
+    app.post("/api/auth/sessions/revoke-all", async (context) => {
+      if (!auth.sessions)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      const actor = context.get("actor");
+      if (context.get("authentication") !== "session" || !actor)
+        throw new AuthenticationRequiredError("A user session is required to end every session");
+      return context.json({
+        revoked: await auth.sessions.revokeAllForUser(
+          actor.id,
+          (auth.now ?? Date.now)(),
+          auditContext(context),
+        ),
+      });
+    });
+    /*
+     * Membership administration.
+     *
+     * Addressed by organization, because that is the scope the answer spans and because it gives
+     * cross-event visibility exactly one place to be authorized — the same reasoning the CRM
+     * directory records. `MembershipService` owns the three-condition authorization and the
+     * demo-persona guard; these handlers own shape and status and nothing else.
+     *
+     * Every one of them 404s when the service is unwired, rather than 500ing, because a
+     * deployment composed without it genuinely does not have these doors.
+     */
+    const membership = dependencies.membership;
+    const noMembership = (context: HttpContext) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    /** Instants cross the wire as ISO strings; the database keeps them as epoch milliseconds. */
+    const asInvitationDto = (invitation: {
+      id: string;
+      organizationId: string;
+      eventId: string | null;
+      email: string;
+      role: InvitableRole;
+      invitedByUserId: string;
+      createdAt: number;
+      expiresAt: number;
+      acceptedAt: number | null;
+      acceptedByUserId: string | null;
+      revokedAt: number | null;
+    }) => ({
+      ...invitation,
+      createdAt: new Date(invitation.createdAt).toISOString(),
+      expiresAt: new Date(invitation.expiresAt).toISOString(),
+      acceptedAt: invitation.acceptedAt ? new Date(invitation.acceptedAt).toISOString() : null,
+      revokedAt: invitation.revokedAt ? new Date(invitation.revokedAt).toISOString() : null,
+    });
+
+    app.get("/api/organizations/:organizationId/members", async (context) => {
+      if (!membership) return noMembership(context);
+      const organizationId = context.req.param("organizationId");
+      const actor = context.get("actor");
+      const [members, invitations] = await Promise.all([
+        membership.listMembers(actor, organizationId),
+        membership.listInvitations(actor, organizationId),
+      ]);
+      return context.json({ members, invitations: invitations.map(asInvitationDto) });
+    });
+
+    app.post("/api/organizations/:organizationId/invitations", async (context) => {
+      if (!membership) return noMembership(context);
+      const parsed = createInvitationSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Check the address and role.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      const { invitation, token } = await membership.invite(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        parsed.data,
+        auditContext(context),
+      );
+      // The token is answered once and never stored in the clear. The console builds the
+      // acceptance link from it; a reload of the members list will not show it again.
+      return context.json({ invitation: asInvitationDto(invitation), token }, 201);
+    });
+
+    app.delete("/api/organizations/:organizationId/invitations/:invitationId", async (context) => {
+      if (!membership) return noMembership(context);
+      return context.json({
+        changed: await membership.revokeInvitation(
+          context.get("actor"),
+          context.req.param("organizationId"),
+          context.req.param("invitationId"),
+          auditContext(context),
+        ),
+      });
+    });
+
+    /**
+     * Accept an invitation, as whoever is signed in.
+     *
+     * `authentication === "session"` is required and is the whole of rule 1: the token says which
+     * invitation, the session says who, and a demo persona resolves as `demo` and never gets
+     * past this line. Not addressed by organization, because the caller does not yet belong to
+     * one — that is what they are accepting.
+     */
+    app.post("/api/invitations/accept", async (context) => {
+      if (!membership) return noMembership(context);
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to accept an invitation");
+      const parsed = acceptInvitationSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "That invitation is not valid.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      return context.json(
+        await membership.accept(context.get("actor"), parsed.data.token, auditContext(context)),
+      );
+    });
+
+    app.delete("/api/organizations/:organizationId/members/:userId", async (context) => {
+      if (!membership) return noMembership(context);
+      return context.json({
+        changed: await membership.removeMember(
+          context.get("actor"),
+          context.req.param("organizationId"),
+          context.req.param("userId"),
+          auditContext(context),
+        ),
+      });
+    });
+
+    /*
+     * Event roles are addressed under the organization that owns the event, not under the event
+     * alone. The address is the authorization boundary: `requireOrganization` runs against the
+     * organization in the path, and the event is then checked to belong to it, so a grant earned
+     * in one organization cannot staff somebody in another.
+     */
+    app.put("/api/organizations/:organizationId/events/:eventId/roles/:userId", async (context) => {
+      if (!membership) return noMembership(context);
+      const parsed = eventRoleSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Choose a valid role.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        changed: await membership.setEventRole(
+          context.get("actor"),
+          context.req.param("organizationId"),
+          context.req.param("eventId"),
+          context.req.param("userId"),
+          parsed.data.role,
+          auditContext(context),
+        ),
+      });
+    });
+
+    app.delete(
+      "/api/organizations/:organizationId/events/:eventId/roles/:userId",
+      async (context) => {
+        if (!membership) return noMembership(context);
+        const parsed = eventRoleSchema.safeParse(await readJson(context.req));
+        if (!parsed.success)
+          return context.json(
+            envelope("VALIDATION_FAILED", "Choose a valid role.", context.get("correlationId")),
+            400,
+          );
+        return context.json({
+          changed: await membership.revokeEventRole(
+            context.get("actor"),
+            context.req.param("organizationId"),
+            context.req.param("eventId"),
+            context.req.param("userId"),
+            parsed.data.role,
+            auditContext(context),
+          ),
+        });
+      },
+    );
+
+    app.get("/api/organizations/:organizationId/audit-events", async (context) => {
+      if (!membership) return noMembership(context);
+      // `Number("")` is 0 and `Number.isSafeInteger(0)` is true, so `?limit=` would have clamped
+      // the page to one row and `?before=` would have asked for rows older than the epoch — an
+      // empty page where the caller asked for the first one. An empty value means absent.
+      const positiveInteger = (name: string) => {
+        const raw = context.req.query(name);
+        if (raw === undefined || raw.trim() === "") return undefined;
+        const value = Number(raw);
+        return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+      };
+      const limit = positiveInteger("limit");
+      const before = positiveInteger("before");
+      const events = await membership.listAuditEvents(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        {
+          ...(limit === undefined ? {} : { limit }),
+          ...(before === undefined ? {} : { before }),
+        },
+      );
+      return context.json({
+        events: events.map((entry) => ({
+          ...entry,
+          occurredAt: new Date(entry.occurredAt).toISOString(),
+        })),
+      });
+    });
+
     app.post("/api/auth/code", async (context) => {
       if (auth.demoMode || !auth.sessionSecret)
         return context.json(
@@ -279,8 +626,12 @@ export const identityRoutes: RouteModule = {
         now,
         auth.consumeLoginChallenge,
       );
+      // A seeded demo persona is never a valid session subject, even when the address resolves.
+      // `resolveEmail` is an address lookup, and `seed/reset.sql` gives the personas real
+      // addresses; the same indistinguishable 401 as an unknown address, because which of the two
+      // it was is not the caller's business.
       const actor = email ? await auth.resolveEmail(email) : null;
-      if (!actor)
+      if (!actor || isDemoPersonaId(actor.id))
         return context.json(
           envelope(
             "UNAUTHORIZED",
@@ -289,16 +640,25 @@ export const identityRoutes: RouteModule = {
           ),
           401,
         );
+      const expiresAt = now + SESSION_LIFETIME_MS;
+      const sessionId = crypto.randomUUID();
+      // Recorded before it is signed, so a cookie can never name a row that does not exist. A
+      // store failure reaches the transport's error boundary as a 500, which is the right answer
+      // to a fetch: this route is called by script, not by a top-level navigation.
+      await auth.sessions.issue(
+        { id: sessionId, userId: actor.id, issuedAt: now, expiresAt },
+        { correlationId: context.get("correlationId"), actorUserId: actor.id, source: "human" },
+      );
       setCookie(
         context,
         "greenroom_session",
-        await createUserSession(actor.id, auth.sessionSecret, now + 28_800_000),
+        await createUserSession(sessionId, actor.id, auth.sessionSecret, expiresAt),
         {
           httpOnly: true,
           sameSite: "Strict",
           secure: new URL(context.req.url).protocol === "https:",
           path: "/",
-          maxAge: 28_800,
+          maxAge: SESSION_LIFETIME_MS / 1000,
         },
       );
       return context.json({ authenticated: true as const });
@@ -326,11 +686,22 @@ export const identityRoutes: RouteModule = {
         parsed.data.eventId,
         "events:read",
       );
+      // The token inherits the session it was minted from, so signing out ends it too. The
+      // guard above already established that this cookie is a real session, which is what makes
+      // a missing `sid` here impossible rather than merely unlikely.
       const now = (auth.now ?? Date.now)();
+      const sessionId = await sessionIdFrom(
+        getCookie(context, "greenroom_session"),
+        auth.sessionSecret,
+        now,
+      );
+      if (!sessionId)
+        throw new AuthenticationRequiredError("A user session is required to create a token");
       const expiresAt = now + 3_600_000;
       return context.json(
         {
           token: await createEventToken(
+            sessionId,
             actor.id,
             parsed.data.eventId,
             auth.sessionSecret,
@@ -396,5 +767,35 @@ export const identityRoutes: RouteModule = {
         authentication: context.get("authentication"),
       });
     });
+  },
+
+  /**
+   * This domain's refusals, translated once here rather than in a central handler every domain
+   * has to edit.
+   *
+   * The invitation refusal is 404 rather than 403 or 400, and that is the interesting one: an
+   * unknown token, an expired one, a revoked one and one already spent are a single answer,
+   * because telling them apart would say whether a guessed token named a real invitation.
+   */
+  translateError(error: unknown) {
+    if (error instanceof InvitationInvalidError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That invitation is not valid.",
+        status: 404 as const,
+      };
+    if (error instanceof MembershipRefusedError)
+      return {
+        code: "FORBIDDEN" as const,
+        message: "That change is not allowed on this deployment.",
+        status: 403 as const,
+      };
+    if (error instanceof EventOutsideOrganizationError)
+      return {
+        code: "FORBIDDEN" as const,
+        message: "That event is not part of this organization.",
+        status: 403 as const,
+      };
+    return null;
   },
 };

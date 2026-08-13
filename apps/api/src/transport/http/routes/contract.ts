@@ -21,6 +21,7 @@ import type { SpeakerCalendarInviteService } from "../../../application/content/
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
 import type { EventTemplateService } from "../../../application/events/public";
+import type { MembershipService } from "../../../application/identity/membership";
 import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
 import type {
@@ -66,6 +67,16 @@ export interface HttpDependencies {
    */
   speakerCalendarInvites?: SpeakerCalendarInviteService | undefined;
   crm?: CrmService | undefined;
+  /**
+   * Organization membership and event-role administration.
+   *
+   * On `HttpDependencies` rather than on `auth`, and the difference is not cosmetic: `auth`
+   * carries what the transport needs to *resolve a credential*, and this is a domain service the
+   * way `crm` and `review` are. It is also why a demo-mode deployment gets one — the members
+   * screen is a real console surface a persona can open, while every write behind it refuses a
+   * persona.
+   */
+  membership?: MembershipService | undefined;
   agenda?: AgendaService | undefined;
   communications?: CommunicationsService | undefined;
   /** The inbound Accelevents registration sync, and the last-run state its surface reads. */

@@ -38,6 +38,7 @@ export function AppShell({
   onSelectEvent,
   onSwitchPersona,
   onSignOut,
+  onSignOutEverywhere,
   busy,
   groups,
   activePath,
@@ -55,6 +56,11 @@ export function AppShell({
    * are accounts. Present only when the shell was told this session was signed in for.
    */
   onSignOut?: () => void;
+  /**
+   * Present under exactly the same condition as `onSignOut`, and absent for a persona for the
+   * same reason: a demo persona holds no session record to revoke, and the API refuses it.
+   */
+  onSignOutEverywhere?: () => void;
   busy: boolean;
   groups: NavGroup[];
   activePath: string;
@@ -159,6 +165,23 @@ export function AppShell({
           {onSignOut ? (
             <button type="button" className="secondary" disabled={busy} onClick={onSignOut}>
               Sign out
+            </button>
+          ) : null}
+
+          {/*
+            Offered beside sign-out rather than behind a settings page, because the moment
+            somebody wants it — a laptop left somewhere, a shared machine — is a moment they
+            want it now. The label says what it does to every other device; "Sign out" alone
+            would leave a reader guessing which of the two they just pressed.
+          */}
+          {onSignOutEverywhere ? (
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={onSignOutEverywhere}
+            >
+              Sign out everywhere
             </button>
           ) : null}
         </header>

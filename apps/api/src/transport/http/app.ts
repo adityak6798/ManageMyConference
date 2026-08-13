@@ -24,6 +24,7 @@ import type { ContentService } from "../../application/content/content-service";
 import type { SpeakerCalendarInviteService } from "../../application/content/public";
 import type { CrmService } from "../../application/crm/public";
 import type { EventService } from "../../application/events/event-service";
+import type { MembershipService } from "../../application/identity/membership";
 import type { Actor } from "../../application/identity/actor";
 import {
   AuthenticationRequiredError,
@@ -104,20 +105,33 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
           auth.sessionSecret,
           at,
           auth.google.resolveUserActor,
+          (id, now) => auth.sessions.find(id, now),
         );
       if (resolved) kind = "session";
       else {
+        // A persona cookie names no session record, so this path takes no session lookup at
+        // all. That is worth being explicit about: the demo population is seeded rows, not
+        // issued sessions, and giving it a store read would be the first crossing between the
+        // two populations rather than a performance detail.
         resolved = await resolveDemoSession(cookie, auth.sessionSecret, at, auth.resolveActor);
         kind = "demo";
       }
     } else if (auth.sessionSecret) {
       if (authorization) {
         resolved = bearer
-          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor)
+          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor, (id, now) =>
+              auth.sessions.find(id, now),
+            )
           : null;
         kind = "bearer";
       } else {
-        resolved = await resolveUserSession(cookie, auth.sessionSecret, at, auth.resolveActor);
+        resolved = await resolveUserSession(
+          cookie,
+          auth.sessionSecret,
+          at,
+          auth.resolveActor,
+          (id, now) => auth.sessions.find(id, now),
+        );
         kind = "session";
       }
     }
@@ -307,6 +321,7 @@ export function createHttpApp(
   itineraries?: ItineraryService,
   speakerCalendarInvites?: SpeakerCalendarInviteService,
   accelEventsSync?: AccelEventsSyncService,
+  membership?: MembershipService,
 ) {
   const review =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -340,6 +355,7 @@ export function createHttpApp(
     itineraries,
     speakerCalendarInvites,
     accelEventsSync,
+    membership,
     build: buildIdentity,
   });
 }

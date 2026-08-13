@@ -160,6 +160,50 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Signed-in role" })).toBeInTheDocument();
   });
 
+  /**
+   * "Sign out everywhere" is offered under exactly the same condition as sign-out, calls
+   * revoke-all, and leaves by a full document load.
+   *
+   * The document load is the part worth pinning rather than the request. The console is mounted
+   * around a session this action has just ended, so a client-side navigation would re-render a
+   * shell whose every subsequent fetch is a 401; `/` has to be decided again from the API. That
+   * is also why the count the API returns is not rendered — the surface that would show it is
+   * the one being torn down.
+   */
+  it("ends every session from the console, and leaves by reloading", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const calls: string[] = [];
+    const stub = (authentication: "session" | "demo") =>
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push(`${init?.method ?? "GET"} ${new URL(url, "http://localhost").pathname}`);
+        if (url.endsWith("/api/auth/sessions/revoke-all")) return jsonResponse({ revoked: 3 });
+        if (url.endsWith("/api/session"))
+          return jsonResponse({ ...organizerSession, authentication });
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
+      });
+
+    vi.stubGlobal("fetch", stub("session"));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out everywhere" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+    expect(calls).toContain("POST /api/auth/sessions/revoke-all");
+    // The plain sign-out is a different action and must not also have fired.
+    expect(calls).not.toContain("POST /api/auth/signout");
+
+    // A persona holds no session record, the API refuses it, and the control is withheld too —
+    // both halves, because either one alone would leave a demo caller pressing a real button.
+    cleanup();
+    vi.stubGlobal("fetch", stub("demo"));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out everywhere" })).toBeNull();
+  });
+
   it("lands an organizer on the overview with role-aware navigation", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);

@@ -78,12 +78,18 @@ function renderSql(fragment) {
 
 /** `"events"."name" > 0` -> `name > 0`, so migration text and rendered Drizzle text can meet. */
 function normaliseExpression(text, tableName) {
-  return text
-    .replaceAll(`${quote(tableName)}.`, "")
-    .replaceAll('"', "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*([(),])\s*/g, "$1")
-    .trim();
+  return (
+    text
+      // Comments can sit inside a CHECK body as well as between columns, and their prose would
+      // otherwise become part of the expression the two models are compared on.
+      .replaceAll(/--[^\n]*/g, " ")
+      .replaceAll(/\/\*[\s\S]*?\*\//g, " ")
+      .replaceAll(`${quote(tableName)}.`, "")
+      .replaceAll('"', "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*([(),])\s*/g, "$1")
+      .trim()
+  );
 }
 
 function renderDefault(column) {
@@ -178,6 +184,31 @@ export function applyMigrations(database) {
     database.exec(readFileSync(new URL(name, migrationsDirectory), "utf8"));
 }
 
+/**
+ * Index just past a comment beginning at `index`, or `index` itself when there is none.
+ *
+ * Comment prose is not SQL, and reading it as SQL fails in one specific silent way: the
+ * apostrophe in `-- the operator's note` opens a string literal that runs to the next quote in
+ * the file, and every `CHECK` in between disappears from the extracted model. The loud direction
+ * is a gate that fails on a constraint present in both models. The quiet direction is the one
+ * that matters — a migration whose `CHECK` is swallowed *and* whose author forgot to declare it
+ * in Drizzle passes green, because neither model can see it.
+ *
+ * `apps/api/test/support/seeded-d1.ts` met the same class of bug when splitting seed SQL on
+ * statement boundaries, and fixed it the same way. This is that fix, here.
+ */
+function skipComment(text, index) {
+  if (text[index] === "-" && text[index + 1] === "-") {
+    const newline = text.indexOf("\n", index);
+    return newline === -1 ? text.length : newline;
+  }
+  if (text[index] === "/" && text[index + 1] === "*") {
+    const close = text.indexOf("*/", index + 2);
+    return close === -1 ? text.length : close + 2;
+  }
+  return index;
+}
+
 function skipLiteral(text, start) {
   const quoteCharacter = text[start];
   for (let index = start + 1; index < text.length; index += 1) {
@@ -192,6 +223,11 @@ function skipLiteral(text, start) {
 function closeParenthesis(text, start) {
   let depth = 0;
   for (let index = start; index < text.length; index += 1) {
+    const commented = skipComment(text, index);
+    if (commented !== index) {
+      index = commented - 1;
+      continue;
+    }
     const character = text[index];
     if (character === "'" || character === '"' || character === "`") {
       index = skipLiteral(text, index) - 1;
@@ -213,6 +249,11 @@ function closeParenthesis(text, start) {
 function* keywords(text, topLevelOnly) {
   let depth = 0;
   for (let index = 0; index < text.length; index += 1) {
+    const commented = skipComment(text, index);
+    if (commented !== index) {
+      index = commented - 1;
+      continue;
+    }
     const character = text[index];
     if (character === "'" || character === '"' || character === "`") {
       index = skipLiteral(text, index) - 1;

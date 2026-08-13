@@ -115,6 +115,18 @@ export class D1EventRepository implements EventRepository {
     return row ? rowToEvent(row) : null;
   }
 
+  async listAllIdsInOrganization(organizationId: string) {
+    const result = await this.database
+      .prepare("SELECT id FROM events WHERE organization_id = ? ORDER BY id")
+      .bind(organizationId)
+      .all<{ id: string }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to list the events of an organization: ${result.error ?? "unknown error"}`,
+      );
+    return (result.results ?? []).map(({ id }) => id);
+  }
+
   async listIdsInOrganization(organizationId: string, candidateEventIds: readonly string[]) {
     const eventIds = [...new Set(candidateEventIds)];
     if (eventIds.length === 0) return [];

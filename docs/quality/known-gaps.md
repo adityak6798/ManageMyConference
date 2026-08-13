@@ -82,27 +82,6 @@ feature-by-feature verdict.
 
 ## Missing product capability
 
-- `GAP-007` **Partially closed by issue #60, and further by Google sign-in.** Production has
-  emailed-code sign-in, event-scoped bearer tokens, and now Google OIDC beside them — an additional
-  provider, never a replacement — with provider linking on the stable provider subject and, failing
-  that, on a **verified** address only. Two of the items this entry used to list are closed: the
-  approved provider ADR exists at
-  [`ADR-004`](../decisions/adr-004-google-oauth-provider.md), and `POST /api/auth/signout` exists.
-  Demo impersonation remains development-only.
-
-  **Sign-out is cookie clearing and not durable revocation, and the distinction is the gap.** The
-  route deletes this browser's session cookie and answers the same way whether or not one was
-  present. The cookie is a signed bearer carrying its own expiry, and nothing server-side tracks
-  issued sessions, so a copy taken from another device — or an event bearer token minted from that
-  session — keeps working until it expires on its own. A logout button that implied otherwise would
-  be the more dangerous product, which is why the contract schema names it `signedOut` rather than
-  `revoked`.
-
-  What issue #12 still owns: durable revocation of an issued session, rotation and recovery
-  operations, membership administration, and audit events. Owner: identity-access. Governing IDs:
-  `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`. Closure: a server-side session record a sign-out
-  invalidates, plus the administration and audit surfaces, each with a test that proves a
-  previously valid credential stops being accepted.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). The target is now provisioned and a hosted URL **is** evidenced:

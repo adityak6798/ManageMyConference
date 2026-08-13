@@ -4,6 +4,40 @@ import { resolveGoogleConfiguration, runtimeAuth } from "../src/index";
 import { clientAddress, FixedWindowThrottle } from "../src/transport/http/throttle";
 
 describe("runtimeAuth", () => {
+  const production = {
+    SESSION_SECRET: "safe-unique-key",
+    AUTH_EMAIL_ENDPOINT: "https://email.example.test/send",
+    AUTH_EMAIL_TOKEN: "provider-token",
+  };
+
+  /**
+   * A rotation that did not happen must not boot looking like one.
+   *
+   * Both refusals are the same kind as the default-secret one. `previous === current` verifies
+   * every token exactly as before and moves nothing, so the operator would unset `previous` after
+   * the window believing they were done — and the old secret would still be the live one. The
+   * placeholder is the default-secret refusal reaching the configuration through the back door.
+   */
+  it("refuses a previous secret that is the current one, the placeholder, or empty", () => {
+    for (const previous of ["safe-unique-key", "local-development-secret", ""])
+      expect(() => runtimeAuth({ ...production, SESSION_SECRET_PREVIOUS: previous })).toThrow(
+        /SESSION_SECRET_PREVIOUS/,
+      );
+  });
+
+  it("carries a genuine rotation as a pair, and an absent one as a plain secret", () => {
+    expect(runtimeAuth({ ...production, SESSION_SECRET_PREVIOUS: "the-old-key" })).toEqual({
+      demoMode: false,
+      sessionSecret: { current: "safe-unique-key", previous: "the-old-key" },
+    });
+    // Unset is the ordinary case, and it stays a plain string rather than a pair with a hole in
+    // it — which is what keeps every configuration site that never rotates unchanged.
+    expect(runtimeAuth(production)).toEqual({
+      demoMode: false,
+      sessionSecret: "safe-unique-key",
+    });
+  });
+
   it("requires explicit safe demo configuration", () => {
     expect(() => runtimeAuth({})).toThrow("non-default SESSION_SECRET");
     expect(() => runtimeAuth({ SESSION_SECRET: "safe-unique-key" })).toThrow(

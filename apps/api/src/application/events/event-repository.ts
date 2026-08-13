@@ -18,6 +18,14 @@ export interface EventRepository {
     scope: { organizationIds: readonly string[]; eventIds: readonly string[] },
   ): Promise<Event | null>;
   /** Return only candidate events owned by the named organization, in one repository read. */
+  /**
+   * Every event this organization owns.
+   *
+   * Distinct from `listIdsInOrganization`, which filters a caller's candidates: this answers the
+   * whole set, for a domain that has to scope its own tables by "the events of this
+   * organization" and must not read `events` to find out which those are.
+   */
+  listAllIdsInOrganization(organizationId: string): Promise<readonly string[]>;
   listIdsInOrganization(
     organizationId: string,
     candidateEventIds: readonly string[],

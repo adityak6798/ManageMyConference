@@ -24,6 +24,7 @@ import {
   demoSessionResponseSchema,
   loginCodeRequestResponseSchema,
   loginCodeVerifyResponseSchema,
+  revokeAllSessionsResponseSchema,
   type SessionDto,
   sessionResponseSchema,
   signOutResponseSchema,
@@ -121,14 +122,31 @@ export async function verifyLoginCode(
 }
 
 /**
- * End this browser's session.
+ * End this browser's session, and the session itself.
  *
- * The response says only that the cookie was cleared, and it says so whether or not there was
- * one — see `signOutResponseSchema`, which is deliberately not called "revoke". Leaving the
- * console afterwards is the caller's, because only the caller knows what it is mounted around.
+ * The response says only that it happened, and says the same thing whether or not there was a
+ * session — see `signOutResponseSchema`. Leaving the console afterwards is the caller's,
+ * because only the caller knows what it is mounted around.
  */
 export async function signOut(fetcher: typeof fetch = fetch): Promise<void> {
   await decode(await fetcher("/api/auth/signout", { method: "POST" }), signOutResponseSchema);
+}
+
+/**
+ * End every session this account holds, on every device, including this one.
+ *
+ * Answers how many were live, which is this caller's own data: the route refuses anybody who has
+ * not already proved the identity being counted. It is returned rather than dropped because it
+ * is the honest answer to "did that do anything", and a caller that can use it should have it —
+ * the console cannot, because the surface that would show the number is the one this action tears
+ * down, so it navigates to the landing page instead.
+ */
+export async function revokeAllSessions(fetcher: typeof fetch = fetch): Promise<number> {
+  const { revoked } = await decode(
+    await fetcher("/api/auth/sessions/revoke-all", { method: "POST" }),
+    revokeAllSessionsResponseSchema,
+  );
+  return revoked;
 }
 
 export type LandingBootstrap = {

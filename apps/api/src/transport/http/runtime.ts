@@ -12,6 +12,8 @@
 import type { ApiErrorEnvelope } from "@greenroom/contracts";
 import type { Context } from "hono";
 import type { Actor } from "../../application/identity/actor";
+import type { SigningSecrets } from "../../application/identity/real-auth";
+import type { SessionStore } from "../../application/identity/session-store";
 
 export interface StructuredLogger {
   info(fields: Record<string, unknown>, message: string): void;
@@ -67,21 +69,47 @@ export interface GoogleAuthProvider {
   resolveUserActor(userId: string): Promise<Actor | null>;
 }
 
+/**
+ * Which auth configurations carry a session store, expressed so the type system enforces it.
+ *
+ * A demo-mode deployment issues persona cookies, which name no session record, so it needs a
+ * store only when Google is *also* configured — the one case where a demo deployment can hold a
+ * real user session. Pairing the two means the ~24 plain `demoMode: true` harness configurations
+ * across `apps/api/test/*-http.test.ts` compile unchanged, and it means a deployment that can
+ * mint a real session cannot be composed without somewhere to record it.
+ */
+interface DemoAuthBase {
+  demoMode: true;
+  /**
+   * The signing secret, or the pair a rotation is in flight across. A plain string is the
+   * ordinary case; see `SigningSecrets`.
+   */
+  sessionSecret: SigningSecrets;
+  now?: () => number;
+  resolveActor: ActorResolver;
+}
+
 export type RuntimeAuthConfig =
-  | {
-      demoMode: true;
-      sessionSecret: string;
-      now?: () => number;
-      resolveActor: ActorResolver;
-      google?: GoogleAuthProvider;
-    }
+  | (DemoAuthBase & { google: GoogleAuthProvider; sessions: SessionStore })
+  | (DemoAuthBase & { google?: undefined; sessions?: undefined })
   // No signing secret at all: nothing can be issued, so no door is open and `google` is
   // structurally absent rather than merely unset.
-  | { demoMode: false; sessionSecret?: undefined; now?: () => number; google?: undefined }
   | {
       demoMode: false;
-      sessionSecret: string;
+      sessionSecret?: undefined;
       now?: () => number;
+      google?: undefined;
+      sessions?: undefined;
+    }
+  | {
+      demoMode: false;
+      sessionSecret: SigningSecrets;
+      now?: () => number;
+      /**
+       * Required, not optional. This variant is the one that signs people in, and a signed
+       * session with nowhere to be recorded is the pre-#12 bearer this lane exists to replace.
+       */
+      sessions: SessionStore;
       resolveActor: (userId: string) => Promise<Actor | null>;
       resolveEmail: (email: string) => Promise<Actor | null>;
       sendLoginCode: (email: string, code: string) => Promise<void>;
