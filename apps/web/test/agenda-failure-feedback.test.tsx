@@ -50,6 +50,7 @@ const board = {
       slotId: "slot-0900",
     },
   ],
+  occurrences: { sessions: {}, slots: {} },
   conflicts: [],
 };
 

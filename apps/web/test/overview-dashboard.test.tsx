@@ -103,6 +103,7 @@ const agendaDraft = {
   slots: [],
   sessions: [],
   placements: [],
+  occurrences: { sessions: {}, slots: {} },
   conflicts: [],
 };
 

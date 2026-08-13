@@ -422,10 +422,23 @@ export default {
      * record with the publication, and the lifecycle ports, which record after the fact.
      *
      * `requestIdentity` is what makes a record say who did it. Platform's own transport
-     * middleware sets it once per request; every writer below reads it rather than being handed
-     * an actor, because a domain reporting a lifecycle fact has no business knowing about audit.
+     * middleware opens a scope on it once per request and ends it when the request does; every
+     * writer below reads it rather than being handed an actor, because a domain reporting a
+     * lifecycle fact has no business knowing about audit.
+     *
+     * **It is constructed here, inside `fetch`, and that is load-bearing.** One holder per
+     * invocation is what stops two concurrent requests seeing each other's actor. Hoisting this
+     * line — or anything below that closes over it — out of `fetch` for reuse would break that,
+     * so the holder reports it and stops attributing rather than renaming somebody's records
+     * (issue #179).
      */
-    const requestIdentity = createRequestIdentity();
+    const requestIdentity = createRequestIdentity({
+      report: (error, context) =>
+        logger.error(
+          { ...context, error: error instanceof Error ? error.message : String(error) },
+          "audit.attribution.ambiguous",
+        ),
+    });
     const auditRecorder = new AuditRecorder({
       store: new D1AuditRecordStore(environment.DB),
       identity: requestIdentity,

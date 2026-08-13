@@ -59,6 +59,22 @@ export const agendaDraftSchema = z.object({
     z.object({ id: z.string(), title: z.string(), speakerIds: z.array(z.string()) }),
   ),
   placements: z.array(agendaPlacementSchema),
+  /**
+   * When each part of the board last changed, counted in board revisions.
+   *
+   * A session's number advances when it is placed, unplaced or moved, and nothing else moves it;
+   * a slot's advances when that slot is retimed, and nothing else moves it. Rooms, tracks, and
+   * slots being added or removed are deliberately absent: no derived condition depends on any of
+   * them, and counting them would resurface decisions about conditions an added room cannot
+   * affect. It is on the wire because a consumer storing a decision about a *derived* condition —
+   * the operational inbox's dismissals — needs to tell one occurrence of that condition from the
+   * next, and the identifiers a condition is made of are reused exactly when it is resolved and
+   * recreated (`PRD-OPS-002`, issue #180).
+   */
+  occurrences: z.object({
+    sessions: z.record(z.string(), z.number().int().nonnegative()),
+    slots: z.record(z.string(), z.number().int().nonnegative()),
+  }),
   conflicts: z.array(
     z.object({
       kind: z.enum(["ROOM_OVERLAP", "SPEAKER_OVERLAP", "SESSION_OVERLAP", "MISSING_SESSION"]),
@@ -66,6 +82,8 @@ export const agendaDraftSchema = z.object({
       conflictingPlacementId: z.string(),
       resourceId: z.string(),
       message: z.string(),
+      /** The board revision this clash began at; the same three ids at a later number is a new one. */
+      occurrence: z.number().int().nonnegative(),
     }),
   ),
 });
@@ -110,5 +128,10 @@ export const publishedScheduleSchema = z.object({
   version: z.number().int().positive(),
   publishedAt: z.string().datetime(),
   publishedBy: z.string(),
-  agenda: agendaDraftSchema.omit({ conflicts: true }),
+  /*
+   * A snapshot carries neither the conflicts nor the occurrences. Both describe the *draft* — what
+   * is wrong with it now, and when each part of it last moved — and a frozen programme is not a
+   * record of how it was edited.
+   */
+  agenda: agendaDraftSchema.omit({ conflicts: true, occurrences: true }),
 });

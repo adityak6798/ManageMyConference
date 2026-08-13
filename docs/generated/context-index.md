@@ -163,6 +163,7 @@
 
 ### `ACC-OPS`
 - `test` / `repository-fact`: [apps/api/test/d1-platform-repository.integration.test.ts](../../apps/api/test/d1-platform-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/platform-attribution.test.ts](../../apps/api/test/platform-attribution.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-audit.test.ts](../../apps/api/test/platform-audit.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-http.test.ts](../../apps/api/test/platform-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-inbox.test.ts](../../apps/api/test/platform-inbox.test.ts)
@@ -616,6 +617,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/platform/inbox-service.ts](../../apps/api/src/application/platform/inbox-service.ts)
 - `code` / `repository-fact`: [apps/web/src/platform/InboxWorkspace.tsx](../../apps/web/src/platform/InboxWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/platform.tsx](../../apps/web/src/workspaces/platform.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)
@@ -626,6 +628,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/platform/audit-service.ts](../../apps/api/src/application/platform/audit-service.ts)
 - `code` / `repository-fact`: [apps/web/src/platform/AuditWorkspace.tsx](../../apps/web/src/platform/AuditWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/platform.tsx](../../apps/web/src/workspaces/platform.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)

@@ -82,6 +82,53 @@ describe("D1AgendaRepository", () => {
     });
     expect(afterResourceWrite?.placements.map(({ id }) => id)).toContain("placement-concurrent-c");
   });
+
+  it("advances board occurrences with the write, against the revision that won", async () => {
+    /*
+     * Driven against real D1 because the occurrences are folded *inside* the compare-and-set loop
+     * (issue #180): a lost update has to re-fold against the board that actually committed, and
+     * that is the one property an in-memory double cannot show. Two concurrent placements of two
+     * different sessions therefore end up with two different numbers, never one number written
+     * twice.
+     */
+    const migrated = await createMigratedDatabase({ label: "agenda-occurrences", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const seeded = await repository.getDraft(eventId);
+    if (!seeded) throw new Error("Agenda fixture is required");
+    /*
+     * The seeded row was written before the occurrences existed and no migration backfilled it,
+     * which is the shape every board in a deployed database has on the day this lands. The read
+     * normalizes rather than leaving the field absent, because the response contract now requires
+     * it and `savePlacements` answers with the board it read when a plan seats nothing.
+     */
+    expect(seeded.occurrences).toEqual({ sessions: {}, slots: {} });
+    const cell = { roomId: "room-lab", trackId: "track-practice", slotId: "slot-1000" };
+
+    await Promise.all([
+      repository.savePlacement(eventId, { id: "occ-a", sessionId: "session-workshop", ...cell }),
+      repository.savePlacement(eventId, {
+        id: "occ-b",
+        sessionId: "session-keynote",
+        ...cell,
+        slotId: "slot-0900",
+      }),
+    ]);
+    const placed = await repository.getDraft(eventId);
+    const workshop = placed?.occurrences?.sessions["session-workshop"] ?? 0;
+    const keynote = placed?.occurrences?.sessions["session-keynote"] ?? 0;
+    expect(workshop).toBeGreaterThan(0);
+    expect(keynote).toBeGreaterThan(0);
+    expect(workshop).not.toEqual(keynote);
+
+    await repository.removePlacement(eventId, "occ-a");
+    const removed = await repository.getDraft(eventId);
+    // Unplacing is a new occurrence of "not on the board", and the session that was not touched
+    // keeps the number it had.
+    expect(removed?.occurrences?.sessions["session-workshop"]).toBeGreaterThan(workshop);
+    expect(removed?.occurrences?.sessions["session-keynote"]).toBe(keynote);
+  });
 });
 
 /**

@@ -394,7 +394,7 @@ describe("inbox HTTP transport", () => {
 describe("audit HTTP transport", () => {
   const auditFor = async (persona: "organizer" | "reviewer" | "public" | null, query = "") => {
     const store = new MemoryAuditRecordStore();
-    const identity = createRequestIdentity();
+    const identity = createRequestIdentity({ report: vi.fn() });
     const audit = new AuditRecorder({
       store,
       identity,

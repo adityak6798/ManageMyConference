@@ -149,15 +149,14 @@ feature-by-feature verdict.
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable
   route with a rendered docs page, covered by a route test.
-- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** **Five
-  occurrences are now recorded**, and only the two below are described here; the third, fourth and
-  fifth — including the measurement that names ephemeral-port exhaustion, and the first sighting on
-  a single-tenant hosted runner — are in the
-  [wave coordination ledger](../exec-plans/competition-waves.md), which is where they were observed.
-  The two recorded here: once locally on 2026-08-11 after roughly 45 minutes of uptime, and once in
-  the `browser`
-  job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with no message
-  and exited 38 seconds into the suite. Every subsequent request failed with
+- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Three
+  times observed here: once locally on 2026-08-11 after roughly 45 minutes of uptime, once in the
+  `browser` job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with
+  no message and exited 38 seconds into the suite, and once more on 2026-08-13 (below). Two further
+  sightings are recorded in the [wave coordination ledger](../exec-plans/competition-waves.md),
+  where they were observed: the ephemeral-port measurement of 2026-08-12, and a second crash on
+  2026-08-13 carrying the same `Broken pipe` message as the one below. In that
+  second case every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
   commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
@@ -201,14 +200,33 @@ feature-by-feature verdict.
   unrelated reason, its telemetry dispatcher, which `WRANGLER_SEND_METRICS=false` fixes and which
   has nothing to do with the exhaustion above.
 
+  **A third occurrence, on 2026-08-13, finally names the error.** The `browser` job of hosted run
+  `31747167652` died 14 minutes in, and this time `workerd` printed a message rather than a bare
+  `✘ [ERROR]`:
+
+  ```
+  ✘ [ERROR] kj::getCaughtExceptionAsKj() = kj/async-io-unix.c++:186:
+            disconnected: ::write(fd, buffer.begin(), buffer.size()): Broken pipe
+  ```
+
+  followed by ten frames of stripped `workerd` addresses, `npm error Lifecycle script 'dev'
+  failed`, and `ECONNREFUSED` on the derived API port for every later request. So the runtime did
+  not fault on our code: it died writing to its own stdout, which is the pipe Playwright's
+  `webServer` capture holds — and it had been writing a `request.denied` line per unauthenticated
+  poll for fourteen minutes. That is a lead the previous two occurrences did not give, and it is
+  what the upstream report in the closure condition needs. 31 of 68 specs then failed as 30-second
+  timeouts and missing elements; the whole log contains **no** `request.exception`, which is the
+  cheapest way to tell this apart from a real regression. The rerun at the same commit was green.
+
   **What remains open is the original entry:** the runtime still dies rather than degrading, and
   a suite that loses it still fails with misleading assertion errors instead of a diagnosis.
-  Ports were one way to provoke that; they were not the only one, and the browser-job crash of
-  hosted run `31498844956` had no port pressure behind it. Owner: platform. Governing ID:
-  `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a diagnosis rather than 22
-  misleading assertion errors — a `webServer` health probe between spec files, or a Playwright
-  global setup that fails fast when the API stops answering — and the wrangler crash itself is
-  reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
+  Ports were one way to provoke that; they were not the only one, and neither the browser-job
+  crash of hosted run `31498844956` nor the one above had any port pressure behind it. Owner:
+  platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a
+  diagnosis rather than the 22 and 31 misleading assertion errors the two hosted crashes produced
+  — a `webServer` health probe between spec files, or a Playwright global setup that fails fast
+  when the API stops answering — and the wrangler crash itself is reported upstream with the log
+  from `apps/api/.wrangler/wrangler.log` and the `kj` message above.
 - `GAP-019` **The demo reset would delete real self-serve accounts, and its guard cannot tell that
   it is about to.** `apps/api/seed/reset.sql` is a full teardown: it `DELETE`s *every* row of
   `users`, `organizations` and `events` — not the seeded ones, all of them — before inserting the
@@ -433,8 +451,22 @@ feature-by-feature verdict.
   which is why it is preferable wherever database access is available. Either way the speakers who
   lost the entry get it back at the next Send, which is the point of repairing at all.
 - `GAP-022` **Search opens the surface a record lives on, not the record, and its cost is proven
-  bounded only against the seed.** Six limits, all deliberate, all worth naming rather than
-  discovering: two about search, two about the audit timeline, two about the inbox.
+  bounded only against the seed.** Five limits, all deliberate, all worth naming rather than
+  discovering: two about search, two about the audit timeline, one about the inbox.
+
+  It was six. The sixth — programme inbox dismissal keys carrying no occurrence, so a condition
+  resolved and exactly recreated stayed hidden behind the old dismissal — **is closed** by issue
+  #180. The agenda now maintains, in the same write that changes the board, the revision at which
+  each session's placements last changed and the one at which each time slot was last retimed; a
+  conflict carries the later of the two placements' and the two hours', and platform's key carries
+  it. A session nobody has touched keeps its dismissal across every unrelated edit, which is why
+  the numbers are per session and per slot rather than one revision for the board. Two
+  consequences worth stating rather than discovering: the numbers are **not backfilled**, so every
+  programme dismissal recorded before them reads as occurrence zero and its item returns open once
+  — the conservative direction, and the reason no migration was needed; and rooms, tracks, added
+  slots and slots elsewhere on the board carry no number at all, because no derived condition
+  reads any of them.
+  See `PRD-OPS-002` and `apps/api/test/platform-inbox.test.ts`.
 
   The console has **no per-record routes**. Every workspace is addressed by its path plus
   `?event=`, and nothing anywhere reads a selection out of the URL, so the deep link a search hit
@@ -474,14 +506,9 @@ feature-by-feature verdict.
   close it at bounded cost; #99 did not take it, because it is that domain's file and another lane
   owns it this wave.
 
-  Programme inbox dismissal keys carry no occurrence. The agenda projection names the conflict
-  or unplaced session but exposes no board revision or occurrence, so resolving and then exactly
-  recreating that condition derives the same key and leaves it dismissed. Other categories carry
-  the deadline, attempt, or publication state that changes when their condition recurs.
-
   Owner: platform. Governing ID: `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `ACC-OPS`.
 
-  Six limits, six closures, each independent of the others. A record-addressable route on at
+  Five limits, five closures, each independent of the others. A record-addressable route on at
   least the surfaces search returns — a selection the workspace reads from the query string, and
   hits that carry it — closes the first, and the browser spec's assertion tightens from "the
   surface shows it" to "the record is selected". A measurement against a fixture an order of
@@ -492,9 +519,7 @@ feature-by-feature verdict.
   before it needs code: what an audit record is for, and how long that lasts, is a product question, and the
   answer may legitimately be "forever" — in which case the closure is a documented statement to
   that effect plus a fixture that is reset by rebuilding rather than by deleting. The narrow failed-delivery query on communications' public interface closes the fifth, and
-  its test is an inbox that shows a failure older than one page of history. An agenda-owned
-  monotonic board revision or occurrence on each derived programme condition, carried into the
-  platform key and covered by a resolve-then-recreate test, closes the sixth.
+  its test is an inbox that shows a failure older than one page of history.
 
 - `GAP-025` **Four unguarded content writers do not read the affected-row count, and three of them report a save for a write that matched no row.**
   `d1-content-repository.ts` reads the affected-row count on the unguarded `UPDATE`s a caller reads

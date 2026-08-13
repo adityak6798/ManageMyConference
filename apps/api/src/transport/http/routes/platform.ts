@@ -175,20 +175,39 @@ function wireSection<T extends DegradableSection>(
 export const platformRoutes: RouteModule = {
   domain: "platform",
   routes,
-  register(app: HttpApp, dependencies: HttpDependencies) {
-    /*
-     * Whose request this is, told to platform once, before any route runs.
-     *
-     * `platformRoutes` is first in the route registry and the transport's own auth middleware is
-     * mounted before every module, so this sees a resolved actor. Everything that records an
-     * audit row afterwards sits deep inside a domain that has no business being handed one, and
-     * this is what lets those writers attribute a record without nine domains learning about
-     * auditing. `/api/*` only: the public namespace has no session and nothing to attribute.
-     */
+  /*
+   * Whose request this is, told to platform once, before any route in any domain runs.
+   *
+   * The transport mounts every module's request scope before it registers any module's routes,
+   * so this covers the whole `/api/*` surface however the registry happens to be ordered — it
+   * used to depend on `platformRoutes` being listed first, which is an invariant an array's
+   * order cannot carry (issue #178). The transport's own auth middleware is mounted before any
+   * module's, so the actor here is resolved.
+   *
+   * Everything that records an audit row afterwards sits deep inside a domain that has no
+   * business being handed an actor, and this is what lets those writers attribute a record
+   * without nine domains learning about auditing. `/api/*` only: the public namespace has no
+   * session and nothing to attribute.
+   *
+   * The scope is ended in a `finally`, which does two things. The holder is empty once the
+   * request is over, so a later write with no request behind it is attributed to nobody instead
+   * of to whoever happened to be last; and the holder can see two requests overlapping on it,
+   * which is what a hoisted composition would look like (issue #179).
+   */
+  registerRequestScope(app: HttpApp, dependencies: HttpDependencies) {
     app.use("/api/*", async (context, next) => {
-      dependencies.platformOps?.observeRequest(context.get("actor"), context.get("correlationId"));
-      await next();
+      const scope = dependencies.platformOps?.observeRequest(
+        context.get("actor"),
+        context.get("correlationId"),
+      );
+      try {
+        await next();
+      } finally {
+        scope?.end();
+      }
     });
+  },
+  register(app: HttpApp, dependencies: HttpDependencies) {
     app.get("/openapi.json", (context) => context.json(openApiDocument));
     app.get("/docs", (context) =>
       context.html(docsPage, 200, {

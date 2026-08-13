@@ -1,9 +1,15 @@
+-- GENERATED: do not edit; run `npm run seed:generate`.
+-- Composed by tools/compose-seed.mjs from the fragments under apps/api/seed/domains/.
+-- Edit the owning domain's fragment instead; the order of the list in the composer is the
+-- order the statements run in, and it is a foreign-key ordering rather than an alphabetical one.
+
 -- Itineraries first: they reference events(id), so leaving them behind makes the events
 -- cleanup below fail with a foreign key violation rather than with anything that names
 -- this table. A reset is also the right moment to drop them — they are attendee state
 -- against a demo snapshot, and no seeded itinerary exists to restore.
 DELETE FROM attendee_itineraries;
 DELETE FROM public_event_projections;
+
 -- Last-sync state is product-written, not seeded, so nothing here recreates it — but it holds a
 -- foreign key to `events`, and the reset deletes events. Without this line one applied Accelevents
 -- sync makes every later `npm run reset` fail with FOREIGN KEY constraint failed, and the demo the
@@ -18,6 +24,7 @@ DELETE FROM message_templates;
 DELETE FROM agenda_session_schedules;
 DELETE FROM agenda_publications;
 DELETE FROM agenda_drafts;
+
 DELETE FROM crm_contact_activities;
 DELETE FROM crm_contact_aliases;
 DELETE FROM crm_contact_events;
@@ -43,6 +50,7 @@ DELETE FROM speaker_assets;
 DELETE FROM speaker_tasks;
 DELETE FROM content_sessions;
 DELETE FROM speaker_profiles;
+
 DELETE FROM review_events;
 DELETE FROM review_decisions;
 DELETE FROM review_outcomes;
@@ -61,7 +69,9 @@ DELETE FROM review_plans;
 DELETE FROM cfp_status_audit;
 DELETE FROM cfp_submissions;
 DELETE FROM cfp_statuses;
-DELETE FROM cfp_forms;-- Before `events` and `organizations`, which this references, and for the reason the users
+DELETE FROM cfp_forms;
+
+-- Before `events` and `organizations`, which this references, and for the reason the users
 -- fragment gives: D1 does not honour `PRAGMA foreign_keys` between statements, so a cascade
 -- cannot be relied on and a row left behind is a live acceptance link pointing at an
 -- organization the next reset has already replaced.
@@ -69,13 +79,13 @@ DELETE FROM identity_invitations;
 DELETE FROM event_roles;
 DELETE FROM organization_memberships;
 
-
 -- Applications reference versions, versions reference templates and events, so they go first.
 DELETE FROM event_template_applications;
 DELETE FROM event_template_versions;
 DELETE FROM event_templates;
 
 DELETE FROM events;
+
 DELETE FROM identity_login_challenges;
 -- In-flight sign-in attempts hold no foreign key, but a reset that leaves them behind leaves a
 -- callback able to complete against a database whose users have just been replaced.
@@ -116,7 +126,6 @@ INSERT INTO identity_emails (user_id, email) VALUES
   ('seed-organizer', 'organizer@greenroom.test'),
   ('seed-reviewer', 'reviewer@greenroom.test'),
   ('seed-speaker', 'speaker@greenroom.test');
-
 
 INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES
 (
@@ -173,7 +182,6 @@ INSERT INTO event_template_versions (
   'seed-organizer'
 );
 
-
 INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'organizer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'reviewer'),
@@ -181,7 +189,9 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'seed-reviewer', 'reviewer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker'),
   ('00000000-0000-4000-8000-000000000001', 'speaker-jordan-bell', 'speaker'),
-  ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');-- The templates the product's own lifecycle triggers render from.
+  ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');
+
+-- The templates the product's own lifecycle triggers render from.
 --
 -- Every placeholder here is a key the enqueueing code actually supplies — an unfilled one refuses
 -- the enqueue rather than mailing somebody `Hello {{speakerName}}`, so a template naming a value
@@ -254,6 +264,7 @@ INSERT INTO agenda_session_schedules (
   '2026-09-01T16:00:00.000Z', '2026-09-01T17:00:00.000Z', 'Main stage',
   1, '2026-08-10T20:00:00.000Z'
 );
+
 -- Jordan carries the seeded headshot so the public gallery demonstrates both avatar
 -- paths — a real portrait and a monogram — and so Sam's open "Upload a headshot" task
 -- still describes work that is genuinely outstanding. Neither profile names a photo here:
@@ -412,7 +423,6 @@ INSERT INTO crm_contact_segments (id,organization_id,name,definition_json,create
 
 INSERT INTO crm_contact_imports (id,organization_id,filename,row_count,created_count,updated_count,skipped_count,imported_at,imported_by) VALUES
   ('53000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000010','speakers-2026.csv',2,2,0,0,'2026-08-04T12:00:00.000Z','seed-organizer');
-
 
 -- The published projection is exactly what `POST /api/publishing/events/{id}/publish` composes
 -- from the seeded CFP, content, and agenda above, so a clean reset already shows the workspace

@@ -36,6 +36,7 @@ const board = {
     { id: "session-two", title: "Closing panel", speakerIds: [] },
   ],
   placements: [],
+  occurrences: { sessions: {}, slots: {} },
   conflicts: [],
 };
 

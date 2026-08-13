@@ -1,4 +1,5 @@
 // @acceptance ACC-AGENDA
+import { agendaAssistedDraftSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
@@ -301,6 +302,231 @@ describe("assisted agenda placement", () => {
     // board still holds one placement per session.
     expect(second.placements).toHaveLength(4);
     expect(second.conflicts).toEqual([]);
+  });
+});
+
+describe("board occurrences", () => {
+  /*
+   * The agenda-owned half of `GAP-022` (issue #180). What is being pinned is not a number but a
+   * distinction: "this session is still unplaced" against "this session was placed and taken off
+   * again", which the board's own identifiers cannot express because they are reused exactly.
+   * Everything downstream — the operational inbox's dismissal key — is built on it.
+   */
+  const boardless: AgendaDraft = { ...draft, placements: [] };
+  const service = (repository: MemoryAgendaRepository) =>
+    new AgendaService(repository, () => new Date(), content);
+
+  it("advances a session's occurrence when it is placed, moved and unplaced, and nothing else's", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    const place = (id: string, sessionId: string, slotId: string) =>
+      agenda.place(organizer, eventId, {
+        id,
+        sessionId,
+        roomId: "room-main",
+        trackId: "track-web",
+        slotId,
+      });
+
+    const first = await place("place-a", "session-a", "slot-9");
+    expect(first.occurrences?.sessions["session-a"]).toBe(1);
+    // Session B has never been on the board: absent, which every reader takes as 0.
+    expect(first.occurrences?.sessions["session-b"]).toBeUndefined();
+
+    const moved = await place("place-a", "session-a", "slot-930");
+    expect(moved.occurrences?.sessions["session-a"]).toBe(2);
+
+    // Somebody else's placement, which must not disturb A's number — the whole reason this is
+    // per session rather than the board revision that advances on every edit.
+    const other = await place("place-b", "session-b", "slot-9");
+    expect(other.occurrences?.sessions["session-a"]).toBe(2);
+    expect(other.occurrences?.sessions["session-b"]).toBe(3);
+
+    await agenda.remove(organizer, eventId, "place-a");
+    const after = await agenda.draft(organizer, eventId);
+    // Taken off the board: strictly higher than the number the placement had, which is what makes
+    // the unplaced condition a new one rather than the one somebody dismissed before.
+    expect(after.occurrences?.sessions["session-a"]).toBe(4);
+  });
+
+  it("re-placing in the same cell is still a new occurrence, because the absence was one", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    const cell = {
+      id: "place-a",
+      sessionId: "session-a",
+      roomId: "room-main",
+      trackId: "track-web",
+      slotId: "slot-9",
+    };
+
+    await agenda.place(organizer, eventId, cell);
+    await agenda.remove(organizer, eventId, "place-a");
+    const back = await agenda.place(organizer, eventId, cell);
+
+    expect(back.occurrences?.sessions["session-a"]).toBe(3);
+  });
+
+  it("gives a conflict the later of the two placements' occurrences, and moves it with the slots", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    const clashing = { roomId: "room-main", trackId: "track-web", slotId: "slot-9" };
+    await agenda.place(organizer, eventId, { id: "place-a", sessionId: "session-a", ...clashing });
+    const clash = await agenda.place(organizer, eventId, {
+      id: "place-b",
+      sessionId: "session-b",
+      ...clashing,
+    });
+
+    // Two sessions in one room at one hour, and a shared speaker besides.
+    expect(clash.conflicts.map(({ kind, occurrence }) => ({ kind, occurrence }))).toEqual([
+      { kind: "ROOM_OVERLAP", occurrence: 2 },
+      { kind: "SPEAKER_OVERLAP", occurrence: 2 },
+    ]);
+
+    /*
+     * The negatives, and each asserts the list is still there before asserting about it: `every`
+     * is true of an empty array, so a `configure` that quietly dropped the whole board would have
+     * satisfied the earlier form of these three lines — and the whole suite besides. A review pass
+     * proved exactly that by mutation.
+     *
+     * Adding a room, adding a time slot nothing is placed in, and retiming a slot neither
+     * placement is in are all edits to a different part of the programme. No derived condition
+     * reads the room list — an overlap is decided by the room *ids* the placements already carry
+     * — and a slot no placement references cannot change any pair's overlap however it moves.
+     */
+    const widened = await agenda.configure(organizer, eventId, {
+      rooms: [...draft.rooms, { id: "room-annex", name: "Annex" }],
+      tracks: draft.tracks,
+      slots: [
+        ...draft.slots,
+        { id: "slot-11", startsAt: "2026-09-01T18:00:00.000Z", endsAt: "2026-09-01T19:00:00.000Z" },
+      ],
+    });
+    expect(widened.conflicts).toHaveLength(2);
+    expect(widened.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
+    const elsewhere = await agenda.configure(organizer, eventId, {
+      rooms: widened.rooms,
+      tracks: draft.tracks,
+      slots: widened.slots.map((slot) =>
+        slot.id === "slot-11" ? { ...slot, endsAt: "2026-09-01T20:00:00.000Z" } : slot,
+      ),
+    });
+    expect(elsewhere.conflicts).toHaveLength(2);
+    expect(elsewhere.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
+    // Re-spelling the same instant is not a retiming either: the schema accepts both spellings and
+    // `conflictsFor` reads them through `Date.parse`, so a client that normalizes its own payload
+    // must not look like an organizer who moved the hour.
+    const respelled = await agenda.configure(organizer, eventId, {
+      rooms: widened.rooms,
+      tracks: draft.tracks,
+      slots: elsewhere.slots.map((slot) =>
+        slot.id === "slot-9" ? { ...slot, startsAt: "2026-09-01T16:00:00Z" } : slot,
+      ),
+    });
+    expect(respelled.conflicts).toHaveLength(2);
+    expect(respelled.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
+    // Retiming the slot the placements are actually in is the other way this clash can be
+    // resolved and reintroduced, so that — and only that — advances a slot's own number.
+    const retimed = await agenda.configure(organizer, eventId, {
+      rooms: widened.rooms,
+      tracks: draft.tracks,
+      slots: respelled.slots.map((slot) =>
+        slot.id === "slot-9" ? { ...slot, endsAt: "2026-09-01T16:20:00.000Z" } : slot,
+      ),
+    });
+    expect(retimed.conflicts).toHaveLength(2);
+    expect(retimed.conflicts.every(({ occurrence }) => occurrence === 6)).toBe(true);
+  });
+
+  it("keeps a slot's number where it is when the board sends the same slots in another order", async () => {
+    // The console sorts slots by start before sending them, so a payload whose order differs from
+    // storage is an ordinary request rather than a contrived one. Reordering is not a retiming.
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    await agenda.place(organizer, eventId, {
+      id: "place-a",
+      sessionId: "session-a",
+      roomId: "room-main",
+      trackId: "track-web",
+      slotId: "slot-9",
+    });
+
+    const reordered = await agenda.configure(organizer, eventId, {
+      rooms: draft.rooms,
+      tracks: draft.tracks,
+      slots: [...draft.slots].toReversed(),
+    });
+
+    expect(reordered.slots.map(({ id }) => id)).toEqual(["slot-930", "slot-9"]);
+    expect(reordered.occurrences?.slots).toEqual({});
+  });
+
+  it("answers a board stored before occurrences existed with them, including from the repository", async () => {
+    /*
+     * No migration backfilled them, so every board written before this commit — the seeded one
+     * included — carries none, and the contract this change made required is not optional about
+     * it. `savePlacements` is the one path that answers with a board it did not write: a plan
+     * that seats nothing returns the board as read, which is the ordinary answer once every cell
+     * is taken. That path served a draft with no `occurrences` and the console refused the
+     * response rather than showing the explanation it was carrying.
+     */
+    const legacy: AgendaDraft = {
+      ...draft,
+      placements: [
+        {
+          id: "place-a",
+          sessionId: "session-a",
+          roomId: "room-main",
+          trackId: "track-web",
+          slotId: "slot-9",
+        },
+        {
+          id: "place-b",
+          sessionId: "session-b",
+          roomId: "room-main",
+          trackId: "track-web",
+          slotId: "slot-930",
+        },
+      ],
+    };
+    expect(legacy).not.toHaveProperty("occurrences");
+    const repository = new MemoryAgendaRepository([legacy]);
+    const agenda = service(repository);
+
+    // Both sessions are already placed, so the pass has nothing to seat and answers with the
+    // board as it read it — the same branch a full board reaches when it cannot seat what is
+    // left, and the one path that returns a draft neither write path normalized.
+    const seated = await agenda.autoPlace(organizer, eventId);
+
+    expect(seated.placed).toEqual([]);
+    expect(seated.occurrences).toEqual({ sessions: {}, slots: {} });
+    expect(agendaAssistedDraftSchema.safeParse(seated).success).toBe(true);
+    // Asserted against the repository rather than against `draft()`, which normalizes on its own
+    // account: reading it through the service would pass with the repository's guarantee removed.
+    expect((await repository.getDraft(eventId))?.occurrences).toEqual({ sessions: {}, slots: {} });
+  });
+
+  it("keeps them out of the publication snapshot", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    await agenda.place(organizer, eventId, {
+      id: "place-a",
+      sessionId: "session-a",
+      roomId: "room-main",
+      trackId: "track-web",
+      slotId: "slot-9",
+    });
+
+    const published = await agenda.publish(organizer, eventId);
+
+    // A snapshot is a frozen programme, not a record of how its draft was edited — and two
+    // publications of one board should be identical bytes whatever happened in between.
+    expect(published.agenda).not.toHaveProperty("occurrences");
+    expect(published.agenda).not.toHaveProperty("conflicts");
   });
 });
 

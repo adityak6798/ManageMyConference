@@ -17,7 +17,25 @@ export interface PublishedSchedule {
 }
 
 export interface AgendaRepository {
+  /**
+   * The stored board, always carrying its occurrences.
+   *
+   * Part of the contract rather than the caller's problem: rows written before the occurrences
+   * existed carry none and nothing backfilled them, and the response shape the console decodes
+   * requires the field. An implementation normalizes on the way out — which also covers
+   * `savePlacements` answering with the board it read when a plan seats nothing, the one write
+   * method that returns a draft it did not write.
+   */
   getDraft(eventId: string): Promise<AgendaDraft | null>;
+  /**
+   * Create a board, or replace one wholesale.
+   *
+   * The create path — a first `saveResources`, or a seed — and not an edit: it folds nothing,
+   * because there is no previous board to fold against, so the occurrences it stores are empty.
+   * An implementation must not route an edit through it, or that edit's occurrences are lost.
+   * Stated here for the same reason `getDraft`'s guarantee is: two implementations agreeing by
+   * habit is not a contract, and this one has a wrong answer available to it.
+   */
   saveDraft(draft: AgendaDraft): Promise<void>;
   saveResources(
     eventId: string,
