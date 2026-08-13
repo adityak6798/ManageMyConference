@@ -384,17 +384,20 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
         : []),
     ]),
   );
-  let processed = 0;
-  while (processed < limit && (await worker.runOne())) processed += 1;
+  let communicationsProcessed = 0;
+  while (communicationsProcessed < limit && (await worker.runOne())) communicationsProcessed += 1;
+  let webhooksProcessed = 0;
   if (configuredWebhooks) {
     const webhookWorker = new WebhookWorker(configuredWebhooks.repository, {
       egress: configuredWebhooks.egress,
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
-    while (processed < limit && (await webhookWorker.runOne())) processed += 1;
+    // Each durable queue gets its own bounded budget. Sharing the communications count here lets
+    // a sustained mail/projection backlog consume every turn before webhooks are even examined.
+    while (webhooksProcessed < limit && (await webhookWorker.runOne())) webhooksProcessed += 1;
   }
-  return processed;
+  return communicationsProcessed + webhooksProcessed;
 }
 
 export function pruneItineraries(environment: Environment): Promise<void> {

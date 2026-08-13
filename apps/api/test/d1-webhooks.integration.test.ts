@@ -26,6 +26,7 @@ import type {
   WebhookEgressResult,
 } from "../src/application/communications/webhook-security";
 import { AesGcmWebhookSecretProtector } from "../src/adapters/persistence/webhook-secret-protector";
+import { drainOutbox, type Environment } from "../src/index";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -48,12 +49,13 @@ const apiClientActor: Actor = {
   id: "api-client-webhook-fixture",
   name: "Webhook API client",
 };
+const wrappingKeyring = JSON.stringify({
+  "test-v1": btoa(String.fromCharCode(...new Uint8Array(32).fill(7))),
+});
 const wrappingKeys = async () =>
   AesGcmWebhookSecretProtector.fromConfiguration({
     currentVersion: "test-v1",
-    keyringJson: JSON.stringify({
-      "test-v1": btoa(String.fromCharCode(...new Uint8Array(32).fill(7))),
-    }),
+    keyringJson: wrappingKeyring,
   });
 class FixtureEgress implements WebhookEgress {
   readonly validations: string[] = [];
@@ -71,6 +73,7 @@ class FixtureEgress implements WebhookEgress {
 describe("signed webhook D1 lifecycle", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => {
+    vi.unstubAllGlobals();
     const current = runtime;
     runtime = undefined;
     await current?.dispose();
@@ -440,6 +443,91 @@ describe("signed webhook D1 lifecycle", () => {
         Math.floor(clock.getTime() / 1000),
       ),
     ).toBe(true);
+  });
+
+  it("gives webhook delivery its own bounded progress behind a full communications budget", async () => {
+    const migrated = await createMigratedDatabase({ label: "webhook-drain-fairness", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1WebhookRepository(migrated.database, await wrappingKeys());
+    const service = new WebhookService({
+      repository,
+      eventDirectory: {
+        belongsToOrganization: async (candidate, organization) =>
+          candidate === eventId && organization === organizationId,
+        listEventIdsForOrganization: async () => [eventId],
+      },
+      egress: new FixtureEgress(),
+      newId: () => "webhook-fairness-subscription",
+      now: () => new Date("2026-08-13T12:00:00.000Z"),
+    });
+    const created = await service.create(
+      actor,
+      {
+        organizationId,
+        eventId,
+        url: "https://receiver.example.com/hooks/fairness",
+        eventTypes: ["schedule.published"],
+      },
+      "fairness-create",
+    );
+    await repository.enqueue({
+      id: "webhook-fairness-delivery",
+      subscriptionId: created.subscription.id,
+      organizationId,
+      eventId,
+      eventRecordId: "event-record-fairness",
+      eventType: "schedule.published",
+      idempotencyKey: "event-record-fairness",
+      payload: {
+        id: "event-record-fairness",
+        type: "schedule.published",
+        version: 1,
+        occurredAt: "2026-08-13T12:00:00.000Z",
+        organizationId,
+        eventId,
+        data: { publicationVersion: 1 },
+      },
+      state: "queued",
+      attemptCount: 0,
+      nextAttemptAt: "2026-08-13T12:00:00.000Z",
+      leaseToken: null,
+      createdAt: "2026-08-13T12:00:00.000Z",
+      updatedAt: "2026-08-13T12:00:00.000Z",
+    });
+    const ordinaryDue = await migrated.database
+      .prepare(
+        "SELECT count(*) AS count FROM communication_deliveries WHERE state IN ('queued','retrying') AND next_attempt_at <= ?",
+      )
+      .bind(new Date().toISOString())
+      .first<{ count: number }>();
+    expect(ordinaryDue?.count).toBeGreaterThanOrEqual(1);
+    const egress = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        operation: "dispatch",
+        url: "https://receiver.example.com/hooks/fairness",
+      });
+      return Response.json({ result: "delivered", targetStatus: 204 });
+    });
+    vi.stubGlobal("fetch", egress);
+
+    await expect(
+      drainOutbox(
+        {
+          DB: migrated.database,
+          WEBHOOK_EGRESS_ENDPOINT: "https://egress.example.net/v1/webhooks",
+          WEBHOOK_EGRESS_TOKEN: "egress-token",
+          WEBHOOK_WRAPPING_KEY_VERSION: "test-v1",
+          WEBHOOK_WRAPPING_KEYS: wrappingKeyring,
+        } as Environment,
+        1,
+      ),
+    ).resolves.toBe(2);
+
+    await expect(repository.getDelivery("webhook-fairness-delivery")).resolves.toMatchObject({
+      state: "succeeded",
+      attemptCount: 1,
+    });
+    expect(egress).toHaveBeenCalledTimes(1);
   });
 
   it("rejects unsafe destinations and records terminal redirects without following them", async () => {
