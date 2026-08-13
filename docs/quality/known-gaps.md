@@ -82,45 +82,6 @@ feature-by-feature verdict.
 
 ## Missing product capability
 
-- `GAP-007` **Partially closed by issue #60, and further by Google sign-in.** Production has
-  emailed-code sign-in, event-scoped bearer tokens, and now Google OIDC beside them — an additional
-  provider, never a replacement — with provider linking on the stable provider subject and, failing
-  that, on a **verified** address only. Two of the items this entry used to list are closed: the
-  approved provider ADR exists at
-  [`ADR-004`](../decisions/adr-004-google-oauth-provider.md), and `POST /api/auth/signout` exists.
-  Demo impersonation remains development-only.
-
-  **Durable revocation is closed.** An issued session is a row in `identity_sessions`, the cookie
-  names it, and every authenticated request refuses a credential whose row is missing, revoked or
-  expired. `POST /api/auth/signout` marks the row revoked before clearing the cookie and
-  `POST /api/auth/sessions/revoke-all` ends every live session of one user, so a copy taken from
-  another device — and an event bearer token minted from that session, which carries its parent's
-  `sid` — stop being accepted on the next request. A token minted before this change names no row
-  and is refused, which signs everybody out once at that deploy.
-  [`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md) records the design.
-
-  **The identity audit spine exists and is deliberately narrow.** `identity_audit_events` is
-  append-only, carries no credential, and every writer batches its row with the state change it
-  describes. Today only the three `session.*` actions are written. The Google callback's refusals
-  are *not* audited and stay in the structured log `auth.google.refused`, for the reason `ADR-005`
-  gives: a refusal has no state change to batch a row with. Issue #99 owns the cross-domain audit
-  timeline; this lane builds none, and the columns are shaped so #99 can project them without a
-  migration.
-
-  **Membership administration exists.** `MembershipService` and the
-  `/api/organizations/{organizationId}/…` routes invite into an organization or onto one of its
-  events, accept by the accepting session's own identity, remove members, grant and revoke event
-  roles, and serve the organization's own audit log; the console surface is `/members`. All three
-  demo-safety rules in [authorization](../architecture/authorization.md) are enforced and proved
-  by test. Authorization is the three-condition organization pattern the CRM directory uses, on a
-  new event-earned `identity:manage` capability rather than a global administrator role.
-
-  **Credential rotation and recovery is what remains.** No `SESSION_SECRET` rotation path exists,
-  so rotating today invalidates every session instantly; and there is no documented procedure for
-  it, for `GOOGLE_CLIENT_SECRET`, or for incident revocation. Owner: identity-access. Governing
-  IDs: `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`, `ADR-005`. Closure: dual-secret verification with
-  a documented rotation window, an incident revocation tool, and a security-operations runbook
-  covering provider configuration, key rotation, incident revocation and recovery.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). The target is now provisioned and a hosted URL **is** evidenced:

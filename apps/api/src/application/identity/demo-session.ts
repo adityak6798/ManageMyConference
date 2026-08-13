@@ -1,4 +1,5 @@
 import type { Actor } from "./actor";
+import { issuingSecret, type SigningSecrets, verifyingSecrets } from "./real-auth";
 
 const encoder = new TextEncoder();
 const demoOrganization = { id: "00000000-0000-4000-8000-000000000010" };
@@ -135,16 +136,16 @@ async function signature(value: string, secret: string): Promise<string> {
 
 export async function createDemoSession(
   persona: DemoPersona,
-  secret: string,
+  secrets: SigningSecrets,
   expiresAt: number,
 ): Promise<string> {
   const payload = `${persona}.${expiresAt}`;
-  return `${payload}.${await signature(payload, secret)}`;
+  return `${payload}.${await signature(payload, issuingSecret(secrets))}`;
 }
 
 export async function resolveDemoSession(
   token: string | undefined,
-  secret: string,
+  secrets: SigningSecrets,
   now: number,
   resolveActor: (persona: DemoPersona) => Promise<Actor | null>,
 ): Promise<Actor | null> {
@@ -157,12 +158,19 @@ export async function resolveDemoSession(
   const suppliedBytes = new Uint8Array(
     suppliedSignature.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [],
   );
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    await signingKey(secret),
-    suppliedBytes,
-    encoder.encode(`${persona}.${expiresAt}`),
-  );
+  // The demo token signs with the same secret as a real session, so it needs the same dual
+  // verification across a rotation window — otherwise rotating would sign every persona out of
+  // the demo at the moment of the deploy, which is the outcome the window exists to avoid.
+  let valid = false;
+  for (const secret of verifyingSecrets(secrets)) {
+    valid = await crypto.subtle.verify(
+      "HMAC",
+      await signingKey(secret),
+      suppliedBytes,
+      encoder.encode(`${persona}.${expiresAt}`),
+    );
+    if (valid) break;
+  }
   if (!valid) return null;
   return resolveActor(persona as DemoPersona);
 }

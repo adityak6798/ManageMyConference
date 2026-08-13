@@ -46,7 +46,8 @@
     "test:quality": "npm run test:quality --workspace @greenroom/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "worktree": "node tools/worktree-env.mjs",
-    "worktree:status": "node tools/worktree-env.mjs status"
+    "worktree:status": "node tools/worktree-env.mjs status",
+    "revoke:sessions": "node tools/revoke-sessions.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",

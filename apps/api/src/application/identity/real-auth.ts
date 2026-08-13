@@ -26,35 +26,76 @@ async function key(secret: string): Promise<CryptoKey> {
   );
 }
 
+/**
+ * The signing secret, or the pair a rotation is in flight across.
+ *
+ * A plain string is the ordinary case and stays writable as one, which is what keeps the ~30
+ * configuration sites in the test suites unchanged. The pair exists for the window in which a
+ * secret is being replaced: issuance always uses `current`, verification tries `current` and then
+ * `previous`, so sessions minted before the rotation keep working until they expire instead of
+ * everybody being signed out at the moment of the deploy.
+ *
+ * See `docs/engineering/security-operations.md` for the procedure and the window.
+ */
+export type SigningSecrets = string | { current: string; previous?: string | undefined };
+
+/** What a new token is signed with. Never `previous`: a rotation moves forward only. */
+export const issuingSecret = (secrets: SigningSecrets): string =>
+  typeof secrets === "string" ? secrets : secrets.current;
+
+/** What an existing token may have been signed with, newest first. */
+export const verifyingSecrets = (secrets: SigningSecrets): readonly string[] => {
+  if (typeof secrets === "string") return [secrets];
+  return secrets.previous ? [secrets.current, secrets.previous] : [secrets.current];
+};
+
 async function sign(payload: string, secret: string) {
   return base64url(
     new Uint8Array(await crypto.subtle.sign("HMAC", await key(secret), encoder.encode(payload))),
   );
 }
 
-async function token(payload: object, secret: string) {
+async function token(payload: object, secrets: SigningSecrets) {
   const encoded = base64url(encoder.encode(JSON.stringify(payload)));
-  return `${encoded}.${await sign(encoded, secret)}`;
+  return `${encoded}.${await sign(encoded, issuingSecret(secrets))}`;
 }
 
-async function verify<T>(value: string | undefined, secret: string): Promise<T | null> {
+/**
+ * Verify against each secret in turn, and report **which one matched**.
+ *
+ * The caller needs to know: an emailed code's proof was signed with the same secret as the
+ * challenge that carries it, so re-deriving that proof under a different secret would refuse a
+ * perfectly good code. Everything else ignores the second half of the answer.
+ */
+async function verifyWith<T>(
+  value: string | undefined,
+  secrets: SigningSecrets,
+): Promise<{ payload: T; secret: string } | null> {
   if (!value) return null;
   const [payload, signature, extra] = value.split(".");
   if (!payload || !signature || extra) return null;
-  try {
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      await key(secret),
-      decode64url(signature),
-      encoder.encode(payload),
-    );
-    if (!valid) return null;
-    return JSON.parse(decoder.decode(decode64url(payload))) as T;
-  } catch {
-    // ERROR-INTENT: malformed signed input is an invalid credential, not an operational failure.
-    return null;
+  for (const secret of verifyingSecrets(secrets)) {
+    try {
+      const valid = await crypto.subtle.verify(
+        "HMAC",
+        await key(secret),
+        decode64url(signature),
+        encoder.encode(payload),
+      );
+      if (!valid) continue;
+      return { payload: JSON.parse(decoder.decode(decode64url(payload))) as T, secret };
+    } catch {
+      // ERROR-INTENT: malformed signed input is an invalid credential, not an operational
+      // failure, and a malformed signature cannot verify under the other secret either — so this
+      // returns rather than continuing to the next one.
+      return null;
+    }
   }
+  return null;
 }
+
+const verify = async <T>(value: string | undefined, secrets: SigningSecrets): Promise<T | null> =>
+  (await verifyWith<T>(value, secrets))?.payload ?? null;
 
 export interface LoginChallenge {
   id: string;
@@ -67,40 +108,46 @@ export interface LoginChallenge {
 
 export async function createLoginChallenge(
   email: string,
-  secret: string,
+  secrets: SigningSecrets,
   expiresAt: number,
 ): Promise<LoginChallenge> {
   const id = crypto.randomUUID();
   const randomValue = crypto.getRandomValues(new Uint32Array(1)).at(0) ?? 0;
   const code = String(randomValue % 1_000_000).padStart(6, "0");
-  const codeProof = await sign(`${email}.${code}.${expiresAt}`, secret);
+  const codeProof = await sign(`${email}.${code}.${expiresAt}`, issuingSecret(secrets));
   return {
     id,
     email,
     code,
     codeProof,
     expiresAt,
-    challenge: await token({ kind: "login", id, email, expiresAt }, secret),
+    challenge: await token({ kind: "login", id, email, expiresAt }, secrets),
   };
 }
 
 export async function exchangeLoginChallenge(
   challenge: string,
   code: string,
-  secret: string,
+  secrets: SigningSecrets,
   now: number,
   consume: (id: string, codeProof: string, now: number) => Promise<string | null>,
 ): Promise<string | null> {
-  const payload = await verify<{
+  // The proof is re-derived under **the secret that verified the challenge**, not under the
+  // current one. The two were minted together, so across a rotation window a challenge issued
+  // before the change still yields the proof its stored row holds — deriving it under the new
+  // secret would refuse a perfectly good code.
+  const verified = await verifyWith<{
     kind: string;
     id: string;
     email: string;
     expiresAt: number;
-  }>(challenge, secret);
-  if (payload?.kind !== "login" || payload.expiresAt <= now || !payload.id) return null;
+  }>(challenge, secrets);
+  if (!verified) return null;
+  const payload = verified.payload;
+  if (payload.kind !== "login" || payload.expiresAt <= now || !payload.id) return null;
   return consume(
     payload.id,
-    await sign(`${payload.email}.${code}.${payload.expiresAt}`, secret),
+    await sign(`${payload.email}.${code}.${payload.expiresAt}`, verified.secret),
     now,
   );
 }
@@ -123,8 +170,12 @@ export type FindSession = (id: string, now: number) => Promise<{ userId: string 
  * (`docs/architecture/authorization.md`). Adding a payload field does not change the part count,
  * and `real-auth.test.ts` asserts that it has not.
  */
-export const createUserSession = (sid: string, userId: string, secret: string, expiresAt: number) =>
-  token({ kind: "session", sid, userId, expiresAt }, secret);
+export const createUserSession = (
+  sid: string,
+  userId: string,
+  secrets: SigningSecrets,
+  expiresAt: number,
+) => token({ kind: "session", sid, userId, expiresAt }, secrets);
 
 /**
  * Resolve a session cookie to its actor, refusing one whose record is gone, revoked or expired.
@@ -140,7 +191,7 @@ export const createUserSession = (sid: string, userId: string, secret: string, e
  */
 export async function resolveUserSession(
   value: string | undefined,
-  secret: string,
+  secrets: SigningSecrets,
   now: number,
   resolveActor: (userId: string) => Promise<Actor | null>,
   findSession: FindSession,
@@ -150,7 +201,7 @@ export async function resolveUserSession(
     sid?: string;
     userId: string;
     expiresAt: number;
-  }>(value, secret);
+  }>(value, secrets);
   if (payload?.kind !== "session" || payload.expiresAt <= now || !payload.sid) return null;
   const session = await findSession(payload.sid, now);
   // The record's `user_id` is compared, never followed: the actor comes from the signed payload
@@ -179,10 +230,10 @@ export async function resolveUserSession(
  */
 export async function sessionIdFrom(
   value: string | undefined,
-  secret: string,
+  secrets: SigningSecrets,
   now: number,
 ): Promise<string | null> {
-  const payload = await verify<{ kind: string; sid?: string; expiresAt: number }>(value, secret);
+  const payload = await verify<{ kind: string; sid?: string; expiresAt: number }>(value, secrets);
   if (payload?.kind !== "session" || payload.expiresAt <= now || !payload.sid) return null;
   return payload.sid;
 }
@@ -198,13 +249,13 @@ export const createEventToken = (
   sid: string,
   userId: string,
   eventId: string,
-  secret: string,
+  secrets: SigningSecrets,
   expiresAt: number,
-) => token({ kind: "event", sid, userId, eventId, expiresAt }, secret);
+) => token({ kind: "event", sid, userId, eventId, expiresAt }, secrets);
 
 export async function resolveEventToken(
   value: string | undefined,
-  secret: string,
+  secrets: SigningSecrets,
   now: number,
   resolveActor: (userId: string) => Promise<Actor | null>,
   findSession: FindSession,
@@ -215,7 +266,7 @@ export async function resolveEventToken(
     userId: string;
     eventId: string;
     expiresAt: number;
-  }>(value, secret);
+  }>(value, secrets);
   if (payload?.kind !== "event" || payload.expiresAt <= now || !payload.sid) return null;
   const session = await findSession(payload.sid, now);
   if (!session || session.userId !== payload.userId) return null;

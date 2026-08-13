@@ -423,7 +423,9 @@
         "apps/web/src/MembersWorkspace.tsx",
         "apps/web/src/workspaces/identity.tsx",
         "apps/web/src/api/membership.ts",
-        "apps/web/e2e/members.spec.ts"
+        "apps/web/e2e/members.spec.ts",
+        "docs/engineering/security-operations.md",
+        "apps/api/src/adapters/persistence/identity-revocation-statements.mjs"
       ]
     },
     {

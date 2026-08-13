@@ -20,7 +20,7 @@ CALENDAR_ORGANIZER_EMAIL = "organizer@greenroom.invalid"
 #
 # `runtimeAuth` (src/index.ts) refuses `DEMO_MODE=true` unless `ENVIRONMENT=development`, and
 # refuses to boot at all without either demo mode or `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`.
-# Production emailed-code sign-in does exist (`GAP-007` is partially closed), but demo mode turns it
+# Production emailed-code sign-in does exist, but demo mode turns it
 # off by design — `/api/auth/code` answers 404 while `demoMode` is set — and this deployment carries
 # no mail bindings, so demo personas are the only way in here. Local development keeps these in a
 # gitignored `.dev.vars`; a deployed Worker cannot read that file, so the two non-secret ones live
@@ -46,6 +46,14 @@ DEMO_MODE = "true"
 # down; it fails the Draft button and names the missing binding in the Worker log. `off` withdraws
 # the assistant entirely. See docs/engineering/review-suggestions.md.
 REVIEW_AI_PROVIDER = "fixture"
+
+# `SESSION_SECRET_PREVIOUS` is a Worker **secret** and is never written here. It exists only while
+# a `SESSION_SECRET` rotation is in flight: issuance always uses `SESSION_SECRET`, verification
+# tries it and then this one, so rotating no longer signs every user out at the instant of the
+# deploy. Set it to the old value, deploy, and delete it after one full session lifetime (8h).
+# `runtimeAuth` refuses to boot when it equals `SESSION_SECRET` or is the development placeholder,
+# because either is a rotation that did not happen. Procedure:
+# docs/engineering/security-operations.md.
 
 # Google sign-in (`ADR-004`): configured here, and deliberately not configured *yet*.
 #

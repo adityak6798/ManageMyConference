@@ -115,6 +115,7 @@
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `test` / `repository-fact`: [tools/tests/revoke-sessions.test.mjs](../../tools/tests/revoke-sessions.test.mjs)
 
 ### `ACC-INTEGRATION`
 - `test` / `repository-fact`: [apps/api/test/accelevents-sync.test.ts](../../apps/api/test/accelevents-sync.test.ts)
@@ -442,6 +443,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-membership.ts](../../apps/api/src/adapters/persistence/d1-identity-membership.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-sessions.ts](../../apps/api/src/adapters/persistence/d1-identity-sessions.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/identity-revocation-statements.mjs](../../apps/api/src/adapters/persistence/identity-revocation-statements.mjs)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/identity-access.ts](../../apps/api/src/adapters/persistence/schema/identity-access.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/audit.ts](../../apps/api/src/application/identity/audit.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/google-oauth.ts](../../apps/api/src/application/identity/google-oauth.ts)
@@ -456,10 +458,13 @@
 - `code` / `repository-fact`: [apps/web/src/MembersWorkspace.tsx](../../apps/web/src/MembersWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/api/membership.ts](../../apps/web/src/api/membership.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/identity.tsx](../../apps/web/src/workspaces/identity.tsx)
+- `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/decisions/adr-004-google-oauth-provider.md](../../docs/decisions/adr-004-google-oauth-provider.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `code` / `repository-fact`: [tools/revoke-sessions.mjs](../../tools/revoke-sessions.mjs)
 - `code` / `repository-fact`: [tools/setup-local.mjs](../../tools/setup-local.mjs)
+- `test` / `repository-fact`: [tools/tests/revoke-sessions.test.mjs](../../tools/tests/revoke-sessions.test.mjs)
 
 ### `PRD-IAM-002`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-membership.ts](../../apps/api/src/adapters/persistence/d1-identity-membership.ts)

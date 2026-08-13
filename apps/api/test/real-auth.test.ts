@@ -1,6 +1,10 @@
 // @acceptance ACC-IDENTITY-EVENTS
 import { describe, expect, it } from "vitest";
-import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import {
+  createDemoSession,
+  resolveDemoSession,
+  resolveSeededDemoActor,
+} from "../src/application/identity/demo-session";
 import {
   createEventToken,
   createLoginChallenge,
@@ -201,6 +205,69 @@ describe("production authentication tokens", () => {
       resolveUserSession(session, secret, 1_000, resolveActor, counting),
     ).resolves.toMatchObject({ id: "seed-organizer" });
     expect(asked).toEqual([sid]);
+  });
+
+  /**
+   * Rotation: issue with the new secret, accept either, and stop accepting the old one when the
+   * window closes.
+   *
+   * The point of the window is that rotating a secret does not sign everybody out at the moment
+   * of the deploy — which is what rotation meant before, and why nobody could safely do it.
+   */
+  describe("across a session-secret rotation", () => {
+    const rotated = { current: "the-new-secret", previous: secret };
+
+    it("keeps a session minted under the previous secret working, and issues under the new one", async () => {
+      const old = await createUserSession(sid, "seed-organizer", secret, 2_000);
+      await expect(
+        resolveUserSession(old, rotated, 1_000, resolveActor, liveSession),
+      ).resolves.toMatchObject({ id: "seed-organizer" });
+
+      // Anything minted during the window is signed with `current` and cannot be verified by the
+      // old secret alone — a rotation moves forward only.
+      const fresh = await createUserSession(sid, "seed-organizer", rotated, 2_000);
+      await expect(
+        resolveUserSession(fresh, "the-new-secret", 1_000, resolveActor, liveSession),
+      ).resolves.toMatchObject({ id: "seed-organizer" });
+      await expect(
+        resolveUserSession(fresh, secret, 1_000, resolveActor, liveSession),
+      ).resolves.toBeNull();
+    });
+
+    it("stops accepting the previous secret once it is unset", async () => {
+      const old = await createUserSession(sid, "seed-organizer", secret, 2_000);
+      await expect(
+        resolveUserSession(old, "the-new-secret", 1_000, resolveActor, liveSession),
+      ).resolves.toBeNull();
+    });
+
+    /**
+     * An emailed code spans the rotation too, and this is the case that is easy to get wrong: the
+     * stored proof was signed with the challenge's secret, so re-deriving it under the *current*
+     * one would refuse a code that is perfectly good.
+     */
+    it("exchanges a code whose challenge was issued under the previous secret", async () => {
+      const issued = await createLoginChallenge("organizer@greenroom.test", secret, 2_000);
+      let consumed = false;
+      const consume = async (_id: string, proof: string, now: number) => {
+        if (consumed || now >= 2_000 || proof !== issued.codeProof) return null;
+        consumed = true;
+        return issued.email;
+      };
+      await expect(
+        exchangeLoginChallenge(issued.challenge, issued.code, rotated, 1_000, consume),
+      ).resolves.toBe(issued.email);
+    });
+
+    it("resolves a demo persona cookie minted under either secret", async () => {
+      const old = await createDemoSession("organizer", secret, 2_000);
+      expect(await resolveDemoSession(old, rotated, 1_000, resolveSeededDemoActor)).toMatchObject({
+        id: "seed-organizer",
+      });
+      expect(
+        await resolveDemoSession(old, "the-new-secret", 1_000, resolveSeededDemoActor),
+      ).toBeNull();
+    });
   });
 
   it("reduces bearer identity to the token's one event", async () => {

@@ -12,6 +12,7 @@
 import type { ApiErrorEnvelope } from "@greenroom/contracts";
 import type { Context } from "hono";
 import type { Actor } from "../../application/identity/actor";
+import type { SigningSecrets } from "../../application/identity/real-auth";
 import type { SessionStore } from "../../application/identity/session-store";
 
 export interface StructuredLogger {
@@ -79,7 +80,11 @@ export interface GoogleAuthProvider {
  */
 interface DemoAuthBase {
   demoMode: true;
-  sessionSecret: string;
+  /**
+   * The signing secret, or the pair a rotation is in flight across. A plain string is the
+   * ordinary case; see `SigningSecrets`.
+   */
+  sessionSecret: SigningSecrets;
   now?: () => number;
   resolveActor: ActorResolver;
 }
@@ -98,7 +103,7 @@ export type RuntimeAuthConfig =
     }
   | {
       demoMode: false;
-      sessionSecret: string;
+      sessionSecret: SigningSecrets;
       now?: () => number;
       /**
        * Required, not optional. This variant is the one that signs people in, and a signed

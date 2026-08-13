@@ -8,9 +8,9 @@ Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-
 API and the built frontend, against remote D1 (`manage-my-conf`) and R2 (`manage-my-conf`), seeded
 from the same `seed/reset.sql` this runbook uses locally.
 
-It runs in **demo mode** (`ENVIRONMENT=development`, `DEMO_MODE=true`). Production emailed-code
-sign-in exists in the product — `GAP-007` is partially closed — but demo mode deliberately turns it
-off: `/api/auth/code` answers 404 whenever `demoMode` is set, and it would additionally need the
+It runs in **demo mode** (`ENVIRONMENT=development`, `DEMO_MODE=true`). Production sign-in exists in the product — emailed code and Google
+OIDC, with durable sessions, revocation and membership administration behind them — but demo mode
+deliberately turns it off: `/api/auth/code` answers 404 whenever `demoMode` is set, and it would additionally need the
 `AUTH_EMAIL_ENDPOINT` and `AUTH_EMAIL_TOKEN` bindings this deployment does not carry. So demo
 personas are the only way in *here*, which is a property of this deployment rather than a missing
 feature.
@@ -58,8 +58,8 @@ read-only.
 ## What this demo is, and is not
 
 Locally it runs from a deterministic seed, with development-only signed demo identities. The built
-frontend is served by the Worker with a configurable API origin. Production emailed-code
-authentication exists; the remaining lifecycle work is tracked by `GAP-007`. Local
+frontend is served by the Worker with a configurable API origin. Production authentication exists in full, and is
+exercised by its own suites rather than here, because this deployment offers only personas. Local
 delivery, uploads, and every provider are deterministic fakes: no message leaves the machine. The
 Accelevents integration the brief names is now real and operable — you can preview and apply a
 registration sync, and see its last run — but it reads a built-in sample roster here rather than a

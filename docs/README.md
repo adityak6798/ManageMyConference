@@ -14,6 +14,7 @@ This directory is the product and engineering system of record. Start here; do n
 | architecture or dependencies | [Architecture index](architecture/README.md) | `ARC-*` |
 | HTTP/events/providers | [Interfaces](interfaces/README.md) | `API-*`, `EVT-*`, `PORT-*` |
 | implementation or tests | [Engineering index](engineering/README.md) | `ENG-*`, `TST-*` |
+| credentials, rotation, or an incident | [Security operations](engineering/security-operations.md) | `PRD-IAM-001`, `ARC-AUTH-001` |
 | an active workstream | [Active plans](exec-plans/active.md) | `PLAN-*` |
 | a significant tradeoff | [Decision log](decisions/README.md) | `ADR-*` |
 | evaluation readiness | [Quality scorecard](quality/scorecard.md) | `ACC-*` |

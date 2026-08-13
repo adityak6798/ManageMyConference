@@ -123,9 +123,9 @@ integration work that has nothing to do with it.
 **#12** (production authentication) is lane work and is in flight, not externally blocked. The
 provider ADR it once owed is [`ADR-004`](../decisions/adr-004-google-oauth-provider.md); durable
 sessions and revocation landed with [`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md).
-It closes in three landings — durable sessions and the audit spine, then invitation and membership
-administration, then credential rotation and recovery with a security-operations runbook — and
-`GAP-007` names what each one leaves open.
+It closed in one landing carrying all three parts: durable sessions and the audit spine,
+invitation and membership administration, and credential rotation and recovery with a
+[security-operations runbook](../engineering/security-operations.md). `GAP-007` is deleted with it.
 
 Also open and externally blocked, not lane work: **#61** (stays open until Cloudflare credentials
 exist and a deployed URL is recorded).
