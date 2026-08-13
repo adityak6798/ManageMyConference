@@ -4992,6 +4992,24 @@
                           "createdAt"
                         ]
                       }
+                    },
+                    "actorDirectory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -6234,6 +6252,24 @@
                           "snapshotJson",
                           "actorId",
                           "createdAt"
+                        ]
+                      }
+                    },
+                    "actorDirectory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
                         ]
                       }
                     }
@@ -13596,6 +13632,24 @@
                           "createdAt"
                         ]
                       }
+                    },
+                    "actorDirectory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -14346,6 +14400,24 @@
                           "snapshotJson",
                           "actorId",
                           "createdAt"
+                        ]
+                      }
+                    },
+                    "actorDirectory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
                         ]
                       }
                     }
@@ -15915,6 +15987,24 @@
                                       "snapshotJson",
                                       "actorId",
                                       "createdAt"
+                                    ]
+                                  }
+                                },
+                                "actorDirectory": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name"
                                     ]
                                   }
                                 }
@@ -28514,6 +28604,24 @@
                           "snapshotJson",
                           "actorId",
                           "createdAt"
+                        ]
+                      }
+                    },
+                    "actorDirectory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
                         ]
                       }
                     }

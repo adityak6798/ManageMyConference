@@ -484,6 +484,9 @@ export default {
     // interface, never by reading `cfp_submissions` (`ARC-FLOW-001`).
     const content = new ContentService({
       repository: contentRepository,
+      // Turns the actor id on a revision into the name Edit history prints (#154). Identity's
+      // public application interface, never a join against `users` from content's repository.
+      identities: identityDirectory,
       // Acceptance and task assignment now reach the speaker. Content states the fact; this
       // binding decides the template, the trigger and the idempotency key.
       speakerNotifications,

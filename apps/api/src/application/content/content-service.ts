@@ -14,6 +14,7 @@ import {
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
+import type { AssignableOwner } from "../identity/identity-directory";
 import type { AcceptedProposalQuery } from "../review/public";
 import {
   type AssetStoragePort,
@@ -84,9 +85,18 @@ export interface ScheduledContentSession extends ContentSession {
   readonly schedule?: SessionSchedule;
 }
 
-/** The content workspace as it leaves the application layer, with schedules resolved. */
+/**
+ * The content workspace as it leaves the application layer, with schedules resolved.
+ *
+ * `actorDirectory` is who an audit row may name. It is resolved here rather than in the
+ * repository because the names belong to identity, not to content: the console was printing the
+ * stored id `seed-organizer` in Edit history because nothing in the payload could turn that id
+ * into "Olivia Organizer" (#154). Absent on the speaker-scoped projection, which carries no
+ * revisions to attribute.
+ */
 export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
   readonly sessions: readonly ScheduledContentSession[];
+  readonly actorDirectory?: readonly AssignableOwner[];
 }
 
 export interface CalendarInviteContentWorkspaceView extends Omit<ContentWorkspaceView, "sessions"> {
@@ -134,8 +144,21 @@ export interface SpeakerNotificationPort {
   }): Promise<void>;
 }
 
+/**
+ * Identity's answer to "what is this person called?", narrowed to the one method content needs.
+ *
+ * The whole `IdentityDirectory` is not taken: content never resolves a persona, grants a role or
+ * reads an address. Optional, so a composition exercising only the workspace still constructs —
+ * without it the audit surface falls back to the stored id, which is what it printed before.
+ */
+export interface ContentActorDirectoryPort {
+  listAssignableOwnersForEvent(eventId: string): Promise<readonly AssignableOwner[]>;
+}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
+  /** Resolves the actor ids on revisions to the names an organizer recognises. */
+  identities?: ContentActorDirectoryPort;
   /**
    * Tells speakers about things that happened to them. Optional: a composition exercising only
    * the workspace has nobody to tell, and content works unchanged without it — the speaker
@@ -615,8 +638,15 @@ export class ContentService {
 
   private async projected(eventId: string, userId?: string): Promise<ContentWorkspaceView> {
     const workspace = await this.projectedForCalendarInvites(eventId, userId);
+    // Only the organizer projection carries revisions, so only it needs the names to attribute
+    // them to. Asking on the speaker's read would spend a query on a directory nothing renders.
+    const actorDirectory =
+      userId || !this.dependencies.identities
+        ? undefined
+        : await this.dependencies.identities.listAssignableOwnersForEvent(eventId);
     return {
       ...workspace,
+      ...(actorDirectory ? { actorDirectory } : {}),
       sessions: workspace.sessions.map(({ schedule, ...session }) =>
         schedule
           ? {
