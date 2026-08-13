@@ -145,20 +145,25 @@ which is the overclaim `GAP-011` exists to prevent.
 Both failure modes are reachable without a network — `new DeterministicSuggestionProvider("timeout")`
 and `("error")` — which is how the degradation path is tested at every level.
 
-## Staging smoke — required; first contact blocked before generation
+## Staging smoke — live adapter verified; deployment checks remain
 
 No Anthropic credential exists in this repository. The request shape was built from the Messages
 API's documented contract, and `apps/api/test/suggestion-provider.test.ts` stubs `fetch` — it
 proves our normalization, not their API.
 
-On 2026-08-13, commit `5a5d4bcacab159736bd1b91c0ae35c1eaf4deb26` made a first-contact
-request through `AnthropicSuggestionProvider` using a workspace key held outside the repository,
-a synthetic identity-free abstract, and numeric and dropdown criteria. Anthropic answered HTTP
-400 `invalid_request_error` before generation because the account credit balance was too low. The
-adapter normalized that response to `PROVIDER_REJECTED`; no model served, suggestion content,
-provenance, criterion ranges, persistence, or acceptance behavior could be verified. The key and
-provider response body were neither stored nor committed. This is evidence that authentication
-reached Anthropic, not a successful staging smoke, and issue #147 remains open.
+On 2026-08-13, commit `6f93ca59251a1e4fccad32021108a397dbdcbb07` called
+`AnthropicSuggestionProvider` with a workspace key held outside the repository and a synthetic,
+identity-free abstract. The first attempts correctly normalized Anthropic's insufficient-credit
+response to `PROVIDER_REJECTED`. After credit propagation, two live generations succeeded. The
+fuller request used numeric and dropdown criteria; `claude-opus-5` returned a nonempty summary,
+exactly one entry per criterion, values within the numeric scale and dropdown allowlist, nonempty
+rationales, and prompt version `review-suggestion/v1`. No generated prose, credential, or provider
+response body was stored or committed.
+
+This verifies the live adapter's request shape, schema-constrained response, value conversion, and
+serving-model provenance. It does not verify a deployed Worker's fail-safe, D1 persistence,
+accept-as-draft behavior, forced refusal/authorization paths, or an inspected staging request.
+Issue #147 therefore remains open for checklist steps 2–7.
 
 Before enabling `live` anywhere real, someone with a non-production key must run this and record
 the result here:

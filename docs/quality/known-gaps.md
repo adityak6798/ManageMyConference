@@ -124,13 +124,14 @@ feature-by-feature verdict.
   differentiators now exist: multiple rounds shipped with `1300_review_rounds.sql`, and the
   suggestion port shipped with issue #110 — draft-only by construction, with provenance the
   reviewer reads, a deterministic credential-free fake as the default, and an `off` mode. What is
-  *not* proven is the half no amount of code can supply here: **the live adapter has not received a
-  successful model response from the Anthropic API.** No credential exists in this repository and
-  its tests stub `fetch`. A 2026-08-13 first-contact request reached Anthropic but was rejected
-  before generation because the account credit balance was too low, so the staging smoke in
-  [review suggestions](../engineering/review-suggestions.md#staging-smoke--required-first-contact-blocked-before-generation)
-  has not completed. Impact: reviewers can use the assistant and see exactly where each draft came
-  from,
+  *not* proven is now narrower: **the live adapter generated successfully, but the deployed path
+  has not completed the staging checklist.** No credential exists in this repository and its tests
+  stub `fetch`. On 2026-08-13, credentialed calls through the adapter returned schema-valid numeric
+  and dropdown suggestions from `claude-opus-5`, proving the request shape, response conversion,
+  and model provenance. The staging smoke in
+  [review suggestions](../engineering/review-suggestions.md#staging-smoke--live-adapter-verified-deployment-checks-remain)
+  still lacks deployed fail-safe, persistence, accept-as-draft, forced-failure, and request-inspection
+  checks. Impact: reviewers can use the assistant and see exactly where each draft came from,
   and the draft-only guarantee is enforced in storage and asserted against real D1 — but the
   quality of a *live* suggestion is unmeasured, and the request shape is the most likely thing to
   be wrong on first contact. The same shape of gap as `GAP-012`, for the same reason.

@@ -31,10 +31,10 @@
  *    hash function actually was would be the review-side twin of the delivery failure
  *    `providers/configuration.ts` exists to prevent.
  *
- * **Live generation is not yet verified.** A 2026-08-13 first-contact request reached Anthropic
- * but was rejected before generation because the account had insufficient credit. No credential
- * exists in this repository, and the contract test still stubs `fetch`, so what the suite proves
- * is this adapter's normalization, not a successful model response. See
+ * **The adapter has generated successfully, but the deployment smoke is incomplete.** A
+ * 2026-08-13 credentialed request returned a schema-valid suggestion from `claude-opus-5`. No
+ * credential exists in this repository, and the contract test still stubs `fetch`; staging
+ * persistence, acceptance, and forced-failure checks remain in
  * `docs/engineering/review-suggestions.md`.
  *
  * @spec PRD-AI-001 PORT-AI PRD-REV-001
