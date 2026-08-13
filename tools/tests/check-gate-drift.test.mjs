@@ -94,9 +94,13 @@ test("a release job is allowed only after every gate on a main push", () => {
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [integrity, browser]
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: npm run deploy:assert-current
       - run: npm run deploy
 `,
   };
@@ -114,6 +118,20 @@ test("a release job is allowed only after every gate on a main push", () => {
       workflow: withDeploy.workflow.replace("refs/heads/main", "refs/heads/demo"),
     }).join("\n"),
     /only for main-branch pushes/,
+  );
+  assert.match(
+    analyse({
+      ...withDeploy,
+      workflow: withDeploy.workflow.replace("      group: production-deploy\n", ""),
+    }).join("\n"),
+    /must serialize production deploys/,
+  );
+  assert.match(
+    analyse({
+      ...withDeploy,
+      workflow: withDeploy.workflow.replace("      - run: npm run deploy:assert-current\n", ""),
+    }).join("\n"),
+    /must refuse stale main/,
   );
 });
 

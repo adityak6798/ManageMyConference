@@ -81,6 +81,11 @@ already-completed earlier migrations remain valid deployed history. The job read
 belongs in source, workflow literals, artifacts, or logs. `tools/check-gate-drift.mjs` recognizes
 this one non-gate job and enforces its branch condition, complete dependency list, and sole command.
 
+Main deploy jobs share one non-cancelling concurrency group. After a queued job acquires that lock,
+it fetches `origin/main` and refuses unless the workflow SHA is still the branch head. Thus a newer
+push may deploy first, but an older run can never subsequently overwrite it. The drift checker
+enforces the concurrency block, stale-head guard, and upload ordering.
+
 The previous Cloudflare Workers Builds connection was removed rather than repointed. It belonged
 to the placeholder `managemyconf` service, whose URL returned `Hello world`, while its successful
 `Workers Builds: managemyconf` check appeared on this repository's commits. Keeping two deployment

@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12 (working tree: commit `bb637d4`)
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12
 
 ## Where it is deployed
 

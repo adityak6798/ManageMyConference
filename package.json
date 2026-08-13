@@ -16,6 +16,7 @@
     "context": "uv run greenroom-context",
     "dev": "npm run setup:local && npm run build --workspace @greenroom/web && concurrently -n api,web -c blue,green \"npm run dev --workspace @greenroom/api\" \"npm run dev --workspace @greenroom/web\"",
     "deploy": "npm run migrate:remote --workspace @greenroom/api && npm run build --workspace @greenroom/web && npm run deploy --workspace @greenroom/api",
+    "deploy:assert-current": "node tools/assert-current-main.mjs",
     "format": "biome format --write . && uv run ruff format tools",
     "format:check": "biome format . && uv run ruff format --check tools",
     "evidence:d1": "node tools/record-run.mjs d1 npm run test:d1",

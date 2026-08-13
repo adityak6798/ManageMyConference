@@ -44,6 +44,8 @@ export const DOC_PATH = "docs/engineering/ci-and-release.md";
 export const EXCLUSION_HEADING = "## Gates the local check deliberately skips";
 export const DEPLOY_JOB = "deploy";
 export const DEPLOY_CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
+export const DEPLOY_CONCURRENCY =
+  /  deploy:\n(?:.|\n)*?    concurrency:\n      group: production-deploy\n      cancel-in-progress: false\n/;
 
 /**
  * Commands a CI job may run that are not gates: they build the environment the gate
@@ -197,10 +199,18 @@ export function analyse({ workflow, packageJson, doc, setupAction }) {
         problems.push(
           `${WORKFLOW_PATH} job "${DEPLOY_JOB}" must need every gate: ${expectedNeeds}.`,
         );
-      const commands = job.steps.map((step) => step.run).filter((run) => run !== undefined);
-      if (commands.length !== 1 || commands[0] !== "npm run deploy")
+      if (!DEPLOY_CONCURRENCY.test(workflow))
         problems.push(
-          `${WORKFLOW_PATH} job "${DEPLOY_JOB}" must run exactly \`npm run deploy\` once.`,
+          `${WORKFLOW_PATH} job "${DEPLOY_JOB}" must serialize production deploys without cancelling one in progress.`,
+        );
+      const commands = job.steps.map((step) => step.run).filter((run) => run !== undefined);
+      if (
+        commands.length !== 2 ||
+        commands[0] !== "npm run deploy:assert-current" ||
+        commands[1] !== "npm run deploy"
+      )
+        problems.push(
+          `${WORKFLOW_PATH} job "${DEPLOY_JOB}" must refuse stale main before running \`npm run deploy\` once.`,
         );
       continue;
     }
