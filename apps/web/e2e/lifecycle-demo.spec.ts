@@ -29,38 +29,6 @@ async function expectNoAxeViolations(page: Page, surface: string) {
 }
 
 /**
- * Organizer routes whose data table still puts its row actions outside a 390px viewport.
- *
- * When this assertion was first written it found the same defect on three surfaces — a five- or
- * six-column `table.data` cannot fit 390px, so its Actions column lands inside the `.table-wrap`
- * scroller with nothing to indicate it is there. `/abstracts` and `/sessions` have since been
- * restacked into cards below 780px (review.css and content.css respectively, one recipe) and are
- * asserted like every other route. `/communications` is the last one, at 7 controls, and belongs
- * to the lane that owns that surface.
- *
- * The list is the honest form of a partial fix: the check runs everywhere, and what cannot pass
- * yet is enumerated with a reason rather than the assertion being weakened for all eleven routes.
- * Deleting the last entry is how that lane proves its restack.
- *
- * Entries are matched as whole organizer routes, not substrings. As a fragment, `/sessions` also
- * matched the label `public /sessions` — the public listing, which has no `table.data` and was
- * never part of this defect — and silently exempted a route nobody had measured.
- */
-const OFFSCREEN_ACTIONS_PENDING_155 = ["/communications"];
-
-/**
- * Whether `surface` is one of the exempt organizer routes.
- *
- * Matched on the organizer prefix and the route alone, with the query string dropped: organizer
- * labels carry `?event=…`, and the public listing's label is `public /sessions`, which a bare
- * substring test on `/sessions` also matched.
- */
-function isExemptFrom155(surface: string): boolean {
-  const organizerRoute = surface.match(/^organizer (\/[^?]*)/);
-  return organizerRoute !== null && OFFSCREEN_ACTIONS_PENDING_155.includes(organizerRoute[1] ?? "");
-}
-
-/**
  * The document does not pan sideways, *and* the things an organizer came to press are on screen.
  *
  * The document half alone is not the guarantee it reads as (#155): a `.table-wrap` scrolls its
@@ -71,6 +39,10 @@ function isExemptFrom155(surface: string): boolean {
  *
  * A control is counted when it is visible and inside `main`; the offenders are named rather than
  * counted, because "3 controls are off-screen" is not something anyone can act on.
+ *
+ * This ran with an exemption list while the surfaces it found were repaired one at a time. All
+ * three — `/abstracts`, `/sessions`, `/communications` — now restack into cards below 780px by
+ * one shared recipe, so there is nothing left to exempt and the assertion applies everywhere.
  */
 async function expectNoHorizontalOverflow(page: Page, surface: string) {
   // The shell paints its `<h1>` before the workspace fetch resolves, so a check that runs on the
@@ -82,8 +54,6 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow, `${surface} overflows horizontally by ${overflow}px`).toBeLessThanOrEqual(0);
-
-  if (isExemptFrom155(surface)) return;
 
   const offscreen = await page.evaluate(() => {
     const main = document.querySelector("main");
