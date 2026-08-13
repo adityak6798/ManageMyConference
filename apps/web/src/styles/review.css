@@ -538,6 +538,12 @@
 .criterion-text .criterion-input {
   flex-basis: 100%;
 }
+.criterion-text .criterion-input {
+  flex-wrap: wrap;
+}
+.criterion-text .criterion-input textarea {
+  flex-basis: 100%;
+}
 .criterion .hint {
   max-width: var(--measure);
 }
