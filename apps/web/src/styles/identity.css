@@ -58,3 +58,60 @@
   gap: var(--s-2);
   align-items: center;
 }
+
+/*
+ * Phone width: both tables become stacked cards.
+ *
+ * Four columns do not fit 390px, so `.table-wrap` scrolled and took the whole Actions column with
+ * it — measured at 4 controls past the right edge, behind a swipe nothing hinted at. Every control
+ * on this surface is the reason somebody opened it, so none of them may live off-screen.
+ *
+ * Same recipe as `review.css`, `content.css` and `communications.css`, so every console restacks
+ * one way: `thead` goes, each `tr` becomes a card, each cell carries its own label through
+ * `data-label`.
+ */
+@media (max-width: 780px) {
+  .members .members-table,
+  .members .members-table tbody,
+  .members .members-table tr,
+  .members .members-table td {
+    display: block;
+    width: 100%;
+  }
+  .members .members-table thead {
+    display: none;
+  }
+  .members .members-table tbody {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .members .members-table tr {
+    padding: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .members .members-table td[data-label] {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+    gap: var(--s-2);
+    padding: var(--s-2) 0;
+    border: 0;
+    white-space: normal;
+    text-align: left;
+  }
+  .members .members-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+  /* The actions cell is controls rather than a value, so it spans both tracks and wraps. */
+  .members .members-table td.member-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .members .members-table td.member-actions::before {
+    grid-column: 1;
+  }
+}

@@ -185,7 +185,7 @@ export function MembersWorkspace({
       <Card title="Members">
         {data && data.members.length > 0 ? (
           <div className="table-wrap">
-            <table>
+            <table className="members-table">
               <caption className="visually-hidden">
                 Members of this organization and their roles on its events
               </caption>
@@ -200,14 +200,14 @@ export function MembersWorkspace({
               <tbody>
                 {data.members.map((member) => (
                   <tr key={member.userId}>
-                    <td>{member.name}</td>
-                    <td>{member.email ?? "—"}</td>
-                    <td>
+                    <td data-label="Name">{member.name}</td>
+                    <td data-label="Email">{member.email ?? "—"}</td>
+                    <td data-label="Event roles">
                       {member.eventRoles.length > 0
                         ? member.eventRoles.map(({ role: held }) => held).join(", ")
                         : "None"}
                     </td>
-                    <td className="member-actions">
+                    <td className="member-actions" data-label="Actions">
                       <select
                         aria-label={`Grant a role on this event to ${member.name}`}
                         defaultValue=""
@@ -344,7 +344,7 @@ export function MembersWorkspace({
         {audit.error ? <Notice tone="error">{audit.error}</Notice> : null}
         {audit.data && audit.data.events.length > 0 ? (
           <div className="table-wrap">
-            <table>
+            <table className="members-table">
               <caption className="visually-hidden">
                 Identity actions recorded for this organization, newest first
               </caption>
@@ -359,10 +359,12 @@ export function MembersWorkspace({
               <tbody>
                 {audit.data.events.map((entry) => (
                   <tr key={entry.id}>
-                    <td>{when(entry.occurredAt)}</td>
-                    <td>{ACTIONS[entry.action] ?? entry.action}</td>
-                    <td>{entry.outcome === "refused" ? "Refused" : "Succeeded"}</td>
-                    <td>
+                    <td data-label="When">{when(entry.occurredAt)}</td>
+                    <td data-label="Action">{ACTIONS[entry.action] ?? entry.action}</td>
+                    <td data-label="Outcome">
+                      {entry.outcome === "refused" ? "Refused" : "Succeeded"}
+                    </td>
+                    <td data-label="Reference">
                       <code>{entry.correlationId}</code>
                     </td>
                   </tr>
