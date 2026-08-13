@@ -3,6 +3,7 @@
 import {
   authConfigResponseSchema,
   healthResponseSchema,
+  sessionResponseSchema,
   signOutResponseSchema,
 } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -21,7 +22,7 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
-import { createEventToken } from "../src/application/identity/real-auth";
+import { createEventToken, createUserSession } from "../src/application/identity/real-auth";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import type { ReviewService } from "../src/application/review/review-service";
 import {
@@ -130,6 +131,83 @@ describe("events HTTP transport", () => {
     expect(body).not.toContain(secret);
     expect(body.toLowerCase()).not.toContain("cookie");
     expect(body.toLowerCase()).not.toContain("sessionsecret");
+  });
+
+  /**
+   * Which credential resolved, reported so the console can act on it.
+   *
+   * A persona and a real session arrive in the same cookie and are undone differently — one is
+   * switched, the other signed out of — so a client that cannot tell them apart either offers a
+   * sign-out that does nothing or withholds one from somebody who needs it. Both happened before
+   * this field existed. Nothing else in either suite asserts it.
+   */
+  it("says which kind of credential the session was resolved from", async () => {
+    const { app } = createTestApp();
+    const demo = await app.request("/api/session", { headers: await cookieFor("organizer") });
+    expect(sessionResponseSchema.parse(await demo.json()).authentication).toBe("demo");
+
+    // A real user session on the same demo-mode deployment, which is the configuration the
+    // middleware exists to support and the one where the distinction is load-bearing.
+    const actor = await resolveSeededDemoActor("organizer");
+    const withGoogle = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+        google: {
+          start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a" }),
+          complete: async () => null,
+          resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
+        },
+      },
+      testCrm(),
+    );
+    const session = await createUserSession(actor.id, secret, 2_000);
+    const real = await withGoogle.request("/api/session", {
+      headers: { cookie: `greenroom_session=${session}` },
+    });
+    expect(sessionResponseSchema.parse(await real.json()).authentication).toBe("session");
+
+    // An event-scoped bearer is neither, and saying so is what stops the console offering to sign
+    // a token holder out of a session they never had. Asserted on a production app, because a
+    // demo-mode deployment resolves no bearer at all — the middleware's demo branch reads the
+    // cookie and nothing else, which is why `/api/auth/tokens` is 404 there in the first place.
+    const production = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        demoMode: false,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: async (userId) => (userId === actor.id ? actor : null),
+        resolveEmail: async () => null,
+        sendLoginCode: async () => undefined,
+        saveLoginChallenge: async () => undefined,
+        consumeLoginChallenge: async () => null,
+      },
+      testCrm(),
+    );
+    const bearer = await createEventToken(
+      actor.id,
+      "00000000-0000-4000-8000-000000000001",
+      secret,
+      2_000,
+    );
+    const token = await production.request("/api/session", {
+      headers: { authorization: `Bearer ${bearer}` },
+    });
+    expect(sessionResponseSchema.parse(await token.json()).authentication).toBe("bearer");
   });
 
   it("returns the seeded identity, memberships, event roles, and capabilities", async () => {

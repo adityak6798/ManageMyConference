@@ -196,8 +196,9 @@ export class SignupService {
    * event already there, and `grantOrganizer` is `INSERT OR IGNORE`, so repeating it is free.
    *
    * This narrows the concurrent case without closing it: two callbacks that both read an empty
-   * organization before either writes still create two events. Closing that needs uniqueness the
-   * events domain would have to declare, so it is recorded rather than half-solved here.
+   * organization before either writes still create two events, and no route can delete the
+   * duplicate. Closing it needs uniqueness the events domain would have to declare, which is a
+   * decision for that domain rather than one to make from inside this one — **issue #164**.
    */
   private async completeWorkspace(actor: Actor): Promise<Actor> {
     if (actor.organizations.length === 0 || actor.eventAccess.length > 0) return actor;
