@@ -48,6 +48,37 @@ const publicRoot = () =>
   isItinerary ? <StableItineraryRedirect token={itineraryToken ?? ""} /> : <PublicEventApp />;
 
 /*
+ * The two paths whose application cannot be decided here.
+ *
+ * "/" is the marketing page for a visitor and the console's home for an organizer, and the
+ * session cookie is `httpOnly`, so this module cannot tell which by reading anything it has.
+ * Only the API knows. `LandingRoot` therefore owns the decision: it renders immediately, and
+ * swaps itself for the console if the probe comes back with a session.
+ *
+ * Both dynamic imports are started in the same tick, so the probe leaves as soon as the small
+ * identity module lands rather than waiting for the whole landing surface behind it — and
+ * neither module is in the entry chunk, which is what keeps `/events/*` paying nothing for a
+ * surface it never renders.
+ *
+ * **What this costs, stated rather than omitted.** An organizer opening "/" now waits for the
+ * session probe to answer before the console chunk is even requested, where before it was
+ * fetched in the entry's first tick. That is one round trip plus a chunk fetch added to the
+ * critical path of the page they load most. It could be removed by starting `import("./App")`
+ * beside the probe — at the price of pushing ~300 kB of organizer console at every anonymous
+ * visitor who lands on the marketing page, which is the exact cost this split exists to avoid.
+ * The trade is deliberate: the signed-out visitor is the one who has not chosen to be here yet.
+ */
+const landingPaths = new Set(["/", "/signin"]);
+const landingRoot = () => {
+  const bootstrap = import("./api/identity").then(({ probeIdentity }) => probeIdentity());
+  return import("./landing/LandingPage").then(({ LandingRoot }) => (
+    <LandingRoot bootstrap={bootstrap} />
+  ));
+};
+const isLanding =
+  !isPublic && landingPaths.has(window.location.pathname.replace(/\/+$/, "") || "/");
+
+/*
  * What the catch below covers, and what it cannot.
  *
  * It covers the console's deferred load, which is the fetch that can fail after this module is
@@ -56,7 +87,13 @@ const publicRoot = () =>
  */
 // ERROR-INTENT: bootstrapping cannot await, and there is no React tree yet to render a failure
 // into, so the outcome is rendered into the document and the reason rethrown for the platform.
-void (isPublic ? Promise.resolve(publicRoot()) : import("./App").then(({ App }) => <App />))
+void (
+  isPublic
+    ? Promise.resolve(publicRoot())
+    : isLanding
+      ? landingRoot()
+      : import("./App").then(({ App }) => <App />)
+)
   .then((element) => {
     createRoot(container).render(<StrictMode>{element}</StrictMode>);
   })

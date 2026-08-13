@@ -5,7 +5,7 @@
  * `google-auth-library`: that package reaches for `node:fs` and `node:crypto` through its
  * credential chain, which resolves in a Worker only with the `nodejs_compat` flag — a
  * deployment-wide runtime change to serve one adapter. The reasoning is the same one recorded
- * for the Anthropic SDK in the wave ledger, and the protocol here is two POSTs and a GET.
+ * for the Anthropic SDK in the wave ledger, and the protocol here is one POST and one GET.
  *
  * Everything cryptographic lives in `application/identity/google-oauth.ts`. This file knows two
  * URLs and how to report a bad response; it verifies nothing and decides nothing.

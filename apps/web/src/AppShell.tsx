@@ -37,6 +37,7 @@ export function AppShell({
   selectedEventId,
   onSelectEvent,
   onSwitchPersona,
+  onSignOut,
   busy,
   groups,
   activePath,
@@ -48,6 +49,12 @@ export function AppShell({
   selectedEventId: string;
   onSelectEvent: (eventId: string) => void;
   onSwitchPersona: (persona: Persona) => void;
+  /**
+   * Absent for a demo persona, which is switched rather than signed out — the switcher below
+   * is that deployment's way to change identity, and offering both would imply the personas
+   * are accounts. Present only when the shell was told this session was signed in for.
+   */
+  onSignOut?: () => void;
   busy: boolean;
   groups: NavGroup[];
   activePath: string;
@@ -148,6 +155,12 @@ export function AppShell({
               ))}
             </select>
           </label>
+
+          {onSignOut ? (
+            <button type="button" className="secondary" disabled={busy} onClick={onSignOut}>
+              Sign out
+            </button>
+          ) : null}
         </header>
 
         {/* tabIndex={-1} makes the skip-link target programmatically focusable, not a tab stop. */}

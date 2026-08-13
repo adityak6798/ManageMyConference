@@ -176,7 +176,7 @@ describe("App", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) =>
         String(input).endsWith("/api/auth/config")
-          ? jsonResponse({ demoMode: true })
+          ? jsonResponse({ demoMode: true, google: false })
           : jsonResponse(
               {
                 error: {
@@ -203,7 +203,8 @@ describe("App", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.endsWith("/api/auth/config")) return jsonResponse({ demoMode: false });
+        if (url.endsWith("/api/auth/config"))
+          return jsonResponse({ demoMode: false, google: false });
         if (url.endsWith("/api/auth/code"))
           return jsonResponse({ challenge: "signed-challenge" }, 202);
         return jsonResponse(
@@ -240,7 +241,8 @@ describe("App", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.endsWith("/api/auth/config")) return jsonResponse({ demoMode: true });
+        if (url.endsWith("/api/auth/config"))
+          return jsonResponse({ demoMode: true, google: false });
         if (url.endsWith("/api/demo-session")) {
           signedIn = true;
           return jsonResponse({ persona: "reviewer" });

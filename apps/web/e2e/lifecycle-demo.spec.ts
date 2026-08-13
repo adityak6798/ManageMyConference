@@ -13,6 +13,16 @@ const PUBLIC_SURFACES = [
   { path: "/cfp", heading: "Share your conference story" },
 ] as const;
 const EMBED_SURFACES = ["schedule", "sessions", "speakers", "gallery"] as const;
+/**
+ * The two signed-out surfaces. They are audited exactly as the public event pages are, because
+ * they are the same kind of thing: the first screen a stranger sees, rendered before anybody has
+ * authenticated. `/` is the marketing page only while signed out — an organizer's `/` is the
+ * console Overview, which the organizer sweep below already covers.
+ */
+const MARKETING_SURFACES = [
+  { path: "/", heading: "One workspace from the first proposal to the closing keynote." },
+  { path: "/signin", heading: "Sign in" },
+] as const;
 
 async function expectNoAxeViolations(page: Page, surface: string) {
   const result = await new AxeBuilder({ page })
@@ -48,6 +58,41 @@ test("shows the seeded speaker's outstanding task at t=0", async ({ page }) => {
   await expect(taskRow).toContainText("Sam Speaker");
   await expect(taskRow).toContainText("Confirm profile details");
   await expect(taskRow).toContainText("Aug 20");
+});
+
+test("audits the landing and sign-in surfaces a signed-out visitor lands on", async ({ page }) => {
+  for (const surface of MARKETING_SURFACES) {
+    await page.goto(surface.path);
+    await expect(page.getByRole("heading", { level: 1, name: surface.heading })).toBeVisible();
+    await expect(page.getByRole("banner")).toHaveCount(1);
+    await expect(page.getByRole("contentinfo")).toHaveCount(1);
+    await expectNoAxeViolations(page, `marketing ${surface.path}`);
+  }
+
+  await page.goto("/");
+  const firstTabStop = page
+    .locator(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )
+    .first();
+  await expect(firstTabStop).toHaveAccessibleName("Skip to main content");
+
+  // The demo door is the one an evaluator with ten minutes uses, and the browser suite's own
+  // bootstrap depends on it being here, on "/": thirteen specs open "/" and click this button.
+  await expect(page.getByRole("button", { name: "Continue as organizer" })).toBeVisible();
+
+  // Client-side navigation between the two surfaces has to move focus, or a keyboard user is
+  // left at the top of a document that silently changed underneath them.
+  await page.getByRole("link", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/signin$/);
+  await expect(page.locator("main")).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const surface of MARKETING_SURFACES) {
+    await page.goto(surface.path);
+    await expect(page.getByRole("heading", { level: 1, name: surface.heading })).toBeVisible();
+    await expectNoHorizontalOverflow(page, `marketing ${surface.path}`);
+  }
 });
 
 test("audits every organizer destination and the Wave 2 evaluator surfaces", async ({ page }) => {

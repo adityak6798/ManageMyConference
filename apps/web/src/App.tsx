@@ -6,22 +6,22 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
+import { ApiError, createEvent, listAssignedEvents, updateEvent } from "./api/events";
 import {
-  ApiError,
-  createEvent,
   getAuthConfig,
   getSession,
-  listAssignedEvents,
+  IdentityApiError,
   requestLoginCode,
+  signOut,
   startDemoSession,
-  updateEvent,
   verifyLoginCode,
-} from "./api/events";
-import { OverviewPage } from "./OverviewPage";
+} from "./api/identity";
 import { InstanceMarker } from "./InstanceMarker";
+import { OverviewPage } from "./OverviewPage";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
 import { IconDashboard, IconSettings } from "./ui/icons";
@@ -42,9 +42,22 @@ import {
 
 const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 
+/**
+ * The envelope behind a refusal, whichever client raised it.
+ *
+ * Every API client in `api/` declares its own error class — that is what keeps a domain's
+ * failures its own — and every one of them carries the same envelope. The shell talks to two of
+ * them, so it asks for the envelope rather than for a class, and a third client added later
+ * costs one line here instead of a silently generic message.
+ */
+function envelopeOf(error: unknown) {
+  if (error instanceof ApiError || error instanceof IdentityApiError) return error.envelope;
+  return null;
+}
+
 function readableError(error: unknown): string {
-  if (error instanceof ApiError)
-    return `${error.message} Reference: ${error.envelope.error.correlationId}`;
+  const envelope = envelopeOf(error);
+  if (envelope) return `${envelope.error.message} Reference: ${envelope.error.correlationId}`;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
 
@@ -104,8 +117,26 @@ function routesFor(role: Persona): NavEntry[] {
 assertNoDuplicateWorkspaces();
 
 // @spec PRD-EVT-001 PRD-IAM-001 PRD-IAM-002
-export function App() {
+export function App({
+  session: probedSession,
+  realSession = false,
+}: {
+  /**
+   * The session the landing root already read on this page load, when the console was reached
+   * through it. Asking again would be a second round trip for an answer this document is
+   * holding, so it is spent once here and never again — every later read (a persona switch, a
+   * created event) has to see the session the server has now, not the one it had at boot.
+   */
+  session?: SessionDto;
+  /**
+   * Whether this session was signed in for, rather than being a demo persona. Only the surface
+   * that established it can tell the two apart — they arrive in the same cookie — so it is
+   * passed in rather than guessed at, and the shell offers sign-out only when it is true.
+   */
+  realSession?: boolean;
+} = {}) {
   const [session, setSession] = useState<SessionDto | null>(null);
+  const probed = useRef(probedSession ?? null);
   const [events, setEvents] = useState<EventDto[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [createName, setCreateName] = useState("");
@@ -129,9 +160,21 @@ export function App() {
   const [publication, setPublication] = useState<{ slug: string; state: string } | null>(null);
   const location = useLocation();
   const path = location.split("?")[0] ?? "/";
+  /*
+   * The one flag the Google callback sets, and only on the sign-in that provisioned a brand new
+   * workspace. It names no identity, it is a same-origin literal in the callback rather than
+   * anything the caller supplied, and it lasts exactly as long as the organizer stays on the
+   * overview — which is as long as advice about an empty workspace is worth reading.
+   */
+  const welcome = new URLSearchParams(location.split("?")[1] ?? "").get("welcome") === "1";
 
   const loadShell = useCallback(async () => {
-    const [currentSession, loadedEvents] = await Promise.all([getSession(), listAssignedEvents()]);
+    const primed = probed.current;
+    probed.current = null;
+    const [currentSession, loadedEvents] = await Promise.all([
+      primed ? Promise.resolve(primed) : getSession(),
+      listAssignedEvents(),
+    ]);
     setSession(currentSession);
     setEvents(loadedEvents);
     // Read the requested event from the live URL rather than from render state, so this
@@ -156,8 +199,7 @@ export function App() {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
     void loadShell()
       .catch(async (reason: unknown) => {
-        if (!(reason instanceof ApiError) || reason.envelope.error.code !== "UNAUTHORIZED")
-          throw reason;
+        if (envelopeOf(reason)?.error.code !== "UNAUTHORIZED") throw reason;
         setError(readableError(reason));
         setDemoMode((await getAuthConfig()).demoMode);
       })
@@ -248,6 +290,25 @@ export function App() {
     } catch (reason: unknown) {
       setError(readableError(reason));
     } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * End a real session and go back to "/".
+   *
+   * A full document load rather than a client-side navigation: this console is mounted around
+   * a session that no longer exists, and "/" has to be decided again from the API rather than
+   * re-rendered from state that outlived its cookie.
+   */
+  async function endSession() {
+    setBusy(true);
+    setError(null);
+    try {
+      await signOut();
+      window.location.assign("/");
+    } catch (reason: unknown) {
+      setError(readableError(reason));
       setBusy(false);
     }
   }
@@ -492,6 +553,7 @@ export function App() {
           <OverviewPage
             event={selectedEvent}
             query={query}
+            welcome={welcome}
             onPublicationChange={handlePublicationChange}
           />
         );
@@ -600,6 +662,14 @@ export function App() {
         // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
         void switchPersona(persona);
       }}
+      {...(realSession
+        ? {
+            onSignOut: () => {
+              // ERROR-INTENT: handlers cannot await; endSession renders its own failure.
+              void endSession();
+            },
+          }
+        : {})}
       busy={busy}
       groups={groups}
       activePath={path}

@@ -193,10 +193,17 @@ function PanelUnavailable({ what }: { what: string }) {
 export function OverviewPage({
   event,
   query,
+  welcome = false,
   onPublicationChange,
 }: {
   event: EventDto;
   query: string;
+  /**
+   * Set by the sign-in that provisioned this workspace, and only by that one. A first-run
+   * dashboard is all zeroes and every panel is empty, which is indistinguishable from a
+   * dashboard whose event is over — so the first-run case says which it is, once.
+   */
+  welcome?: boolean;
   onPublicationChange?: (publication: { slug: string; state: string } | null) => void;
 }) {
   const [dashboard, setDashboard] = useState<Dashboard>(IDLE);
@@ -335,6 +342,7 @@ export function OverviewPage({
       unpublished,
       awaiting,
       proposalCount: review.value?.proposals.length ?? 0,
+      speakerCount: content.value?.speakers.length ?? 0,
       speakersWithOpenWork: new Set((openTasks ?? []).map((task) => task.speakerProfileId)),
       conflicts: agenda.value?.conflicts ?? null,
       sessions: content.value?.sessions ?? null,
@@ -380,6 +388,20 @@ export function OverviewPage({
     );
 
   const overdue = (model.openTasks ?? []).filter((task) => task.due.overdue).length;
+  /**
+   * An event nobody has put anything into yet, told apart from one whose work is finished.
+   *
+   * "Every proposal has a decision" is true of both and reassuring in only one of them, and a
+   * newly provisioned workspace reading as a completed conference is how a first-time organizer
+   * concludes the product is broken rather than empty. Claimed only when all three sources have
+   * actually answered — a workspace that merely failed to load is neither.
+   */
+  const unstarted =
+    Boolean(content.value && review.value && agenda.value) &&
+    model.sessions?.length === 0 &&
+    model.speakerCount === 0 &&
+    model.proposalCount === 0 &&
+    model.openTasks?.length === 0;
   // The sentence that reconciles the two questions. "Publish schedule" is the control on
   // the agenda board that closes the gap, so it is named rather than described.
   const publishGap = model.unpublished?.length
@@ -427,6 +449,37 @@ export function OverviewPage({
         }
       />
 
+      {/* The flag says the workspace was just provisioned; `unstarted` says it still is. A URL
+          kept in a bookmark outlives the first run, and "nothing else has been assumed on your
+          behalf" is a claim about an empty workspace rather than a greeting. */}
+      {welcome && unstarted ? (
+        <Card labelledBy="welcome-title" title="Your workspace is ready">
+          <p>
+            Greenroom made you an organization and one event to work in —{" "}
+            <strong>{event.name}</strong>, currently in {event.timezone}. Nothing else has been
+            assumed on your behalf.
+          </p>
+          <ol>
+            <li>
+              <strong>Name the event and set its timezone.</strong> Every time on the agenda board,
+              in a calendar invitation and on the public site is rendered in it, so it is the one
+              setting worth fixing before anything depends on it.{" "}
+              <a {...linkProps(`/settings${query}`)}>Open Event settings</a>.
+            </li>
+            <li>
+              <strong>Open the call for proposals.</strong> Compose the form, publish it, and
+              submissions arrive ready to route, review and decide.{" "}
+              <a {...linkProps(`/cfp${query}`)}>Open the call for proposals</a>.
+            </li>
+            <li>
+              <strong>Then the work fills this page.</strong> Accepted sessions want placing on the
+              agenda board, speakers pick up onboarding tasks, and publishing is what moves any of
+              it to the public site and the speaker portal.
+            </li>
+          </ol>
+        </Card>
+      ) : null}
+
       <dl className="grid-auto">
         <Stat
           label="Awaiting decision"
@@ -451,7 +504,11 @@ export function OverviewPage({
             model.openTasks
               ? overdue
                 ? `${overdue} task${overdue === 1 ? "" : "s"} overdue`
-                : "All on track"
+                : // "All on track" over an event with no speakers at all is a reassurance about
+                  // nothing, which is exactly how a first-run dashboard reads as a broken one.
+                  unstarted
+                  ? "No speakers yet"
+                  : "All on track"
               : "Speaker onboarding unavailable"
           }
           icon={<IconSpeakers size={15} />}
@@ -499,9 +556,16 @@ export function OverviewPage({
         {!model.openTasks ? (
           <PanelUnavailable what="Speaker onboarding" />
         ) : model.openTasks.length === 0 ? (
-          <EmptyState title="No open onboarding tasks" icon={<IconCheck size={20} />}>
-            Every accepted speaker has completed the work requested of them.
-          </EmptyState>
+          unstarted ? (
+            <EmptyState title="No speakers yet" icon={<IconSpeakers size={20} />}>
+              A speaker appears here when a proposal is accepted, along with whatever onboarding you
+              ask of them — a bio, a headshot, slides by a date.
+            </EmptyState>
+          ) : (
+            <EmptyState title="No open onboarding tasks" icon={<IconCheck size={20} />}>
+              Every accepted speaker has completed the work requested of them.
+            </EmptyState>
+          )
         ) : (
           <div className="table-wrap">
             <table className="data">
@@ -561,7 +625,14 @@ export function OverviewPage({
           {!model.awaiting ? (
             <PanelUnavailable what="Abstracts" />
           ) : model.awaiting.length === 0 ? (
-            <EmptyState title="Every proposal has a decision" icon={<IconCheck size={20} />} />
+            unstarted ? (
+              <EmptyState title="No proposals yet" icon={<IconReview size={20} />}>
+                Publish the call for proposals and every submission lands here, waiting to be
+                routed, reviewed and decided.
+              </EmptyState>
+            ) : (
+              <EmptyState title="Every proposal has a decision" icon={<IconCheck size={20} />} />
+            )
           ) : (
             <div className="table-wrap">
               <table className="data">
@@ -608,10 +679,17 @@ export function OverviewPage({
           {!model.unplaced ? (
             <PanelUnavailable what={content.value ? "The agenda" : "Sessions"} />
           ) : model.unplaced.length === 0 ? (
-            <EmptyState
-              title="Every accepted session is on the board"
-              icon={<IconCalendar size={20} />}
-            />
+            unstarted ? (
+              <EmptyState title="Nothing to schedule yet" icon={<IconCalendar size={20} />}>
+                Accepting a proposal creates the session, and it arrives here for you to drop onto
+                the board.
+              </EmptyState>
+            ) : (
+              <EmptyState
+                title="Every accepted session is on the board"
+                icon={<IconCalendar size={20} />}
+              />
+            )
           ) : (
             <ul className="plain-list">
               {model.unplaced.map((contentSession) => (

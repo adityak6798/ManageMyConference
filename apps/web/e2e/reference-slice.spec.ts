@@ -3,8 +3,15 @@ import { expect, test } from "@playwright/test";
 
 test("signs in, switches events and roles, creates, and reloads an event", async ({ page }) => {
   const eventName = `Greenroom Browser Summit ${Date.now()}`;
-  await page.goto("/");
+  // The correlation-aware refusal moved rather than went. `/` is now the marketing landing
+  // page, and a visitor at the front door is not looking at an error — but a *deep link* while
+  // signed out still reaches the console's own signed-out surface, which is where `PRD-IAM-002`
+  // requires the reference to appear. Asserting it there keeps the property proven instead of
+  // deleting the assertion along with the screen that used to carry it.
+  await page.goto("/agenda");
   await expect(page.getByRole("alert")).toContainText("Reference:");
+
+  await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
 
   const switcher = page.getByRole("combobox", { name: "Event workspace" });

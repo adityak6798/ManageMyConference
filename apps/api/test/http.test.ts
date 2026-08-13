@@ -1,6 +1,10 @@
 // @acceptance ACC-HARNESS
 
-import { healthResponseSchema } from "@greenroom/contracts";
+import {
+  authConfigResponseSchema,
+  healthResponseSchema,
+  signOutResponseSchema,
+} from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
@@ -20,7 +24,12 @@ import {
 import { createEventToken } from "../src/application/identity/real-auth";
 import { PublicationService } from "../src/application/publishing/publication-service";
 import type { ReviewService } from "../src/application/review/review-service";
-import { createHttpApp, createHttpAppFrom, type StructuredLogger } from "../src/transport/http/app";
+import {
+  createHttpApp,
+  createHttpAppFrom,
+  type GoogleAuthProvider,
+  type StructuredLogger,
+} from "../src/transport/http/app";
 
 type Persona = "organizer" | "reviewer" | "speaker" | "public";
 
@@ -738,5 +747,171 @@ describe("events HTTP transport", () => {
       expect.objectContaining({ errorStack: expect.anything() }),
       expect.anything(),
     );
+  });
+
+  it("closes the emailed-code doors while the demo persona door is open", async () => {
+    const { app } = createTestApp();
+    // A demo deployment issues persona cookies and nothing else. Each of these routes refuses
+    // before it parses a body or reads a session, so an unconfigured door is a door that is not
+    // there rather than one that answers differently to different callers.
+    for (const path of ["/api/auth/code", "/api/auth/verify", "/api/auth/tokens"]) {
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { ...(await cookieFor("organizer")), "content-type": "application/json" },
+        body: JSON.stringify({ email: "organizer@greenroom.test" }),
+      });
+      expect({ path, status: response.status }).toEqual({ path, status: 404 });
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+    }
+  });
+
+  it("offers the Google door only where it is configured, and reports which doors exist", async () => {
+    const { app } = createTestApp();
+    const unconfigured = await app.request("/api/auth/config");
+    expect(authConfigResponseSchema.parse(await unconfigured.json())).toEqual({
+      demoMode: true,
+      google: false,
+    });
+    for (const path of ["/api/auth/google/start", "/api/auth/google/callback?code=c&state=s"])
+      expect({ path, status: (await app.request(path)).status }).toEqual({ path, status: 404 });
+
+    const google: GoogleAuthProvider = {
+      start: async () => ({
+        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=opaque",
+        attemptId: "attempt-1",
+      }),
+      // Every refusal of the protocol reaches the transport as `null`; the browser must not be
+      // able to tell which one it was.
+      complete: async () => null,
+      resolveUserActor: async () => null,
+    };
+    const configured = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+        google,
+      },
+      testCrm(),
+    );
+    expect(
+      authConfigResponseSchema.parse(await (await configured.request("/api/auth/config")).json()),
+    ).toEqual({ demoMode: true, google: true });
+
+    const started = await configured.request("/api/auth/google/start");
+    expect(started.status).toBe(302);
+    expect(started.headers.get("location")).toBe(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=opaque",
+    );
+    const attemptCookie = started.headers.get("set-cookie") ?? "";
+    expect(attemptCookie).toContain("greenroom_oauth=attempt-1");
+    expect(attemptCookie).toContain("HttpOnly");
+    // Lax and not Strict: Google's return is a cross-site top-level navigation, and a Strict
+    // cookie would not be sent on it.
+    expect(attemptCookie).toContain("SameSite=Lax");
+
+    // Nothing in the request decides where the browser goes next, whatever it supplies.
+    const refused = await configured.request(
+      "/api/auth/google/callback?code=c&state=s&returnTo=https://attacker.test",
+      { headers: { cookie: "greenroom_oauth=attempt-1" } },
+    );
+    expect(refused.status).toBe(302);
+    expect(refused.headers.get("location")).toBe("/signin?auth=failed");
+    expect(refused.headers.get("set-cookie") ?? "").not.toContain("greenroom_session=");
+  });
+
+  /**
+   * The success half of the callback, which the refusal case above cannot reach.
+   *
+   * It matters for two reasons that are invisible from the protocol tests: that a *real* session
+   * cookie is issued — not a demo one — on a deployment whose `demoMode` is true, and that a
+   * freshly provisioned account is sent somewhere that can welcome it while a returning one is
+   * not.
+   */
+  it("issues a real session on a successful Google callback, and welcomes only a new account", async () => {
+    const actor = await resolveSeededDemoActor("organizer");
+    const google = (provisioned: boolean): GoogleAuthProvider => ({
+      start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a1" }),
+      complete: async () => ({ actor, provisioned }),
+      resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
+    });
+    const appFor = (provisioned: boolean) =>
+      createHttpApp(
+        new EventService({
+          repository: new MemoryEventRepository(),
+          newId: () => crypto.randomUUID(),
+          now: () => new Date("2026-08-09T12:00:00.000Z"),
+        }),
+        { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        {
+          demoMode: true,
+          sessionSecret: secret,
+          now: () => 1_000,
+          resolveActor: resolveSeededDemoActor,
+          google: google(provisioned),
+        },
+        testCrm(),
+      );
+
+    const provisionedApp = appFor(true);
+    const welcomed = await provisionedApp.request("/api/auth/google/callback?code=c&state=s", {
+      headers: { cookie: "greenroom_oauth=a1" },
+    });
+    expect(welcomed.status).toBe(302);
+    expect(welcomed.headers.get("location")).toBe("/?welcome=1");
+    const issued = welcomed.headers.get("set-cookie") ?? "";
+    expect(issued).toContain("greenroom_session=");
+    expect(issued).toContain("HttpOnly");
+    expect(issued).toContain("SameSite=Strict");
+    // The attempt cookie is spent whatever the outcome, so a second callback has nothing to
+    // present.
+    expect(issued).toContain("greenroom_oauth=;");
+
+    // The cookie it issued is a *user session* — two dot-separated parts — and resolves through
+    // the real-session path rather than the persona path, which is the property that lets a
+    // Google account and a demo persona share one deployment.
+    const session = (issued.match(/greenroom_session=([^;]+)/) ?? [])[1] ?? "";
+    expect(session.split(".")).toHaveLength(2);
+    const read = await provisionedApp.request("/api/session", {
+      headers: { cookie: `greenroom_session=${session}` },
+    });
+    expect(read.status).toBe(200);
+    expect((await read.json()).actor.id).toBe(actor.id);
+
+    const returning = await appFor(false).request("/api/auth/google/callback?code=c&state=s", {
+      headers: { cookie: "greenroom_oauth=a1" },
+    });
+    expect(returning.headers.get("location")).toBe("/");
+  });
+
+  it("clears the session cookie on sign-out, whether or not one was presented", async () => {
+    const { app } = createTestApp();
+    const headers = await cookieFor("organizer");
+    expect((await app.request("/api/session", { headers })).status).toBe(200);
+
+    const signedOut = await app.request("/api/auth/signout", { method: "POST", headers });
+    expect(signedOut.status).toBe(200);
+    expect(signOutResponseSchema.parse(await signedOut.json())).toEqual({ signedOut: true });
+    const cleared = signedOut.headers.get("set-cookie") ?? "";
+    expect(cleared).toContain("greenroom_session=;");
+    expect(cleared).toContain("Max-Age=0");
+    expect(cleared).toContain("HttpOnly");
+    // The cookie the browser is left holding resolves no session.
+    expect(
+      (await app.request("/api/session", { headers: { cookie: cleared.split(";")[0] ?? "" } }))
+        .status,
+    ).toBe(401);
+    // Answering the same way with no session at all keeps this from reporting whether the
+    // caller had one.
+    const anonymous = await app.request("/api/auth/signout", { method: "POST" });
+    expect(anonymous.status).toBe(200);
+    await expect(anonymous.json()).resolves.toEqual({ signedOut: true });
   });
 });
