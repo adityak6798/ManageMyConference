@@ -81,9 +81,13 @@ function harness(registrants?: readonly AccelEventsRegistrant[]) {
 
 describe("Accelevents registration sync", () => {
   it("keeps the fixture on the published attendee envelope (retrieved 2026-08-12)", async () => {
-    expect(FIXTURE_ATTENDEE_RESPONSE).toMatchObject({
-      recordsTotal: FIXTURE_ATTENDEE_RESPONSE.attendees.length,
-      attendees: expect.arrayContaining([
+    expect(FIXTURE_ATTENDEE_RESPONSE.recordsFiltered).toBe(
+      FIXTURE_ATTENDEE_RESPONSE.attendees.length,
+    );
+    expect(FIXTURE_ATTENDEE_RESPONSE.recordsTotal).toBe(FIXTURE_ATTENDEE_RESPONSE.attendees.length);
+    expect(FIXTURE_ATTENDEE_RESPONSE.ticketTypeCountDtos).not.toHaveLength(0);
+    for (const attendee of FIXTURE_ATTENDEE_RESPONSE.attendees)
+      expect(attendee).toEqual(
         expect.objectContaining({
           attendeeId: expect.any(String),
           firstName: expect.any(String),
@@ -93,8 +97,7 @@ describe("Accelevents registration sync", () => {
           status: expect.any(String),
           ticketStatus: expect.any(String),
         }),
-      ]),
-    });
+      );
     await expect(
       new FixtureAccelEventsRegistrations().listRegistrants(eventId),
     ).resolves.toHaveLength(FIXTURE_ATTENDEE_RESPONSE.recordsTotal);

@@ -81,7 +81,9 @@ const registrantsFrom = (body: unknown): readonly AccelEventsRegistrant[] | null
   if (
     !Array.isArray(envelope.attendees) ||
     !Number.isInteger(envelope.recordsTotal) ||
-    (envelope.recordsTotal as number) < 0
+    (envelope.recordsTotal as number) < 0 ||
+    !Number.isInteger(envelope.recordsFiltered) ||
+    (envelope.recordsFiltered as number) < 0
   )
     return null;
   return envelope.attendees.flatMap((record): AccelEventsRegistrant[] => {
@@ -179,9 +181,9 @@ export class HttpAccelEventsRegistrations implements AccelEventsRegistrationSour
     const registrants: AccelEventsRegistrant[] = [];
     const pageSize = 100;
     let page = 0;
-    let recordsTotal = Number.POSITIVE_INFINITY;
+    let recordsFiltered: number | null = null;
     let providerRowsSeen = 0;
-    while (providerRowsSeen < recordsTotal) {
+    while (recordsFiltered === null || providerRowsSeen < recordsFiltered) {
       const url = `${baseUrl}?page=${page}&size=${pageSize}&dataType=TICKET`;
       let response: Response;
       try {
@@ -205,9 +207,14 @@ export class HttpAccelEventsRegistrations implements AccelEventsRegistrationSour
       const parsed = registrantsFrom(body);
       if (!parsed || !body || typeof body !== "object")
         throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
-      recordsTotal = (body as { recordsTotal: number }).recordsTotal;
+      const pageRecordsFiltered = (body as { recordsFiltered: number }).recordsFiltered;
+      if (recordsFiltered !== null && pageRecordsFiltered !== recordsFiltered)
+        throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
+      recordsFiltered = pageRecordsFiltered;
       const providerRows = (body as { attendees: unknown[] }).attendees.length;
       providerRowsSeen += providerRows;
+      if (providerRowsSeen > recordsFiltered)
+        throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
       registrants.push(...parsed);
       if (providerRows === 0) break;
       page += 1;

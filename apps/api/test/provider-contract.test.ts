@@ -401,6 +401,7 @@ describe("provider request shapes", () => {
           barcode: "two",
         },
       ],
+      recordsFiltered: 2,
       recordsTotal: 2,
     });
 
@@ -423,6 +424,7 @@ describe("provider request shapes", () => {
       attendees: [
         { attendeeId: "ae-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test" },
       ],
+      recordsFiltered: 1,
       recordsTotal: 1,
     });
 
@@ -445,9 +447,72 @@ describe("provider request shapes", () => {
         { firstName: "No", lastName: "id", email: "x@example.test" },
         null,
       ],
+      recordsFiltered: 4,
       recordsTotal: 4,
     });
     expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toHaveLength(1);
+  });
+
+  it("reads every filtered page and stops before the unfiltered attendee total", async () => {
+    const recorded: Recorded[] = [];
+    const pages = [
+      {
+        attendees: Array.from({ length: 100 }, (_, index) => ({
+          attendeeId: `ae-${index}`,
+          firstName: "Ada",
+          lastName: String(index),
+          email: `ada-${index}@example.test`,
+        })),
+        recordsFiltered: 101,
+        recordsTotal: 500,
+      },
+      {
+        attendees: [
+          {
+            attendeeId: "ae-100",
+            firstName: "Grace",
+            lastName: "Hopper",
+            email: "grace@example.test",
+          },
+        ],
+        recordsFiltered: 101,
+        recordsTotal: 500,
+      },
+    ];
+    const fetch = async (url: string, init: RequestInit) => {
+      recorded.push({ url, init });
+      return new Response(JSON.stringify(pages[recorded.length - 1]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).resolves.toHaveLength(101);
+    expect(recorded.map(({ url }) => new URL(url).searchParams.get("page"))).toEqual(["0", "1"]);
+  });
+
+  it("refuses pagination totals that change between pages", async () => {
+    let page = 0;
+    const fetch = async () => {
+      const recordsFiltered = page++ === 0 ? 101 : 102;
+      return new Response(
+        JSON.stringify({
+          attendees: Array.from({ length: 100 }, (_, index) => ({
+            attendeeId: `${page}-${index}`,
+            firstName: "Ada",
+            lastName: String(index),
+            email: `${page}-${index}@example.test`,
+          })),
+          recordsFiltered,
+          recordsTotal: 500,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await expect(registrations(fetch).listRegistrants(GREENROOM_EVENT)).rejects.toMatchObject({
+      code: "MALFORMED_PROVIDER_RESPONSE",
+    });
   });
 
   it("normalizes an unreadable platform without ever storing its message", async () => {
