@@ -16,6 +16,7 @@ import {
   type SliceContext,
   type SliceEntry,
   type SlicePreview,
+  type SliceProvision,
   SliceRefusalError,
   type SliceResult,
 } from "../events/public";
@@ -25,11 +26,15 @@ import { CfpRoutingConfigurationError, type CfpService } from "./cfp-service";
 export const CFP_TEMPLATE_SLICE_KEY = "cfp";
 
 /**
- * The key review's triage statuses arrive under, written literally rather than imported: the CFP
- * domain must not reach into the review domain's modules, and only the *key* is allowed across
- * that boundary anyway. What review's statuses are stays review's business.
+ * The one fact this slice depends on another category for, taken from the seam's own vocabulary
+ * rather than from the review domain: CFP must not reach into review's modules, and what review's
+ * statuses actually are stays review's business either way.
+ *
+ * It is a provision rather than review's slice key on purpose. A key would only say "review is
+ * running", and review runs — reporting `incompatible` — both when it writes the status set and
+ * when it leaves it alone, which are opposite answers to the only question asked here.
  */
-const REVIEW_SLICE_KEY = "review";
+const REVIEW_TRIAGE_STATUSES: SliceProvision = "review:triage-statuses";
 
 interface CfpTemplatePayload {
   readonly title: string;
@@ -82,14 +87,15 @@ export function cfpTemplateSlice(service: CfpTemplateCommands): EventConfigurati
       /*
        * What this preview cannot know, stated rather than guessed.
        *
-       * Review writes the destination's triage statuses before this slice runs, and only its key
-       * crosses that boundary — never its payload. So a rule naming a status the destination is
-       * missing today is copyable by the time the write happens, and a rule naming one the
-       * destination holds today is not, if review's set turns out to drop it. Both directions are
-       * the same fact: while review is applying first, its status set is the one the rules are
-       * checked against, and the preview says so instead of predicting which rules survive it.
+       * Review writes the destination's triage statuses before this slice runs, and only that
+       * one fact crosses the boundary — never its payload, and not even its verdict. So a rule
+       * naming a status the destination is missing today is copyable by the time the write
+       * happens, and a rule naming one the destination holds today is not, if review's set turns
+       * out to drop it. Both directions are the same fact: while review is writing that set, it
+       * is the one the rules are checked against, and the preview says so instead of predicting
+       * which rules survive it.
        */
-      const statusesArriving = context.appliedBefore.includes(REVIEW_SLICE_KEY);
+      const statusesArriving = context.providedBefore.includes(REVIEW_TRIAGE_STATUSES);
       const { usable, pending, refused } = await partitionRouting(
         service,
         actor,

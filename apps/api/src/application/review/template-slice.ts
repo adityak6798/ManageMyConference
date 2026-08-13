@@ -118,6 +118,15 @@ export function reviewTemplateSlice(service: ReviewTemplateCommands): EventConfi
          * be a false statement in the one surface an organizer checks before trusting the clone.
          */
         outcome: incompatible.length ? "incompatible" : "copies",
+        /*
+         * The one fact another category depends on, and the reason it is declared here rather
+         * than read off the outcome above: `incompatible` covers both a locked rubric — where the
+         * status set still lands — and an abstract holding a status this template omits, where it
+         * does not. Only this slice can tell those apart, so only this slice may promise it.
+         */
+        ...(statusesRefused || destination.desired.length === 0
+          ? {}
+          : { provides: ["review:triage-statuses" as const] }),
         reason:
           refusals(destination).join(" ") ||
           (destination.unchanged

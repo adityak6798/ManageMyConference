@@ -40,6 +40,7 @@ export {
   type SlicePreview,
   type SlicePreviewOutcome,
   type SlicePreviewReport,
+  type SliceProvision,
   SliceRefusalError,
   type SliceResult,
   type SliceResultReport,

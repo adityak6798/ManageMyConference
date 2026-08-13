@@ -41,7 +41,7 @@ const REMAP = {
  * Neither content slice depends on another category, so both ignore it — and a test calling a
  * slice directly still supplies it, because the port does.
  */
-const CONTEXT = { appliedBefore: [] };
+const CONTEXT = { providedBefore: [] };
 
 const CAPABILITIES = [
   "events:read",

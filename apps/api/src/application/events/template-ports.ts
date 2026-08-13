@@ -103,6 +103,16 @@ export interface SlicePreview {
   readonly excludes: readonly SliceEntry[];
   /** Present in the source and refused by the destination as it stands. */
   readonly incompatible: readonly SliceEntry[];
+  /**
+   * Facts this category will have made true by the time later ones run.
+   *
+   * Declared by the slice because only the slice knows: a category can be `incompatible` overall
+   * and still write the half a later one depends on, or `copies` overall and write nothing at
+   * all. Omit it — most slices have nothing to promise — or name only what this preview has
+   * established will actually happen. A provision that does not materialise is a preview that
+   * misled the category downstream of it, which is the defect this replaced.
+   */
+  readonly provides?: readonly SliceProvision[] | undefined;
 }
 
 export interface SliceResult {
@@ -128,28 +138,42 @@ export interface SliceResult {
  * its routing rules against them. A preview writes nothing, so it has no such destination to
  * read, and without this it would report against a state the apply will never actually meet.
  *
- * Only slice **keys** cross this boundary, never another domain's payload. A slice learns that a
- * category it depends on is about to write; it does not learn what that category contains, which
- * is the whole reason the payloads are opaque to everyone but the slice that wrote them.
+ * Only these **tokens** cross the boundary, never another domain's payload. A slice learns that
+ * the one fact it depends on will be true; it does not learn what the category providing it
+ * contains, which is the whole reason the payloads are opaque to everyone but their author.
  */
 export interface SliceContext {
   /**
-   * Keys of the earlier slices in this application that will **attempt to write**.
+   * What the categories applied before this one will have written by the time it runs.
    *
-   * Read the predicate exactly, because two neighbouring readings are both wrong. It is not
-   * "every selected slice carrying a payload": one whose own preview answered `unauthorized`,
-   * `failed` or `skipped` writes nothing and is absent. Nor is it "every slice that will fully
-   * succeed": a slice reports `incompatible` when *part* of its payload is refused while the rest
-   * lands — review says that when the destination's rubric is locked and still writes the whole
-   * triage status set — so `incompatible` is present.
+   * This carries provisions rather than slice keys, and the difference is the whole design. Four
+   * readings of "which earlier slices count" were tried against a slice's outcome — every
+   * selected one, `copies` only, `copies` or `incompatible`, "will attempt to write" — and each
+   * traded one destination state for another, because **no whole-category verdict answers the
+   * question a dependent slice is actually asking.** CFP does not need to know whether review
+   * succeeded; it needs to know whether the triage status set will be written. Review reports
+   * `incompatible` on a path that writes the statuses (a locked rubric) and on a path that does
+   * not (an abstract holding a status the template omits), so the verdict cannot distinguish
+   * them and only review can.
    *
-   * A key here is therefore an intention, not a guarantee. A slice depending on one must word its
-   * preview as a dependency ("once the triage statuses category creates that status") rather than
-   * as a promise, because the upstream category may land without carrying the particular thing
-   * this one needs, and no key can say otherwise.
+   * So the slice that knows declares it. A provision is a promise about a specific fact, made by
+   * the category that will make it true, and a dependent slice tests for exactly that fact.
    */
-  readonly appliedBefore: readonly string[];
+  readonly providedBefore: readonly SliceProvision[];
 }
+
+/**
+ * The vocabulary of facts one category can promise another, and deliberately a very short list.
+ *
+ * It lives here rather than in the domain that provides it because the alternative is a
+ * cross-domain import: CFP may not reach into review to learn the name of the thing it depends
+ * on. That makes this file the seam's shared vocabulary, exactly as the slice keys are — and
+ * every entry names its owner, because an entry nobody provides is one a dependent slice waits
+ * on for ever.
+ */
+export type SliceProvision =
+  /** Provided by the review slice when it will write the destination's triage status set. */
+  "review:triage-statuses";
 
 export interface EventConfigurationSlice {
   /** Stable slice key: `"cfp" | "review" | "agenda" | "publishing" | "content-resources"`. */

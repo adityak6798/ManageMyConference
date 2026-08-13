@@ -12,6 +12,7 @@ import type {
   SliceContext,
   SliceFault,
   SlicePreview,
+  SliceProvision,
   SliceResult,
 } from "../src/application/events/public";
 import {
@@ -746,32 +747,37 @@ describe("Event templates: the per-slice contract", () => {
     );
   });
 
-  it("tells a preview which categories this application writes before it", async () => {
+  it("carries a category's promise forward to the ones applied after it", async () => {
     const seen = new Map<string, readonly string[]>();
-    const recording = (key: string): EventConfigurationSlice => ({
-      key,
-      label: key,
-      export: () => Promise.resolve({ captured: key }),
-      preview(_actor, _eventId, _payload, _remap, context: SliceContext) {
-        seen.set(key, context.appliedBefore);
-        return Promise.resolve({
-          outcome: "copies" as const,
-          reason: "",
-          copies: [],
-          excludes: [],
-          incompatible: [],
-        });
-      },
-      apply: () =>
-        Promise.resolve({
-          outcome: "applied" as const,
-          reason: "",
-          applied: [],
-          incompatible: [],
-        }),
-    });
+    const recording = (
+      key: string,
+      provides?: readonly SliceProvision[],
+    ): EventConfigurationSlice =>
+      ({
+        key,
+        label: key,
+        export: () => Promise.resolve({ captured: key }),
+        preview(_actor, _eventId, _payload, _remap, context: SliceContext) {
+          seen.set(key, context.providedBefore);
+          return Promise.resolve({
+            outcome: "copies" as const,
+            reason: "",
+            copies: [],
+            excludes: [],
+            incompatible: [],
+            ...(provides ? { provides } : {}),
+          });
+        },
+        apply: () =>
+          Promise.resolve({
+            outcome: "applied" as const,
+            reason: "",
+            applied: [],
+            incompatible: [],
+          }),
+      }) satisfies EventConfigurationSlice;
     const { actor, templates, templateId } = await orchestrate([
-      recording("review"),
+      recording("review", ["review:triage-statuses"]),
       recording("cfp"),
       recording("agenda"),
     ]);
@@ -780,45 +786,57 @@ describe("Event templates: the per-slice contract", () => {
       templateId,
       version: 1,
       destination: DESTINATION_RANGE,
-      // Apply order is composition order, so CFP has to be told review lands first — and agenda
-      // must not be told about a category this application skipped.
+      // Apply order is composition order, so CFP has to be told the statuses land first — and
+      // agenda must not be told anything by a category this application skipped.
       slices: ["review", "cfp"],
     });
 
     expect(seen.get("review")).toEqual([]);
-    expect(seen.get("cfp")).toEqual(["review"]);
+    expect(seen.get("cfp")).toEqual(["review:triage-statuses"]);
     expect(seen.has("agenda")).toBe(false);
   });
 
   /*
-   * The predicate itself, outcome by outcome, because both neighbouring readings of it are wrong
-   * and each produced a shipped defect. Reading it as "every selected slice with a payload" let a
-   * category that could not be written announce itself as landing; narrowing it to `copies` alone
-   * then hid a category that reports `incompatible` for a refused *part* while the rest of it
-   * writes — which is review whenever the destination's rubric is locked. One test, five outcomes,
-   * so the next person to change this line has to say which reading they meant.
+   * A category's verdict must not decide what crosses to the next one — only its own promise may.
+   *
+   * Four predicates over the outcome were tried here and each shipped a defect, because the two
+   * are independent: `incompatible` covers review writing its status set with a locked rubric AND
+   * review leaving that set alone, and `copies` covers a slice whose destination already matches
+   * and which writes nothing. This pins the independence in both directions, so the next attempt
+   * to infer a promise from a verdict fails a test instead of a destination.
    */
-  it("counts a category as landing before the next one when it will attempt to write", async () => {
-    const outcomes = ["copies", "incompatible", "unauthorized", "failed", "skipped"] as const;
+  it("takes a category's promise from what it declares, never from its verdict", async () => {
     const seen = new Map<string, readonly string[]>();
-    const answering = (key: string, outcome: SlicePreview["outcome"]): EventConfigurationSlice => ({
+    const answering = (
+      key: string,
+      outcome: SlicePreview["outcome"],
+      provides?: readonly SliceProvision[],
+    ): EventConfigurationSlice => ({
       key,
       label: key,
       export: () => Promise.resolve({ captured: key }),
       preview(_actor, _eventId, _payload, _remap, context: SliceContext) {
-        seen.set(key, context.appliedBefore);
-        return Promise.resolve({ outcome, reason: "", copies: [], excludes: [], incompatible: [] });
+        seen.set(key, context.providedBefore);
+        return Promise.resolve({
+          outcome,
+          reason: "",
+          copies: [],
+          excludes: [],
+          incompatible: [],
+          ...(provides ? { provides } : {}),
+        });
       },
       apply: () =>
         Promise.resolve({ outcome: "applied" as const, reason: "", applied: [], incompatible: [] }),
     });
-    // Each answering slice is followed by an observer, so the observer's list says whether the
-    // slice before it counted. Ordering matters, so they are composed in pairs.
-    const composed = outcomes.flatMap((outcome) => [
-      answering(outcome, outcome),
-      answering(`after-${outcome}`, "skipped"),
+    const { actor, templates, templateId } = await orchestrate([
+      // Refuses part of itself and still writes the half anyone downstream depends on.
+      answering("refusing-provider", "incompatible", ["review:triage-statuses"]),
+      answering("after-refusing", "skipped"),
+      // Copies cleanly and promises nothing, because its destination already matched.
+      answering("silent-copier", "copies"),
+      answering("after-silent", "skipped"),
     ]);
-    const { actor, templates, templateId } = await orchestrate(composed);
 
     await templates.preview(actor, DESTINATION, {
       templateId,
@@ -826,12 +844,8 @@ describe("Event templates: the per-slice contract", () => {
       destination: DESTINATION_RANGE,
     });
 
-    // A slice that will write something — even a slice refusing part of its payload — counts.
-    expect(seen.get("after-copies")).toContain("copies");
-    expect(seen.get("after-incompatible")).toContain("incompatible");
-    // A slice that writes nothing at all does not, whatever the reason it writes nothing.
-    expect(seen.get("after-unauthorized")).not.toContain("unauthorized");
-    expect(seen.get("after-failed")).not.toContain("failed");
-    expect(seen.get("after-skipped")).not.toContain("skipped");
+    expect(seen.get("after-refusing")).toEqual(["review:triage-statuses"]);
+    // The silent copier adds nothing, so the list its successor sees is unchanged rather than grown.
+    expect(seen.get("after-silent")).toEqual(["review:triage-statuses"]);
   });
 });

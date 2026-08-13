@@ -20,6 +20,7 @@ import {
   type SliceCaptureReport,
   type SliceContext,
   type SliceFault,
+  type SliceProvision,
   type SlicePreviewReport,
   SliceRefusalError,
   type SliceResultReport,
@@ -252,9 +253,9 @@ export class EventTemplateService {
      * preview walks the same array against a destination nobody has touched. Without this a
      * slice answers against a state the apply will never meet — which is exactly how CFP's
      * preview called a routing rule incompatible with triage statuses review's slice was about
-     * to create for it. Keys only: no slice learns what another one holds.
+     * to create for it. Provisions only: no slice learns what another one holds.
      */
-    const appliedBefore: string[] = [];
+    const providedBefore = new Set<SliceProvision>();
     for (const slice of this.dependencies.slices) {
       const selected = this.selection(command, slice.key);
       const payload = context.payload.slices[slice.key];
@@ -273,28 +274,19 @@ export class EventTemplateService {
         continue;
       }
       const report = await this.previewSlice(slice, actor, eventId, payload, context.remap, {
-        appliedBefore: [...appliedBefore],
+        providedBefore: [...providedBefore],
       });
       slices.push({ key: slice.key, label: slice.label, ...report });
       /*
-       * A category counts as landing before the next one when it will *attempt to write*.
+       * The orchestrator collects promises; it does not infer them.
        *
-       * Being selected and carrying a payload is not enough: a slice whose own preview just
-       * answered `unauthorized`, `failed` or `skipped` writes nothing at all, and announcing it
-       * anyway would have CFP report a routing rule as copied on the strength of triage statuses
-       * that are never coming.
-       *
-       * `incompatible` is the interesting one, and it belongs on the landing side. A slice reports
-       * it as soon as *any* part of its payload is refused, while the rest still lands — review
-       * says `incompatible` when the destination's rubric is locked by existing assignments and
-       * goes on to write the whole triage status set regardless. Excluding it made CFP preview a
-       * routing rule as refused that the apply then copied: the same disagreement this list exists
-       * to remove, running the other way. A dependent slice's wording already hedges ("once the
-       * triage statuses category creates that status"), which is the honest answer when the
-       * upstream set may or may not carry what it needs.
+       * Four attempts were made to decide from a slice's own outcome whether the next one should
+       * count on it, and each traded one destination state for another. The reason is structural:
+       * a category can answer `incompatible` while writing the half a later slice needs, and
+       * answer `incompatible` while writing nothing, and the verdict cannot tell those apart. So
+       * the slice that knows says so, and this line does nothing but carry it forward.
        */
-      if (report.outcome === "copies" || report.outcome === "incompatible")
-        appliedBefore.push(slice.key);
+      for (const provision of report.provides ?? []) providedBefore.add(provision);
     }
     return {
       ...context.identity,

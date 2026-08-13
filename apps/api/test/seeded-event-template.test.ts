@@ -57,7 +57,7 @@ const REMAP = {
 };
 
 /** Nothing is applied before anything here: each slice is asked about its payload alone. */
-const CONTEXT = { appliedBefore: [] };
+const CONTEXT = { providedBefore: [] };
 
 const CAPABILITIES = [
   "events:read",
