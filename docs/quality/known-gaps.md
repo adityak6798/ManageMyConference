@@ -396,3 +396,30 @@ feature-by-feature verdict.
   `agenda_publications` restores the replay's exact number, mails nobody, and moves no programme,
   which is why it is preferable wherever database access is available. Either way the speakers who
   lost the entry get it back at the next Send, which is the point of repairing at all.
+- `GAP-022` **Search opens the surface a record lives on, not the record, and its cost is proven
+  bounded only against the seed.** Two limits, both deliberate, both worth naming rather than
+  discovering.
+
+  The console has **no per-record routes**. Every workspace is addressed by its path plus
+  `?event=`, and nothing anywhere reads a selection out of the URL, so the deep link a search hit
+  carries is the workspace that holds the record — `/sessions`, `/abstracts`, `/agenda` — and the
+  operator finds the row on it themselves. `apps/web/e2e/platform-operations.spec.ts` asserts
+  exactly that and no more. The acceptance criterion in issue #99 reads "landing on the exact
+  record", and what is true today is "landing on the surface that shows it", which is a smaller
+  claim.
+
+  Filtering happens **in memory over projections the console already reads**. There is no index
+  and no projection storage, which is what keeps every record under its owning domain's own
+  authorization rule (`PRD-OPS-001`) — but it also means one keystroke costs one read per source,
+  each section is capped rather than paginated, and the whole answer is bounded by what those
+  projections happen to carry. On the seeded event that is a handful of rows and the bound is
+  proven. On a conference with a few thousand proposals it is unmeasured, and the honest
+  expectation is that the read cost, not the filtering, is what would show first.
+
+  Owner: platform. Governing ID: `PRD-OPS-001`, `ACC-OPS`. Closure: two independent halves. A
+  record-addressable route on at least the surfaces search returns — a selection the workspace
+  reads from the query string, and hits that carry it — closes the first, and the browser spec's
+  assertion tightens from "the surface shows it" to "the record is selected". A measurement
+  against a fixture an order of magnitude larger than the seed, with a stated ceiling that the
+  suite enforces, closes the second; if it fails, the projection reads are where to look before
+  the filter is.

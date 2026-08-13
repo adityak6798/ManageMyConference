@@ -389,3 +389,43 @@ the `PlacedSessionTime & { revision; revisedAt }` it replaces — no file under
 `application/content/` or `application/communications/` needed a change, which was the contract
 test for this lane. A lane appending to this file should add its export below the interface and
 edit nothing above.
+### Issue #99 rulings
+
+**The composition root now calls `createHttpAppFrom`, and it had to.** `apps/api/src/index.ts` was
+still on the deprecated positional `createHttpApp(...)` — fourteen positional parameters, one of
+which is sniffed by testing for a method on it. There is no fourteenth-and-a-half slot for a new
+service, so a lane adding one has exactly two options: widen the positional signature in
+`transport/http/app.ts`, which the collision ruling forbids #99 from touching, or move the call to
+the named form `app.ts` already exports and documents as the replacement. This lane took the
+second. The change is mechanical — the same services, by name — and it is what the coordination
+document's own instruction ("add your services to the dependency object as new named properties
+appended after `itineraries` and before `build`") presupposes. Later lanes should find the object
+they were told to append to. `createHttpApp` itself is untouched and still exported; the API test
+suites that use it still pass.
+
+**One dependency field, not three.** The lane prompt for #99 asks for `search?: PlatformSearchService`
+on `HttpDependencies`; the coordination document assigns #99 exactly one field, `platformOps?:
+PlatformOperationsService`. The coordination document wins, because the reason for the rule is
+cross-lane merge surface rather than this lane's convenience. `PlatformOperationsService` is
+therefore the single service the transport takes, composing search now and the inbox and audit
+timeline in the later phases, with each capability in its own module.
+
+**Sources are declared as ports here, not imported as services.** `application/platform/` states the
+narrowest shape it needs from each domain — `ContentSearchSource`, `ReviewSearchSource`, and so on —
+and the real services satisfy them structurally where the composition root binds them. This is the
+same inversion `ContentAgendaInterface` and `OutreachDispatchPort` already use. Two consequences
+worth naming: platform holds no import of another domain's concrete projection types, so the
+cross-domain import gate has nothing to allow beyond what already exists; and a domain that changes
+one of those shapes breaks the build at the binding site in `index.ts`, which is where somebody can
+see all six at once.
+
+**`/search` sorts above `/abstracts` by grouping, not by number.** The coordination document assigns
+#99 the `order` band 5–9 and also says "above abstracts", whose `order` is 1. Both are satisfiable
+at once and the apparent conflict is not one: the sidebar groups by `NAV_GROUP_ORDER` first and
+sorts within a group second, so `/search` at `order: 5` in the `home` group renders above the whole
+`Program` group. The assigned band is used as written.
+
+**What #99a does not claim.** Search opens the workspace that holds a record, not the record — the
+console has no per-record routes at all, and `GAP-022` owns both that and the fact that the in-memory
+filtering is proven bounded only against the seed. The inbox (`99b`) and the audit timeline (`99c`)
+are separate phases with their own rows; `ACC-OPS` covers search alone until they land.

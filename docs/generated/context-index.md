@@ -3,7 +3,7 @@
 
 | Domain | Specs | Journeys | Acceptance | Plans | Index |
 |---|---|---|---|---|---|
-| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
+| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | `JNY-010` | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | events | `PRD-EVT-001`, `PRD-EVT-002` | — | `ACC-IDENTITY-EVENTS`, `ACC-EVENT-TEMPLATES` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -161,6 +161,17 @@
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
+### `ACC-OPS`
+- `test` / `repository-fact`: [apps/api/test/platform-http.test.ts](../../apps/api/test/platform-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/platform-search.test.ts](../../apps/api/test/platform-search.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
+- `test` / `repository-fact`: [apps/web/e2e/platform-operations.spec.ts](../../apps/web/e2e/platform-operations.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/command-palette.test.tsx](../../apps/web/test/command-palette.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/platform-search.test.tsx](../../apps/web/test/platform-search.test.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
 ### `ACC-PUBLIC`
 - `test` / `repository-fact`: [apps/api/test/d1-publication-repository.integration.test.ts](../../apps/api/test/d1-publication-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/itinerary.test.ts](../../apps/api/test/itinerary.test.ts)
@@ -242,6 +253,9 @@
 - `code` / `repository-fact`: [apps/api/src/application/content/template-slice.ts](../../apps/api/src/application/content/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/application/events/template-ports.ts](../../apps/api/src/application/events/template-ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/platform/operations-service.ts](../../apps/api/src/application/platform/operations-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/platform/public.ts](../../apps/api/src/application/platform/public.ts)
+- `code` / `repository-fact`: [apps/api/src/application/platform/search-service.ts](../../apps/api/src/application/platform/search-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/publishing/template-slice.ts](../../apps/api/src/application/publishing/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/suggestion-port.ts](../../apps/api/src/application/review/suggestion-port.ts)
@@ -531,6 +545,7 @@
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/identity.ts](../../apps/api/src/transport/http/routes/identity.ts)
 - `code` / `repository-fact`: [apps/web/src/AcceptInvitationPage.tsx](../../apps/web/src/AcceptInvitationPage.tsx)
 - `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
+- `code` / `repository-fact`: [apps/web/src/CommandPalette.tsx](../../apps/web/src/CommandPalette.tsx)
 - `code` / `repository-fact`: [apps/web/src/MembersWorkspace.tsx](../../apps/web/src/MembersWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/api/membership.ts](../../apps/web/src/api/membership.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/contract.ts](../../apps/web/src/workspaces/contract.ts)
@@ -566,6 +581,18 @@
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/communications-integrations.ts](../../packages/contracts/src/domains/communications-integrations.ts)
+
+### `PRD-OPS-001`
+- `code` / `repository-fact`: [apps/api/src/application/platform/operations-service.ts](../../apps/api/src/application/platform/operations-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/platform/public.ts](../../apps/api/src/application/platform/public.ts)
+- `code` / `repository-fact`: [apps/api/src/application/platform/search-service.ts](../../apps/api/src/application/platform/search-service.ts)
+- `code` / `repository-fact`: [apps/api/src/transport/http/routes/platform.ts](../../apps/api/src/transport/http/routes/platform.ts)
+- `code` / `repository-fact`: [apps/web/src/CommandPalette.tsx](../../apps/web/src/CommandPalette.tsx)
+- `code` / `repository-fact`: [apps/web/src/platform/SearchWorkspace.tsx](../../apps/web/src/platform/SearchWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/workspaces/platform.tsx](../../apps/web/src/workspaces/platform.tsx)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)
 
 ### `PRD-PUB-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-itinerary-repository.ts](../../apps/api/src/adapters/persistence/d1-itinerary-repository.ts)

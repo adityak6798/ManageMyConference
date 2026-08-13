@@ -22,6 +22,7 @@ import {
   startDemoSession,
   verifyLoginCode,
 } from "./api/identity";
+import { CommandPalette } from "./CommandPalette";
 import { InstanceMarker } from "./InstanceMarker";
 import { OverviewPage } from "./OverviewPage";
 import { navigate, useLocation } from "./router";
@@ -175,6 +176,12 @@ export function App({
   const [code, setCode] = useState("");
   const [challenge, setChallenge] = useState("");
   const [publication, setPublication] = useState<{ slug: string; state: string } | null>(null);
+  /**
+   * The command palette is global chrome rather than a route, so the shell owns whether it is
+   * open. It is the only surface here that is not a workspace module, and the reason is that a
+   * keystroke has to reach it from every one of them.
+   */
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
   const path = location.split("?")[0] ?? "/";
   /*
@@ -296,6 +303,31 @@ export function App({
     setError(null);
     setAgendaLoadFailure(null);
   }, [path, selectedEventId]);
+
+  // Cmd/Ctrl+K from anywhere in the console. Registered on the document rather than on a
+  // container because the point of the shortcut is that no particular surface has to have
+  // focus, and cancelled while a text field is not the target would be the wrong rule — an
+  // operator typing into the agenda's filter still means "search the event" by this chord.
+  //
+  // Bound to whether there is an event to search, because the palette is only mounted when
+  // there is one: an unconditional handler would swallow the browser's own Cmd+K on an
+  // identity with no assigned event and then render nothing, which is worse than not
+  // claiming the chord at all.
+  useEffect(() => {
+    if (!selectedEventId) return;
+    function onKeyDown(keyEvent: KeyboardEvent) {
+      if (keyEvent.key.toLowerCase() !== "k" || !(keyEvent.metaKey || keyEvent.ctrlKey)) return;
+      keyEvent.preventDefault();
+      setPaletteOpen(true);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selectedEventId]);
+
+  // A palette left open across an event switch would be searching the event the operator just
+  // left, and its results would carry the previous event's links.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closing is keyed on the destination.
+  useEffect(() => setPaletteOpen(false), [selectedEventId]);
 
   // The aggregate owns the server-assigned public slug, and clears it while events switch.
   // biome-ignore lint/correctness/useExhaustiveDependencies: clearing is keyed on the destination.
@@ -734,10 +766,22 @@ export function App({
             },
           }
         : {})}
+      {...(selectedEvent ? { onOpenSearch: () => setPaletteOpen(true) } : {})}
       busy={busy}
       groups={groups}
       activePath={path}
       publicHref={publicHref}
+      {...(selectedEvent
+        ? {
+            overlay: (
+              <CommandPalette
+                eventId={selectedEvent.id}
+                open={paletteOpen}
+                onClose={() => setPaletteOpen(false)}
+              />
+            ),
+          }
+        : {})}
     >
       {renderPage()}
       {error ? <Notice tone="error">{error}</Notice> : null}

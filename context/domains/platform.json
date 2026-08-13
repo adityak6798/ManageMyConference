@@ -2,9 +2,9 @@
   "id": "platform",
   "order": 10,
   "index": "docs/architecture/README.md",
-  "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001"],
+  "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001", "PRD-OPS-001"],
   "journeys": [],
-  "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE"],
+  "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE", "ACC-OPS"],
   "plans": ["PLAN-001", "PLAN-002"],
   "paths": [
     ".agents/extra-skills/bootstrap-harness",
@@ -65,7 +65,17 @@
     "apps/web/src/workspaces/registry.tsx",
     "apps/api/test/d1-harness.integration.test.ts",
     "apps/api/test/d1-write-result.test.ts",
-    "apps/api/test/support/seeded-d1.ts"
+    "apps/api/test/support/seeded-d1.ts",
+    "apps/api/src/application/platform",
+    "apps/api/test/platform-search.test.ts",
+    "apps/api/test/platform-http.test.ts",
+    "apps/web/src/CommandPalette.tsx",
+    "apps/web/src/platform",
+    "apps/web/src/api/platform.ts",
+    "apps/web/src/workspaces/platform.tsx",
+    "apps/web/test/command-palette.test.tsx",
+    "apps/web/test/platform-search.test.tsx",
+    "apps/web/e2e/platform-operations.spec.ts"
   ],
   "symbols": {
     "createHttpApp": "apps/api/src/transport/http/app.ts",

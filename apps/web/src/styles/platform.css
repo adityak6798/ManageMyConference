@@ -1,0 +1,151 @@
+/*
+ * Platform's operational chrome: the command palette.
+ *
+ * Built on the shared tokens rather than on its own scale, so an overlay that sits above every
+ * workspace still reads as the same product underneath.
+ */
+
+.topbar-search {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--s-2);
+}
+
+.topbar-search kbd {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-2xs);
+  padding: 0 var(--s-1);
+}
+
+/* Icon-only below a topbar that cannot hold the words. The label keeps its place in the
+   accessibility tree — this is the shell's own hiding recipe — so the control is still named
+   "Search" for a screen reader and for the browser suite that looks for it. */
+@media (max-width: 720px) {
+  .topbar-search kbd {
+    display: none;
+  }
+
+  .topbar-search .topbar-search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.palette-backdrop {
+  align-items: flex-start;
+  background: rgba(15, 26, 21, 0.38);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: max(6vh, var(--s-8)) var(--s-4) var(--s-4);
+  position: fixed;
+  z-index: 50;
+}
+
+.palette {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  display: grid;
+  gap: var(--s-3);
+  max-height: min(70vh, 620px);
+  overflow-y: auto;
+  padding: var(--s-4);
+  width: min(640px, 100%);
+}
+
+.palette-field {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.palette-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.palette-announce {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  margin: 0;
+}
+
+.palette-results {
+  display: grid;
+  gap: var(--s-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.palette-result {
+  align-items: baseline;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+}
+
+.palette-result.is-active {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.palette-kind {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.palette-title {
+  font-weight: 600;
+}
+
+.palette-subtitle {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.palette-note {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  margin: 0;
+}
+
+.palette-note.is-error {
+  color: #a3312a;
+}
+
+/* The overlay is the one surface that must never introduce a sideways scroll: it is centred on
+   a viewport it does not control, and the quality sweep checks 390px. */
+@media (max-width: 480px) {
+  /* The shell was already using the full phone-width row before Search joined it. Keep every
+     control present, but reclaim the desktop spacing around them so the new icon does not make
+     the document wider than the viewport (hosted instances have a slightly wider marker too). */
+  .topbar:has(.topbar-search) {
+    gap: var(--s-2);
+    padding-inline: var(--s-2);
+  }
+
+  .palette-backdrop {
+    padding: var(--s-4) var(--s-2);
+  }
+
+  .palette-field {
+    flex-wrap: wrap;
+  }
+}

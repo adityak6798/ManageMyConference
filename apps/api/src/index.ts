@@ -52,6 +52,7 @@ import { CrmService } from "./application/crm/crm-service";
 import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
 import { EventService, EventTemplateService } from "./application/events/public";
+import { PlatformOperationsService } from "./application/platform/public";
 import {
   completeGoogleAuthorization,
   type GoogleConfiguration,
@@ -970,6 +971,22 @@ export default {
      * `createHttpAppFrom` is what app.ts already tells new code to use; the mapping below is
      * exactly what the positional wrapper did, argument for argument.
      */
+    // --- platform (issue #99) ---
+    /*
+     * Every source is the *same instance* the domain's own routes are composed from, and each is
+     * handed the request's actor untouched. There is no platform-owned copy of any of this data
+     * and no system-trust shortcut into it: an operator searching sees exactly the records their
+     * role already lets them open, because the reads are the same reads.
+     */
+    const platformOps = new PlatformOperationsService({
+      events: service,
+      content,
+      review: reviewService,
+      agenda,
+      communications,
+      crm,
+    });
+    // --- end platform ---
     const app = createHttpAppFrom({
       events: service,
       logger,
@@ -1034,6 +1051,7 @@ export default {
       accelEventsSync,
       membership,
       eventTemplates,
+      platformOps,
       build:
         environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
           ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }

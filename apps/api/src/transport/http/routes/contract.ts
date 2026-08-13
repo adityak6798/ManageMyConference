@@ -22,6 +22,7 @@ import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
 import type { EventTemplateService } from "../../../application/events/public";
 import type { MembershipService } from "../../../application/identity/membership";
+import type { PlatformOperationsService } from "../../../application/platform/public";
 import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
 import type {
@@ -84,6 +85,7 @@ export interface HttpDependencies {
   publishing?: PublicationService | undefined;
   itineraries?: ItineraryService | undefined;
   eventTemplates?: EventTemplateService | undefined;
+  platformOps?: PlatformOperationsService | undefined;
   build?: BuildIdentity | undefined;
 }
 
