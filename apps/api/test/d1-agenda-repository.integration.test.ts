@@ -1129,6 +1129,114 @@ describe("D1AgendaRepository session schedule revisions", () => {
     expect(await repository.driftedEvents(10)).toEqual([eventId]);
   });
 
+  /**
+   * A committed publication claims the watermark, and the claim is conditional.
+   *
+   * Two properties, both of which survived mutation until this existed. The counter has to reach
+   * exactly the number of writes the history has taken — binding the read value instead of
+   * `read + 1` leaves every published event permanently flagged, so every read replays and the
+   * tick never stops, which is the cost #141 removed reinstated by a silent off-by-one. And the
+   * claim has to *fail* when somebody else wrote in between: `AgendaService.publish` is defended
+   * by the version primary key, but a writer that does not allocate `max + 1` collides with
+   * nothing, and marking the event caught up would fold that publication out of existence.
+   */
+  it("claims the watermark on a committed publication, and only when nothing else wrote", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-claim", seed: true });
+    runtime = migrated.runtime;
+
+    const quiet = new D1AgendaRepository(migrated.database, () => new Date());
+    expect(
+      await quiet.publish(
+        publication(2, board([at("place-a", sessionA, mainStage.id, slot1000.id)])),
+      ),
+    ).toBe("committed");
+    // Two writes: the seed's publication and this one.
+    expect(await watermarks(migrated.database)).toEqual({
+      publication_watermark: 2,
+      materialized_watermark: 2,
+    });
+    expect(await quiet.driftedEvents(10)).toEqual([]);
+
+    /*
+     * Now a writer that allocates its own version lands between the read and the write. Injected
+     * *after* the first batch returns, because that first batch is `readMaterialized` — which is
+     * precisely the read the claim is conditional on.
+     */
+    let injected = false;
+    const interleaved = {
+      prepare: (query: string) => migrated.database.prepare(query),
+      batch: async (statements: unknown[]) => {
+        const result = await (
+          migrated.database as unknown as { batch(s: unknown[]): Promise<unknown> }
+        ).batch(statements);
+        if (!injected) {
+          injected = true;
+          await insertHistory(migrated.database, [publication(50, board([]))]);
+        }
+        return result;
+      },
+    };
+    const raced = new D1AgendaRepository(
+      interleaved as unknown as ConstructorParameters<typeof D1AgendaRepository>[0],
+      () => new Date(),
+    );
+    expect(
+      await raced.publish(
+        publication(3, board([at("place-a", sessionA, mainStage.id, slot0900.id)])),
+      ),
+    ).toBe("committed");
+
+    // The publication committed; the claim did not, so the event is flagged rather than sound.
+    const after = await watermarks(migrated.database);
+    expect(after?.publication_watermark).toBe(4);
+    expect(after?.materialized_watermark).toBe(2);
+    expect(await raced.driftedEvents(10)).toEqual([eventId]);
+  });
+
+  /**
+   * When every attempt loses, the answer served is the replayed one — never the rows it just
+   * proved stale.
+   *
+   * An earlier revision returned the stored rows here while the comment above it claimed the
+   * opposite, which handed the calendar-invite read the phantom row it had detected in the same
+   * call. `drift.phantom` being non-empty in the report and the phantom row being absent from the
+   * answer is the pair that has to hold.
+   */
+  it("serves the replayed answer when it cannot record it", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-served", seed: true });
+    runtime = migrated.runtime;
+
+    let version = 2;
+    const alwaysRacing = {
+      prepare: (query: string) => migrated.database.prepare(query),
+      batch: async (statements: unknown[]) => {
+        version += 1;
+        await insertHistory(migrated.database, [
+          publication(version, board([at("place-b", sessionB, workshopLab.id, slot1000.id)])),
+        ]);
+        return (migrated.database as unknown as { batch(s: unknown[]): Promise<unknown> }).batch(
+          statements,
+        );
+      },
+    };
+    const repository = new D1AgendaRepository(
+      alwaysRacing as unknown as ConstructorParameters<typeof D1AgendaRepository>[0],
+      () => new Date(),
+    );
+
+    await insertHistory(migrated.database, [
+      publication(2, board([at("place-b", sessionB, workshopLab.id, slot1000.id)])),
+    ]);
+    // The stored table still holds session A, which the history stopped placing at version 2.
+    expect([...(await storedRevisions(migrated.database)).keys()]).toEqual([sessionA]);
+
+    const served = await repository.sessionScheduleRevisions(eventId);
+    // The phantom row is not in the answer, even though nothing could be written.
+    expect([...served.keys()]).toEqual([sessionB]);
+    expect(await storedRevisions(migrated.database)).not.toEqual(served);
+    expect(await repository.driftedEvents(10)).toEqual([eventId]);
+  });
+
   /** Every repair reaches the observer, including the ones a read performs. */
   it("reports a read-path repair to the observer, not only a swept one", async () => {
     const migrated = await createMigratedDatabase({ label: "agenda-drift-observed", seed: true });
@@ -1148,6 +1256,43 @@ describe("D1AgendaRepository session schedule revisions", () => {
     // And not again once it is sound, so the line means something when it appears.
     await repository.sessionScheduleRevisions(eventId);
     expect(repairs).toHaveLength(1);
+  });
+
+  /**
+   * And a repair that did not happen is not reported as one.
+   *
+   * The observer's whole value is that its appearance means something. Firing it for an attempt
+   * that wrote nothing would turn "a recurring line names a writer that needs fixing" into noise
+   * generated by ordinary contention.
+   */
+  it("does not report a repair that wrote nothing", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-unreported", seed: true });
+    runtime = migrated.runtime;
+    const repairs: string[] = [];
+
+    let version = 2;
+    const alwaysRacing = {
+      prepare: (query: string) => migrated.database.prepare(query),
+      batch: async (statements: unknown[]) => {
+        version += 1;
+        await insertHistory(migrated.database, [publication(version, board([]))]);
+        return (migrated.database as unknown as { batch(s: unknown[]): Promise<unknown> }).batch(
+          statements,
+        );
+      },
+    };
+    const repository = new D1AgendaRepository(
+      alwaysRacing as unknown as ConstructorParameters<typeof D1AgendaRepository>[0],
+      () => new Date(),
+      undefined,
+      (report) => repairs.push(report.eventId),
+    );
+
+    await insertHistory(migrated.database, [publication(2, board([]))]);
+    expect((await repository.reconcileSessionSchedules(eventId, { repair: true })).repaired).toBe(
+      false,
+    );
+    expect(repairs).toEqual([]);
   });
 
   it("refuses to claim the watermark when the driver reports no row count", async () => {

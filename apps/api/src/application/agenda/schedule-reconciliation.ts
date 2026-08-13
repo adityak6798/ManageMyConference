@@ -48,6 +48,17 @@ export interface ScheduleSweepResult {
   readonly scanned: number;
   /** Events this sweep brought back into agreement with their history. */
   readonly repaired: number;
+  /**
+   * Events that were drifted, were asked to repair, and did not.
+   *
+   * That is contention rather than breakage: every attempt lost its race to a publication, so
+   * nothing was written and the event stays flagged. It is counted separately because it is
+   * otherwise silent on every channel — it does not throw, so `failed` misses it, and no repair
+   * happened, so the repair observer misses it too. An event being published faster than its
+   * history can be walked is exactly the condition `REPAIR_ATTEMPTS` exists to stop looping on,
+   * and a condition worth stopping on is worth reporting.
+   */
+  readonly contended: number;
   /** Events whose repair threw. Reported, never swallowed, and retried on the next tick. */
   readonly failed: number;
 }
@@ -81,6 +92,7 @@ export async function sweepDriftedSchedules(
 ): Promise<ScheduleSweepResult> {
   const drifted = await dependencies.schedules.driftedEvents(limit);
   let repaired = 0;
+  let contended = 0;
   let failed = 0;
   for (const eventId of drifted) {
     try {
@@ -90,6 +102,7 @@ export async function sweepDriftedSchedules(
       // Reported by the repository's own observer, which sees repairs from every path. Counted
       // here so the tick can say what it did without a second log line for the same event.
       if (report.repaired) repaired += 1;
+      else contended += 1;
     } catch (error) {
       // ERROR-INTENT: one unrepairable event must not protect every other event's drift from
       // being fixed. A tick that abandoned the rest because the first threw would let a single
@@ -104,5 +117,5 @@ export async function sweepDriftedSchedules(
       });
     }
   }
-  return { scanned: drifted.length, repaired, failed };
+  return { scanned: drifted.length, repaired, contended, failed };
 }

@@ -133,9 +133,10 @@ describe("the week board's formatting cost", () => {
     const twelveCells = await dayKeysPerRender(true);
     const fortyEightCells = await dayKeysPerRender(false);
 
-    // Identical under the fix, which reads each slot's day once and buckets the cells from that.
-    // The old form read every slot's day in every cell, so this pair went from 12 day keys a
-    // render to 48 × 12 + 12; half again is a generous bound on "did not notice".
+    // Identical under the fix, which reads each slot's day once and buckets the cells from that:
+    // 38 readings a render at both shapes. The pre-change form read every slot's day in every
+    // cell, which measured 206 and 638 across this pair. Half again is a generous bound on "did
+    // not notice", and the numbers are an illustration — the assertion is the growth.
     expect(fortyEightCells).toBeLessThan(twelveCells * 1.5);
     // Only meaningful if the smaller board read any day keys at all.
     expect(twelveCells).toBeGreaterThan(0);

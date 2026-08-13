@@ -107,6 +107,26 @@ describe("comparing stored revisions against a replay", () => {
     expect(drift.divergent).toHaveLength(1);
   });
 
+  /*
+   * One kind at a time, because the three-at-once case above cannot tell the clauses apart: with
+   * every list non-empty, any single clause of `isScheduleInSync` can be dropped and the suite
+   * stays green. The `missing` clause is the one that matters most to lose — a row deleted
+   * straight out of `agenda_session_schedules` leaves the watermark undisturbed, so the on-demand
+   * replay is the *only* thing that can find it, and a soundness test blind to `missing` would
+   * report the event healthy and decline to repair it.
+   */
+  it.each([
+    ["missing", new Map(), new Map([["session-1", revision()]])],
+    ["phantom", new Map([["session-1", revision()]]), new Map()],
+    [
+      "divergent",
+      new Map([["session-1", revision({ revision: 9 })]]),
+      new Map([["session-1", revision()]]),
+    ],
+  ] as const)("is not in sync on %s alone", (_kind, stored, replayed) => {
+    expect(isScheduleInSync(compareSessionScheduleRevisions(stored, replayed))).toBe(false);
+  });
+
   it("reports agreement as agreement", () => {
     const drift = compareSessionScheduleRevisions(
       new Map([["session-1", revision()]]),
@@ -222,6 +242,7 @@ describe("the sweep", () => {
     expect(await sweepDriftedSchedules({ schedules: repository })).toEqual({
       scanned: 1,
       repaired: 1,
+      contended: 0,
       failed: 0,
     });
     // Once repaired the event leaves the index, so a settled deployment sweeps nothing — which is
@@ -229,8 +250,36 @@ describe("the sweep", () => {
     expect(await sweepDriftedSchedules({ schedules: repository })).toEqual({
       scanned: 0,
       repaired: 0,
+      contended: 0,
       failed: 0,
     });
+  });
+
+  /*
+   * A drifted event that neither repaired nor threw is contention, and it is silent everywhere
+   * else: the repair observer only fires on success, `onFailure` only on a throw. Counting it is
+   * the only way an event being published faster than its history can be walked reaches anybody.
+   */
+  it("counts a drifted event that declined to repair, which nothing else reports", async () => {
+    const onFailure = vi.fn();
+    expect(
+      await sweepDriftedSchedules({
+        schedules: {
+          driftedEvents: async () => ["contended"],
+          reconcileSessionSchedules: async (id: string) => ({
+            eventId: id,
+            publicationWatermark: 9,
+            materializedWatermark: 4,
+            publications: 9,
+            drift: { missing: [], phantom: ["session-1"], divergent: [] },
+            inSync: false,
+            repaired: false,
+          }),
+        },
+        onFailure,
+      }),
+    ).toEqual({ scanned: 1, repaired: 0, contended: 1, failed: 0 });
+    expect(onFailure).not.toHaveBeenCalled();
   });
 
   it("takes no more events than it is allowed to", async () => {
@@ -239,6 +288,7 @@ describe("the sweep", () => {
     expect(await sweepDriftedSchedules({ schedules: repository }, 0)).toEqual({
       scanned: 0,
       repaired: 0,
+      contended: 0,
       failed: 0,
     });
   });
@@ -269,7 +319,7 @@ describe("the sweep", () => {
       },
       onFailure,
     });
-    expect(result).toEqual({ scanned: 2, repaired: 1, failed: 1 });
+    expect(result).toEqual({ scanned: 2, repaired: 1, contended: 0, failed: 1 });
     expect(onFailure).toHaveBeenCalledWith({
       eventId: "broken",
       error: "schedule_json is not parseable",

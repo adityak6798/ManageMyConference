@@ -577,6 +577,7 @@ export class D1AgendaRepository implements AgendaRepository {
     let last: {
       reconciliation: ScheduleReconciliation;
       revisions: ReadonlyMap<string, SessionScheduleRevision>;
+      replayed: ReadonlyMap<string, SessionScheduleRevision>;
     } | null = null;
     for (let attempt = 0; attempt < REPAIR_ATTEMPTS; attempt += 1) {
       const stored = await this.readMaterialized(eventId);
@@ -603,7 +604,17 @@ export class D1AgendaRepository implements AgendaRepository {
         inSync,
         repaired: false,
       };
-      last = { reconciliation: found, revisions: stored.revisions };
+      /*
+       * Two answers are kept, and which one is served depends on why the loop ended.
+       *
+       * `revisions` is what a caller that asked no question gets: the stored rows, correct for a
+       * sound event and for a read-only check that must not act. `replayed` is what a caller gets
+       * when the loop *ran out of attempts* — there the stored rows are known-stale, this method
+       * computed the truth and only failed to record it, and serving the thing it just proved
+       * wrong would be the phantom row `GAP-024` describes, handed to the calendar send with a
+       * non-empty `drift.phantom` sitting in the same object.
+       */
+      last = { reconciliation: found, revisions: stored.revisions, replayed: replayed.revisions };
       if (inSync || !repair) return last;
       /*
        * No watermark row means no publication has ever been written for this event, so there is
@@ -630,13 +641,18 @@ export class D1AgendaRepository implements AgendaRepository {
      * rows on disk are untouched — every losing statement was conditional — so nothing is corrupt;
      * what failed is recording the answer, not computing it.
      *
-     * So serve the answer rather than an exception. The replayed revisions are derived from
-     * committed history and are at least as current as the stored ones, the event stays flagged
-     * for the sweep, and refusing instead would take the organizer workspace and the calendar send
-     * down over contention that resolves itself. The report says `repaired: false`, which is true.
+     * So serve the answer rather than an exception, and serve the **replayed** one. It is derived
+     * from committed history and is strictly better than the rows this method has just proved
+     * stale; the event stays flagged for the sweep; and refusing instead would take the organizer
+     * workspace and the calendar send down over contention that resolves itself. The report says
+     * `repaired: false`, which is true — nothing was written.
+     *
+     * An earlier revision returned the *stored* rows here while this comment claimed otherwise,
+     * which handed the calendar-invite read the phantom row it had just detected. Review caught it
+     * with a probe on the served value rather than by reading the comment.
      */
     if (!last) throw new Error(`D1 could not reconcile agenda schedules for event ${eventId}`);
-    return last;
+    return { reconciliation: last.reconciliation, revisions: last.replayed };
   }
 
   /**

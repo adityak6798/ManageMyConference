@@ -310,15 +310,6 @@ export class MemoryAgendaRepository implements AgendaRepository {
       .slice(0, limit);
   }
   /**
-   * A publication written the way a writer that does not know about the derived table writes one.
-   *
-   * This is the deploy window in one call: the old Worker inserts into `agenda_publications`, the
-   * database's trigger moves the publication watermark because it belongs to the database rather
-   * than to the code, and nothing maintains `agenda_session_schedules`. Tests need it because the
-   * whole point of `GAP-024` is a state no supported code path produces — a state that can only be
-   * reached by writing history behind the fold's back.
-   */
-  /**
    * The state migration `1602` leaves behind: correct rows, an unclaimed watermark.
    *
    * A test seam for the same reason `recordUnmaintainedPublication` is one — the state is produced
@@ -329,6 +320,15 @@ export class MemoryAgendaRepository implements AgendaRepository {
     const held = this.watermarks.get(eventId);
     if (held) this.watermarks.set(eventId, { ...held, materialized: null });
   }
+  /**
+   * A publication written the way a writer that does not know about the derived table writes one.
+   *
+   * This is the deploy window in one call: the old Worker inserts into `agenda_publications`, the
+   * database's trigger moves the publication watermark because it belongs to the database rather
+   * than to the code, and nothing maintains `agenda_session_schedules`. Tests need it because the
+   * whole point of `GAP-024` is a state no supported code path produces — a state that can only be
+   * reached by writing history behind the fold's back.
+   */
   async recordUnmaintainedPublication(schedule: PublishedSchedule): Promise<void> {
     const versions = this.versions.get(schedule.eventId) ?? new Set<number>();
     versions.add(schedule.version);
