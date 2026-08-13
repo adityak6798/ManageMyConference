@@ -12,8 +12,14 @@ import type { EventDto } from "@greenroom/contracts";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgendaWorkspace } from "../src/AgendaWorkspace";
+import { conflictPublicationSummary } from "../src/agenda/model";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
+
+it("conjugates the publication blocker for one conflict and many", () => {
+  expect(conflictPublicationSummary(1)).toBe("1 conflict blocks publication");
+  expect(conflictPublicationSummary(2)).toBe("2 conflicts block publication");
+});
 
 function eventIn(timezone: string): EventDto {
   return {

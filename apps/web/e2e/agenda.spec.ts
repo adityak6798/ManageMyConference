@@ -80,6 +80,18 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
 
   // Unschedule the seeded placement so the session has to be placed from scratch.
   await page.getByRole("tab", { name: /^List/ }).click();
+  const listPanel = page.getByRole("tabpanel", { name: /^List/ });
+  const listBounds = await listPanel.boundingBox();
+  const railBounds = await page.getByRole("region", { name: "Unscheduled" }).boundingBox();
+  const unscheduleBounds = await listPanel
+    .getByRole("button", { name: "Unschedule" })
+    .boundingBox();
+  expect(listBounds).not.toBeNull();
+  expect(railBounds?.y).toBeGreaterThanOrEqual((listBounds?.y ?? 0) + (listBounds?.height ?? 0));
+  expect(unscheduleBounds?.x).toBeGreaterThanOrEqual(listBounds?.x ?? 0);
+  expect((unscheduleBounds?.x ?? 0) + (unscheduleBounds?.width ?? 0)).toBeLessThanOrEqual(
+    (listBounds?.x ?? 0) + (listBounds?.width ?? 0),
+  );
   await page
     .getByRole("row", { name: /Designing the calm conference/ })
     .getByRole("button", { name: "Unschedule" })
@@ -230,8 +242,9 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   // than being left for the organizer to notice.
   await expect(page.getByRole("status")).toContainText("it now has 2 conflicts");
 
-  await expect(page.getByText("room overlap")).toBeVisible();
-  await expect(page.getByText("speaker overlap")).toBeVisible();
+  await expect(page.getByText("Room double-booked", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("Speaker double-booked", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("2 conflicts block publication")).toBeVisible();
   await expect(publish).toBeDisabled();
   // The room board marks the offending cards, not only the summary panel.
   await expect(

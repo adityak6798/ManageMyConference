@@ -166,6 +166,22 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toBeVisible();
   await expect(table.getByRole("row", { name: /Designing for the hallway track/ })).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const tab of await page.getByRole("tab").all()) {
+    const bounds = await tab.boundingBox();
+    expect(bounds?.x).toBeGreaterThanOrEqual(0);
+    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  }
+  const mobileRow = table.getByRole("row", { name: /Typed boundaries at scale/ });
+  for (const action of ["Accept", "Decline"]) {
+    const bounds = await mobileRow
+      .getByRole("button", { name: new RegExp(`^${action}`) })
+      .boundingBox();
+    expect(bounds?.x).toBeGreaterThanOrEqual(0);
+    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   // A status tab shows only that status; the counts stay visible for the others.
   await submittedTab.click();
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toBeVisible();
@@ -224,7 +240,10 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   ).toContainText("Submitted → Under review");
   await expect(
     history.getByRole("row", { name: /Typed boundaries at scale/ }).first(),
-  ).toContainText("seed-organizer");
+  ).toContainText("Olivia Organizer");
+  await expect(
+    history.getByRole("row", { name: /Typed boundaries at scale/ }).first(),
+  ).not.toContainText("seed-organizer");
 
   // The reload that followed the transition used to wipe the configuration form.
   await expect(statusLabel).toHaveValue("Submitted (unsaved edit)");

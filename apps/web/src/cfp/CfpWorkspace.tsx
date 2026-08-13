@@ -26,15 +26,7 @@ import {
   saveCfp,
 } from "../api/cfp";
 import "../styles/cfp.css";
-import {
-  IconCheck,
-  IconForm,
-  IconGlobe,
-  IconGrip,
-  IconLink,
-  IconPlus,
-  IconWarning,
-} from "../ui/icons";
+import { IconCheck, IconForm, IconGlobe, IconLink, IconPlus, IconWarning } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
 import { ApplicantCfpForm } from "./ApplicantCfpForm";
 import { PublicFormPreview } from "./controls";
@@ -667,9 +659,6 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                   return (
                     <li className="cfp-question" key={field.id}>
                       <div className="cfp-question-head">
-                        <span className="cfp-grip" aria-hidden="true">
-                          <IconGrip size={14} />
-                        </span>
                         <span className="cfp-question-index">{index + 1}</span>
                         <span className="cfp-question-name">{name}</span>
                         <Pill tone="info">{typeLabel(field.type)}</Pill>

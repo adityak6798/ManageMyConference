@@ -491,7 +491,14 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   return (
     <>
       {loading ? <p role="status">Updating abstract triage…</p> : null}
-      <Tabs items={tabs} active={activeTab} onSelect={setTab} label="Filter abstracts by status" />
+      <div className="triage-status-filters">
+        <Tabs
+          items={tabs}
+          active={activeTab}
+          onSelect={setTab}
+          label="Filter abstracts by status"
+        />
+      </div>
 
       <div
         className="triage-panel"
@@ -646,7 +653,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                     const decided = decisionFor(proposal.id);
                     return (
                       <tr key={proposal.id} className={proposal.id === openId ? "is-open" : ""}>
-                        <td className="select-cell">
+                        <td className="select-cell" data-label="Select">
                           <input
                             type="checkbox"
                             aria-label={`Select ${proposal.title}`}
@@ -660,7 +667,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             }
                           />
                         </td>
-                        <td className="primary-cell">
+                        <td className="primary-cell" data-label="Abstract">
                           <button
                             type="button"
                             className="cell-link"
@@ -677,13 +684,13 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             {proposal.submitter ? ` · ${proposal.submitter.email}` : ""}
                           </span>
                         </td>
-                        <td>
+                        <td data-label="Status">
                           <Pill tone={statusTone(proposal.status)}>
                             {labelFor(proposal.status)}
                           </Pill>
                         </td>
-                        <td>{assignedReviewers(proposal)}</td>
-                        <td className="num">
+                        <td data-label="Reviewers">{assignedReviewers(proposal)}</td>
+                        <td className="num" data-label="Score">
                           {outcome ? (
                             <>
                               {outcome.averageScore.toFixed(1)}
@@ -695,7 +702,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             <span className="empty-text">Not scored</span>
                           )}
                         </td>
-                        <td className="decision-cell">
+                        <td className="decision-cell" data-label="Decision">
                           {decided ? (
                             <Pill tone={decided.outcome === "accepted" ? "ok" : "danger"}>
                               {OUTCOME_LABEL[decided.outcome]}
@@ -960,7 +967,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                       <td>
                         {labelFor(entry.fromStatus)} → {labelFor(entry.toStatus)}
                       </td>
-                      <td>{entry.actorId}</td>
+                      <td>{reviewerName(entry.actorId)}</td>
                       <td>{new Date(entry.occurredAt).toLocaleString()}</td>
                     </tr>
                   ))}

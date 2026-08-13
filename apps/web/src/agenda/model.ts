@@ -87,6 +87,10 @@ const CONFLICT_LABELS: Record<Conflict["kind"], string> = {
   MISSING_SESSION: "Session no longer exists",
 };
 
+function conflictPublicationSummary(count: number): string {
+  return `${count} conflict${count === 1 ? " blocks" : "s block"} publication`;
+}
+
 /** Reads one instant in one zone: clock time, calendar day, and how to name the zone. */
 type Clock = {
   /** The zone actually in use — the event's, or UTC if the runtime cannot resolve it. */
@@ -263,6 +267,7 @@ export {
   byInstant,
   byStart,
   CONFLICT_LABELS,
+  conflictPublicationSummary,
   cellKey,
   clockFor,
   DEFAULT_TRACK_COLOR,
