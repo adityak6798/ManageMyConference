@@ -174,18 +174,6 @@ test("an organizer creates an event, previews a template into it, applies it, an
   await expect(resultPanel(page)).toContainText("roll back the categories that succeeded");
   await expect(resultPanel(page)).toContainText("Applying this same version again is the repair");
 
-  /*
-   * Every category landed, so there is nothing outstanding and the repair card stays away
-   * (issue #175). The card is driven from the *stored* outcome rather than from the response
-   * on screen, so this is also the assertion that a clean application does not leave a row
-   * saying otherwise — and it re-reads the page to prove it, because the card would be built
-   * from a fresh read of what storage holds.
-   */
-  await openTemplates(page, destination.id);
-  await expect(
-    page.getByRole("region", { name: `${destination.name} is configured in part` }),
-  ).toHaveCount(0);
-
   // ---- the same version again converges rather than duplicating ---------------
   await apply.getByRole("button", { name: "Preview this clone" }).click();
   await expect(category(previewPanel(page), "CFP form and routing")).toContainText(
@@ -207,6 +195,16 @@ test("an organizer creates an event, previews a template into it, applies it, an
   // implementation that captured a version on every apply.
   await openTemplates(page, destination.id);
   await expect(category(library(page), SEEDED_TEMPLATE)).toContainText("1 version");
+
+  /*
+   * Every category landed, so nothing is outstanding and the repair card stays away (#175).
+   * Asserted on this fresh load rather than on the result still on screen, because the card is
+   * built from what *storage* holds: a clean application that left a row saying "partial" would
+   * be invisible in the response above and would show here.
+   */
+  await expect(
+    page.getByRole("region", { name: `${destination.name} is configured in part` }),
+  ).toHaveCount(0);
 
   // ---- 390px: the breakdown stacks rather than scrolling sideways -------------
   await page.setViewportSize({ width: 390, height: 844 });
