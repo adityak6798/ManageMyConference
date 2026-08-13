@@ -243,6 +243,9 @@ export function App({
   const hasAuthenticatedSession = session?.authentication
     ? session.authentication === "session" || session.authentication === "demo"
     : realSession;
+  const hasDurableSession = session?.authentication
+    ? session.authentication === "session"
+    : realSession;
 
   const activeRole = useMemo<Persona>(() => {
     if (!session) return "public";
@@ -721,6 +724,10 @@ export function App({
               // ERROR-INTENT: handlers cannot await; endSession renders its own failure.
               void endSession();
             },
+          }
+        : {})}
+      {...(hasDurableSession
+        ? {
             onSignOutEverywhere: () => {
               // ERROR-INTENT: handlers cannot await; endEverySession renders its own failure.
               void endEverySession();

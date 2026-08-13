@@ -161,8 +161,8 @@ describe("App", () => {
   });
 
   /**
-   * "Sign out everywhere" is offered under exactly the same condition as sign-out, calls
-   * revoke-all, and leaves by a full document load.
+   * "Sign out everywhere" is offered only for a durable session, calls revoke-all, and leaves by
+   * a full document load. Demo personas retain ordinary sign-out but have no rows to revoke.
    *
    * The document load is the part worth pinning rather than the request. The console is mounted
    * around a session this action has just ended, so a client-side navigation would re-render a
