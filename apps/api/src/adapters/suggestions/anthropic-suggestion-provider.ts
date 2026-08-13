@@ -31,10 +31,11 @@
  *    hash function actually was would be the review-side twin of the delivery failure
  *    `providers/configuration.ts` exists to prevent.
  *
- * **This has never exchanged a request with the real API.** No Anthropic credential exists in this
- * repository, the contract test stubs `fetch`, and the request shape is written from the API's
- * documented contract rather than from an observed exchange — so what the suite proves is this
- * adapter's normalization, not that API. See `docs/engineering/review-suggestions.md`.
+ * **Live generation is not yet verified.** A 2026-08-13 first-contact request reached Anthropic
+ * but was rejected before generation because the account had insufficient credit. No credential
+ * exists in this repository, and the contract test still stubs `fetch`, so what the suite proves
+ * is this adapter's normalization, not a successful model response. See
+ * `docs/engineering/review-suggestions.md`.
  *
  * @spec PRD-AI-001 PORT-AI PRD-REV-001
  */

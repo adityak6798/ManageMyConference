@@ -145,12 +145,20 @@ which is the overclaim `GAP-011` exists to prevent.
 Both failure modes are reachable without a network — `new DeterministicSuggestionProvider("timeout")`
 and `("error")` — which is how the degradation path is tested at every level.
 
-## Staging smoke — required, and not yet performed
+## Staging smoke — required; first contact blocked before generation
 
-**This has not been run. No Anthropic credential exists in this repository, and none was used to
-build the adapter.** The request shape is written from the Messages API's documented contract, not
-from an observed exchange, and `apps/api/test/suggestion-provider.test.ts` stubs `fetch` — it
+No Anthropic credential exists in this repository. The request shape was built from the Messages
+API's documented contract, and `apps/api/test/suggestion-provider.test.ts` stubs `fetch` — it
 proves our normalization, not their API.
+
+On 2026-08-13, commit `5a5d4bcacab159736bd1b91c0ae35c1eaf4deb26` made a first-contact
+request through `AnthropicSuggestionProvider` using a workspace key held outside the repository,
+a synthetic identity-free abstract, and numeric and dropdown criteria. Anthropic answered HTTP
+400 `invalid_request_error` before generation because the account credit balance was too low. The
+adapter normalized that response to `PROVIDER_REJECTED`; no model served, suggestion content,
+provenance, criterion ranges, persistence, or acceptance behavior could be verified. The key and
+provider response body were neither stored nor committed. This is evidence that authentication
+reached Anthropic, not a successful staging smoke, and issue #147 remains open.
 
 Before enabling `live` anywhere real, someone with a non-production key must run this and record
 the result here:
@@ -171,7 +179,8 @@ the result here:
 7. Check the request that left: confirm no submitter name or address appears in it.
 8. Record the date, the commit, the model that served, and any request-shape corrections here.
 
-Until step 8 exists, treat `live` as unverified and keep deployments on `fixture` or `off`.
+Until a successful run records step 8, treat `live` as unverified and keep deployments on
+`fixture` or `off`.
 
 ## Why raw `fetch` rather than the Anthropic SDK
 
