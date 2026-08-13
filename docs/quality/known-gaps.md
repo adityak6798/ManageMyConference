@@ -286,12 +286,28 @@ feature-by-feature verdict.
   Two ways the table could diverge, neither observed and neither currently detected. First, the
   deploy window: `npm run deploy` runs `migrate:remote` before it uploads the Worker, so for the
   length of a web build the old Worker is still serving and still commits publications without
-  maintaining the new table; a publication landing in that window desynchronises that event. Be
-  precise about how that recovers: the next publication rewrites the whole event's rows, so the
-  *times* become right again, but it folds forward from the stale row, so a session whose move was
-  missed can keep a `revision` permanently lower than the replay would have given it. The lasting
-  symptom is therefore one spurious invitation resend at the next real move, not a permanently
-  wrong time. Second, the invariant that every writer of
+  maintaining the new table; a publication landing in that window desynchronises that event.
+
+  Be precise about what does and does not recover, because the reassuring half is the smaller
+  half. The **times** do recover, and structurally: `publish` deletes the event's rows and
+  re-derives every one of them from the new publication's board alone, so no stale hour survives a
+  later publication. The **revision** does not. It is folded forward from whatever row was there,
+  so a missed publication leaves it either lower or higher than the replay would have produced —
+  in simulation roughly as often each way — until some later publication changes that session's
+  triple and resynchronises it.
+
+  Both directions are calendar-visible, and the two failures are not equally bad. A **higher**
+  stale revision sends a speaker a duplicate invitation, which is a nuisance. A **lower** one
+  *suppresses* an invitation that should have been sent, which is the failure #136 exists to
+  prevent. The concrete case: a session is placed at v1 and its speakers invited with
+  `scheduleRef` `1|…`; the missed publication at v2 unplaces it, so a correct table drops the row
+  while the stale one keeps `revision 1`; v3 places it back at the identical time. The replay
+  would say `revision 3` — absence resets — and send the REQUEST that puts the talk back on the
+  speaker's calendar. The desynchronised table computes "unchanged", keeps `revision 1`, matches
+  the ref already stored in `calendar_invite_states`, and sends nothing. The speaker's calendar
+  silently does not contain their talk, and the organizer is told everything was fine.
+
+  Second, the invariant that every writer of
   `agenda_publications` also maintains `agenda_session_schedules` is convention, not a constraint —
   today the only writers are `D1AgendaRepository.publish` and the seed, and both do, but a future
   import, fixture or repair path that inserts a publication directly would desynchronise silently.
@@ -302,6 +318,11 @@ feature-by-feature verdict.
   Owner: agenda. Governing IDs: `PRD-AGD-001`, `PRD-SPK-002`. Closure: either a reconciliation that
   can detect and repair divergence — a per-event watermark compared against `MAX(version)`, replayed
   once when it lags — or a trigger on `agenda_publications` that makes an unmaintained insert
-  impossible; plus a test that proves a desynchronised table is detected rather than served. Until
-  then, a deploy that lands during an active publication window should be followed by republishing
-  the affected event, which restores the row by the ordinary path.
+  impossible; plus a test that proves a desynchronised table is detected rather than served.
+
+  Until then, the operational mitigation is to avoid the window rather than to repair it: do not
+  deploy while an organizer may be publishing. Republishing afterwards is **not** a repair, for
+  the reason above — an identical board compares equal and folds the stale `revision` straight
+  through, so the one number that matters is exactly the one republishing does not restore. The
+  only reliable manual repair today is to correct the row in `agenda_session_schedules` directly
+  against a replay of `agenda_publications`.

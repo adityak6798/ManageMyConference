@@ -63,9 +63,10 @@ CREATE TABLE agenda_session_schedules (
 -- would break the tie differently, by two different routes: a duplicate *room* id is resolved by
 -- the scalar subquery below, which stops at the first match, while a duplicate *slot* id fans the
 -- row out through the join and lets the `last_wins` ranking pick the winner. Both happen to land
--- on the first duplicate where TypeScript's `Map` would take the last. No write path can produce
--- one — though note the seed writes `agenda_drafts.draft_json` directly and so does not pass
--- through that validator.
+-- on the first duplicate where TypeScript's `Map` would take the last. No write path reaching
+-- this statement can produce one: the only writer of `agenda_publications` that bypasses the
+-- validator is the seed, which composes its `schedule_json` by hand, and that snapshot's ids are
+-- distinct.
 WITH pubs AS (
   SELECT
     event_id,
