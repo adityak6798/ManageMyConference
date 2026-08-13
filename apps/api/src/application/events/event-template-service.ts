@@ -18,7 +18,10 @@ import {
   declaredExclusions,
   type EventConfigurationSlice,
   type SliceCaptureReport,
+  type SliceContext,
+  type SliceFault,
   type SlicePreviewReport,
+  SliceRefusalError,
   type SliceResultReport,
   type TemplateApplicationPlan,
   type TemplateApplicationResult,
@@ -35,6 +38,15 @@ export class EventTemplateNotFoundError extends Error {}
 export class EventTemplateNameTakenError extends Error {}
 export class EventTemplateStateError extends Error {}
 export class EventTemplateRangeError extends Error {}
+/**
+ * Raised for a `slices` key this deployment does not compose.
+ *
+ * A key nobody answers to used to be indistinguishable from a key the caller left out, so a
+ * misspelled category answered 200 with every category `skipped` and an application row behind
+ * it. Naming the unknown key and the ones that exist is the only answer that lets a client tell
+ * "you asked for nothing" apart from "you asked for something that is not here".
+ */
+export class EventTemplateSelectionError extends Error {}
 
 export interface SaveTemplateCommand {
   readonly organizationId: string;
@@ -74,6 +86,15 @@ export interface EventTemplateServiceDependencies {
   slices: readonly EventConfigurationSlice[];
   newId: () => string;
   now: () => Date;
+  /**
+   * Where a slice's unexpected throw is reported, once, at this boundary (`ARC-OBS-001`).
+   *
+   * A port rather than a logger, so the application layer keeps importing nothing external and
+   * the composition root decides what a fault is written to. Optional because a caller that
+   * omits it is choosing to run the orchestrator with no sink — every test in this repository —
+   * not because a fault is ever discardable in a deployment.
+   */
+  onSliceFault?: ((fault: SliceFault) => void) | undefined;
 }
 
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -219,6 +240,16 @@ export class EventTemplateService {
   ): Promise<TemplateApplicationPlan> {
     const context = await this.resolveApplication(actor, eventId, command, "events:settings:read");
     const slices: SlicePreviewReport[] = [];
+    /*
+     * What this application will already have written by the time each slice's turn comes.
+     *
+     * Apply runs the array in order against a destination the earlier slices have changed;
+     * preview walks the same array against a destination nobody has touched. Without this a
+     * slice answers against a state the apply will never meet — which is exactly how CFP's
+     * preview called a routing rule incompatible with triage statuses review's slice was about
+     * to create for it. Keys only: no slice learns what another one holds.
+     */
+    const appliedBefore: string[] = [];
     for (const slice of this.dependencies.slices) {
       const selected = this.selection(command, slice.key);
       const payload = context.payload.slices[slice.key];
@@ -239,8 +270,11 @@ export class EventTemplateService {
       slices.push({
         key: slice.key,
         label: slice.label,
-        ...(await this.previewSlice(slice, actor, eventId, payload, context.remap)),
+        ...(await this.previewSlice(slice, actor, eventId, payload, context.remap, {
+          appliedBefore: [...appliedBefore],
+        })),
       });
+      appliedBefore.push(slice.key);
     }
     return {
       ...context.identity,
@@ -306,14 +340,27 @@ export class EventTemplateService {
       })),
     ];
     const appliedAt = this.dependencies.now().toISOString();
-    const failed = reported.some(({ outcome }) => outcome === "failed");
-    const landed = reported.some(({ outcome }) => outcome === "applied");
+    /*
+     * `applied` is the claim that everything the organizer asked for arrived, so a category the
+     * destination refused or the account may not write costs it the same way a fault does —
+     * the console renders a plain success for `applied`, and a clone whose routing was dropped
+     * is not one. `skipped` is the honest answer when nothing was written and nothing refused.
+     */
+    const refused = reported.some(({ outcome }) =>
+      ["failed", "incompatible", "unauthorized"].includes(outcome),
+    );
+    // `applied` entries, not the slice's own verdict: review refuses a locked rubric while its
+    // triage statuses land, and an envelope that called that write nothing would be as wrong in
+    // the other direction.
+    const landed = reported.some(
+      ({ outcome, applied }) => outcome === "applied" || applied.length > 0,
+    );
     const result: TemplateApplicationResult = {
       ...context.identity,
       eventId,
       destination: command.destination,
       appliedAt,
-      outcome: failed ? (landed ? "partial" : "failed") : "applied",
+      outcome: refused ? (landed ? "partial" : "failed") : landed ? "applied" : "skipped",
       slices: reported,
     };
     await this.dependencies.repository.recordApplication({
@@ -396,7 +443,7 @@ export class EventTemplateService {
         };
       return {
         payload: null,
-        report: { outcome: "failed", reason: describe(error) },
+        report: { outcome: "failed", reason: this.fault("export", slice, sourceEventId, error) },
       };
     }
   }
@@ -407,12 +454,14 @@ export class EventTemplateService {
     eventId: string,
     payload: unknown,
     remap: DateRemap,
+    context: SliceContext,
   ) {
     try {
-      return await slice.preview(actor, eventId, payload, remap);
+      return await slice.preview(actor, eventId, payload, remap, context);
     } catch (error) {
       // ERROR-INTENT: A preview reports; it never fails the request on one category's behalf.
-      // The reason is carried to the caller in `reason`, so nothing is suppressed.
+      // Nothing is discarded: the reason travels back in `reason` and `fault` hands an
+      // unexpected throw to the composition root's log before this returns.
       if (error instanceof CapabilityDeniedError)
         return {
           outcome: "unauthorized" as const,
@@ -423,7 +472,7 @@ export class EventTemplateService {
         };
       return {
         outcome: "failed" as const,
-        reason: describe(error),
+        reason: this.fault("preview", slice, eventId, error),
         copies: [],
         excludes: [],
         incompatible: [],
@@ -442,8 +491,9 @@ export class EventTemplateService {
       return await slice.apply(actor, eventId, payload, remap);
     } catch (error) {
       // ERROR-INTENT: A thrown slice is a fault against that slice alone, reported as `failed`
-      // with its message so the organizer can repair and re-apply. Letting it escape would turn
-      // one domain's refusal into a 500 that hides every other slice's outcome.
+      // so the organizer can repair and re-apply. Letting it escape would turn one domain's
+      // trouble into a 500 that hides every other slice's outcome; `fault` is what keeps the
+      // cause itself from being lost with it.
       if (error instanceof CapabilityDeniedError)
         return {
           outcome: "unauthorized" as const,
@@ -451,8 +501,34 @@ export class EventTemplateService {
           applied: [],
           incompatible: [],
         };
-      return { outcome: "failed" as const, reason: describe(error), applied: [], incompatible: [] };
+      return {
+        outcome: "failed" as const,
+        reason: this.fault("apply", slice, eventId, error),
+        applied: [],
+        incompatible: [],
+      };
     }
+  }
+
+  /**
+   * The sentence a refused category shows, and the one place a slice's fault is recorded.
+   *
+   * A slice that refuses on purpose says so with `SliceRefusalError` and its own words reach
+   * the organizer. Anything else is unexpected here, and its message is written for us rather
+   * than for them — a driver's `UNIQUE constraint failed: cfp_forms.event_id` in a product
+   * surface is both unreadable and a description of storage this response has no business
+   * carrying. So the caller gets the stable sentence and the fault goes to the log, once
+   * (`ARC-OBS-001`).
+   */
+  private fault(
+    stage: SliceFault["stage"],
+    slice: EventConfigurationSlice,
+    eventId: string,
+    error: unknown,
+  ): string {
+    if (error instanceof SliceRefusalError) return error.message;
+    this.dependencies.onSliceFault?.({ sliceKey: slice.key, stage, eventId, error });
+    return UNEXPECTED[stage];
   }
 
   private excludedCategories(): SlicePreviewReport[] {
@@ -469,6 +545,27 @@ export class EventTemplateService {
 
   private selection(command: TemplateApplicationCommand, key: string): boolean {
     return command.slices === undefined || command.slices.includes(key);
+  }
+
+  /**
+   * Refuse a selected key no slice here answers to.
+   *
+   * The declared exclusions are known keys too: the plan lists `communications` as a category
+   * with a reason, so a console that sends back everything it was shown must not be told it
+   * invented one.
+   */
+  private requireKnownSelection(command: TemplateApplicationCommand): void {
+    if (command.slices === undefined) return;
+    const known = [
+      ...this.dependencies.slices.map(({ key }) => key),
+      ...declaredExclusions.map(({ key }) => key),
+    ];
+    const unknown = [...new Set(command.slices.filter((key) => !known.includes(key)))];
+    if (unknown.length > 0)
+      throw new EventTemplateSelectionError(
+        `No category named ${unknown.map((key) => `"${key}"`).join(", ")}. ` +
+          `This deployment copies: ${known.join(", ")}.`,
+      );
   }
 
   private organizationMember(
@@ -516,6 +613,7 @@ export class EventTemplateService {
       throw new EventTemplateRangeError("Confirm the destination dates as YYYY-MM-DD");
     if (startsOn > endsOn)
       throw new EventTemplateRangeError("The destination event must not end before it starts");
+    this.requireKnownSelection(command);
     const template = await this.dependencies.repository.findTemplate(command.templateId);
     // Cross-organization: resolved through the event repository, never from a request field,
     // and answering the same not-found refusal as an id that names nothing.
@@ -555,9 +653,9 @@ export class EventTemplateService {
   }
 }
 
-/** A slice's own message when it has one; never a stack, which the response must not carry. */
-function describe(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message
-    : "This category could not be applied.";
-}
+/** What an organizer is told about a category that threw something nobody planned for. */
+const UNEXPECTED: Record<SliceFault["stage"], string> = {
+  export: "This category could not be captured. Capturing a new version is the repair.",
+  preview: "This category could not be previewed. Previewing again is the repair.",
+  apply: "This category could not be applied. Applying this version again is the repair.",
+};

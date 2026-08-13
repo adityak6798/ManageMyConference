@@ -39,6 +39,30 @@ export interface DateRemap {
   };
 }
 
+/**
+ * A refusal a slice raises on purpose, whose sentence an organizer is meant to read.
+ *
+ * Everything else a slice throws is a fault, and a fault's message names this system's
+ * internals — a driver's constraint text, an id nobody outside the domain has seen — so the
+ * orchestrator answers a fixed sentence instead and reports the throw through `onSliceFault`
+ * (`ARC-OBS-001`). A slice that has something an organizer can act on says so with this type.
+ */
+export class SliceRefusalError extends Error {}
+
+/**
+ * One slice throwing something this orchestrator did not expect.
+ *
+ * Carried out through a port rather than logged here: the application layer imports no logger,
+ * so this file owns the shape and the composition root owns the sink.
+ */
+export interface SliceFault {
+  readonly sliceKey: string;
+  readonly stage: "export" | "preview" | "apply";
+  /** The event being read, for `export`, and the one being written for the other two. */
+  readonly eventId: string;
+  readonly error: unknown;
+}
+
 /** One nameable thing inside a slice: a CFP field, a triage status, a room. */
 export interface SliceEntry {
   /** Stable within the slice — a field id, a status key, a slug. */
@@ -82,6 +106,23 @@ export interface SliceResult {
  * and both are outcomes an organizer reads, not 500s. A thrown error is a fault, and the
  * orchestrator reports it as `failed` against that slice alone.
  */
+/**
+ * What else this application will do, so a preview can be accurate about ordering.
+ *
+ * Apply runs the slices in composition order and each one sees a destination the ones before it
+ * have already changed — that is what makes review's triage statuses exist before CFP validates
+ * its routing rules against them. A preview writes nothing, so it has no such destination to
+ * read, and without this it would report against a state the apply will never actually meet.
+ *
+ * Only slice **keys** cross this boundary, never another domain's payload. A slice learns that a
+ * category it depends on is landing first; it does not learn what that category contains, which
+ * is the whole reason the payloads are opaque to everyone but the slice that wrote them.
+ */
+export interface SliceContext {
+  /** Keys of the slices applied before this one in this application, that carry a payload. */
+  readonly appliedBefore: readonly string[];
+}
+
 export interface EventConfigurationSlice {
   /** Stable slice key: `"cfp" | "review" | "agenda" | "publishing" | "content-resources"`. */
   readonly key: string;
@@ -89,12 +130,18 @@ export interface EventConfigurationSlice {
   readonly label: string;
   /** Read this event's configuration as serializable JSON, or null when there is none. */
   export(actor: Actor | null, eventId: string): Promise<unknown | null>;
-  /** What `apply` would create, skip, or refuse — writing nothing. */
+  /**
+   * What `apply` would create, skip, or refuse — writing nothing.
+   *
+   * A slice whose answer depends on a category applied before it reads `context.appliedBefore`;
+   * everything else may ignore the parameter, since a shorter implementation stays assignable.
+   */
   preview(
     actor: Actor | null,
     eventId: string,
     payload: unknown,
     remap: DateRemap,
+    context: SliceContext,
   ): Promise<SlicePreview>;
   /** Apply, idempotently: re-applying the same payload converges rather than duplicating. */
   apply(
@@ -174,9 +221,14 @@ export interface TemplateApplicationPlan {
  * There is no cross-domain transaction in this repository, and this result does not pretend
  * otherwise: a `failed` slice does not roll back the slices that already succeeded, and
  * `partial` says exactly that. Re-applying is the repair, because every slice is idempotent.
+ *
+ * `applied` is reserved for an application that wrote something and refused nothing: a category
+ * the destination would not accept or the actor may not write leaves `partial`, and an
+ * application that wrote nothing at all — every category unselected or carrying no payload — is
+ * `skipped` rather than a success with no writes behind it.
  */
 export interface TemplateApplicationResult extends Omit<TemplateApplicationPlan, "slices"> {
   readonly appliedAt: string;
-  readonly outcome: "applied" | "partial" | "failed";
+  readonly outcome: "applied" | "partial" | "failed" | "skipped";
   readonly slices: readonly SliceResultReport[];
 }

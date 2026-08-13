@@ -87,7 +87,7 @@ async function setup() {
     cookie: `greenroom_session=${await createDemoSession(persona, SECRET, 2_000)}`,
     "content-type": "application/json",
   });
-  return { app, headers };
+  return { app, events, headers };
 }
 
 type App = Awaited<ReturnType<typeof setup>>["app"];
@@ -259,6 +259,58 @@ describe("Event template HTTP journey", () => {
     });
 
     expect(missing.status).toBe(404);
+  });
+
+  it("answers 400 naming a category key this deployment composes nothing for", async () => {
+    const { app, headers } = await setup();
+    const organizer = await headers("organizer");
+    const created = await saveTemplate(app, organizer);
+
+    const refused = await post(app, `/api/events/${DESTINATION}/template-applications`, organizer, {
+      templateId: created.template.id,
+      version: 1,
+      destination: DESTINATION_RANGE,
+      slices: ["cfpp"],
+    });
+
+    expect(refused.status).toBe(400);
+    await expect(refused.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", message: expect.stringContaining('"cfpp"') },
+    });
+    // Nothing was written, which is what the 200 `applied` it used to answer claimed otherwise.
+    const cfp = await app.request(`/api/events/${DESTINATION}/cfp`, { headers: organizer });
+    expect(cfp.status).toBe(404);
+  });
+
+  /*
+   * An unwired template service is a composition bug and still answers 500 — to a caller who
+   * had the grant to reach it. An anonymous one is refused first, because "this deployment is
+   * incomplete" is both the wrong answer to them and more than they are entitled to know.
+   */
+  it("refuses an anonymous caller before it discovers the service is unwired", async () => {
+    const { events } = await setup();
+    const app = createHttpAppFrom({
+      events,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      auth: {
+        demoMode: true,
+        sessionSecret: SECRET,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+    });
+
+    const anonymous = await app.request(`/api/organizations/${ORGANIZATION}/event-templates`, {
+      headers: { "content-type": "application/json" },
+    });
+    const organizer = await app.request(`/api/organizations/${ORGANIZATION}/event-templates`, {
+      headers: {
+        cookie: `greenroom_session=${await createDemoSession("organizer", SECRET, 2_000)}`,
+      },
+    });
+
+    expect(anonymous.status).toBe(401);
+    expect(organizer.status).toBe(500);
   });
 
   it("denies a speaker and refuses an anonymous caller", async () => {

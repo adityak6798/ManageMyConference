@@ -542,6 +542,108 @@ describe("Event templates: the agenda slice", () => {
     expect(JSON.stringify(await agenda.draft(actor, DESTINATION))).toBe(JSON.stringify(before));
   });
 
+  /** A destination someone set up and never dragged a session onto: nothing to strand. */
+  const UNTOUCHED_DESTINATION: AgendaDraft = {
+    eventId: DESTINATION,
+    rooms: [{ id: "room-hall", name: "Community hall" }],
+    tracks: [{ id: "track-ops", name: "Ops", color: "#16866b" }],
+    slots: [
+      {
+        id: "slot-local",
+        startsAt: "2027-05-10T07:00:00.000Z",
+        endsAt: "2027-05-10T08:00:00.000Z",
+      },
+    ],
+    sessions: [],
+    placements: [],
+  };
+
+  /** A source with rooms and nothing else — the state `export` captures the whole board from. */
+  const ROOMS_ONLY = { rooms: SOURCE_ROOMS.slice(0, 1), tracks: [], slots: [], placements: [] };
+
+  it("leaves the tracks and time slots a template says nothing about standing", async () => {
+    const { actor, agenda, templates } = await setup({
+      source: ROOMS_ONLY,
+      destination: UNTOUCHED_DESTINATION,
+    });
+    const { template } = await save(templates, actor);
+    const command = { templateId: template.id, version: 1, destination: DESTINATION_RANGE };
+
+    const plan = await templates.preview(actor, DESTINATION, command);
+    const result = await templates.apply(actor, DESTINATION, command);
+
+    // The rooms the template does carry replace the destination's; the two categories it is
+    // silent about are not a statement that the destination should have none.
+    const destination = await agenda.draft(actor, DESTINATION);
+    expect(destination.rooms).toEqual(ROOMS_ONLY.rooms);
+    expect(destination.tracks).toEqual(UNTOUCHED_DESTINATION.tracks);
+    expect(destination.slots).toEqual(UNTOUCHED_DESTINATION.slots);
+    // And both sentences name only what was written. The stranding guard never fires here —
+    // there are no placements — so a reason claiming all three categories was the only thing an
+    // organizer would have had to go on.
+    expect(agendaSlice(plan)).toMatchObject({
+      outcome: "copies",
+      reason:
+        "Replaces the destination's rooms. Its tracks and time slots are not in this template " +
+        "and stay as they are. Sessions stay where they are.",
+    });
+    expect(agendaSlice(plan)?.copies).toEqual([{ id: "room-main", label: "Room: Main stage" }]);
+    expect(agendaSlice(result)).toMatchObject({
+      outcome: "applied",
+      reason:
+        "Copied the rooms. Its tracks and time slots are not in this template and were left as " +
+        "they were.",
+    });
+  });
+
+  it("converges on a second application of a template that carries one category", async () => {
+    const { actor, agenda, agendaRepository, templates } = await setup({
+      source: ROOMS_ONLY,
+      destination: UNTOUCHED_DESTINATION,
+    });
+    const { template } = await save(templates, actor);
+    await apply(templates, actor, template.id);
+    const afterFirst = await agenda.draft(actor, DESTINATION);
+    const saveResources = vi.spyOn(agendaRepository, "saveResources");
+
+    const second = await apply(templates, actor, template.id);
+
+    // The preserved lists are part of what a re-application compares against, so keeping them
+    // must not turn "already identical" into a rewrite every time the template is applied.
+    expect(agendaSlice(second)).toMatchObject({
+      outcome: "applied",
+      reason: "Already identical to the template; nothing needed to be written.",
+    });
+    expect(saveResources).not.toHaveBeenCalled();
+    expect(JSON.stringify(await agenda.draft(actor, DESTINATION))).toBe(JSON.stringify(afterFirst));
+  });
+
+  it("still replaces all three categories when the template carries all three", async () => {
+    const { actor, agenda, templates } = await setup({
+      source: { placements: [] },
+      destination: UNTOUCHED_DESTINATION,
+    });
+    const { template } = await save(templates, actor);
+
+    const result = await apply(templates, actor, template.id);
+
+    // Preserving what a template is silent about must not become preserving what it speaks
+    // about: the destination's own room, track and slot are gone, which is what applying a
+    // template that names all three means.
+    const destination = await agenda.draft(actor, DESTINATION);
+    expect(destination.rooms).toEqual(SOURCE_ROOMS);
+    expect(destination.tracks).toEqual(SOURCE_TRACKS);
+    expect(destination.slots.map(({ id }) => id)).toEqual([
+      "slot-keynote",
+      "slot-evening",
+      "slot-workshop",
+    ]);
+    expect(agendaSlice(result)?.reason).toBe(
+      "Copied the rooms, tracks and time slots onto the destination's dates. Slots falling past " +
+        "its last day were left out.",
+    );
+  });
+
   it("always keeps the earliest slot, so refusals can never empty a board", async () => {
     /*
      * The invariant behind the one emptiness guard: a payload carrying only slots, all of them
@@ -611,10 +713,9 @@ describe("Event templates: the agenda slice", () => {
       destination: DESTINATION_RANGE,
     });
 
-    expect(agendaSlice(result)).toMatchObject({
-      outcome: "failed",
-      reason: "This template's stored agenda configuration could not be read.",
-    });
+    // The wording belongs to the orchestrator, which decides what a fault says to an organizer;
+    // what this pins is that the agenda refused the payload instead of writing part of a board.
+    expect(agendaSlice(result)?.outcome).toBe("failed");
     await expect(agenda.draft(actor, DESTINATION)).rejects.toThrow("Agenda not found");
   });
 });

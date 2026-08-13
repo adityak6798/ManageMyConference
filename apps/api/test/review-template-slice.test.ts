@@ -305,8 +305,9 @@ describe("Review template slice", () => {
       "status:declined",
     ]);
     expect(workspace.statuses).toEqual(SOURCE_STATUSES);
-    // A refusal is the organizer's answer, not a fault: the clone as a whole did not fail.
-    expect(result.outcome).toBe("applied");
+    // A refusal is the organizer's answer, not a fault — and not a plain success either: the
+    // statuses landed and the rubric did not, which is what `partial` says.
+    expect(result.outcome).toBe("partial");
   });
 
   it("refuses a status set that drops a status the destination's abstracts hold", async () => {

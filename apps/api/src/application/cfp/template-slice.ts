@@ -11,7 +11,9 @@
  */
 import type { CfpField, CfpFieldType, CfpRoutingRule } from "../../domain/cfp/cfp";
 import type {
+  DateRemap,
   EventConfigurationSlice,
+  SliceContext,
   SliceEntry,
   SlicePreview,
   SliceResult,
@@ -20,6 +22,13 @@ import type { Actor } from "../identity/actor";
 import { CfpRoutingConfigurationError, type CfpService } from "./cfp-service";
 
 export const CFP_TEMPLATE_SLICE_KEY = "cfp";
+
+/**
+ * The key review's triage statuses arrive under, written literally rather than imported: the CFP
+ * domain must not reach into the review domain's modules, and only the *key* is allowed across
+ * that boundary anyway. What review's statuses are stays review's business.
+ */
+const REVIEW_SLICE_KEY = "review";
 
 interface CfpTemplatePayload {
   readonly title: string;
@@ -40,6 +49,10 @@ const EXCLUDED: readonly SliceEntry[] = [
   { id: "submissions", label: "Submitted proposals and their answers" },
 ];
 
+/** Said whenever review is applying first, because then it, not this event, decides the rules. */
+const ROUTING_FOLLOWS_STATUSES =
+  "Its routing rules are checked against the triage statuses the review category writes first, not against the statuses this event configures today.";
+
 export function cfpTemplateSlice(service: CfpTemplateCommands): EventConfigurationSlice {
   return {
     key: CFP_TEMPLATE_SLICE_KEY,
@@ -57,24 +70,58 @@ export function cfpTemplateSlice(service: CfpTemplateCommands): EventConfigurati
       return payload;
     },
 
-    async preview(actor: Actor | null, eventId: string, raw: unknown): Promise<SlicePreview> {
+    async preview(
+      actor: Actor | null,
+      eventId: string,
+      raw: unknown,
+      _remap: DateRemap,
+      context: SliceContext,
+    ): Promise<SlicePreview> {
       const payload = readPayload(raw);
-      const { usable, refused } = await partitionRouting(service, actor, eventId, payload.routing);
+      /*
+       * What this preview cannot know, stated rather than guessed.
+       *
+       * Review writes the destination's triage statuses before this slice runs, and only its key
+       * crosses that boundary — never its payload. So a rule naming a status the destination is
+       * missing today is copyable by the time the write happens, and a rule naming one the
+       * destination holds today is not, if review's set turns out to drop it. Both directions are
+       * the same fact: while review is applying first, its status set is the one the rules are
+       * checked against, and the preview says so instead of predicting which rules survive it.
+       */
+      const statusesArriving = context.appliedBefore.includes(REVIEW_SLICE_KEY);
+      const { usable, pending, refused } = await partitionRouting(
+        service,
+        actor,
+        eventId,
+        payload.routing,
+        statusesArriving,
+      );
       const current = await service.getForOrganizer(actor, eventId);
-      const unchanged = current !== null && matches(current, payload, usable);
+      // "Applying writes nothing" is a claim about a destination nothing else is about to change,
+      // so it is not made while review is rewriting the status set these rules are validated
+      // against: the rules that set adds or drops are exactly the ones apply would then write.
+      const dependsOnStatuses = statusesArriving && payload.routing.length > 0;
+      const unchanged = !dependsOnStatuses && current !== null && matches(current, payload, usable);
       return {
         outcome: "copies",
-        reason: unchanged
-          ? "The destination CFP already matches this template; applying writes nothing."
-          : current
-            ? "Replaces the destination's CFP draft. The live published form is untouched."
-            : "Creates the destination's CFP draft.",
+        reason: [
+          unchanged
+            ? "The destination CFP already matches this template; applying writes nothing."
+            : current
+              ? "Replaces the destination's CFP draft. The live published form is untouched."
+              : "Creates the destination's CFP draft.",
+          ...(dependsOnStatuses ? [ROUTING_FOLLOWS_STATUSES] : []),
+        ].join(" "),
         copies: [
-          { id: "form", label: `Form details: ${payload.title || "untitled"}` },
+          { id: "form", label: `Form details: ${payload.title}` },
           ...payload.fields.map((field) => ({ id: field.id, label: `Field: ${field.label}` })),
           ...usable.map((rule) => ({
             id: rule.id,
             label: `Routing rule to “${rule.routeTo.status}”`,
+          })),
+          ...pending.map((rule) => ({
+            id: rule.id,
+            label: `Routing rule to “${rule.routeTo.status}”, once the triage statuses category creates that status`,
           })),
         ],
         excludes: EXCLUDED,
@@ -84,7 +131,15 @@ export function cfpTemplateSlice(service: CfpTemplateCommands): EventConfigurati
 
     async apply(actor: Actor | null, eventId: string, raw: unknown): Promise<SliceResult> {
       const payload = readPayload(raw);
-      const { usable, refused } = await partitionRouting(service, actor, eventId, payload.routing);
+      // No `appliedBefore` here: apply runs after the categories before it have written, so the
+      // destination it reads is already the one the rules have to satisfy.
+      const { usable, refused } = await partitionRouting(
+        service,
+        actor,
+        eventId,
+        payload.routing,
+        false,
+      );
       const current = await service.getForOrganizer(actor, eventId);
       /*
        * Re-applying converges *and* writes nothing.
@@ -147,7 +202,7 @@ function appliedEntries(
   usable: readonly CfpRoutingRule[],
 ): readonly SliceEntry[] {
   return [
-    { id: "form", label: `Form details: ${payload.title || "untitled"}` },
+    { id: "form", label: `Form details: ${payload.title}` },
     ...payload.fields.map((field) => ({ id: field.id, label: `Field: ${field.label}` })),
     ...usable.map((rule) => ({ id: rule.id, label: `Routing rule to “${rule.routeTo.status}”` })),
   ];
@@ -160,25 +215,33 @@ function appliedEntries(
  * choice is between copying nothing and copying the form without those rules. The second is
  * what the issue asks for — every rule dropped is named back to the organizer — and it is why
  * the review slice's triage statuses must apply before this one.
+ *
+ * `statusesArriving` is that ordering, seen from here: a status the destination is missing while
+ * review is still to write is not a refusal but a dependency, and it is `pending` rather than
+ * `refused` so that the preview promises what the apply will do. Only a preview passes it — an
+ * apply reads the statuses after review wrote them.
  */
 async function partitionRouting(
   service: CfpTemplateCommands,
   actor: Actor | null,
   eventId: string,
   routing: readonly CfpRoutingRule[],
-): Promise<{ usable: CfpRoutingRule[]; refused: SliceEntry[] }> {
-  if (routing.length === 0) return { usable: [], refused: [] };
+  statusesArriving: boolean,
+): Promise<{ usable: CfpRoutingRule[]; pending: CfpRoutingRule[]; refused: SliceEntry[] }> {
+  if (routing.length === 0) return { usable: [], pending: [], refused: [] };
   const configured = new Set((await service.routingStatuses(actor, eventId)).map(({ key }) => key));
   const usable: CfpRoutingRule[] = [];
+  const pending: CfpRoutingRule[] = [];
   const refused: SliceEntry[] = [];
   for (const rule of routing)
     if (configured.has(rule.routeTo.status)) usable.push(rule);
+    else if (statusesArriving) pending.push(rule);
     else
       refused.push({
         id: rule.id,
         label: `Routing rule to “${rule.routeTo.status}”, which this event does not configure`,
       });
-  return { usable, refused };
+  return { usable, pending, refused };
 }
 
 function matches(
@@ -197,11 +260,40 @@ function matches(
 const FIELD_TYPES: readonly CfpFieldType[] = ["short_text", "long_text", "email", "select"];
 
 /**
+ * The form's shape limits, as `cfpFieldSchema`, `cfpFieldsSchema` and `saveCfpInputSchema` state
+ * them in `packages/contracts/src/domains/cfp.ts`. Repeated rather than imported because the
+ * application layer may import no external package — the same reason the domain repeats
+ * `CFP_FIELD_MAX_LENGTHS` — so the two must stay in agreement.
+ */
+const LIMIT = {
+  answer: 10_000,
+  description: 2_000,
+  fields: 40,
+  guidance: 500,
+  id: 80,
+  label: 120,
+  option: 120,
+  options: 30,
+  routing: 20,
+  title: 120,
+  value: 120,
+  values: 30,
+} as const;
+
+/**
  * A stored template payload is untrusted input by the time it is applied.
  *
  * It was serialized by this slice, but it has since been at rest in a table an operator can
  * write to, and it reaches `CfpService.save` without passing the Zod schema that guards the
  * HTTP form composer. So it is validated here instead of trusted here.
+ *
+ * "Validated" means every invariant that decides whether the result is a form the composer would
+ * have accepted: its bounds, unique ids, a `select` with something to select, and a condition
+ * that names a question the applicant has already been asked. What is deliberately *not*
+ * duplicated is the schema's normalisation — the `.trim()` and `.default()` steps that rewrite a
+ * value on the way through. This reader answers whether a payload is usable, and rewriting it
+ * would break the comparison the slice converges on: a payload edited here would differ from the
+ * form the destination stores, so every apply would write again forever.
  */
 function readPayload(raw: unknown): CfpTemplatePayload {
   if (typeof raw !== "object" || raw === null) throw unreadable();
@@ -210,13 +302,56 @@ function readPayload(raw: unknown): CfpTemplatePayload {
     throw unreadable();
   if (!Array.isArray(candidate.fields) || !Array.isArray(candidate.routing ?? []))
     throw unreadable();
-  return {
+  if (
+    !within(candidate.title.trim(), 1, LIMIT.title) ||
+    candidate.description.trim().length > LIMIT.description
+  )
+    throw unreadable();
+  return whole({
     title: candidate.title,
     description: candidate.description,
     fields: candidate.fields.map(readField),
     routing: ((candidate.routing ?? []) as unknown[]).map(readRule),
-  };
+  });
 }
+
+/**
+ * The invariants that are about the form rather than about one field or one rule, which is why
+ * they are checked once the parts have been read: a duplicate id, a condition pointing forwards,
+ * and a rule routing on a question this form does not ask are all refusals `CfpService.save`
+ * makes no attempt at, because at the HTTP boundary the schema had already made them.
+ */
+function whole(payload: CfpTemplatePayload): CfpTemplatePayload {
+  if (payload.fields.length < 1 || payload.fields.length > LIMIT.fields) throw unreadable();
+  if (payload.routing.length > LIMIT.routing) throw unreadable();
+  const fieldIds = new Set<string>();
+  payload.fields.forEach((field, index) => {
+    if (fieldIds.has(field.id)) throw unreadable();
+    fieldIds.add(field.id);
+    if (field.type === "select" && field.options.length === 0) throw unreadable();
+    // A question can only be shown or hidden by an answer the applicant has already given, so the
+    // condition's source must sit earlier in the list.
+    if (field.visibleWhen && !earlier(payload.fields, field.visibleWhen.fieldId, index))
+      throw unreadable();
+  });
+  const ruleIds = new Set<string>();
+  for (const rule of payload.routing) {
+    if (ruleIds.has(rule.id) || !fieldIds.has(rule.when.fieldId)) throw unreadable();
+    ruleIds.add(rule.id);
+  }
+  return payload;
+}
+
+const earlier = (fields: readonly CfpField[], fieldId: string, index: number): boolean => {
+  const source = fields.findIndex(({ id }) => id === fieldId);
+  return source >= 0 && source < index;
+};
+
+const within = (value: string, min: number, max: number): boolean =>
+  value.length >= min && value.length <= max;
+
+const counted = (value: unknown, max: number): boolean =>
+  typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
 
 function readField(raw: unknown): CfpField {
   if (typeof raw !== "object" || raw === null) throw unreadable();
@@ -229,6 +364,15 @@ function readField(raw: unknown): CfpField {
     !FIELD_TYPES.includes(candidate.type as CfpFieldType) ||
     !Array.isArray(candidate.options) ||
     candidate.options.some((option) => typeof option !== "string")
+  )
+    throw unreadable();
+  if (
+    !within(candidate.id, 1, LIMIT.id) ||
+    !within(candidate.label.trim(), 1, LIMIT.label) ||
+    candidate.guidance.trim().length > LIMIT.guidance ||
+    candidate.options.length > LIMIT.options ||
+    (candidate.options as string[]).some((option) => !within(option.trim(), 1, LIMIT.option)) ||
+    (candidate.maxLength !== undefined && !counted(candidate.maxLength, LIMIT.answer))
   )
     throw unreadable();
   return {
@@ -250,6 +394,8 @@ function readRule(raw: unknown): CfpRoutingRule {
   const candidate = raw as Record<string, unknown>;
   const routeTo = candidate.routeTo as Record<string, unknown> | undefined;
   if (typeof candidate.id !== "string" || typeof routeTo?.status !== "string") throw unreadable();
+  if (!within(candidate.id, 1, LIMIT.id) || !within(routeTo.status.trim(), 1, LIMIT.id))
+    throw unreadable();
   return {
     id: candidate.id,
     when: readCondition(candidate.when),
@@ -267,6 +413,12 @@ function readCondition(raw: unknown): CfpRoutingRule["when"] {
       candidate.operator !== "notEmpty") ||
     !Array.isArray(candidate.values) ||
     candidate.values.some((value) => typeof value !== "string")
+  )
+    throw unreadable();
+  if (
+    !within(candidate.fieldId, 1, LIMIT.id) ||
+    candidate.values.length > LIMIT.values ||
+    (candidate.values as string[]).some((value) => value.length > LIMIT.value)
   )
     throw unreadable();
   return {

@@ -1,5 +1,5 @@
 // @acceptance ACC-EVENT-TEMPLATES
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { MemoryEventTemplateRepository } from "../src/adapters/persistence/memory-event-template-repository";
@@ -7,17 +7,21 @@ import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memo
 import { CfpService } from "../src/application/cfp/cfp-service";
 import { cfpTemplateSlice } from "../src/application/cfp/public";
 import { EventService } from "../src/application/events/event-service";
+import type {
+  EventConfigurationSlice,
+  SliceContext,
+  SliceFault,
+  SlicePreview,
+  SliceResult,
+} from "../src/application/events/public";
 import {
   EventTemplateNameTakenError,
   EventTemplateNotFoundError,
   EventTemplateRangeError,
+  EventTemplateSelectionError,
   EventTemplateService,
   EventTemplateStateError,
-} from "../src/application/events/public";
-import type {
-  EventConfigurationSlice,
-  SlicePreview,
-  SliceResult,
+  SliceRefusalError,
 } from "../src/application/events/public";
 import type { Actor, Capability } from "../src/application/identity/actor";
 import { CapabilityDeniedError } from "../src/application/identity/actor";
@@ -445,7 +449,10 @@ describe("Event templates: the per-slice contract", () => {
     incompatible: [],
   }));
 
-  async function applyWith(slices: EventConfigurationSlice[]) {
+  async function orchestrate(
+    slices: EventConfigurationSlice[],
+    onSliceFault?: (fault: SliceFault) => void,
+  ) {
     const eventRepository = new MemoryEventRepository();
     for (const [id, organizationId] of [
       [SOURCE, ORGANIZATION],
@@ -469,15 +476,24 @@ describe("Event templates: the per-slice contract", () => {
       slices,
       newId: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,
       now: () => new Date("2026-08-12T10:00:00.000Z"),
+      ...(onSliceFault ? { onSliceFault } : {}),
     });
     const actor = organizer([SOURCE, DESTINATION]);
-    const { template } = await templates.saveFromEvent(actor, {
+    const capture = await templates.saveFromEvent(actor, {
       organizationId: ORGANIZATION,
       name: "Stubbed",
       sourceEventId: SOURCE,
     });
+    return { actor, capture, templates, templateId: capture.template.id };
+  }
+
+  async function applyWith(
+    slices: EventConfigurationSlice[],
+    onSliceFault?: (fault: SliceFault) => void,
+  ) {
+    const { actor, templates, templateId } = await orchestrate(slices, onSliceFault);
     return templates.apply(actor, DESTINATION, {
-      templateId: template.id,
+      templateId,
       version: 1,
       destination: DESTINATION_RANGE,
     });
@@ -490,7 +506,9 @@ describe("Event templates: the per-slice contract", () => {
 
     const result = await applyWith([working, denied]);
 
-    expect(result.outcome).toBe("applied");
+    // Not `applied`: one category was refused, and a console that renders a plain success over
+    // that has told the organizer the clone arrived whole when it did not.
+    expect(result.outcome).toBe("partial");
     expect(result.slices.map(({ key, outcome }) => [key, outcome])).toEqual([
       ["working", "applied"],
       ["denied", "unauthorized"],
@@ -498,15 +516,76 @@ describe("Event templates: the per-slice contract", () => {
     ]);
   });
 
+  it("says partial when a category the destination refuses is the only thing missing", async () => {
+    const refusing = stubSlice("refusing", async () => ({
+      outcome: "incompatible" as const,
+      reason: "The destination has no matching rubric.",
+      applied: [],
+      incompatible: [{ id: "refusing", label: "refusing" }],
+    }));
+
+    await expect(applyWith([working, refusing])).resolves.toMatchObject({ outcome: "partial" });
+  });
+
+  it("says skipped, never applied, when the application wrote nothing at all", async () => {
+    const { actor, templates, templateId } = await orchestrate([working]);
+
+    const result = await templates.apply(actor, DESTINATION, {
+      templateId,
+      version: 1,
+      destination: DESTINATION_RANGE,
+      slices: [],
+    });
+
+    expect(result.outcome).toBe("skipped");
+    expect(result.slices.map(({ outcome }) => outcome)).toEqual(["skipped", "skipped"]);
+  });
+
+  it("refuses a category key it composes nothing for, and writes no application row", async () => {
+    const { actor, templates, templateId } = await orchestrate([working]);
+    const command = {
+      templateId,
+      version: 1,
+      destination: DESTINATION_RANGE,
+      slices: ["workign"],
+    };
+
+    const refused = templates.apply(actor, DESTINATION, command);
+
+    await expect(refused).rejects.toBeInstanceOf(EventTemplateSelectionError);
+    // The unknown key and the ones that exist: a client cannot repair a misspelling it is not
+    // shown, and answering 200/`applied` for it is what this replaces.
+    await expect(refused).rejects.toThrow('No category named "workign"');
+    await expect(refused).rejects.toThrow("working, communications");
+    await expect(templates.preview(actor, DESTINATION, command)).rejects.toBeInstanceOf(
+      EventTemplateSelectionError,
+    );
+    await expect(templates.applications(actor, DESTINATION)).resolves.toEqual([]);
+  });
+
+  it("accepts a declared exclusion as a selected key, since the plan lists it", async () => {
+    const { actor, templates, templateId } = await orchestrate([working]);
+
+    await expect(
+      templates.apply(actor, DESTINATION, {
+        templateId,
+        version: 1,
+        destination: DESTINATION_RANGE,
+        slices: ["working", "communications"],
+      }),
+    ).resolves.toMatchObject({ outcome: "applied" });
+  });
+
   it("says partial when one category fails, and does not roll back the ones that landed", async () => {
     const broken = stubSlice("broken", () => {
-      throw new Error("The destination rubric is locked by existing assignments");
+      throw new SliceRefusalError("The destination rubric is locked by existing assignments");
     });
 
     const result = await applyWith([working, broken]);
 
     expect(result.outcome).toBe("partial");
     expect(result.slices.find(({ key }) => key === "working")?.outcome).toBe("applied");
+    // A refusal raised on purpose is written for the organizer, so it keeps its own words.
     expect(result.slices.find(({ key }) => key === "broken")).toMatchObject({
       outcome: "failed",
       reason: "The destination rubric is locked by existing assignments",
@@ -515,9 +594,133 @@ describe("Event templates: the per-slice contract", () => {
 
   it("says failed when nothing landed at all", async () => {
     const broken = stubSlice("broken", () => {
-      throw new Error("Storage is unreachable");
+      throw new SliceRefusalError("Storage is unreachable");
     });
 
     await expect(applyWith([broken])).resolves.toMatchObject({ outcome: "failed" });
+  });
+
+  it("never answers with an unexpected throw's own text, and reports it once instead", async () => {
+    const driver = new Error(
+      "D1_ERROR: UNIQUE constraint failed: cfp_forms.event_id, cfp_forms.version: SQLITE_CONSTRAINT",
+    );
+    const broken = stubSlice("broken", () => {
+      throw driver;
+    });
+    const onSliceFault = vi.fn();
+
+    const result = await applyWith([working, broken], onSliceFault);
+
+    const reported = result.slices.find(({ key }) => key === "broken");
+    expect(reported?.outcome).toBe("failed");
+    expect(reported?.reason).toBe(
+      "This category could not be applied. Applying this version again is the repair.",
+    );
+    expect(JSON.stringify(result)).not.toContain("SQLITE_CONSTRAINT");
+    expect(onSliceFault).toHaveBeenCalledTimes(1);
+    expect(onSliceFault).toHaveBeenCalledWith({
+      sliceKey: "broken",
+      stage: "apply",
+      eventId: DESTINATION,
+      error: driver,
+    });
+  });
+
+  it("reports nothing for a refusal the slice raised on purpose", async () => {
+    const onSliceFault = vi.fn();
+    const refusing = stubSlice("refusing", () => {
+      throw new SliceRefusalError("The destination rubric is locked");
+    });
+    const denied = stubSlice("denied", () => {
+      throw new CapabilityDeniedError("Actor lacks agenda:manage for event");
+    });
+
+    await applyWith([refusing, denied], onSliceFault);
+
+    expect(onSliceFault).not.toHaveBeenCalled();
+  });
+
+  it("keeps a capture's own fault out of the stored template and out of the report", async () => {
+    const onSliceFault = vi.fn();
+    const unreadable: EventConfigurationSlice = {
+      key: "unreadable",
+      label: "unreadable",
+      export() {
+        return Promise.reject(new Error("D1_ERROR: no such table: agenda_slots"));
+      },
+      preview: () =>
+        Promise.resolve({
+          outcome: "copies" as const,
+          reason: "",
+          copies: [],
+          excludes: [],
+          incompatible: [],
+        }),
+      apply: () =>
+        Promise.resolve({
+          outcome: "applied" as const,
+          reason: "",
+          applied: [],
+          incompatible: [],
+        }),
+    };
+
+    const { capture } = await orchestrate([unreadable], onSliceFault);
+
+    expect(capture.slices).toEqual([
+      {
+        key: "unreadable",
+        label: "unreadable",
+        outcome: "failed",
+        reason: "This category could not be captured. Capturing a new version is the repair.",
+      },
+    ]);
+    expect(onSliceFault).toHaveBeenCalledWith(
+      expect.objectContaining({ sliceKey: "unreadable", stage: "export", eventId: SOURCE }),
+    );
+  });
+
+  it("tells a preview which categories this application writes before it", async () => {
+    const seen = new Map<string, readonly string[]>();
+    const recording = (key: string): EventConfigurationSlice => ({
+      key,
+      label: key,
+      export: () => Promise.resolve({ captured: key }),
+      preview(_actor, _eventId, _payload, _remap, context: SliceContext) {
+        seen.set(key, context.appliedBefore);
+        return Promise.resolve({
+          outcome: "copies" as const,
+          reason: "",
+          copies: [],
+          excludes: [],
+          incompatible: [],
+        });
+      },
+      apply: () =>
+        Promise.resolve({
+          outcome: "applied" as const,
+          reason: "",
+          applied: [],
+          incompatible: [],
+        }),
+    });
+    const { actor, templates, templateId } = await orchestrate([
+      recording("review"),
+      recording("cfp"),
+      recording("agenda"),
+    ]);
+
+    await templates.preview(actor, DESTINATION, {
+      templateId,
+      version: 1,
+      destination: DESTINATION_RANGE,
+      // Apply order is composition order, so CFP has to be told review lands first — and agenda
+      // must not be told about a category this application skipped.
+      slices: ["review", "cfp"],
+    });
+
+    expect(seen.get("review")).toEqual([]);
+    expect(seen.get("cfp")).toEqual(["review"]);
+    expect(seen.has("agenda")).toBe(false);
   });
 });

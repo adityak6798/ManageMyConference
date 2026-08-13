@@ -126,8 +126,14 @@ export const templateApplicationResultSchema = templateApplicationIdentitySchema
    * `partial` is a real, reachable answer, not a defensive default. Nothing in this repository
    * spans a transaction across seven domains, so a slice that fails leaves the ones that
    * already succeeded in place; re-applying is the repair (`ARC-FLOW-006`).
+   *
+   * `applied` therefore means every selected category arrived: one the destination refused or
+   * the account may not write is `partial` too, because a console that renders a plain success
+   * over a clone whose routing was dropped has told the organizer something untrue. `skipped`
+   * is an application that wrote nothing and refused nothing — every category unselected or
+   * carrying no payload — which is not a success and is not a failure either.
    */
-  outcome: z.enum(["applied", "partial", "failed"]),
+  outcome: z.enum(["applied", "partial", "failed", "skipped"]),
   slices: z.array(sliceResultSchema),
 });
 
@@ -174,8 +180,14 @@ export const applyEventTemplateInputSchema = z.object({
   /** Explicit. "Latest" would make the same request produce a different event next week. */
   version: z.number().int().positive(),
   destination: z.object({ startsOn: calendarDateSchema, endsOn: calendarDateSchema }),
-  /** Omitted clones every category the version carries; a list clones only those keys. */
-  slices: z.array(z.string()).optional(),
+  /**
+   * Omitted clones every category the version carries; a list clones only those keys.
+   *
+   * Which keys exist is a property of the deployment's composition rather than of this schema,
+   * so the server is what refuses one it does not compose — with a 400 naming the key and the
+   * ones that do exist. It cannot be checked here without this package learning the slice list.
+   */
+  slices: z.array(z.string().min(1, "A category key cannot be empty")).optional(),
 });
 export type ApplyEventTemplateInput = z.infer<typeof applyEventTemplateInputSchema>;
 

@@ -1,5 +1,5 @@
 // @acceptance ACC-EVENT-TEMPLATES
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
@@ -35,6 +35,13 @@ const REMAP = {
   destination: { ...DESTINATION_RANGE, eventId: DESTINATION, timezone: "America/Los_Angeles" },
   source: { eventId: SOURCE, timezone: "America/Los_Angeles" },
 };
+
+/**
+ * The rest of what `EventTemplateService` hands a slice: the keys landing before this one.
+ * Neither content slice depends on another category, so both ignore it — and a test calling a
+ * slice directly still supplies it, because the port does.
+ */
+const CONTEXT = { appliedBefore: [] };
 
 const CAPABILITIES = [
   "events:read",
@@ -425,7 +432,7 @@ describe("Content template slices: speaker portal resources", () => {
      * Nothing reports that: both are "created" on the first run and on every run after it, so
      * the destination never matches the template and "apply twice, then compare" never holds.
      */
-    await expect(slice.preview(organizer, DESTINATION, payload, REMAP)).rejects.toThrow(
+    await expect(slice.preview(organizer, DESTINATION, payload, REMAP, CONTEXT)).rejects.toThrow(
       /could not be read/,
     );
     await expect(slice.apply(organizer, DESTINATION, payload, REMAP)).rejects.toThrow(
@@ -436,16 +443,37 @@ describe("Content template slices: speaker portal resources", () => {
   });
 
   it("converges on a second application: no duplicate slug, and nothing written", async () => {
-    const { content, template, templates } = await captured();
+    const { content, repository, template, templates } = await captured();
+    /*
+     * Both ends of the write path are witnessed, because reading the rows back witnesses
+     * neither: `speaker_resources` stamps no version, so a slice that wrote on every apply
+     * would leave a byte-identical workspace behind and a comparison of the rows would pass
+     * while the property this test names — apply twice, write once — was false.
+     *
+     * The far end is the storage seam. The near end is the import command the slice issues:
+     * that one compares before it writes too, so the storage count alone stays still even for a
+     * slice that has stopped comparing and is asking for a commit it does not need.
+     */
+    const stored = vi.spyOn(repository, "upsertResourceBySlug");
+    const imports = vi.spyOn(content, "importSpeakerResources");
+    const committed = () => imports.mock.calls.filter(([, input]) => input.commit).length;
 
     await apply(templates, template.id);
     const afterFirst = await content.workspace(organizer, DESTINATION);
+    const firstWrites = stored.mock.calls.length;
+    const firstCommits = committed();
     const second = await apply(templates, template.id);
     const afterSecond = await content.workspace(organizer, DESTINATION);
 
     const slice = second.slices.find(({ key }) => key === "content-resources");
     expect(slice?.outcome).toBe("applied");
     expect(slice?.reason).toContain("nothing needed to be written");
+    // Two of the three resources, and one commit to write them: the spies are demonstrably on
+    // the doors the write goes through, so the counts below are needles that moved once.
+    expect(firstWrites).toBe(2);
+    expect(firstCommits).toBe(1);
+    expect(stored).toHaveBeenCalledTimes(firstWrites);
+    expect(committed()).toBe(firstCommits);
     // Byte-identical, ids included: the slice compares before it writes, and the store resolves
     // `(event_id, slug)` rather than inserting a second row under the same slug.
     expect(JSON.stringify(afterSecond.resources)).toBe(JSON.stringify(afterFirst.resources));
@@ -493,17 +521,87 @@ describe("Content template slices: speaker task checklists", () => {
   });
 
   it("converges on a second application without a second copy of every line", async () => {
-    const { content, template, templates } = await captured();
+    const { content, repository, template, templates } = await captured();
+    /*
+     * Both ends of the write path, for the reason the resources test states: a line keeps the
+     * `createdAt` it was declared on, so re-writing it is invisible in the rows, and the import
+     * command's own comparison hides a slice that asks to commit when it has nothing to write.
+     */
+    const stored = vi.spyOn(repository, "upsertTaskTemplateByTitle");
+    const imports = vi.spyOn(content, "importTaskTemplates");
+    const committed = () => imports.mock.calls.filter(([, input]) => input.commit).length;
 
     await apply(templates, template.id);
     const afterFirst = await content.taskTemplates(organizer, DESTINATION);
+    const firstWrites = stored.mock.calls.length;
+    const firstCommits = committed();
     const second = await apply(templates, template.id);
     const afterSecond = await content.taskTemplates(organizer, DESTINATION);
 
     const slice = second.slices.find(({ key }) => key === "content-checklists");
     expect(slice?.reason).toContain("nothing needed to be written");
+    // Both lines on the first apply, in one commit; neither on the second, and no commit asked
+    // for either.
+    expect(firstWrites).toBe(2);
+    expect(firstCommits).toBe(1);
+    expect(stored).toHaveBeenCalledTimes(firstWrites);
+    expect(committed()).toBe(firstCommits);
     expect(JSON.stringify(afterSecond)).toBe(JSON.stringify(afterFirst));
     expect(afterSecond).toHaveLength(2);
+  });
+
+  it("refuses a payload that names one title twice, rather than never converging on it", async () => {
+    const { content } = await captured();
+    const slice = speakerChecklistTemplateSlice(content);
+    const line = { title: "Send slides", description: "PDF, 16:9.", sortOrder: 0 };
+    const payload = {
+      templates: [
+        { ...line, dueOffsetDays: -7 },
+        { ...line, description: "PDF, 4:3.", sortOrder: 1, dueOffsetDays: -14 },
+      ],
+    };
+
+    /*
+     * The title is the line's identity, and `importTaskTemplates` reads the destination once
+     * before its loop: the second entry is compared against a destination the first has not
+     * been written to yet, so both are reported written on every run and the destination never
+     * matches the template.
+     */
+    await expect(slice.preview(organizer, DESTINATION, payload, REMAP, CONTEXT)).rejects.toThrow(
+      /could not be read/,
+    );
+    await expect(slice.apply(organizer, DESTINATION, payload, REMAP)).rejects.toThrow(
+      /could not be read/,
+    );
+    expect(await content.taskTemplates(organizer, DESTINATION)).toEqual([]);
+  });
+
+  it("refuses an offset further out than the composer's own bound allows", async () => {
+    const { content } = await captured();
+    const slice = speakerChecklistTemplateSlice(content);
+    const line = { title: "Send slides", description: "PDF, 16:9.", sortOrder: 0 };
+
+    // Ten years back is still a checklist an organizer could have declared; a day past it is a
+    // payload no composer would have accepted, and at rest is exactly where one gets written.
+    await expect(
+      slice.apply(
+        organizer,
+        DESTINATION,
+        { templates: [{ ...line, dueOffsetDays: -3650 }] },
+        REMAP,
+      ),
+    ).resolves.toMatchObject({ outcome: "applied" });
+    await expect(
+      slice.apply(
+        organizer,
+        DESTINATION,
+        { templates: [{ ...line, dueOffsetDays: -3651 }] },
+        REMAP,
+      ),
+    ).rejects.toThrow(/could not be read/);
+    await expect(
+      slice.apply(organizer, DESTINATION, { templates: [{ ...line, dueOffsetDays: 3651 }] }, REMAP),
+    ).rejects.toThrow(/could not be read/);
   });
 
   it("instantiates the copied checklist against named speakers, once per line", async () => {

@@ -426,8 +426,9 @@ describe("Event templates: the public page", () => {
     expect(slice?.reason).toMatch(/Choose a different public address for this event/);
     expect(slice?.incompatible.map(({ id }) => id)).toEqual(["address"]);
     // Nothing half-applied, and nothing raised: the organizer is told which address to choose
-    // and the clone as a whole is still a reported result rather than a 500.
-    expect(result.outcome).toBe("applied");
+    // and the clone as a whole is still a reported result rather than a 500. Nothing was
+    // written and the one category was refused, so the envelope does not claim a success.
+    expect(result.outcome).toBe("failed");
     expect(projections.rows.has(DESTINATION)).toBe(false);
     expect(projections.writes).toBe(0);
   });

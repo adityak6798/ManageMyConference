@@ -162,7 +162,10 @@
         "apps/api/test/agenda-template-slice.test.ts",
         "apps/api/test/publishing-template-slice.test.ts",
         "apps/api/test/content-template-slice.test.ts",
+        "apps/api/test/content-http.test.ts",
+        "apps/api/test/seeded-event-template.test.ts",
         "apps/web/test/event-templates.test.tsx",
+        "apps/web/test/event-templates-result.test.tsx",
         "apps/web/e2e/event-templates.spec.ts"
       ]
     },

@@ -153,6 +153,9 @@ export const eventsPaths: OpenApiFragment = {
         },
         400: errorResponse,
         401: errorResponse,
+        // Reached before the not-found masking: an account without `events:read` is refused
+        // here rather than told the template does not exist.
+        403: errorResponse,
         // A template owned by another organization answers 404, exactly as an unknown id does.
         404: errorResponse,
         500: errorResponse,
@@ -164,7 +167,14 @@ export const eventsPaths: OpenApiFragment = {
       security: [{ sessionCookie: [] }],
       request: {
         params: eventTemplateIdParamsSchema,
-        body: { required: true, content: json(updateEventTemplateInputSchema) },
+        body: {
+          required: true,
+          // The schema's cross-field rule is a `.refine`, which the generator cannot express,
+          // so it is stated here instead of documenting `{}` as a valid request the server
+          // answers 400 to.
+          description: "At least one of `name` and `state`. An empty object is refused with 400",
+          content: json(updateEventTemplateInputSchema),
+        },
       },
       responses: {
         200: {
@@ -173,6 +183,7 @@ export const eventsPaths: OpenApiFragment = {
         },
         400: errorResponse,
         401: errorResponse,
+        403: errorResponse,
         404: errorResponse,
         409: errorResponse,
         500: errorResponse,
@@ -193,7 +204,9 @@ export const eventsPaths: OpenApiFragment = {
         },
         400: errorResponse,
         401: errorResponse,
+        403: errorResponse,
         404: errorResponse,
+        409: errorResponse,
         500: errorResponse,
       },
     });
@@ -212,6 +225,7 @@ export const eventsPaths: OpenApiFragment = {
         },
         400: errorResponse,
         401: errorResponse,
+        403: errorResponse,
         404: errorResponse,
         409: errorResponse,
         500: errorResponse,
@@ -248,13 +262,15 @@ export const eventsPaths: OpenApiFragment = {
       responses: {
         200: {
           description:
-            "Per-category outcome. Repeating the same call converges rather than duplicating, and a failed category does not roll back the ones that succeeded",
+            "Per-category outcome. Repeating the same call converges rather than duplicating, and a failed category does not roll back the ones that succeeded. `applied` means every selected category arrived; a refused one makes it `partial`, and an application that wrote nothing is `skipped`",
           content: json(templateApplicationResponseSchema),
         },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        // An archived template is restored before it can be applied again.
+        409: errorResponse,
         500: errorResponse,
       },
     });

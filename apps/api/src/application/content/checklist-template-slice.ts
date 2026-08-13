@@ -159,8 +159,18 @@ function readPayload(raw: unknown): ContentChecklistTemplatePayload {
   if (typeof raw !== "object" || raw === null) throw unreadable();
   const candidate = raw as Record<string, unknown>;
   if (!Array.isArray(candidate.templates)) throw unreadable();
-  return { templates: candidate.templates.map(readTemplate) };
+  const templates: readonly SpeakerTaskTemplateImport[] = candidate.templates.map(readTemplate);
+  // Two lines under one title are one line the store cannot tell apart: `importTaskTemplates`
+  // builds its `byTitle` map once before the loop, so the second entry is compared against the
+  // destination as it was and reported written on every run, and the payload never converges.
+  // Refused whole rather than deduplicated, exactly as the resources slice refuses two slugs —
+  // which of the two the organizer meant is not something the payload says.
+  if (new Set(templates.map(({ title }) => title)).size !== templates.length) throw unreadable();
+  return { templates };
 }
+
+/** Ten years, the bound `saveSpeakerTaskTemplatesInputSchema` states for the same field. */
+const DUE_OFFSET_DAYS_LIMIT = 3650;
 
 function readTemplate(raw: unknown): SpeakerTaskTemplateImport {
   if (typeof raw !== "object" || raw === null) throw unreadable();
@@ -173,10 +183,14 @@ function readTemplate(raw: unknown): SpeakerTaskTemplateImport {
     typeof candidate.description !== "string" ||
     typeof candidate.sortOrder !== "number" ||
     !Number.isFinite(candidate.sortOrder) ||
-    // A whole number of days. A fractional offset would derive a due date at an arbitrary hour
-    // nobody chose, and `INTEGER` is what the column stores.
+    // A whole number of days, ten years either side of the anchor. A fractional offset would
+    // derive a due date at an arbitrary hour nobody chose, and `INTEGER` is what the column
+    // stores; the range is `saveSpeakerTaskTemplatesInputSchema`'s, held here too because a
+    // stored payload reaches this write without passing that schema.
     typeof candidate.dueOffsetDays !== "number" ||
-    !Number.isInteger(candidate.dueOffsetDays)
+    !Number.isInteger(candidate.dueOffsetDays) ||
+    candidate.dueOffsetDays < -DUE_OFFSET_DAYS_LIMIT ||
+    candidate.dueOffsetDays > DUE_OFFSET_DAYS_LIMIT
   )
     throw unreadable();
   return {

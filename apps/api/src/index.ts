@@ -5,9 +5,10 @@ import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
 } from "./adapters/content/sanitize-resource-html";
+import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
+import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
-import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import {
   D1CommunicationsRepository,
   preparedDeliveryWriter,
@@ -23,39 +24,32 @@ import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository"
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { resolveProviders, resolveRegistrationSource } from "./adapters/providers/configuration";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
+import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
 import { agendaTemplateSlice } from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
-import {
-  speakerChecklistTemplateSlice,
-  speakerResourceTemplateSlice,
-} from "./application/content/public";
-import { publishingTemplateSlice } from "./application/publishing/public";
-import { reviewTemplateSlice } from "./application/review/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
+import type { DeliveryRequest } from "./application/communications/public";
 import {
   AccelEventsSyncService,
   CommunicationsInputError,
   CommunicationsNotFoundError,
   CommunicationsService,
 } from "./application/communications/public";
-import type { DeliveryRequest } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
-import { ContentService } from "./application/content/content-service";
 import type { SpeakerNotificationPort } from "./application/content/content-service";
-import { SpeakerCalendarInviteService } from "./application/content/public";
+import { ContentService } from "./application/content/content-service";
+import {
+  SpeakerCalendarInviteService,
+  speakerChecklistTemplateSlice,
+  speakerResourceTemplateSlice,
+} from "./application/content/public";
 import { CrmService } from "./application/crm/crm-service";
 import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
 import { EventService, EventTemplateService } from "./application/events/public";
-import { ItineraryService } from "./application/publishing/itinerary-service";
-import { PublicationService } from "./application/publishing/publication-service";
-import { ReviewService } from "./application/review/review-service";
-import type { ReviewNotificationPort } from "./application/review/review-service";
-import { createHttpAppFrom, type GoogleAuthProvider } from "./transport/http/app";
-import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import {
   completeGoogleAuthorization,
   type GoogleConfiguration,
@@ -63,9 +57,15 @@ import {
   stateProof,
 } from "./application/identity/google-oauth";
 import { SignupService } from "./application/identity/signup";
-import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
+import { ItineraryService } from "./application/publishing/itinerary-service";
+import { publishingTemplateSlice } from "./application/publishing/public";
+import { PublicationService } from "./application/publishing/publication-service";
+import { reviewTemplateSlice } from "./application/review/public";
+import type { ReviewNotificationPort } from "./application/review/review-service";
+import { ReviewService } from "./application/review/review-service";
 import type { ReviewSuggestionPort } from "./application/review/suggestion-port";
 import { SuggestionUnavailableError } from "./application/review/suggestion-port";
+import { createHttpAppFrom, type GoogleAuthProvider } from "./transport/http/app";
 
 export interface Environment {
   DB: D1DatabasePort;
@@ -862,6 +862,26 @@ export default {
       ],
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
+      /*
+       * Where a slice's unexpected throw is written, once, at the boundary that owns it.
+       *
+       * The organizer is told the category failed and that applying again is the repair; the
+       * cause is here, because a per-category `reason` is a product surface and the driver's
+       * text belongs in a log a responder reads (`ARC-OBS-001`). Which slice, which stage and
+       * which event — never a payload, which is another domain's business by construction.
+       */
+      onSliceFault: ({ sliceKey, stage, eventId, error }) => {
+        logger.error(
+          {
+            sliceKey,
+            stage,
+            eventId,
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          },
+          "event.template.slice.failed",
+        );
+      },
     });
     // --- end events ---
     /*

@@ -47,6 +47,18 @@ interface AgendaTemplatePayload {
 /** The three lists `AgendaService.configure` replaces, and the only thing this slice writes. */
 type AgendaResources = Pick<AgendaDraft, "rooms" | "tracks" | "slots">;
 
+/** One of those three lists, asked about on its own rather than as part of the board. */
+type AgendaDimension = keyof AgendaResources;
+
+/** In the order an organizer reads them, with the words the reasons below are built from. */
+const DIMENSIONS = ["rooms", "tracks", "slots"] as const satisfies readonly AgendaDimension[];
+
+const DIMENSION_LABEL: Record<AgendaDimension, string> = {
+  rooms: "rooms",
+  tracks: "tracks",
+  slots: "time slots",
+};
+
 /** The destination as it stands: what to compare against, and what a rewrite would strand. */
 type AgendaBoard = AgendaResources & Pick<AgendaDraft, "placements">;
 
@@ -72,27 +84,54 @@ const STRANDED =
   "not carry. Remove those placements first, then apply the template again.";
 
 /**
- * A template that carries nothing must not be the one thing that clears a board.
+ * A template that carries nothing is answered rather than applied.
  *
- * `configure` replaces all three lists on every call, so an empty payload applies perfectly
- * cleanly and leaves the destination with no rooms, tracks or slots — reported as a copy of a
- * board that had none. `export` refuses to capture one for exactly that reason, which leaves a
- * hand-written or edited row as the only way one arrives, and an untrusted payload is what this
- * slice reads at apply time. Nothing to copy is an honest answer; erasure dressed as a copy is not.
+ * The rule below leaves every unmentioned dimension standing, so an all-empty payload can no
+ * longer take a configured board down with it. Two things still make this its own answer: a
+ * destination with no agenda at all would otherwise have an empty one *created* for it, and
+ * "applied" is the wrong word for a template that contributed nothing. `export` refuses to
+ * capture an empty board, which leaves a hand-written or edited row as the only way one arrives,
+ * and an untrusted payload is what this slice reads at apply time.
  */
 const NOTHING_TO_COPY =
-  "This template carries no rooms, tracks or time slots. Applying it would clear the " +
-  "destination's own board rather than copy anything onto it, so this category is left alone.";
+  "This template carries no rooms, tracks or time slots. There is nothing to copy, and a " +
+  "template is never the thing that would clear the destination's own board, so this category " +
+  "is left alone.";
 
 /*
- * That check is the only one needed, and the reason is worth writing down because the obvious
- * second worry is unreachable rather than unhandled.
+ * A dimension the template says nothing about is left standing, not emptied.
  *
- * A payload carrying only slots, every one of which the destination's dates refuse, would also
- * reach `configure` with three empty lists — but no such payload exists. `remapSlots` anchors on
- * the earliest day any slot *starts* on, so that slot's offset is zero by construction and it
- * lands on `destination.startsOn`, which is inside every range this service accepts. At least
- * one slot therefore always survives, and refusals are always a strict subset.
+ * `configure` replaces rooms, tracks and slots together, so a payload carrying one non-empty
+ * list writes two empty ones over whatever the destination had — and `export` produces exactly
+ * that payload, because it captures the whole board as soon as any one list has something in it.
+ * A source event with rooms but no tracks yet is an ordinary state, and applying it deleted the
+ * destination's tracks. `stranded` does not catch that: a board that was set up but never
+ * dragged onto has no placements to strand, so the deletion goes through perfectly cleanly and
+ * is reported as a copy.
+ *
+ * Refusing instead — `incompatible` whenever the write would remove a destination entry the
+ * payload does not carry — was the other candidate, and it is too blunt to be right: replacing
+ * the rooms an event already has is what applying a template *means*, so that rule would refuse
+ * nearly every application onto a destination anyone had begun to configure, and the one
+ * legitimate use of this feature would become the one it turned away. Per dimension is the line
+ * that keeps "replaces what it speaks about" without "deletes what it does not".
+ *
+ * The cost is that an empty list is not expressible. A template meaning "this event has no
+ * tracks" is byte-identical to one that never mentioned tracks, and this reads both as silence.
+ * Nothing in the payload distinguishes them and no `export` can currently produce a payload that
+ * would; an organizer who wants the destination's tracks gone deletes them on the destination's
+ * own board, where the agenda can tell them which placements that would strand.
+ */
+
+/*
+ * Emptiness is read off the *stored* lists rather than the remapped ones, and the obvious worry
+ * about that is unreachable rather than unhandled.
+ *
+ * A payload carrying only slots, every one of which the destination's dates refuse, would reach
+ * `configure` with an empty slot list it did not mean to be empty — but no such payload exists.
+ * `remapSlots` anchors on the earliest day any slot *starts* on, so that slot's offset is zero by
+ * construction and it lands on `destination.startsOn`, which is inside every range this service
+ * accepts. At least one slot therefore always survives, and refusals are always a strict subset.
  */
 
 export function agendaTemplateSlice(service: AgendaTemplateCommands): EventConfigurationSlice {
@@ -104,9 +143,9 @@ export function agendaTemplateSlice(service: AgendaTemplateCommands): EventConfi
       const board = await readBoard(service, actor, eventId);
       if (!board) return null;
       /*
-       * A board with no resources at all is nothing to copy, and saying so matters: captured as
-       * an empty payload it would apply cleanly and *erase* the destination's rooms, tracks and
-       * slots, which is a write no organizer asked a template to make.
+       * A board with no resources at all is nothing to copy, and a version that stored one would
+       * be a category every preview listed and every apply skipped. Captured as null it is absent
+       * from the template instead, which is what it is.
        */
       if (!board.rooms.length && !board.tracks.length && !board.slots.length) return null;
       const payload: AgendaTemplatePayload = {
@@ -123,7 +162,7 @@ export function agendaTemplateSlice(service: AgendaTemplateCommands): EventConfi
       raw: unknown,
       remap: DateRemap,
     ): Promise<SlicePreview> {
-      const { empty, resources, copies, refused, current } = await plan(
+      const { empty, resources, copies, refused, carried, kept, current } = await plan(
         service,
         actor,
         eventId,
@@ -159,8 +198,8 @@ export function agendaTemplateSlice(service: AgendaTemplateCommands): EventConfi
       return {
         outcome: "copies",
         reason: current
-          ? "Replaces the destination's rooms, tracks and time slots. Sessions stay where they are."
-          : "Creates the destination's rooms, tracks and time slots.",
+          ? `Replaces the destination's ${nameList(carried)}.${keptClause(kept, "stay as they are")} Sessions stay where they are.`
+          : `Creates the destination's ${nameList(carried)}.`,
         copies,
         excludes: EXCLUDED,
         incompatible: refused,
@@ -173,7 +212,7 @@ export function agendaTemplateSlice(service: AgendaTemplateCommands): EventConfi
       raw: unknown,
       remap: DateRemap,
     ): Promise<SliceResult> {
-      const { empty, resources, copies, refused, current } = await plan(
+      const { empty, resources, copies, refused, carried, kept, current } = await plan(
         service,
         actor,
         eventId,
@@ -224,9 +263,15 @@ export function agendaTemplateSlice(service: AgendaTemplateCommands): EventConfi
       }
       return {
         outcome: "applied",
-        reason: refused.length
-          ? "Copied the rooms, tracks and time slots onto the destination's dates. Slots falling past its last day were left out."
-          : "Copied the rooms, tracks and time slots onto the destination's dates.",
+        reason: [
+          // "onto the destination's dates" is the remap talking, so it is said only when there
+          // were slots to remap: a template of rooms alone moved nothing onto any date.
+          carried.includes("slots")
+            ? `Copied the ${nameList(carried)} onto the destination's dates.`
+            : `Copied the ${nameList(carried)}.`,
+          keptClause(kept, "were left as they were"),
+          refused.length ? " Slots falling past its last day were left out." : "",
+        ].join(""),
         applied: copies,
         incompatible: refused,
       };
@@ -253,24 +298,55 @@ async function plan(
   resources: AgendaResources;
   copies: readonly SliceEntry[];
   refused: readonly SliceEntry[];
+  /** The dimensions this payload speaks about, and therefore the ones the write replaces. */
+  carried: readonly AgendaDimension[];
+  /** The dimensions it is silent about that the destination has something in, left standing. */
+  kept: readonly AgendaDimension[];
   current: AgendaBoard | null;
 }> {
   const payload = readPayload(raw);
   const { slots, copied, refused } = remapSlots(payload.slots, remap);
+  const current = await readBoard(service, actor, eventId);
+  // A template whose slots the destination's dates all refuse still carried them, so a stored
+  // list is what decides whether this template speaks about a dimension — the remapped one would
+  // make a refusal read as silence and hand the destination's slots back to itself.
+  const carries = (dimension: AgendaDimension) => payload[dimension].length > 0;
+  const held = (dimension: AgendaDimension) => (current?.[dimension].length ?? 0) > 0;
   return {
-    // Read off the stored lists rather than the remapped ones: a template whose slots the
-    // destination's dates all refuse still carried them, and saying it carried nothing would be
-    // a different — and false — reason for writing nothing.
-    empty: !payload.rooms.length && !payload.tracks.length && !payload.slots.length,
-    resources: { rooms: payload.rooms, tracks: payload.tracks, slots },
+    empty: !DIMENSIONS.some(carries),
+    resources: {
+      rooms: carries("rooms") ? payload.rooms : (current?.rooms ?? []),
+      tracks: carries("tracks") ? payload.tracks : (current?.tracks ?? []),
+      slots: carries("slots") ? slots : (current?.slots ?? []),
+    },
     copies: [
       ...payload.rooms.map((room) => ({ id: room.id, label: `Room: ${room.name}` })),
       ...payload.tracks.map((track) => ({ id: track.id, label: `Track: ${track.name}` })),
       ...copied,
     ],
     refused,
-    current: await readBoard(service, actor, eventId),
+    carried: DIMENSIONS.filter(carries),
+    kept: DIMENSIONS.filter((dimension) => !carries(dimension) && held(dimension)),
+    current,
   };
+}
+
+/** "rooms", "rooms and time slots", "rooms, tracks and time slots". */
+function nameList(dimensions: readonly AgendaDimension[]): string {
+  const words = dimensions.map((dimension) => DIMENSION_LABEL[dimension]);
+  const last = words.at(-1) ?? "";
+  return words.length < 2 ? last : `${words.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/**
+ * What the write leaves standing, said out loud rather than left to be discovered.
+ *
+ * The reason an organizer reads has to match what the write did: naming all three categories
+ * while replacing one was a false statement in a product surface, and the same sentence read as
+ * a promise that the tracks they set up had been overwritten when they had not.
+ */
+function keptClause(kept: readonly AgendaDimension[], verb: string): string {
+  return kept.length ? ` Its ${nameList(kept)} are not in this template and ${verb}.` : "";
 }
 
 /**

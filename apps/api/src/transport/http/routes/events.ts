@@ -23,6 +23,7 @@ import {
   EventTemplateNameTakenError,
   EventTemplateNotFoundError,
   EventTemplateRangeError,
+  EventTemplateSelectionError,
   EventTemplateStateError,
 } from "../../../application/events/public";
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
@@ -33,7 +34,7 @@ import {
   eventToDto,
   updateEventInputToCommand,
 } from "../event-mappers";
-import { envelope, type HttpContext, validationFields, readJson } from "../runtime";
+import { envelope, type HttpContext, readJson, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const malformed = (context: HttpContext, message: string) =>
@@ -86,6 +87,11 @@ export const eventsRoutes: RouteModule = {
      * mistake, so it is a 500 with the failure logged once — never a 404, which would tell the
      * caller their template does not exist when the truth is that this deployment cannot
      * answer. `HttpDependencies` documents that distinction for the whole transport.
+     *
+     * Every handler below authorizes *before* it calls this, exactly as `routes/content.ts`
+     * does: an unwired deployment still owes an anonymous caller a 401, and a 500 that tells
+     * them our composition is incomplete is both wrong and more than they are entitled to know.
+     * The service re-checks the same grant — this is the order, not the authorization.
      */
     const templates = () => {
       if (!eventTemplates) throw new Error("The event template service is not composed");
@@ -189,12 +195,14 @@ export const eventsRoutes: RouteModule = {
     app.get("/api/organizations/:organizationId/event-templates", async (context) => {
       const params = organizationIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Organization ID is malformed.");
+      requireCapability(context.get("actor"), "events:read");
       const list = await templates().list(context.get("actor"), params.data.organizationId);
       return context.json({ templates: list.map(eventTemplateToDto) });
     });
     app.post("/api/organizations/:organizationId/event-templates", async (context) => {
       const params = organizationIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Organization ID is malformed.");
+      requireCapability(context.get("actor"), "events:create");
       const body = saveEventTemplateInputSchema.safeParse(await readJson(context.req));
       if (!body.success) return invalid(context, "The template could not be saved.", body.error);
       const capture = await templates().saveFromEvent(context.get("actor"), {
@@ -207,6 +215,7 @@ export const eventsRoutes: RouteModule = {
     app.get("/api/event-templates/:templateId", async (context) => {
       const params = eventTemplateIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Template ID is malformed.");
+      requireCapability(context.get("actor"), "events:read");
       const detail = await templates().get(context.get("actor"), params.data.templateId);
       return context.json({
         template: eventTemplateToDto(detail.template),
@@ -216,6 +225,7 @@ export const eventsRoutes: RouteModule = {
     app.patch("/api/event-templates/:templateId", async (context) => {
       const params = eventTemplateIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Template ID is malformed.");
+      requireCapability(context.get("actor"), "events:create");
       const body = updateEventTemplateInputSchema.safeParse(await readJson(context.req));
       if (!body.success) return invalid(context, "The template could not be updated.", body.error);
       const template = await templates().update(
@@ -228,6 +238,7 @@ export const eventsRoutes: RouteModule = {
     app.post("/api/event-templates/:templateId/versions", async (context) => {
       const params = eventTemplateIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Template ID is malformed.");
+      requireCapability(context.get("actor"), "events:create");
       const body = captureEventTemplateVersionInputSchema.safeParse(await readJson(context.req));
       if (!body.success) return invalid(context, "The version could not be captured.", body.error);
       const capture = await templates().captureVersion(
@@ -240,6 +251,7 @@ export const eventsRoutes: RouteModule = {
     app.post("/api/event-templates/:templateId/duplications", async (context) => {
       const params = eventTemplateIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Template ID is malformed.");
+      requireCapability(context.get("actor"), "events:create");
       const body = duplicateEventTemplateInputSchema.safeParse(await readJson(context.req));
       if (!body.success)
         return invalid(context, "The template could not be duplicated.", body.error);
@@ -253,6 +265,7 @@ export const eventsRoutes: RouteModule = {
     app.post("/api/events/:eventId/template-application-previews", async (context) => {
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Event ID is malformed.");
+      requireEventCapability(context.get("actor"), params.data.eventId, "events:settings:read");
       const body = applyEventTemplateInputSchema.safeParse(await readJson(context.req));
       if (!body.success) return invalid(context, "The preview could not be built.", body.error);
       const plan = await templates().preview(context.get("actor"), params.data.eventId, body.data);
@@ -261,6 +274,7 @@ export const eventsRoutes: RouteModule = {
     app.post("/api/events/:eventId/template-applications", async (context) => {
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Event ID is malformed.");
+      requireEventCapability(context.get("actor"), params.data.eventId, "events:settings:update");
       const body = applyEventTemplateInputSchema.safeParse(await readJson(context.req));
       if (!body.success) return invalid(context, "The template could not be applied.", body.error);
       const application = await templates().apply(
@@ -289,6 +303,9 @@ export const eventsRoutes: RouteModule = {
     if (error instanceof EventTemplateStateError)
       return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     if (error instanceof EventTemplateRangeError)
+      return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
+    // A `slices` key this deployment composes nothing for: the caller's mistake, and named.
+    if (error instanceof EventTemplateSelectionError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
     return null;
   },

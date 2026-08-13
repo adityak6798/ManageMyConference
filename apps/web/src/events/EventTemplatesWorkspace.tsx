@@ -82,6 +82,23 @@ const RESULT_WORDS: Record<SliceResultDto["outcome"], string> = {
   failed: "Failed",
 };
 
+/*
+ * A stored version reports the slice *keys* it carries, and a key is a storage identifier: an
+ * organizer offered "content-checklists, content-resources" is reading this system's internals.
+ * These are the words the server's own preview and result use for the same six categories, so
+ * the version list and the breakdown below it call a category the same thing. A key this console
+ * has no word for is counted rather than printed — a version captured by a newer API is exactly
+ * the case where printing the key would put one back on screen.
+ */
+const SLICE_LABELS: Record<string, string> = {
+  review: "Triage statuses and scoring rubric",
+  cfp: "CFP form and routing",
+  agenda: "Agenda rooms, tracks and time slots",
+  publishing: "Public page details",
+  "content-resources": "Speaker portal resources",
+  "content-checklists": "Speaker task checklists",
+};
+
 const TONES: Record<string, "ok" | "neutral" | "warn" | "danger"> = {
   copies: "ok",
   applied: "ok",
@@ -103,6 +120,38 @@ function describe(reason: unknown, fallback: string): string {
  */
 const countLabel = (count: number, singular: string, plural: string) =>
   `${count} ${count === 1 ? singular : plural}`;
+
+/** What a stored version carries, counted first because the count is what is compared. */
+const carriedCategories = (keys: readonly string[]) => {
+  const named = keys.map((key) => SLICE_LABELS[key]).filter((label) => label !== undefined);
+  const listed =
+    named.length === keys.length
+      ? named
+      : [
+          ...named,
+          `${countLabel(keys.length - named.length, "category", "categories")} this console cannot name`,
+        ];
+  return `${countLabel(keys.length, "category", "categories")}: ${listed.join(", ")}`;
+};
+
+/**
+ * The heading and tone the categories below the card actually support.
+ *
+ * Read from the per-category outcomes rather than from the envelope's own word: "Applied" over a
+ * category reading "Incompatible" is a claim the list underneath it contradicts, and the
+ * envelope's vocabulary belongs to the server, which may widen it. A `skipped` category is not a
+ * refusal — it is one this template carries nothing for — so it neither qualifies the success nor
+ * counts as a write.
+ */
+function verdict(slices: readonly SliceResultDto[]) {
+  const written = slices.filter(({ outcome }) => outcome === "applied").length;
+  const refused = slices.filter(
+    ({ outcome }) => outcome !== "applied" && outcome !== "skipped",
+  ).length;
+  if (written && !refused) return { title: "Applied", tone: "success" as const };
+  if (written) return { title: "Applied in part", tone: "warn" as const };
+  return { title: "Not applied", tone: "warn" as const };
+}
 
 const stampedDay = (instant: string) =>
   new Date(instant).toLocaleDateString("en-US", {
@@ -247,6 +296,8 @@ export function EventTemplatesWorkspace({
    * an organizer through a full per-category breakdown to a refusal the page called certain.
    */
   const isArchived = selected?.template.state === "archived";
+  /** What the categories in the result support, which is all the card above them may claim. */
+  const resultVerdict = result ? verdict(result.slices) : null;
 
   // Opening a template arms its own controls: the rename box holds the current name, the apply
   // form offers its newest version, and a plan built against the previous template is dropped.
@@ -367,10 +418,14 @@ export function EventTemplatesWorkspace({
       setResult(applied);
       // The result is the answer to the click and it renders below the fold on a long preview.
       requestAnimationFrame(() => resultRef.current?.focus({ preventScroll: false }));
+      // Counted the way the card below is titled, so the announcement cannot call an application
+      // complete while the breakdown it points at names a category the destination refused.
       const written = applied.slices.filter(({ outcome }) => outcome === "applied").length;
-      const failed = applied.slices.filter(({ outcome }) => outcome === "failed").length;
-      return failed
-        ? `Version ${applied.version} applied in part: ${countLabel(written, "category", "categories")} written, ${countLabel(failed, "category", "categories")} failed. The written ones stand.`
+      const refused = applied.slices.filter(
+        ({ outcome }) => outcome !== "applied" && outcome !== "skipped",
+      ).length;
+      return refused
+        ? `Version ${applied.version} applied in part: ${countLabel(written, "category", "categories")} written, ${countLabel(refused, "category", "categories")} not. The written ones stand.`
         : `Version ${applied.version} applied: ${countLabel(written, "category", "categories")} written.`;
     }, applyFeedback);
   }
@@ -521,11 +576,17 @@ export function EventTemplatesWorkspace({
                       {countLabel(held.slices.length, "category", "categories")}
                     </Pill>
                   </div>
+                  {/*
+                   * The capture is stamped with the account that took it and nothing else: this
+                   * route reports an id and resolves no name for it, the way content revisions
+                   * were resolved in issue #154. Naming it as an account is what the value is,
+                   * where presenting it after "by" alone reads as a person's name.
+                   */}
                   <span className="sub">
-                    Captured from {held.sourceEventName} on {stampedDay(held.createdAt)} by{" "}
+                    Captured from {held.sourceEventName} on {stampedDay(held.createdAt)}, by account{" "}
                     {held.createdBy}
                     {held.slices.length
-                      ? ` · carries ${held.slices.join(", ")}`
+                      ? ` · carries ${carriedCategories(held.slices)}`
                       : " · carries nothing, so applying it would write nothing"}
                   </span>
                 </li>
@@ -744,22 +805,20 @@ export function EventTemplatesWorkspace({
         </Card>
       ) : null}
 
-      {result ? (
+      {result && resultVerdict ? (
         <Card
           labelledBy="event-template-result"
-          title={
-            result.outcome === "applied"
-              ? "Applied"
-              : result.outcome === "partial"
-                ? "Applied in part"
-                : "Not applied"
-          }
+          title={resultVerdict.title}
           hint={`Version ${result.version} of “${result.templateName}” onto ${eventName} at ${stampedTime(result.appliedAt)}.`}
         >
           {/* tabIndex={-1} is the focus target for the outcome of the apply button, not a tab stop. */}
           <div className="template-stack" ref={resultRef} tabIndex={-1}>
-            <Notice tone={result.outcome === "applied" ? "success" : "warn"}>
-              {result.outcome === "applied" ? <IconCheck size={15} /> : <IconWarning size={15} />}
+            <Notice tone={resultVerdict.tone}>
+              {resultVerdict.tone === "success" ? (
+                <IconCheck size={15} />
+              ) : (
+                <IconWarning size={15} />
+              )}
               <span>
                 Categories are written one at a time, and nothing in this system spans a transaction
                 across them. A category that fails does <strong>not</strong> roll back the
