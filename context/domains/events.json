@@ -2,9 +2,9 @@
   "id": "events",
   "order": 30,
   "index": "docs/product/specifications.md",
-  "specs": ["PRD-EVT-001"],
+  "specs": ["PRD-EVT-001", "PRD-EVT-002"],
   "journeys": [],
-  "acceptance": ["ACC-IDENTITY-EVENTS"],
+  "acceptance": ["ACC-IDENTITY-EVENTS", "ACC-EVENT-TEMPLATES"],
   "plans": ["PLAN-002"],
   "paths": [
     "packages/contracts/src/domains/events.ts",
@@ -13,15 +13,28 @@
     "apps/api/src/domain/events",
     "apps/api/src/application/events",
     "apps/api/src/adapters/persistence/d1-event-repository.ts",
+    "apps/api/src/adapters/persistence/d1-event-template-repository.ts",
     "apps/api/src/adapters/persistence/event-mappers.ts",
     "apps/api/src/adapters/persistence/memory-event-repository.ts",
+    "apps/api/src/adapters/persistence/memory-event-template-repository.ts",
     "apps/api/test/d1-event-repository.integration.test.ts",
+    "apps/api/test/d1-event-template-repository.integration.test.ts",
     "apps/api/test/event-mappers.test.ts",
     "apps/api/test/event-service.test.ts",
+    "apps/api/test/event-templates.test.ts",
+    "apps/api/test/event-templates-http.test.ts",
+    "apps/api/test/seeded-event-template.test.ts",
     "apps/web/src/api/events.ts",
+    "apps/web/src/api/event-templates.ts",
+    "apps/web/src/events",
+    "apps/web/src/styles/events.css",
+    "apps/web/src/workspaces/events.tsx",
     "apps/web/test/App.test.tsx",
     "apps/web/test/error-fallback.test.tsx",
+    "apps/web/test/event-templates.test.tsx",
+    "apps/web/test/event-templates-result.test.tsx",
     "apps/web/test/setup.ts",
+    "apps/web/e2e/event-templates.spec.ts",
     "apps/web/e2e/reference-slice.spec.ts",
     "apps/api/src/transport/http/routes/events.ts",
     "apps/api/src/transport/http/event-mappers.ts"
@@ -29,6 +42,9 @@
   "symbols": {
     "EventService": "apps/api/src/application/events/event-service.ts",
     "EventRepository": "apps/api/src/application/events/event-repository.ts",
-    "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts"
+    "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
+    "EventTemplateService": "apps/api/src/application/events/event-template-service.ts",
+    "EventConfigurationSlice": "apps/api/src/application/events/template-ports.ts",
+    "D1EventTemplateRepository": "apps/api/src/adapters/persistence/d1-event-template-repository.ts"
   }
 }

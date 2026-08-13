@@ -5,9 +5,17 @@
  * The content domain never reads `cfp_submissions`; it asks this interface whether a proposal
  * carries a recorded acceptance decision and, if so, what it says.
  *
- * `ReviewService` implements `AcceptedProposalQuery`. This module deliberately holds only types
- * and errors so it can be imported from the content domain without a module cycle; the transport
- * layer keeps importing `review-service.ts` directly for the service itself.
+ * `ReviewService` implements `AcceptedProposalQuery`. Everything the content domain takes from
+ * here is a type or an error, and it takes them with `import type`, so that import pulls none of
+ * review's implementation with it; the transport layer keeps importing `review-service.ts`
+ * directly for the service itself.
+ *
+ * The `reviewTemplateSlice` re-export at the foot of this file is a value export, and it closes a
+ * real cycle: `public.ts` -> `template-slice.ts` -> `review-service.ts` -> `public.ts`, whose last
+ * edge imports this module's error classes as values. It is harmless as those three modules
+ * stand, because none of them touches a circular binding while it is being evaluated — every use
+ * is inside a function that runs long afterwards. A top-level `extends`, constant or call reading
+ * across the cycle would not be, so add one only after breaking the cycle.
  */
 
 /** Everything the content domain needs to turn an accepted proposal into a session. */
@@ -42,3 +50,4 @@ export interface AcceptedProposalQuery {
    */
   acceptedProposal(eventId: string, proposalId: string): Promise<AcceptedProposal>;
 }
+export { reviewTemplateSlice } from "./template-slice";

@@ -168,6 +168,28 @@ export function defineContentSchema(references: {
       index("speaker_resources_event_order_idx").on(table.eventId, table.sortOrder),
     ],
   );
+  // A checklist line belongs to the event, not to a speaker: `speaker_tasks.speaker_profile_id`
+  // is NOT NULL, and a template with nobody attached could not live there. Migration `1405`.
+  const speakerTaskTemplates = sqliteTable(
+    "speaker_task_templates",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      title: text("title").notNull(),
+      description: text("description").notNull(),
+      sortOrder: integer("sort_order").notNull(),
+      dueOffsetDays: integer("due_offset_days").notNull(),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [
+      // The clone key. See the migration: ids are per event, so a checklist copied into a second
+      // event converges on its titles or not at all.
+      unique("speaker_task_templates_event_title_unique").on(table.eventId, table.title),
+      index("speaker_task_templates_event_order_idx").on(table.eventId, table.sortOrder),
+    ],
+  );
   const contentAssetComments = sqliteTable(
     "content_asset_comments",
     {
@@ -280,6 +302,7 @@ export function defineContentSchema(references: {
     speakerAssets,
     speakerMessages,
     speakerResources,
+    speakerTaskTemplates,
     contentAssetComments,
     contentRevisions,
     speakerConversionSources,

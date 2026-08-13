@@ -9,6 +9,7 @@
 import {
   acceptContentInputSchema,
   addContentCommentInputSchema,
+  assignSpeakerChecklistInputSchema,
   bulkDownloadDeliverablesInputSchema,
   bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
@@ -18,6 +19,7 @@ import {
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
   restoreContentRevisionInputSchema,
+  saveSpeakerTaskTemplatesInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
   speakerCsvImportInputSchema,
@@ -32,6 +34,7 @@ import {
 import { ContentConflictError } from "../../../application/content/content-repository";
 import {
   ResourceEmbedDeniedError,
+  SpeakerChecklistAnchorError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../../../application/content/content-service";
@@ -57,6 +60,9 @@ const routes = [
   "POST /api/speaker-assets",
   "GET /api/events/:eventId/speaker-calendar.ics",
   "POST /api/events/:eventId/speaker-calendar-invites",
+  "GET /api/events/:eventId/speaker-task-templates",
+  "POST /api/events/:eventId/speaker-task-templates",
+  "POST /api/events/:eventId/speaker-checklist-assignments",
   "POST /api/speaker-resources",
   "PATCH /api/speaker-resources/:resourceId",
   "DELETE /api/speaker-resources/:resourceId",
@@ -458,6 +464,102 @@ export const contentRoutes: RouteModule = {
         202,
       );
     });
+    /*
+     * The event's speaker checklist: what every speaker is asked for, held once as event
+     * configuration instead of retyped per person per year.
+     *
+     * Reading the checklist is organizer work, and the service is what decides that: a speaker
+     * holds `content:read` for their own portal, and a line nobody has been given yet is a
+     * draft of somebody's future work rather than part of the portal it will land in.
+     */
+    app.get("/api/events/:eventId/speaker-task-templates", async (context) => {
+      const params = eventContentParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "content:read");
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        templates: await content.taskTemplates(context.get("actor"), params.data.eventId),
+      });
+    });
+    /*
+     * Declaring the checklist, not replacing it: every line is written at its
+     * `(event_id, title)` identity, so sending the same one twice converges, and a line this
+     * request does not name is left where it is rather than deleted by omission.
+     */
+    app.post("/api/events/:eventId/speaker-task-templates", async (context) => {
+      const params = eventContentParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
+      const parsed = saveSpeakerTaskTemplatesInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Speaker checklist is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      await content.importTaskTemplates(context.get("actor"), {
+        eventId: params.data.eventId,
+        templates: parsed.data.templates,
+        commit: true,
+      });
+      // Answered from the store rather than from the write's own report, so the response is the
+      // whole checklist the organizer now has — including the lines this request left alone.
+      return context.json({
+        templates: await content.taskTemplates(context.get("actor"), params.data.eventId),
+      });
+    });
+    /*
+     * Turn the checklist into real work for named speakers.
+     *
+     * A separate, deliberate command rather than a consequence of declaring the lines: this is
+     * what puts dated tasks in people's portals and mails them about it. Idempotent per
+     * `(profile, line)`, so running it again after a speaker joins brings only the newcomer up
+     * to date and leaves everybody else's work — and their completions — alone.
+     */
+    app.post("/api/events/:eventId/speaker-checklist-assignments", async (context) => {
+      const params = eventContentParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
+      const parsed = assignSpeakerChecklistInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Checklist assignment is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        {
+          tasks: await content.assignTaskChecklist(context.get("actor"), {
+            eventId: params.data.eventId,
+            profileIds: parsed.data.profileIds,
+            anchorAt: parsed.data.anchorAt,
+          }),
+        },
+        201,
+      );
+    });
     app.post("/api/speaker-imports", async (context) => {
       const parsed = speakerCsvImportInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
@@ -650,6 +752,15 @@ export const contentRoutes: RouteModule = {
         message: "That file cannot be used as a profile photo.",
         status: 400 as const,
         fields: error.fields,
+      };
+    // An anchor that is not an instant is the caller's to fix, and naming the field is what
+    // lets them: the offsets are counted from it, so nothing can be dated without it.
+    if (error instanceof SpeakerChecklistAnchorError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+        fields: { anchorAt: [error.message] },
       };
     if (error instanceof ResourceEmbedDeniedError)
       return {

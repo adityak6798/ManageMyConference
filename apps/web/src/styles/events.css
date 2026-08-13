@@ -1,0 +1,68 @@
+/*
+ * Event templates.
+ *
+ * Spacing and wrapping, and nothing else. Every part of this surface with a visual identity —
+ * the cards, pills, notices, empty states, lists, fields and buttons — comes from the shell and
+ * workspace stylesheets, because a template console that invented its own chrome would be the
+ * eighth answer to a question this console has already answered seven times.
+ *
+ * What is left is the rhythm a card body does not supply: `.card-body` is padding with no gap,
+ * and the reset zeroes heading and paragraph margins, so two blocks stacked inside one card
+ * touch. These rules are that gap, and the wrapping that keeps a name somebody typed from
+ * widening a narrow screen.
+ */
+
+/* A card body holding more than one block: the blocks stack with the shared spacing step. */
+.template-stack {
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+}
+
+.template-loading {
+  display: grid;
+  gap: var(--s-3);
+}
+
+/* An aside that explains a refusal or an absence, in the muted voice the hints already use. */
+.template-note {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/*
+ * One named set inside a preview or result category: what would be copied, what is left
+ * behind, what the destination refuses.
+ */
+.template-entry-group {
+  margin-top: var(--s-2);
+}
+.template-entry-label {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+.template-entries {
+  display: grid;
+  gap: 2px;
+  margin: var(--s-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+/* A field label copied from another event can be long; wrapping beats a sideways scroll. */
+.template-entries > li {
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A template name and the event a version was captured from are both somebody's typing, and 120
+ * characters without a space in them is a name this system accepts. Where one is rendered on its
+ * own it breaks inside the word, because at 390px the alternative is the whole page scrolling
+ * sideways to carry one heading.
+ */
+.template-name,
+.template-list button,
+.template-list .sub {
+  overflow-wrap: anywhere;
+}

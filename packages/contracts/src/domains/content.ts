@@ -273,6 +273,72 @@ export const updateSpeakerResourceInputSchema = createSpeakerResourceInputSchema
 export const speakerResourceParamsSchema = z.object({ resourceId: z.string().uuid() });
 
 /**
+ * One line of the event's reusable speaker checklist: what is asked of every speaker, and when.
+ *
+ * Not a `speakerTaskSchema` with nobody attached. A task is a named person's work — the portal,
+ * the reminders and every completion badge read it that way — while a line is the event's, and
+ * stays the event's until an organizer instantiates it against real speakers.
+ *
+ * `dueOffsetDays` is a distance rather than a date because an event carries no date range of its
+ * own (`PRD-EVT-001`): the due date is derived at instantiation from the anchor that request
+ * names, and negative counts backwards from it, which is what "two weeks before the event" is.
+ */
+export const speakerTaskTemplateSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  title: z.string(),
+  description: z.string(),
+  sortOrder: z.number().int(),
+  dueOffsetDays: z.number().int(),
+  createdAt: z.string().datetime(),
+});
+export type SpeakerTaskTemplateDto = z.infer<typeof speakerTaskTemplateSchema>;
+/**
+ * The checklist lines an organizer is declaring.
+ *
+ * Each is written at its `(event_id, title)` identity, so sending the same checklist twice
+ * converges instead of appending a second copy of every line. Two lines under one title are
+ * therefore one line the store cannot tell apart, and are refused rather than silently merged.
+ * Lines this request does not name are left alone: declaring is not deleting.
+ */
+export const saveSpeakerTaskTemplatesInputSchema = z.object({
+  templates: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(160),
+        description: z.string().trim().max(4000).default(""),
+        sortOrder: z.number().int().min(0).max(10_000),
+        // Ten years either side of the anchor, and whole days: a fractional offset would derive
+        // a due date at an hour nobody chose, and the column stores an INTEGER.
+        dueOffsetDays: z.number().int().min(-3650).max(3650),
+      }),
+    )
+    // Empty is refused rather than accepted as a no-op, because it cannot mean what a caller
+    // sending it would mean by it: nothing here removes a line.
+    .min(1)
+    .max(100)
+    .refine(
+      (templates) => new Set(templates.map(({ title }) => title)).size === templates.length,
+      "Each checklist line needs a title of its own",
+    ),
+});
+export type SaveSpeakerTaskTemplatesInput = z.infer<typeof saveSpeakerTaskTemplatesInputSchema>;
+/**
+ * Turn the event's checklist into real work for named speakers.
+ *
+ * The speakers are named one by one rather than implied. Instantiating a checklist puts dated
+ * work in real people's portals and mails them about it, so "everybody currently in this event"
+ * is not a thing a request should mean by omission.
+ *
+ * `anchorAt` is the instant the offsets count from; omitted, the server counts from now.
+ */
+export const assignSpeakerChecklistInputSchema = z.object({
+  profileIds: z.array(z.string().uuid()).min(1).max(500),
+  anchorAt: z.string().datetime().optional(),
+});
+export type AssignSpeakerChecklistInput = z.infer<typeof assignSpeakerChecklistInputSchema>;
+
+/**
  * What sending an event's calendar invitations did.
  *
  * `unreachable` names the sessions and the reason rather than counting them: a send that quietly

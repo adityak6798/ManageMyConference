@@ -21,6 +21,7 @@ import type {
   SpeakerProfile,
   SpeakerResource,
   SpeakerTask,
+  SpeakerTaskTemplate,
 } from "../../domain/content/content";
 import { changedRows, type D1WriteResult } from "./d1-write-result";
 interface D1Result<T = unknown> {
@@ -651,6 +652,47 @@ export class D1ContentRepository
     )[0];
     return row ? this.resource(row) : null;
   }
+  /**
+   * One statement, so the unique constraint resolves the collision instead of raising it.
+   *
+   * `id` is absent from the `DO UPDATE` list on purpose: the slug is the identity here, and a
+   * row that already carries it keeps the id everything else already refers to.
+   */
+  async upsertResourceBySlug(resource: SpeakerResource) {
+    await this.run(
+      "INSERT INTO speaker_resources (id,event_id,title,slug,body_html,embed_html,visibility,sort_order) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(event_id,slug) DO UPDATE SET title=excluded.title,body_html=excluded.body_html,embed_html=excluded.embed_html,visibility=excluded.visibility,sort_order=excluded.sort_order",
+      resource.id,
+      resource.eventId,
+      resource.title,
+      resource.slug,
+      resource.bodyHtml,
+      resource.embedHtml,
+      resource.visibility,
+      resource.sortOrder,
+    );
+  }
+  async listTaskTemplates(eventId: string) {
+    return (
+      await this.rows(
+        "SELECT * FROM speaker_task_templates WHERE event_id = ? ORDER BY sort_order,title",
+        eventId,
+      )
+    ).map((row) => this.taskTemplate(row));
+  }
+  /** `upsertResourceBySlug` for a checklist line. `created_at` survives an update: the line was
+   * declared when it was declared, and re-applying a template does not re-date it. */
+  async upsertTaskTemplateByTitle(template: SpeakerTaskTemplate) {
+    await this.run(
+      "INSERT INTO speaker_task_templates (id,event_id,title,description,sort_order,due_offset_days,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(event_id,title) DO UPDATE SET description=excluded.description,sort_order=excluded.sort_order,due_offset_days=excluded.due_offset_days",
+      template.id,
+      template.eventId,
+      template.title,
+      template.description,
+      template.sortOrder,
+      template.dueOffsetDays,
+      template.createdAt,
+    );
+  }
   async addComment(comment: ContentComment) {
     await this.run(
       "INSERT INTO content_asset_comments (id,event_id,asset_id,author_id,author_name,body,created_at) VALUES (?,?,?,?,?,?,?)",
@@ -924,6 +966,17 @@ export class D1ContentRepository
       embedHtml: String(row.embed_html ?? ""),
       visibility: String(row.visibility ?? "hidden") as SpeakerResource["visibility"],
       sortOrder: Number(row.sort_order ?? 0),
+    };
+  }
+  private taskTemplate(row: Row): SpeakerTaskTemplate {
+    return {
+      id: String(row.id ?? ""),
+      eventId: String(row.event_id ?? ""),
+      title: String(row.title ?? ""),
+      description: String(row.description ?? ""),
+      sortOrder: Number(row.sort_order ?? 0),
+      dueOffsetDays: Number(row.due_offset_days ?? 0),
+      createdAt: String(row.created_at ?? ""),
     };
   }
   private comment(row: Row): ContentComment {

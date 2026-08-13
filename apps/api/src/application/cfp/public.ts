@@ -12,3 +12,4 @@ export {
   CfpUnavailableError,
   CfpValidationError,
 } from "./cfp-service";
+export { cfpTemplateSlice } from "./template-slice";

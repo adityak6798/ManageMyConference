@@ -574,3 +574,80 @@ describe("D1ContentRepository revisions", () => {
     expect(await repository.findProfile(profileId)).toEqual(before);
   });
 });
+
+/**
+ * Applying an event template twice, at the level where converging is actually decided.
+ *
+ * Both writes resolve a unique constraint in one statement, and a constraint is exactly the
+ * thing a memory repository has to imitate rather than have. A wrong `ON CONFLICT` target — the
+ * id instead of the slug, say — passes every in-memory test and raises `UNIQUE constraint
+ * failed` the second time a real organizer applies a real template.
+ */
+describe("D1ContentRepository template imports", () => {
+  const eventId = "00000000-0000-4000-8000-000000000001";
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  async function repository() {
+    const migrated = await createMigratedDatabase({ label: "content-template-import", seed: true });
+    runtime = migrated.runtime;
+    return new D1ContentRepository(migrated.database as ContentDatabasePort);
+  }
+
+  it("writes a resource at its slug, so a second application updates rather than collides", async () => {
+    const store = await repository();
+    const resource = {
+      id: "60000000-0000-4000-8000-000000000001",
+      eventId,
+      title: "Recording checklist",
+      slug: "recording-checklist",
+      bodyHtml: "<p>First</p>",
+      embedHtml: "",
+      visibility: "visible" as const,
+      sortOrder: 0,
+    };
+
+    await store.upsertResourceBySlug(resource);
+    // A second application mints a different id for the same slug, exactly as an import that
+    // cannot see the destination's ids would.
+    await store.upsertResourceBySlug({
+      ...resource,
+      id: "60000000-0000-4000-8000-0000000000ff",
+      bodyHtml: "<p>Second</p>",
+    });
+
+    const stored = (await store.workspace(eventId)).resources ?? [];
+    expect(stored.filter(({ slug }) => slug === "recording-checklist")).toEqual([
+      { ...resource, bodyHtml: "<p>Second</p>" },
+    ]);
+  });
+
+  it("keeps a checklist line's identity and its declaration date across a re-import", async () => {
+    const store = await repository();
+    const template = {
+      id: "80000000-0000-4000-8000-000000000001",
+      eventId,
+      title: "Send slides",
+      description: "PDF, 16:9.",
+      sortOrder: 1,
+      dueOffsetDays: -7,
+      createdAt: "2026-08-12T10:00:00.000Z",
+    };
+
+    await store.upsertTaskTemplateByTitle(template);
+    await store.upsertTaskTemplateByTitle({
+      ...template,
+      id: "80000000-0000-4000-8000-0000000000ff",
+      description: "PDF, 16:9, no video.",
+      createdAt: "2027-01-01T00:00:00.000Z",
+    });
+
+    // One row, its original id, and the date it was actually declared on: re-applying a
+    // template is not a fresh declaration. Read by title, because the seeded event declares a
+    // checklist of its own and this line is the one under test.
+    const stored = await store.listTaskTemplates(eventId);
+    expect(stored.filter(({ title }) => title === template.title)).toEqual([
+      { ...template, description: "PDF, 16:9, no video." },
+    ]);
+  });
+});

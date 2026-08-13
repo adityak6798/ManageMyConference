@@ -298,6 +298,57 @@ still says feature 6 has "no test on its rows", which is one of the staleness it
   mechanical — rows sit 8–14 lines apart and git merges them cleanly. Revisit only if it actually
   hurts; the fix would be the same shape as #105.
 
+### Issue #102 rulings
+
+Five decisions this lane made that a later reader would otherwise have to re-derive from the diff.
+
+**The composition root now calls `createHttpAppFrom`.** The wave's collision ruling tells every lane
+to append its service as a named property on the dependency object "immediately above the existing
+`createHttpAppFrom(` call". No such call existed in `apps/api/src/index.ts`: it called the positional
+`createHttpApp`, whose fourth argument is sorted out at runtime by testing for a method on it and
+which has no slot for a service added after it was written. `app.ts` already documents
+`createHttpAppFrom` as the form new code should use, and this lane may not edit `app.ts` — so the
+call site was converted, argument for argument, with no change in behaviour. Every later lane's
+addition is now the one-line append the ruling assumed. On a merge conflict here the resolution is
+one converted call plus both lanes' properties.
+
+**One entry in `context/architecture.json` had its `reason` corrected, and nothing was added.** The
+entry for `apps/api/src/application/events/public.ts` said "No cross-domain import reaches it today
+— consumers still use event-service.ts". That sentence stopped being true the moment
+`application/cfp/template-slice.ts` imported the slice port from it, which is precisely the "future
+consumer targets it rather than deep-importing" the same sentence anticipated. The allowlist itself
+is untouched: no path was added, no boundary widened. Events declares `EventConfigurationSlice`,
+each domain implements its own slice, and `index.ts` binds them, which creates no crossing to
+exempt.
+
+**`ACC-EVENT-TEMPLATES` is a new row rather than an edit to `ACC-IDENTITY-EVENTS`,** per this
+document's own override of the lane prompt, and it is the more honest claim besides: reusable event
+configuration is a different journey from the identity and event foundation, and #12 owns that row.
+
+**`created_by` and `applied_by` carry no foreign key.** `defineEventsSchema()` is constructed first
+in `schema/registry.ts` because identity-access's tables reference `events` and `organizations`, so
+a declared reference back to `users` is a cycle the registry cannot build. A migration-only foreign
+key would be a constraint the Drizzle declaration does not describe, and `npm run schema:check`
+compares foreign keys — so the columns record provenance without pretending to enforce it, and both
+the migration and the schema fragment say so.
+
+**The lane's four pull requests became one, at the requester's direction.** The prompt splits issue
+#102 at the architecture's own seams and each split would have been independently green; the
+argument against one large change was made and the decision went the other way, which is the
+requester's to make. What that costs is real and worth naming: the template store and the CFP slice
+cannot land while the console surface is still in review, and a reviewer reads six slices at once.
+What it buys is that the seam and every implementation of it are reviewed together, which is where
+a port's shape is actually judged.
+
+**Speaker task checklists shipped rather than being deferred.** They are new product surface, not
+export of existing state — every task in the system is bound to a `speaker_profile_id`, so nothing
+checklist-shaped existed to clone. `speaker_task_templates` (migration `1405`, content-owned), the
+commands that author and instantiate one, the routes, and the seed all landed, so the category is
+genuinely populated rather than a preview line that always reports zero. It has **no console
+authoring surface**: an organizer reaches it through the API only, and the scorecard row says so.
+
+`GAP-023` records the limit that survives all of it: applying is not atomic across domains, and a
+`partial` application is not surfaced anywhere after the response that reported it.
 ### Issue #141 rulings
 
 **One shared file the wave plan did not assign: `tools/tests/check-schema-drift.test.mjs`.** It

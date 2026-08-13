@@ -20,6 +20,7 @@ import type { ContentService } from "../../../application/content/content-servic
 import type { SpeakerCalendarInviteService } from "../../../application/content/public";
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
+import type { EventTemplateService } from "../../../application/events/public";
 import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
 import type {
@@ -71,6 +72,7 @@ export interface HttpDependencies {
   accelEventsSync?: AccelEventsSyncService | undefined;
   publishing?: PublicationService | undefined;
   itineraries?: ItineraryService | undefined;
+  eventTemplates?: EventTemplateService | undefined;
   build?: BuildIdentity | undefined;
 }
 

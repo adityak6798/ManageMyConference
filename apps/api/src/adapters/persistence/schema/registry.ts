@@ -95,6 +95,9 @@ export const {
   crmProspects,
   eventRoles,
   events,
+  eventTemplates,
+  eventTemplateVersions,
+  eventTemplateApplications,
   identityEmails,
   identityLoginChallenges,
   identityOauthAttempts,
@@ -121,5 +124,6 @@ export const {
   speakerProfiles,
   speakerResources,
   speakerTasks,
+  speakerTaskTemplates,
   users,
 } = schema;

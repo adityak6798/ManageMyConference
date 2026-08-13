@@ -16,6 +16,7 @@ import { communicationsWorkspace } from "./communications";
 import { portalWorkspace, sessionsWorkspace } from "./content";
 import type { NavGroupName, WorkspaceAccess, WorkspaceModule } from "./contract";
 import { crmDirectoryWorkspace, crmWorkspace } from "./crm";
+import { eventTemplatesWorkspace } from "./events";
 import { publishingWorkspace } from "./publishing";
 import { abstractsWorkspace, reviewsWorkspace } from "./review";
 
@@ -30,6 +31,7 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   publishingWorkspace,
   reviewsWorkspace,
   portalWorkspace,
+  eventTemplatesWorkspace,
 ];
 
 /**

@@ -8,6 +8,7 @@ import type {
   SpeakerProfile,
   SpeakerResource,
   SpeakerTask,
+  SpeakerTaskTemplate,
 } from "../../domain/content/content";
 
 export interface AcceptedContent {
@@ -113,6 +114,23 @@ export interface ContentRepository {
   updateResource(resource: SpeakerResource): Promise<void>;
   deleteResource(resourceId: string): Promise<void>;
   findResource(resourceId: string): Promise<SpeakerResource | null>;
+  /**
+   * Write a resource at its `(event_id, slug)` identity rather than at its id.
+   *
+   * An import cannot know the destination's ids, and `speaker_resources` is
+   * `UNIQUE(event_id, slug)`, so an insert is the one thing it must not do: the second
+   * application of the same template would raise a unique violation instead of converging. The
+   * store resolves the collision in one statement, which also makes two organizers applying the
+   * same template at once land on one row rather than on an error.
+   *
+   * The `id` on a row that already exists is kept — a slug that already means something in this
+   * event keeps its identity, so links and reads that already point at it stay pointing at it.
+   */
+  upsertResourceBySlug(resource: SpeakerResource): Promise<void>;
+  /** Checklist lines an event has declared, in `sort_order`. */
+  listTaskTemplates(eventId: string): Promise<readonly SpeakerTaskTemplate[]>;
+  /** `upsertResourceBySlug` for a checklist line, whose identity is `(event_id, title)`. */
+  upsertTaskTemplateByTitle(template: SpeakerTaskTemplate): Promise<void>;
   addComment(comment: ContentComment): Promise<void>;
   /**
    * Record what the profile was and write what it becomes, as one indivisible operation.

@@ -5,7 +5,7 @@
 |---|---|---|---|---|---|
 | platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | `JNY-010` | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| events | `PRD-EVT-001` | — | `ACC-IDENTITY-EVENTS` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| events | `PRD-EVT-001`, `PRD-EVT-002` | — | `ACC-IDENTITY-EVENTS`, `ACC-EVENT-TEMPLATES` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | review | `PRD-REV-001` | `JNY-003` | `ACC-REVIEW` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | content | `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001` | `JNY-004`, `JNY-005` | `ACC-SPEAKER` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -69,6 +69,22 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `test` / `repository-fact`: [tools/tests/remote-demo-reset.test.mjs](../../tools/tests/remote-demo-reset.test.mjs)
 
+### `ACC-EVENT-TEMPLATES`
+- `test` / `repository-fact`: [apps/api/test/agenda-template-slice.test.ts](../../apps/api/test/agenda-template-slice.test.ts)
+- `test` / `repository-fact`: [apps/api/test/cfp-template-slice.test.ts](../../apps/api/test/cfp-template-slice.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-template-slice.test.ts](../../apps/api/test/content-template-slice.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-event-template-repository.integration.test.ts](../../apps/api/test/d1-event-template-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/event-templates-http.test.ts](../../apps/api/test/event-templates-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/event-templates.test.ts](../../apps/api/test/event-templates.test.ts)
+- `test` / `repository-fact`: [apps/api/test/publishing-template-slice.test.ts](../../apps/api/test/publishing-template-slice.test.ts)
+- `test` / `repository-fact`: [apps/api/test/review-template-slice.test.ts](../../apps/api/test/review-template-slice.test.ts)
+- `test` / `repository-fact`: [apps/api/test/seeded-event-template.test.ts](../../apps/api/test/seeded-event-template.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/event-templates.spec.ts](../../apps/web/e2e/event-templates.spec.ts)
+- `test` / `repository-fact`: [apps/web/test/event-templates-result.test.tsx](../../apps/web/test/event-templates-result.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/event-templates.test.tsx](../../apps/web/test/event-templates.test.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+
 ### `ACC-HARNESS`
 - `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
@@ -107,6 +123,7 @@
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/landing.test.tsx](../../apps/web/test/landing.test.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
@@ -209,10 +226,17 @@
 
 ### `ARC-DOM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/registry.ts](../../apps/api/src/adapters/persistence/schema/registry.ts)
+- `code` / `repository-fact`: [apps/api/src/application/agenda/template-slice.ts](../../apps/api/src/application/agenda/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/cfp/template-slice.ts](../../apps/api/src/application/cfp/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/template-slice.ts](../../apps/api/src/application/content/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/template-ports.ts](../../apps/api/src/application/events/template-ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/template-slice.ts](../../apps/api/src/application/publishing/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/suggestion-port.ts](../../apps/api/src/application/review/suggestion-port.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/template-slice.ts](../../apps/api/src/application/review/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/contract.ts](../../apps/api/src/transport/http/routes/contract.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/registry.ts](../../apps/api/src/transport/http/routes/registry.ts)
@@ -312,6 +336,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts](../../apps/api/src/adapters/persistence/d1-submitted-proposal-adapter.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/review.ts](../../apps/api/src/adapters/persistence/schema/review.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/template-slice.ts](../../apps/api/src/application/review/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/cfp.ts](../../apps/api/src/transport/http/routes/cfp.ts)
 - `code` / `repository-fact`: [apps/web/src/review/OrganizerReviewWorkspace.tsx](../../apps/web/src/review/OrganizerReviewWorkspace.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -321,6 +346,7 @@
 ### `PRD-AGD-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/agenda.ts](../../apps/api/src/adapters/persistence/schema/agenda.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/agenda-service.ts](../../apps/api/src/application/agenda/agenda-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/agenda/template-slice.ts](../../apps/api/src/application/agenda/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/agenda.ts](../../apps/api/src/domain/agenda/agenda.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/assisted-placement.ts](../../apps/api/src/domain/agenda/assisted-placement.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/agenda.ts](../../apps/api/src/transport/http/routes/agenda.ts)
@@ -339,6 +365,7 @@
 ### `PRD-CFP-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/cfp.ts](../../apps/api/src/adapters/persistence/schema/cfp.ts)
 - `code` / `repository-fact`: [apps/api/src/application/cfp/cfp-service.ts](../../apps/api/src/application/cfp/cfp-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/cfp/template-slice.ts](../../apps/api/src/application/cfp/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/cfp.ts](../../apps/api/src/transport/http/routes/cfp.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
@@ -360,7 +387,9 @@
 
 ### `PRD-CNT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/content.ts](../../apps/api/src/adapters/persistence/schema/content.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/template-slice.ts](../../apps/api/src/application/content/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/content.ts](../../apps/api/src/transport/http/routes/content.ts)
 - `code` / `repository-fact`: [apps/web/src/content/ContentWorkspace.tsx](../../apps/web/src/content/ContentWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/content.tsx](../../apps/web/src/workspaces/content.tsx)
@@ -432,6 +461,28 @@
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/events.ts](../../packages/contracts/src/domains/events.ts)
 
+### `PRD-EVT-002`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-event-template-repository.ts](../../apps/api/src/adapters/persistence/d1-event-template-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/events.ts](../../apps/api/src/adapters/persistence/schema/events.ts)
+- `code` / `repository-fact`: [apps/api/src/application/agenda/template-slice.ts](../../apps/api/src/application/agenda/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/cfp/template-slice.ts](../../apps/api/src/application/cfp/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/template-slice.ts](../../apps/api/src/application/content/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/event-template-repository.ts](../../apps/api/src/application/events/event-template-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/event-template-service.ts](../../apps/api/src/application/events/event-template-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/public.ts](../../apps/api/src/application/events/public.ts)
+- `code` / `repository-fact`: [apps/api/src/application/events/template-ports.ts](../../apps/api/src/application/events/template-ports.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/template-slice.ts](../../apps/api/src/application/publishing/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/template-slice.ts](../../apps/api/src/application/review/template-slice.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/events/event-template.ts](../../apps/api/src/domain/events/event-template.ts)
+- `test` / `repository-fact`: [apps/api/test/seeded-event-template.test.ts](../../apps/api/test/seeded-event-template.test.ts)
+- `code` / `repository-fact`: [apps/web/src/api/event-templates.ts](../../apps/web/src/api/event-templates.ts)
+- `code` / `repository-fact`: [apps/web/src/events/EventTemplatesWorkspace.tsx](../../apps/web/src/events/EventTemplatesWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/workspaces/events.tsx](../../apps/web/src/workspaces/events.tsx)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+
 ### `PRD-IAM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/identity/google-oauth-client.ts](../../apps/api/src/adapters/identity/google-oauth-client.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
@@ -495,6 +546,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/publishing/itinerary-service.ts](../../apps/api/src/application/publishing/itinerary-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/publishing/publication-repository.ts](../../apps/api/src/application/publishing/publication-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/application/publishing/publication-service.ts](../../apps/api/src/application/publishing/publication-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/template-slice.ts](../../apps/api/src/application/publishing/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/publishing/itinerary.ts](../../apps/api/src/domain/publishing/itinerary.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/publishing/publication.ts](../../apps/api/src/domain/publishing/publication.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/publishing.ts](../../apps/api/src/transport/http/routes/publishing.ts)
@@ -515,6 +567,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/suggestions/anthropic-suggestion-provider.ts](../../apps/api/src/adapters/suggestions/anthropic-suggestion-provider.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/suggestion-port.ts](../../apps/api/src/application/review/suggestion-port.ts)
+- `code` / `repository-fact`: [apps/api/src/application/review/template-slice.ts](../../apps/api/src/application/review/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/review/suggestion.ts](../../apps/api/src/domain/review/suggestion.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/review.ts](../../apps/api/src/transport/http/routes/review.ts)
 - `test` / `repository-fact`: [apps/api/test/review-suggestions.test.ts](../../apps/api/test/review-suggestions.test.ts)
@@ -541,6 +594,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/storage/r2-asset-storage.ts](../../apps/api/src/adapters/storage/r2-asset-storage.ts)
 - `code` / `repository-fact`: [apps/api/src/application/communications/task-reminders.ts](../../apps/api/src/application/communications/task-reminders.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/calendar-invite.ts](../../apps/api/src/application/content/calendar-invite.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/speaker-calendar-invites.ts](../../apps/api/src/application/content/speaker-calendar-invites.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/content.ts](../../apps/api/src/transport/http/routes/content.ts)
