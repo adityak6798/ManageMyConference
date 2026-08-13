@@ -1,0 +1,60 @@
+/*
+ * The members workspace.
+ *
+ * Scoped under `.members` so these rules extend the shared primitives without depending on
+ * stylesheet order, the same way `.crm` and `.comms` do.
+ */
+
+/* minmax(0, 1fr) keeps the members and audit tables inside their scroll containers instead of
+   widening the page track they sit in. Without it a grid track sizes to its content, and a wide
+   table pushes the whole document sideways rather than scrolling within its own box. */
+.members {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-5);
+}
+
+/*
+ * `.visually-hidden` is `position: absolute`, so inside an *unpositioned* scroll container it
+ * escapes the clip and stretches the page. Both tables here carry a visually hidden `<caption>`,
+ * which is what a screen reader reads to say what the table is — and at 390px that caption was
+ * 79px of horizontal document overflow, caught by the mobile-layout assertion in
+ * `lifecycle-demo.spec.ts`. Anchoring the container keeps it inside. The CRM stylesheet records
+ * the same trap; this is the second surface to meet it.
+ */
+.members .table-wrap {
+  position: relative;
+}
+
+/* The row's controls are a select and up to three buttons. They wrap rather than forcing the
+   column wider, so the table scrolls on a phone only because of its own columns. */
+.members .member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+/* An invitation link is one long unbreakable token. It has to be selectable and complete, so it
+   breaks anywhere rather than being truncated — a link that is shown once and cannot be shown
+   again must not be shown partially. */
+.members .invitation-link {
+  display: block;
+  margin-top: var(--s-2);
+  word-break: break-all;
+}
+
+.members .invitation-list {
+  display: grid;
+  gap: var(--s-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.members .invitation-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}

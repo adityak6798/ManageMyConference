@@ -27,6 +27,7 @@ import {
   revokeInvitation,
   setEventRole,
 } from "./api/membership";
+import "./styles/identity.css";
 import { Card, EmptyState, Notice, useActionFeedback, useLoad } from "./ui/primitives";
 
 type Role = "organizer" | "reviewer" | "speaker";
@@ -127,7 +128,7 @@ export function MembersWorkspace({
   );
 
   return (
-    <>
+    <div className="members">
       {feedback}
 
       <Card title="Invite somebody">
@@ -176,7 +177,7 @@ export function MembersWorkspace({
             <strong>Copy this invitation link now.</strong> It is shown once and cannot be retrieved
             again; withdraw the invitation and send another if it is lost.
             <br />
-            <code>{`${window.location.origin}/invitations/accept?token=${issuedToken}`}</code>
+            <code className="invitation-link">{`${window.location.origin}/invitations/accept?token=${issuedToken}`}</code>
           </Notice>
         ) : null}
       </Card>
@@ -206,7 +207,7 @@ export function MembersWorkspace({
                         ? member.eventRoles.map(({ role: held }) => held).join(", ")
                         : "None"}
                     </td>
-                    <td>
+                    <td className="member-actions">
                       <select
                         aria-label={`Grant a role on this event to ${member.name}`}
                         defaultValue=""
@@ -279,7 +280,7 @@ export function MembersWorkspace({
 
       <Card title="Outstanding invitations">
         {pending.length > 0 ? (
-          <ul className="stack">
+          <ul className="invitation-list">
             {pending.map((invitation) => (
               <li key={invitation.id}>
                 {invitation.email} — {invitation.role}
@@ -375,6 +376,6 @@ export function MembersWorkspace({
           </EmptyState>
         )}
       </Card>
-    </>
+    </div>
   );
 }
