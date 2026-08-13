@@ -1,4 +1,4 @@
-import type { AgendaDraft, Placement } from "../../domain/agenda/agenda";
+import type { AgendaDraft, Placement, SessionScheduleRevision } from "../../domain/agenda/agenda";
 
 export interface PublishedSchedule {
   readonly eventId: string;
@@ -63,8 +63,18 @@ export interface AgendaRepository {
    */
   publish(schedule: PublishedSchedule): Promise<PublishOutcome>;
   getPublished(eventId: string): Promise<PublishedSchedule | null>;
-  /** Immutable history, oldest first, for deriving per-session schedule revisions. */
-  listPublished(eventId: string): Promise<readonly PublishedSchedule[]>;
+  /**
+   * Where the schedule in force puts each session, and when that last meaningfully changed.
+   *
+   * Stored rather than replayed. The same answer is derivable by folding
+   * `nextSessionScheduleRevisions` over every publication this event has ever committed, and
+   * that is how it used to be produced — which meant transferring and parsing every board in
+   * the history on every read that resolves a session's time, at a cost that grew without
+   * bound as an event was republished (issue #141). An implementation maintains this in the
+   * same durable operation as the publication that changes it, so a reader can never see a
+   * revision for a snapshot that did not commit, nor miss one that did.
+   */
+  sessionScheduleRevisions(eventId: string): Promise<ReadonlyMap<string, SessionScheduleRevision>>;
   /** The publication a previous attempt of this command committed, if it got that far. */
   findByCommandKey(eventId: string, commandKey: string): Promise<PublishedSchedule | null>;
 }

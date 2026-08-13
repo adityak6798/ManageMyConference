@@ -87,6 +87,72 @@ export function placedSessionTimes(agenda: AgendaDraft): ReadonlyMap<string, Pla
 }
 
 /**
+ * Where a session sits, and at which publication that last meaningfully changed.
+ *
+ * `revision` is a publication version rather than a counter of its own, so it is comparable
+ * with the publication history and monotonic by construction. Both fields are read by the
+ * speaker calendar invite: `revision` distinguishes A -> unscheduled -> A from the first A even
+ * though the times are identical, and `revisedAt` says when that happened.
+ */
+export interface SessionScheduleRevision extends PlacedSessionTime {
+  readonly revision: number;
+  readonly revisedAt: string;
+}
+
+/**
+ * The per-session revisions one publication produces, given the ones in force before it.
+ *
+ * Two rules, and both are load-bearing for what a speaker's calendar client does with the
+ * result. They are stated here, once, because this fold now runs in two places that must not
+ * be allowed to disagree: forward, inside the batch that commits a publication, and backwards
+ * over history, in `1601`'s backfill.
+ *
+ * *An unchanged placement does not advance a revision.* The comparison is on the triple
+ * `(startsAt, endsAt, location)` and nothing else — not placement id, room id, track id or slot
+ * id. Republishing an untouched board, or moving a session to a different slot that happens to
+ * carry the same hour in the same room, is not a revision, because nothing a calendar holds
+ * would differ. Advancing it anyway would resend an identical invitation to every speaker on
+ * every republication.
+ *
+ * *Absence resets rather than freezes.* A publication that does not place a session drops it
+ * from the map entirely, so a session that returns later at an identical time gets the
+ * *returning* publication's version, which is strictly higher. Carrying the old revision
+ * forward through the absence would make the return compare equal to the original placement,
+ * and the REQUEST that puts the talk back on the speaker's calendar would be suppressed as a
+ * duplicate of the one that first put it there (issue #136).
+ */
+export function nextSessionScheduleRevisions(
+  previous: ReadonlyMap<string, SessionScheduleRevision>,
+  publication: {
+    readonly version: number;
+    readonly publishedAt: string;
+    readonly agenda: AgendaDraft;
+  },
+): ReadonlyMap<string, SessionScheduleRevision> {
+  const placed = placedSessionTimes(publication.agenda);
+  const revisions = new Map<string, SessionScheduleRevision>();
+  for (const [sessionId, schedule] of placed) {
+    const held = previous.get(sessionId);
+    const unchanged =
+      held &&
+      held.startsAt === schedule.startsAt &&
+      held.endsAt === schedule.endsAt &&
+      held.location === schedule.location;
+    revisions.set(
+      sessionId,
+      unchanged
+        ? held
+        : {
+            ...schedule,
+            revision: publication.version,
+            revisedAt: publication.publishedAt,
+          },
+    );
+  }
+  return revisions;
+}
+
+/**
  * What the agenda tells the rest of the system when a schedule becomes public.
  *
  * The agenda owns this payload, not whoever eventually delivers it: the facts it carries —

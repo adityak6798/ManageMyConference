@@ -5,7 +5,7 @@
  * outside `apps/api/src/application/agenda` and the agenda repositories reads `agenda_drafts`
  * or `agenda_publications`.
  */
-import type { PlacedSessionTime } from "../../domain/agenda/agenda";
+import type { SessionScheduleRevision } from "../../domain/agenda/agenda";
 import type { Actor } from "../identity/actor";
 
 export {
@@ -41,14 +41,7 @@ export interface ContentAgendaInterface {
    * (`PRD-PUB-001`). Callers that must match the public programme byte for byte have to read
    * the publishing domain's projection instead of this.
    */
-  publishedSessionSchedules(
-    eventId: string,
-  ): Promise<
-    ReadonlyMap<
-      string,
-      PlacedSessionTime & { readonly revision: number; readonly revisedAt: string }
-    >
-  >;
+  publishedSessionSchedules(eventId: string): Promise<ReadonlyMap<string, SessionScheduleRevision>>;
   /**
    * Take a session off the board, dropping every draft placement that holds it.
    *

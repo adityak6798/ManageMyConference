@@ -6,8 +6,13 @@ import type { PublishedSchedule } from "../src/application/agenda/agenda-reposit
 import { AgendaService } from "../src/application/agenda/agenda-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { Actor } from "../src/application/identity/actor";
-import { conflictsFor } from "../src/domain/agenda/agenda";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import {
+  type AgendaDraft,
+  conflictsFor,
+  nextSessionScheduleRevisions,
+  type SessionScheduleRevision,
+} from "../src/domain/agenda/agenda";
+import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
 const organizer: Actor = {
   id: "seed-organizer",
@@ -292,5 +297,308 @@ describe("D1AgendaRepository publication transaction", () => {
     expect(final.placements.map(({ id }) => id)).toContain("rival");
     expect(conflictsFor({ ...final, sessions })).toEqual([]);
     expect(assisted.conflicts).toEqual([]);
+  });
+});
+
+/**
+ * The materialized per-session revisions (issue #141).
+ *
+ * `revision` and `revisedAt` are not internal bookkeeping: #136 writes them into
+ * `calendar_invite_states.schedule_ref`, so a revision that differs from what the replay this
+ * change removes would have produced resends an invitation to every speaker already holding
+ * one. That is why the backfill is tested against the rule itself rather than against a table
+ * of expected numbers — a fixture can be wrong in the same direction as the SQL, and a second
+ * implementation of the fold cannot.
+ */
+describe("D1AgendaRepository session schedule revisions", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  const eventId = "00000000-0000-4000-8000-000000000001";
+  const sessionA = "20000000-0000-4000-8000-000000000001";
+  const sessionB = "20000000-0000-4000-8000-000000000002";
+  const mainStage = { id: "room-main", name: "Main stage" };
+  const workshopLab = { id: "room-lab", name: "Workshop lab" };
+  const slot0900 = {
+    id: "slot-0900",
+    startsAt: "2026-09-01T16:00:00.000Z",
+    endsAt: "2026-09-01T17:00:00.000Z",
+  };
+  /** The same hour as `slot-0900` under a different id, so a move to it is not a revision. */
+  const slot0900Twin = { ...slot0900, id: "slot-0900-twin" };
+  const slot1000 = {
+    id: "slot-1000",
+    startsAt: "2026-09-01T17:00:00.000Z",
+    endsAt: "2026-09-01T18:00:00.000Z",
+  };
+
+  const at = (id: string, sessionId: string, roomId: string, slotId: string) => ({
+    id,
+    sessionId,
+    roomId,
+    trackId: "track-platform",
+    slotId,
+  });
+  const board = (
+    placements: AgendaDraft["placements"],
+    overrides: Partial<AgendaDraft> = {},
+  ): AgendaDraft => ({
+    eventId,
+    rooms: [mainStage, workshopLab],
+    tracks: [{ id: "track-platform", name: "Platform", color: "#6257d9" }],
+    slots: [slot0900, slot0900Twin, slot1000],
+    sessions: [],
+    placements,
+    ...overrides,
+  });
+
+  const publication = (version: number, agenda: AgendaDraft): PublishedSchedule => ({
+    eventId,
+    version,
+    publishedAt: `2026-08-12T00:00:${String(version).padStart(2, "0")}.000Z`,
+    publishedBy: "seed-organizer",
+    agenda,
+  });
+
+  /** Insert straight into `agenda_publications`, bypassing the repository, as the seed does. */
+  const insertHistory = async (
+    database: {
+      prepare(query: string): { bind(...values: unknown[]): { run(): Promise<unknown> } };
+    },
+    history: readonly PublishedSchedule[],
+  ) => {
+    for (const entry of history)
+      await database
+        .prepare(
+          "INSERT INTO agenda_publications (event_id, version, published_at, published_by, schedule_json) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(
+          entry.eventId,
+          entry.version,
+          entry.publishedAt,
+          entry.publishedBy,
+          JSON.stringify(entry.agenda),
+        )
+        .run();
+  };
+
+  const storedRevisions = async (database: {
+    prepare(query: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results?: T[] }> } };
+  }) => {
+    const rows = await database
+      .prepare(
+        "SELECT session_id, starts_at, ends_at, location, revision, revised_at FROM agenda_session_schedules WHERE event_id = ? ORDER BY session_id",
+      )
+      .bind(eventId)
+      .all<{
+        session_id: string;
+        starts_at: string;
+        ends_at: string;
+        location: string;
+        revision: number;
+        revised_at: string;
+      }>();
+    return new Map<string, SessionScheduleRevision>(
+      (rows.results ?? []).map((row) => [
+        row.session_id,
+        {
+          startsAt: row.starts_at,
+          endsAt: row.ends_at,
+          location: row.location,
+          revision: row.revision,
+          revisedAt: row.revised_at,
+        },
+      ]),
+    );
+  };
+
+  /** Fold the rule over whatever `agenda_publications` actually holds, oldest first. */
+  const foldStoredHistory = async (database: {
+    prepare(query: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results?: T[] }> } };
+  }) => {
+    const rows = await database
+      .prepare(
+        "SELECT version, published_at, schedule_json FROM agenda_publications WHERE event_id = ? ORDER BY version",
+      )
+      .bind(eventId)
+      .all<{ version: number; published_at: string; schedule_json: string }>();
+    let revisions: ReadonlyMap<string, SessionScheduleRevision> = new Map();
+    for (const row of rows.results ?? [])
+      revisions = nextSessionScheduleRevisions(revisions, {
+        version: row.version,
+        publishedAt: row.published_at,
+        agenda: JSON.parse(row.schedule_json) as AgendaDraft,
+      });
+    return revisions;
+  };
+
+  /**
+   * The backfill reproduces the replay it replaces, over a history that exercises every branch.
+   *
+   * The seed has already published version 1 (session A on the main stage at 09:00). Versions 2
+   * to 10 add, in order: an unchanged republication, a published empty board, an identical
+   * return after that absence, a second session appearing, a snapshot whose placement names a
+   * slot it no longer holds, that session's return, a move to a different slot at the same
+   * hour, a snapshot with the room removed, and the room's restoration.
+   *
+   * Dropping the table first reconstructs exactly the state a deployed database is in when
+   * `1601` runs: the history is populated and the table does not exist yet.
+   */
+  it("backfills exactly what folding the rule over the same history produces", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-backfill", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+
+    const aAt0900 = at("place-a", sessionA, mainStage.id, slot0900.id);
+    const bAt1000 = at("place-b", sessionB, workshopLab.id, slot1000.id);
+    await insertHistory(database, [
+      publication(2, board([aAt0900])),
+      publication(3, board([])),
+      publication(4, board([aAt0900])),
+      publication(5, board([aAt0900, bAt1000])),
+      publication(6, board([at("place-a", sessionA, mainStage.id, "slot-removed"), bAt1000])),
+      publication(7, board([aAt0900, bAt1000])),
+      publication(8, board([at("place-a2", sessionA, mainStage.id, slot0900Twin.id), bAt1000])),
+      publication(
+        9,
+        board([at("place-a2", sessionA, mainStage.id, slot0900Twin.id), bAt1000], {
+          rooms: [mainStage],
+        }),
+      ),
+      publication(10, board([at("place-a2", sessionA, mainStage.id, slot0900Twin.id), bAt1000])),
+    ]);
+
+    await database.prepare("DROP TABLE agenda_session_schedules").run();
+    await applyMigrationFile(database, "1601_agenda_session_schedules.sql");
+
+    const backfilled = await storedRevisions(database);
+    expect(backfilled).toEqual(await foldStoredHistory(database));
+    // Spelled out as well, so a fold that silently agreed on nothing could not pass: A last
+    // changed when it returned at 7 and has not moved since, and B's room came back at 10.
+    expect(backfilled.get(sessionA)).toEqual({
+      startsAt: slot0900.startsAt,
+      endsAt: slot0900.endsAt,
+      location: mainStage.name,
+      revision: 7,
+      revisedAt: "2026-08-12T00:00:07.000Z",
+    });
+    expect(backfilled.get(sessionB)).toEqual({
+      startsAt: slot1000.startsAt,
+      endsAt: slot1000.endsAt,
+      location: workshopLab.name,
+      revision: 10,
+      revisedAt: "2026-08-12T00:00:10.000Z",
+    });
+  });
+
+  it("advances only the sessions a publication actually moved", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-advance", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    // The seed placed session A at 09:00 on the main stage in version 1.
+    const seeded = await repository.sessionScheduleRevisions(eventId);
+    expect(seeded.get(sessionA)?.revision).toBe(1);
+
+    // Version 2 leaves A exactly where it was and introduces B.
+    expect(
+      await repository.publish(
+        publication(
+          2,
+          board([
+            at("place-a", sessionA, mainStage.id, slot0900.id),
+            at("place-b", sessionB, workshopLab.id, slot1000.id),
+          ]),
+        ),
+      ),
+    ).toBe("committed");
+
+    const advanced = await repository.sessionScheduleRevisions(eventId);
+    expect(advanced.get(sessionA)).toEqual(seeded.get(sessionA));
+    expect(advanced.get(sessionB)?.revision).toBe(2);
+    expect(advanced.get(sessionB)?.revisedAt).toBe("2026-08-12T00:00:02.000Z");
+  });
+
+  it("leaves the revisions untouched when the publication's batch fails", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "agenda-materialize-rollback",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    // The same failing event writer the rollback case above uses: the statement names a column
+    // that does not exist, so the batch is refused after the materialization statements ran.
+    const repository = new D1AgendaRepository(
+      migrated.database,
+      () => new Date(),
+      (db) => [db.prepare("INSERT INTO nonexistent_publication_events (id) VALUES (1)")],
+    );
+    const before = await storedRevisions(migrated.database);
+
+    await expect(
+      repository.publish(
+        publication(2, board([at("place-a", sessionA, workshopLab.id, slot1000.id)])),
+      ),
+    ).rejects.toThrow();
+
+    // The materialization shares the snapshot's fate: neither the publication nor the moved
+    // revision it would have written survives.
+    expect(await storedRevisions(migrated.database)).toEqual(before);
+  });
+
+  it("writes nothing when the version was already taken", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-taken", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+    const before = await storedRevisions(migrated.database);
+
+    // Version 1 is the seed's. A refused allocation must not leave this board's revisions
+    // behind, or the retry at the next version would compare against a snapshot nobody has.
+    expect(
+      await repository.publish(
+        publication(1, board([at("place-a", sessionA, workshopLab.id, slot1000.id)])),
+      ),
+    ).toBe("version-taken");
+
+    expect(await storedRevisions(migrated.database)).toEqual(before);
+  });
+
+  it("reads the revisions with one statement, whatever the length of the history", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-read-cost", seed: true });
+    runtime = migrated.runtime;
+    let prepared: string[] = [];
+    const counting = {
+      prepare: (query: string) => {
+        prepared.push(query);
+        return migrated.database.prepare(query);
+      },
+      batch: (statements: unknown[]) =>
+        (migrated.database as unknown as { batch(s: unknown[]): Promise<unknown> }).batch(
+          statements,
+        ),
+    };
+    const repository = new D1AgendaRepository(
+      counting as unknown as ConstructorParameters<typeof D1AgendaRepository>[0],
+      () => new Date(),
+    );
+
+    prepared = [];
+    await repository.sessionScheduleRevisions(eventId);
+    const withOnePublication = prepared.length;
+
+    await insertHistory(
+      migrated.database,
+      Array.from({ length: 12 }, (_, index) =>
+        publication(index + 2, board([at("place-a", sessionA, mainStage.id, slot0900.id)])),
+      ),
+    );
+
+    prepared = [];
+    await repository.sessionScheduleRevisions(eventId);
+
+    expect(withOnePublication).toBe(1);
+    // Thirteen publications, still one statement — which is the whole point of storing this.
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0]).toContain("agenda_session_schedules");
+    expect(prepared[0]).not.toContain("agenda_publications");
   });
 });
