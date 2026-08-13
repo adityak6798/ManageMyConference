@@ -267,11 +267,37 @@ feature-by-feature verdict.
   This is why `apps/api/wrangler.toml` deliberately leaves `GOOGLE_CLIENT_ID` and
   `GOOGLE_REDIRECT_URI` commented out. Google sign-in is implemented and the deployed demo does not
   offer it, precisely so that no real account can accumulate on a database whose restore procedure
-  is a full teardown. Owner: platform. Governing ID: `ENG-DEV-001`. Closure: the remote reset reads
+  is a full teardown. The two races that would put an unreferenced organization on that database
+  even without a completed signup are issue #164, and whichever of the two lands second has to
+  account for the first: an accumulated orphan would trip the data-aware guard below permanently.
+  Owner: platform. Governing ID: `ENG-DEV-001`. Closure: the remote reset reads
   the data before it writes — refusing when it finds an organization, user or event the seed does
   not name, unless an explicit flag says to destroy them — or the demo and self-serve deployments
   become separate databases. Either one, plus a test that proves the refusal, closes this and makes
   it safe to configure Google on the deployed demo.
+- `GAP-020` **Google sign-in has never exchanged a request with Google.** The adapter at
+  `apps/api/src/adapters/identity/google-oauth-client.ts` is the entire boundary — one POST to the
+  token endpoint, one GET for the key set — and its request shape comes from Google's documentation
+  rather than from observation. No OAuth client existed in this repository when it was written, and
+  every test of it stubs `fetch`.
+
+  What *is* proven is our side of it, and the distinction matters: `google-oauth-client.test.ts`
+  pins the grant type, the PKCE verifier, the fixed redirect URI, the credential travelling in the
+  body rather than the URL, a non-2xx becoming a typed refusal that carries the status but none of
+  Google's prose, the key cache hitting and expiring, a failure not being cached, and the timeout
+  aborting; `google-oauth.test.ts` verifies `id_token` handling against tokens it signs itself with
+  a generated RSA key, including the refusals — a foreign signature, `alg: none`, HS256 key
+  confusion, an unpublished `kid`, another client's audience or authorized presenter, an expired
+  token, a stale nonce.
+
+  None of that says Google accepts the request. This is the same shape of gap as `GAP-011` and
+  `GAP-012`, with one difference in consequence: a wrong request shape there degrades one feature,
+  and a wrong request shape here means **nobody can sign in**, discovered by the first person who
+  configures a client id. Impact: the authentication path most likely to be wrong on first contact
+  is the one with no observation behind it. Owner: identity-access. Governing IDs: `PRD-IAM-001`,
+  `ARC-AUTH-001`, `ADR-004`. Closure: issue #165 — one real sign-in completed against Google, with
+  the date, commit and client id recorded here and in the `ACC-IDENTITY-EVENTS` scorecard row, and
+  any divergence pinned by a case in `google-oauth-client.test.ts`.
 
 - `GAP-024` **A materialized per-session schedule revision has no drift detection and no repair
   path.** Issue #141 replaced an unbounded replay of `agenda_publications` with a stored answer in

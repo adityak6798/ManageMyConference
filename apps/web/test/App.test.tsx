@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { bytesToBase64 } from "../src/ContentWorkspace";
 import { instanceLabel } from "../src/InstanceMarker";
+import { clearOrganizerOverviewCache } from "../src/api/overview";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
@@ -105,6 +106,11 @@ describe("App", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    // The overview fan-out is memoised per event at module scope, so a test that renders the
+    // Overview leaves a warm cache behind and the next one measures fewer requests than it made.
+    // Cleared here rather than in the one test that noticed, because any test reaching the
+    // Overview has the same effect on whatever runs after it.
+    clearOrganizerOverviewCache();
   });
 
   it("encodes files larger than the JavaScript argument limit", () => {
@@ -116,6 +122,42 @@ describe("App", () => {
     expect(instanceLabel("localhost")).toBe("Local instance");
     expect(instanceLabel("project-greenroom-api.adityak6798.workers.dev")).toBe("Deployed demo");
     expect(instanceLabel("greenroom.example.com")).toBe("Hosted instance");
+  });
+
+  /**
+   * Sign out is offered for a session and withheld from a persona, decided by what the server
+   * says rather than by how the console was reached.
+   *
+   * This is the assertion the defect needed and did not have. The shell used to take the answer
+   * from a prop the landing page passed, which meant it was absent on every deep link — nobody
+   * to pass it — and hard-coded false on any demo deployment that also offered Google, so a
+   * genuinely signed-in user was never offered a sign-out anywhere. `App` is rendered here with
+   * no props at all, which is exactly the deep-link case.
+   */
+  it("offers sign-out for a real session and not for a demo persona", async () => {
+    const stub = (authentication: "session" | "demo") =>
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({ ...organizerSession, authentication });
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
+      });
+
+    vi.stubGlobal("fetch", stub("session"));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+
+    cleanup();
+    vi.stubGlobal("fetch", stub("demo"));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    // A persona is switched from the role selector, not signed out of; offering both would
+    // suggest the button does something it cannot.
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Signed-in role" })).toBeInTheDocument();
   });
 
   it("lands an organizer on the overview with role-aware navigation", async () => {
