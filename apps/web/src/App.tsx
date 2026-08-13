@@ -240,8 +240,8 @@ export function App({
    * deployment that also offers Google all arrive at the same answer. The prop is the fallback
    * for the frame before the first read lands, and for an API old enough not to send the field.
    */
-  const signedInForRealSession = session?.authentication
-    ? session.authentication === "session"
+  const hasAuthenticatedSession = session?.authentication
+    ? session.authentication === "session" || session.authentication === "demo"
     : realSession;
 
   const activeRole = useMemo<Persona>(() => {
@@ -715,7 +715,7 @@ export function App({
         // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
         void switchPersona(persona);
       }}
-      {...(signedInForRealSession
+      {...(hasAuthenticatedSession
         ? {
             onSignOut: () => {
               // ERROR-INTENT: handlers cannot await; endSession renders its own failure.

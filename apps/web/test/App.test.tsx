@@ -134,7 +134,7 @@ describe("App", () => {
    * genuinely signed-in user was never offered a sign-out anywhere. `App` is rendered here with
    * no props at all, which is exactly the deep-link case.
    */
-  it("offers sign-out for a real session and not for a demo persona", async () => {
+  it("offers sign-out for both a real session and a demo persona", async () => {
     const stub = (authentication: "session" | "demo") =>
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
@@ -154,9 +154,9 @@ describe("App", () => {
     vi.stubGlobal("fetch", stub("demo"));
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
-    // A persona is switched from the role selector, not signed out of; offering both would
-    // suggest the button does something it cannot.
-    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    // Switching changes the active demo identity; signing out clears the demo cookie and returns
+    // to the landing page. They are separate, deliberate exits and both must stay reachable.
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Signed-in role" })).toBeInTheDocument();
   });
 

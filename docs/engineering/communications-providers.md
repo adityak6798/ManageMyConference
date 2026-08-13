@@ -69,8 +69,8 @@ names — are configuration.
 | `AIRTABLE_TOKEN` | live | **yes** | Personal access token |
 | `AIRTABLE_REFERENCE_FIELD` | live | no | Column holding the Greenroom reference; defaults to `Greenroom Ref` |
 | `ACCELEVENTS_API_ENDPOINT` | live (outbound) | no | Full URL of the projection endpoint, POSTed to verbatim |
-| `ACCELEVENTS_API_ORIGIN` | live (inbound) | no | Origin of the Accelevents API; the registration read appends `/events/{ref}/registrations` to it. Separate from the endpoint above because one binding cannot be both a complete URL and a prefix |
-| `ACCELEVENTS_TOKEN` | live | **yes** | Bearer credential for that endpoint |
+| `ACCELEVENTS_API_ORIGIN` | live (inbound) | no | Origin of the Accelevents API (`https://api.accelevents.com`); the registration read appends `/rest/events/{ref}/staff/allAttendees` and its pagination query. Separate from the endpoint above because one binding cannot be both a complete URL and a prefix |
+| `ACCELEVENTS_TOKEN` | live | **yes** | Accelevents API key, sent verbatim in the published `AUTHENTICATION` header |
 | `ACCELEVENTS_EVENT_REF` | live (inbound) | no | The Accelevents event whose registrations the inbound sync reads |
 | `ACCELEVENTS_GREENROOM_EVENT_ID` | live (inbound) | no | The Greenroom event `ACCELEVENTS_EVENT_REF` corresponds to. Required, because one deployment-wide roster would otherwise answer every event that asks and import another conference's attendees into it; a sync for any other event is refused |
 | `CALENDAR_ORGANIZER_EMAIL` | both | no | Fallback `ORGANIZER` for calendar invitations when `EMAIL_SENDER` is unset. Defaulted in `wrangler.toml` to a reserved `.invalid` address so the configurations that send no mail can still produce an invitation |
@@ -93,6 +93,20 @@ names — are configuration.
   Both directions share `ACCELEVENTS_TOKEN`. If the tenant can issue two — one write-only for
   projections, one read-only for registrations — prefer that, and split the binding then rather
   than pretending one credential is narrower than it is.
+
+### Accelevents published-contract verification
+
+Retrieved 2026-08-12 from Accelevents API reference v1.0. The inbound adapter now matches the
+published `GET /rest/events/{eventurl}/staff/allAttendees` contract: the API key is sent verbatim
+in `AUTHENTICATION`, pages are zero-indexed with `size=100` and `dataType=TICKET`, and the parser
+reads `attendees`, `recordsTotal`, `attendeeId`, `firstName`, `lastName`, `email`, and `ticketType`.
+The fixture uses the same response envelope and also carries documented fields Greenroom does not
+consume (`barcode`, `status`, and `ticketStatus`), so fixture drift fails the contract suite.
+
+This is documentation conformance, not a live smoke. API-key creation requires owner access to an
+organizer/Enterprise account, and the API Key screen is unavailable on the free account checked
+for issue #161. No Accelevents request has been made from this project. `GAP-012` therefore stays
+open until a paid account supplies a credential and the staging smoke below is observed.
 
 ### Rotation and revocation
 

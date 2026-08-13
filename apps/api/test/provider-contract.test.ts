@@ -173,13 +173,16 @@ describe.each(ADAPTERS)("$name provider contract", (adapter) => {
     expect(result).toEqual({ kind: "terminal", code: "MALFORMED_PROVIDER_RESPONSE" });
   });
 
-  it("authorizes with a bearer credential and never returns it in an outcome", async () => {
+  it("authorizes with the provider's documented credential header and never returns it", async () => {
     const { fetch, recorded } = stub(401, { error: TOKEN });
 
     const result = await adapter.build(fetch).deliver(subject(adapter));
 
     const headers = recorded[0]?.init.headers as Record<string, string>;
-    expect(headers.authorization).toBe(`Bearer ${TOKEN}`);
+    if (adapter.name === "accelevents") {
+      expect(headers.AUTHENTICATION).toBe(TOKEN);
+      expect(headers.authorization).toBeUndefined();
+    } else expect(headers.authorization).toBe(`Bearer ${TOKEN}`);
     // The provider echoed the credential back in its error body. Nothing from a response body
     // reaches a normalized code, which is what keeps it out of the stored attempt and the
     // organizer's history.
@@ -381,24 +384,46 @@ describe("provider request shapes", () => {
 
   it("reads registrants and never puts its credential in the URL", async () => {
     const { fetch, recorded } = stub(200, {
-      registrations: [
-        { id: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
-        { id: "ae-2", name: "Grace", email: "grace@example.test" },
+      attendees: [
+        {
+          attendeeId: "ae-1",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          email: "ada@example.test",
+          ticketType: "Speaker",
+          barcode: "one",
+        },
+        {
+          attendeeId: "ae-2",
+          firstName: "Grace",
+          lastName: "Hopper",
+          email: "grace@example.test",
+          barcode: "two",
+        },
       ],
+      recordsTotal: 2,
     });
 
     expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toEqual([
-      { sourceRef: "ae-1", name: "Ada", email: "ada@example.test", ticketType: "Speaker" },
-      { sourceRef: "ae-2", name: "Grace", email: "grace@example.test" },
+      { sourceRef: "ae-1", name: "Ada Lovelace", email: "ada@example.test", ticketType: "Speaker" },
+      { sourceRef: "ae-2", name: "Grace Hopper", email: "grace@example.test" },
     ]);
-    expect(recorded[0]?.url).toBe("https://accelevents.test/api/events/ae-event-1/registrations");
+    expect(recorded[0]?.url).toBe(
+      "https://accelevents.test/api/rest/events/ae-event-1/staff/allAttendees?page=0&size=100&dataType=TICKET",
+    );
     expect(recorded[0]?.url).not.toContain(TOKEN);
     expect(recorded[0]?.init.method).toBe("GET");
+    const headers = recorded[0]?.init.headers as Record<string, string> | undefined;
+    expect(headers?.AUTHENTICATION).toBe(TOKEN);
+    expect(headers?.authorization).toBeUndefined();
   });
 
   it("refuses to answer an event it is not bound to, rather than serving another one's roster", async () => {
     const { fetch, recorded } = stub(200, {
-      registrations: [{ id: "ae-1", name: "Ada", email: "ada@example.test" }],
+      attendees: [
+        { attendeeId: "ae-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test" },
+      ],
+      recordsTotal: 1,
     });
 
     // One deployment maps one Greenroom event to one Accelevents event. Answering any other event
@@ -414,12 +439,13 @@ describe("provider request shapes", () => {
 
   it("drops an incomplete registrant rather than importing a person nobody can reach", async () => {
     const { fetch } = stub(200, {
-      registrations: [
-        { id: "ae-1", name: "Ada", email: "ada@example.test" },
-        { id: "ae-2", name: "No address" },
-        { name: "No id", email: "x@example.test" },
+      attendees: [
+        { attendeeId: "ae-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test" },
+        { attendeeId: "ae-2", firstName: "No", lastName: "Address" },
+        { firstName: "No", lastName: "id", email: "x@example.test" },
         null,
       ],
+      recordsTotal: 4,
     });
     expect(await registrations(fetch).listRegistrants(GREENROOM_EVENT)).toHaveLength(1);
   });

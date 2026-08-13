@@ -135,21 +135,23 @@ feature-by-feature verdict.
   be wrong on first contact. The same shape of gap as `GAP-012`, for the same reason.
   Owner: review. Governing ID: `PRD-REV-001`, `PRD-AI-001`, `ACC-REVIEW`. Closure: the staging smoke
   run and recorded, with the date, commit and serving model written into that section.
-- `GAP-012` **Brief feature 7 is verified against nothing**: the inbound Accelevents registration
+- `GAP-012` **Brief feature 7 conforms to the published Accelevents contract but is not live-verified**: the inbound Accelevents registration
   sync now exists end to end — a typed source port, a deterministic in-repository roster as the
   default, a live HTTP client behind the credential-gated `live` switch, and an organizer surface
   with a dry run that writes nothing, an idempotent apply, last-run state and a visible failure
   state. What remains is the part no amount of code can supply here: **it has never exchanged a
   request with the real API.** No Accelevents credential exists in this repository, the client's
-  tests stub `fetch`, the request and response shapes come from documentation rather than
-  observation, and the staging smoke has not run. Impact: an organizer can operate the integration
-  and see what it did, but its correctness against the real platform is unproven, and the shapes
-  are the most likely thing to be wrong on first contact. The Airtable half of the same gap is
+  tests stub `fetch`, and the staging smoke has not run. A 2026-08-12 conformance pass corrected
+  the path, authentication header, pagination, and response envelope against API reference v1.0;
+  its test records that retrieval date. Live verification is blocked because API-key creation is
+  restricted to an organizer/Enterprise account and the free account exposes no usable key.
+  Impact: an organizer can operate the integration and its request matches the published
+  specification, but no real tenant has answered it. The Airtable half of the same gap is
   unchanged: no mapping configuration, connection test or dry-run preview exists for it (issue
   #23's Airtable product surface).
-  Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: issue
-  #58 — a fixture-backed one-way sync with a visible organizer surface, or documentation that says
-  plainly it is not implemented.
+  Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure: a
+  paid account credential becomes available and the staging smoke records the date, commit, and
+  observed request/response behavior.
 - `GAP-016` The generated OpenAPI document is checked for drift but not served, and there is no API
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable

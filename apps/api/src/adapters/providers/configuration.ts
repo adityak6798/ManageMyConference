@@ -57,7 +57,7 @@ export interface ProviderEnvironment {
    *
    * Separate from `ACCELEVENTS_API_ENDPOINT` because the two directions need different things and
    * one binding cannot be both: the outbound projection POSTs to a complete endpoint URL verbatim,
-   * while the inbound read appends `/events/{ref}/registrations` to an origin.
+   * while the inbound read appends the published attendee path to an origin.
    */
   ACCELEVENTS_API_ORIGIN?: string | undefined;
   /** The Accelevents event this deployment reads registrations from. */

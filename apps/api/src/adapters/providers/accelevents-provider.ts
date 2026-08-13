@@ -46,7 +46,7 @@ export class AccelEventsProjectionProvider implements DeliveryProvider {
       response = await this.fetch(this.configuration.endpoint, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.configuration.token}`,
+          AUTHENTICATION: this.configuration.token,
           "content-type": "application/json",
           // Keyed per *attempt*, not per delivery, and that difference is load-bearing.
           //

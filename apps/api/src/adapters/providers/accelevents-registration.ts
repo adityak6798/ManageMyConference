@@ -23,30 +23,94 @@ import { PROVIDER_TIMEOUT_MS, outcomeForStatus, readJsonBody } from "./http-outc
  * One address deliberately matches the seeded speaker `sam@example.test`, so the second run — and
  * the demo's first run — shows a `skip` and demonstrates convergence rather than duplication.
  */
-export const FIXTURE_REGISTRANTS: readonly AccelEventsRegistrant[] = [
-  {
-    sourceRef: "ae-reg-1001",
-    name: "Sam Speaker",
-    email: "sam@example.test",
-    ticketType: "Speaker",
-  },
-  {
-    sourceRef: "ae-reg-1002",
-    name: "Nadia Okafor",
-    email: "nadia@example.test",
-    ticketType: "Speaker",
-  },
-  {
-    sourceRef: "ae-reg-1003",
-    name: "Ravi Menon",
-    email: "ravi.menon@example.test",
-    ticketType: "Workshop lead",
-  },
-  { sourceRef: "ae-reg-1004", name: "Broken Record", email: "no-email@", ticketType: "Speaker" },
-];
+export const FIXTURE_ATTENDEE_RESPONSE = {
+  attendees: [
+    {
+      attendeeId: "ae-reg-1001",
+      firstName: "Sam",
+      lastName: "Speaker",
+      email: "sam@example.test",
+      ticketType: "Speaker",
+      status: "ACTIVE",
+      ticketStatus: "BOOKED",
+      barcode: "fixture-1001",
+    },
+    {
+      attendeeId: "ae-reg-1002",
+      firstName: "Nadia",
+      lastName: "Okafor",
+      email: "nadia@example.test",
+      ticketType: "Speaker",
+      status: "ACTIVE",
+      ticketStatus: "BOOKED",
+      barcode: "fixture-1002",
+    },
+    {
+      attendeeId: "ae-reg-1003",
+      firstName: "Ravi",
+      lastName: "Menon",
+      email: "ravi.menon@example.test",
+      ticketType: "Workshop lead",
+      status: "ACTIVE",
+      ticketStatus: "BOOKED",
+      barcode: "fixture-1003",
+    },
+    {
+      attendeeId: "ae-reg-1004",
+      firstName: "Broken",
+      lastName: "Record",
+      email: "no-email@",
+      ticketType: "Speaker",
+      status: "ACTIVE",
+      ticketStatus: "BOOKED",
+      barcode: "fixture-1004",
+    },
+  ],
+  recordsFiltered: 4,
+  recordsTotal: 4,
+  ticketTypeCountDtos: [{ ticketTypeId: 1, ticketTypeName: "Speaker", totalTickets: 4 }],
+  totalBookedTickets: 4,
+  totalCheckedInTickets: 0,
+  totalFreeTickets: 4,
+  totalPaidTickets: 0,
+} as const;
+
+const registrantsFrom = (body: unknown): readonly AccelEventsRegistrant[] | null => {
+  if (!body || typeof body !== "object") return null;
+  const envelope = body as Record<string, unknown>;
+  if (
+    !Array.isArray(envelope.attendees) ||
+    !Number.isInteger(envelope.recordsTotal) ||
+    (envelope.recordsTotal as number) < 0
+  )
+    return null;
+  return envelope.attendees.flatMap((record): AccelEventsRegistrant[] => {
+    const { attendeeId, firstName, lastName, email, ticketType } = (record ?? {}) as Record<
+      string,
+      unknown
+    >;
+    if (
+      (typeof attendeeId !== "string" && typeof attendeeId !== "number") ||
+      typeof firstName !== "string" ||
+      typeof lastName !== "string" ||
+      typeof email !== "string"
+    )
+      return [];
+    const name = `${firstName} ${lastName}`.trim();
+    if (!String(attendeeId) || !name || !email) return [];
+    return [
+      {
+        sourceRef: String(attendeeId),
+        name,
+        email,
+        ...(typeof ticketType === "string" && ticketType ? { ticketType } : {}),
+      },
+    ];
+  });
+};
 
 export class FixtureAccelEventsRegistrations implements AccelEventsRegistrationSource {
-  constructor(private readonly registrants = FIXTURE_REGISTRANTS) {}
+  constructor(private readonly response: unknown = FIXTURE_ATTENDEE_RESPONSE) {}
   /**
    * The same roster whichever event asks.
    *
@@ -54,7 +118,9 @@ export class FixtureAccelEventsRegistrations implements AccelEventsRegistrationS
    * must not behave this way, and does not — see `boundEventId`.
    */
   async listRegistrants(_eventId: string): Promise<readonly AccelEventsRegistrant[]> {
-    return this.registrants;
+    const registrants = registrantsFrom(this.response);
+    if (!registrants) throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
+    return registrants;
   }
 }
 
@@ -107,50 +173,45 @@ export class HttpAccelEventsRegistrations implements AccelEventsRegistrationSour
     // other people's names and addresses into this event's speaker list.
     if (eventId !== this.configuration.boundEventId)
       throw new AccelEventsUnavailableError("ACCELEVENTS_EVENT_NOT_MAPPED");
-    const url = `${this.configuration.apiOrigin.replace(/\/$/, "")}/events/${encodeURIComponent(
+    const baseUrl = `${this.configuration.apiOrigin.replace(/\/$/, "")}/rest/events/${encodeURIComponent(
       this.configuration.eventRef,
-    )}/registrations`;
-    let response: Response;
-    try {
-      response = await this.fetch(url, {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${this.configuration.token}`,
-          accept: "application/json",
-        },
-        signal: AbortSignal.timeout(this.configuration.timeoutMs ?? PROVIDER_TIMEOUT_MS),
-      });
-    } catch {
-      // ERROR-INTENT: transport failures carry untrusted text that can name internal hosts; only
-      // the normalized code survives.
-      throw new AccelEventsUnavailableError("PROVIDER_UNREACHABLE");
+    )}/staff/allAttendees`;
+    const registrants: AccelEventsRegistrant[] = [];
+    const pageSize = 100;
+    let page = 0;
+    let recordsTotal = Number.POSITIVE_INFINITY;
+    let providerRowsSeen = 0;
+    while (providerRowsSeen < recordsTotal) {
+      const url = `${baseUrl}?page=${page}&size=${pageSize}&dataType=TICKET`;
+      let response: Response;
+      try {
+        response = await this.fetch(url, {
+          method: "GET",
+          headers: {
+            AUTHENTICATION: this.configuration.token,
+            accept: "application/json",
+          },
+          signal: AbortSignal.timeout(this.configuration.timeoutMs ?? PROVIDER_TIMEOUT_MS),
+        });
+      } catch {
+        // ERROR-INTENT: transport failures carry untrusted text that can name internal hosts; only
+        // the normalized code survives.
+        throw new AccelEventsUnavailableError("PROVIDER_UNREACHABLE");
+      }
+      const failure = outcomeForStatus(response.status);
+      if (failure && failure.kind !== "success")
+        throw new AccelEventsUnavailableError(failure.code);
+      const body = await readJsonBody(response);
+      const parsed = registrantsFrom(body);
+      if (!parsed || !body || typeof body !== "object")
+        throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
+      recordsTotal = (body as { recordsTotal: number }).recordsTotal;
+      const providerRows = (body as { attendees: unknown[] }).attendees.length;
+      providerRowsSeen += providerRows;
+      registrants.push(...parsed);
+      if (providerRows === 0) break;
+      page += 1;
     }
-    const failure = outcomeForStatus(response.status);
-    // `outcomeForStatus` answers null for 2xx, so anything here is a retryable or terminal
-    // outcome and carries a normalized code.
-    if (failure && failure.kind !== "success") throw new AccelEventsUnavailableError(failure.code);
-    const body = await readJsonBody(response);
-    const records =
-      body &&
-      typeof body === "object" &&
-      "registrations" in body &&
-      Array.isArray(body.registrations)
-        ? body.registrations
-        : null;
-    if (!records) throw new AccelEventsUnavailableError("MALFORMED_PROVIDER_RESPONSE");
-    return records.flatMap((record): AccelEventsRegistrant[] => {
-      const { id, name, email, ticketType } = (record ?? {}) as Record<string, unknown>;
-      if (typeof id !== "string" || typeof name !== "string" || typeof email !== "string")
-        return [];
-      if (!id || !name || !email) return [];
-      return [
-        {
-          sourceRef: id,
-          name,
-          email,
-          ...(typeof ticketType === "string" && ticketType ? { ticketType } : {}),
-        },
-      ];
-    });
+    return registrants;
   }
 }

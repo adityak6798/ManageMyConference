@@ -3,7 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { parseSpeakerCsv } from "../src/adapters/content/parse-speaker-csv";
 import { MemoryAccelEventsSyncRuns } from "../src/adapters/persistence/d1-accelevents-sync-runs";
-import { FixtureAccelEventsRegistrations } from "../src/adapters/providers/accelevents-registration";
+import {
+  FIXTURE_ATTENDEE_RESPONSE,
+  FixtureAccelEventsRegistrations,
+} from "../src/adapters/providers/accelevents-registration";
 import {
   type AccelEventsRegistrant,
   AccelEventsSyncService,
@@ -65,7 +68,9 @@ function harness(registrants?: readonly AccelEventsRegistrant[]) {
   const content = contentDouble();
   const runs = new MemoryAccelEventsSyncRuns();
   const service = new AccelEventsSyncService({
-    source: new FixtureAccelEventsRegistrations(registrants),
+    source: registrants
+      ? { listRegistrants: async () => registrants }
+      : new FixtureAccelEventsRegistrations(),
     content,
     runs,
     mode: "fixture",
@@ -75,6 +80,26 @@ function harness(registrants?: readonly AccelEventsRegistrant[]) {
 }
 
 describe("Accelevents registration sync", () => {
+  it("keeps the fixture on the published attendee envelope (retrieved 2026-08-12)", async () => {
+    expect(FIXTURE_ATTENDEE_RESPONSE).toMatchObject({
+      recordsTotal: FIXTURE_ATTENDEE_RESPONSE.attendees.length,
+      attendees: expect.arrayContaining([
+        expect.objectContaining({
+          attendeeId: expect.any(String),
+          firstName: expect.any(String),
+          lastName: expect.any(String),
+          email: expect.any(String),
+          barcode: expect.any(String),
+          status: expect.any(String),
+          ticketStatus: expect.any(String),
+        }),
+      ]),
+    });
+    await expect(
+      new FixtureAccelEventsRegistrations().listRegistrants(eventId),
+    ).resolves.toHaveLength(FIXTURE_ATTENDEE_RESPONSE.recordsTotal);
+  });
+
   it("predicts exactly what an apply will do and writes nothing", async () => {
     const test = harness();
 
