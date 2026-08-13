@@ -111,9 +111,26 @@ export const identityRoutes: RouteModule = {
           429,
         );
       }
-      const { authorizationUrl, attemptId } = await auth.google.start(now);
-      setCookie(context, OAUTH_COOKIE, attemptId, oauthCookieOptions(isSecure(context)));
-      return context.redirect(authorizationUrl, 302);
+      // Minting an attempt is a D1 write. Left to the transport's error boundary it would answer a
+      // JSON 500 to a plain link click, which is a dead end in the address bar; the person gets the
+      // sign-in page back instead, and the reason goes to the log with their correlation id.
+      let started: { authorizationUrl: string; attemptId: string };
+      try {
+        started = await auth.google.start(now);
+      } catch (error) {
+        // ERROR-INTENT: reported at error level because a sign-in that cannot even begin is this
+        // deployment failing, not a caller being refused.
+        dependencies.logger.error(
+          {
+            correlationId: context.get("correlationId"),
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          "auth.google.failed",
+        );
+        return context.redirect("/signin?auth=failed", 302);
+      }
+      setCookie(context, OAUTH_COOKIE, started.attemptId, oauthCookieOptions(isSecure(context)));
+      return context.redirect(started.authorizationUrl, 302);
     });
 
     /**
@@ -123,7 +140,10 @@ export const identityRoutes: RouteModule = {
      * the reason stays in the Worker log. A callback is reachable by anybody with a browser, so
      * telling them *which* check refused (unknown attempt, wrong `state`, expired, bad
      * signature, unverified address) would hand an attacker the oracle this flow exists to deny
-     * them.
+     * them. That covers storage and upstream failures too, and deliberately: `complete` catches
+     * them rather than letting them reach the transport's error boundary, which would answer a
+     * JSON error envelope — rendered as raw JSON in the address bar, because this is a top-level
+     * navigation rather than a fetch. The log is where the two are told apart, by level.
      *
      * The redirect targets are string literals in this file. Nothing from the request decides
      * where the browser goes next, which is the open redirect this route would otherwise be.
@@ -148,7 +168,13 @@ export const identityRoutes: RouteModule = {
       const failed = () => context.redirect("/signin?auth=failed", 302);
       if (!attemptId || !code || !state) return failed();
       const now = (auth.now ?? Date.now)();
-      const outcome = await auth.google.complete({ attemptId, state, code, now });
+      const outcome = await auth.google.complete({
+        attemptId,
+        state,
+        code,
+        now,
+        correlationId: context.get("correlationId"),
+      });
       if (!outcome) return failed();
       setCookie(
         context,

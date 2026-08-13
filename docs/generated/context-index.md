@@ -107,6 +107,7 @@
 - `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/landing.test.tsx](../../apps/web/test/landing.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-INTEGRATION`

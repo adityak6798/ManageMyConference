@@ -91,7 +91,10 @@ introduces no ambiguity about which credential the caller presented.
 The `authentication` kind follows what actually resolved rather than what the deployment mode is, so
 a real Google session on a demo deployment is reported as a `session` and a persona cookie as
 `demo`. That is a description of the credential rather than a grant, and it is worth being exact
-about the difference: `/api/auth/tokens` is the only reader of that value in the repository, and it
+about the difference. Two routes read that value. `GET /api/session` reports it, so the console can
+tell a persona it should offer to *switch* from a session it should offer to *sign out* of — the two
+arrive in the same cookie and are otherwise indistinguishable to the client. `POST /api/auth/tokens` is
+the only route that lets it decide anything, and it
 answers 404 to every caller while `demoMode` is set, before it reads it. So event-scoped bearer
 tokens remain a non-demo feature, and no demo configuration mints one. Nothing about the persona
 path changes — `findByPersona` still pins
