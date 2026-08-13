@@ -80,6 +80,24 @@ function FieldErrors({ id, messages }: { id: string; messages: readonly string[]
   );
 }
 
+/**
+ * The display name for a stored actor id, or the id itself when nothing knows it.
+ *
+ * Audit surfaces print who did something, and an organizer reading "seed-organizer" learns
+ * nothing (#154). Three sources, cheapest first: the staff directory the workspace carries, the
+ * speakers it already lists, and the author names attached to comments. The raw id is the
+ * deliberate fallback for an identity none of them holds — an actor who has since left the event,
+ * or a system write — because inventing "Unknown" would hide a real, quotable value.
+ */
+function memberName(workspace: Workspace, actorId: string): string {
+  const staff = workspace.actorDirectory?.find(({ id }) => id === actorId);
+  if (staff) return staff.name;
+  const speaker = workspace.speakers.find(({ userId }) => userId === actorId);
+  if (speaker) return speaker.name;
+  const comment = workspace.comments?.find(({ authorId }) => authorId === actorId);
+  return comment?.authorName ?? actorId;
+}
+
 const PUBLICATION_TONE: Record<PublicationState, "neutral" | "info" | "ok"> = {
   draft: "neutral",
   ready: "info",
@@ -304,6 +322,7 @@ export {
   dueLabel,
   FieldErrors,
   isImageAsset,
+  memberName,
   PUBLICATION_LABEL,
   PUBLICATION_TONE,
   photoVisibility,

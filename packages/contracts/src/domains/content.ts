@@ -112,6 +112,18 @@ export const contentRevisionSchema = z.object({
   createdAt: z.string().datetime(),
   restoredFromRevisionId: z.string().uuid().optional(),
 });
+/**
+ * A person an audit row may name, with the name to print for them.
+ *
+ * Addressing only, exactly as `AssignableOwner` is on the server: appearing here says a revision
+ * may carry this id, never that the holder has any capability on the event. It mirrors review's
+ * `reviewerDirectory`, which exists for the same reason — the console was printing the stored id
+ * `seed-organizer` where a name belonged (#154).
+ */
+export const contentActorSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
 export const contentWorkspaceSchema = z.object({
   sessions: z.array(contentSessionSchema),
   speakers: z.array(speakerProfileSchema),
@@ -121,6 +133,8 @@ export const contentWorkspaceSchema = z.object({
   resources: z.array(speakerResourceSchema).optional(),
   comments: z.array(contentCommentSchema).optional(),
   revisions: z.array(contentRevisionSchema).optional(),
+  /** Optional because the speaker-scoped projection carries no revisions to attribute. */
+  actorDirectory: z.array(contentActorSchema).optional(),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 /**

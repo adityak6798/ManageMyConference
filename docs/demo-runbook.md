@@ -122,8 +122,13 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    un-named — as that speaker's profile photo; both decisions are reversible. Download hands you
    the file itself, whatever its visibility.
 
-   Two integration surfaces live here. **Accelevents registrations** reads the registration
-   platform and turns registrants into speaker profiles. Press **Preview registrations** first:
+   The page leads with the dashboard. The occasional jobs — resource authoring, the two imports,
+   bulk assignment, deliverables and edit history — sit below it as seven collapsed panels, so
+   each of the steps that follow starts by opening the panel it names.
+
+   Two integration surfaces live here. Open **Accelevents registrations**; it reads the
+   registration platform and turns registrants into speaker profiles. Press **Preview
+   registrations** first:
    nothing is written, and the panel lists exactly what an import would create, what is already
    present, and the one deliberately malformed address the sample roster carries so the failure
    path is reachable without editing code. Then **Import registrants**, and press it a second

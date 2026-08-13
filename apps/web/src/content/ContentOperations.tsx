@@ -1,4 +1,17 @@
-import { type FormEvent, useState } from "react";
+/*
+ * The occasional jobs of Sessions & speakers: authoring, imports, batch assignment and history.
+ *
+ * These used to be a four-column `grid-auto` band above the dashboard (#144). Equal-width columns
+ * were the wrong container for all four: the columns hold jobs with different frequencies and
+ * wildly different natural heights, so "Import speakers" left ~390px of dead space beside a
+ * "Speaker workflow" column that stacked a full form per speaker and grew without bound.
+ *
+ * They are now full-width disclosures, closed by default and below the dashboard. Each opens in
+ * one deliberate action, none reserves height it is not using, and nothing here renders a form
+ * per row — Speaker workflow edits the one speaker chosen, so the panel is O(1) in roster size.
+ */
+
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
   addContentComment,
   bulkRequestSpeakerTasks,
@@ -7,9 +20,40 @@ import {
   restoreContentRevision,
   updateSpeakerWorkflow,
 } from "../api/content";
-import { Card, EmptyState, Notice, useActionFeedback } from "../ui/primitives";
+import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import { AccelEventsSync } from "./AccelEventsSync";
-import type { Run, Workspace } from "./shared";
+import { ResourceEditor } from "./ResourceEditor";
+import { memberName, type Run, shortDateTime, type Workspace } from "./shared";
+
+/**
+ * One collapsed job.
+ *
+ * A native `<details>` rather than a state-driven panel: the disclosure keyboard behaviour, the
+ * expanded state exposed to assistive technology, and the closed-by-default rendering all come
+ * from the element. The heading inside the summary keeps the surface navigable by heading, which
+ * is how the tools were reachable when each was a Card.
+ */
+function ToolPanel({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="tool-panel">
+      <summary>
+        <span className="tool-heading">
+          <h3>{title}</h3>
+          <span className="hint">{hint}</span>
+        </span>
+      </summary>
+      <div className="tool-body">{children}</div>
+    </details>
+  );
+}
 
 export function ContentOperations({
   eventId,
@@ -27,8 +71,12 @@ export function ContentOperations({
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof importSpeakerCsv>> | null>(null);
   const [workflowFilter, setWorkflowFilter] = useState("all");
+  // Which speaker's workflow is being edited. One form is mounted at a time, so the panel does
+  // not grow with the roster the way the old column did.
+  const [workflowSpeakerId, setWorkflowSpeakerId] = useState("");
   const toggle = (values: string[], id: string, set: (next: string[]) => void) =>
     set(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
+
   function csv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -47,6 +95,7 @@ export function ContentOperations({
       ),
     );
   }
+
   function tasks(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -61,17 +110,68 @@ export function ContentOperations({
       }),
     );
   }
+
+  function saveWorkflow(event: FormEvent<HTMLFormElement>, speakerId: string) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const entries = (name: string) =>
+      Object.fromEntries(
+        String(data.get(name))
+          .split("\n")
+          .map((line) => line.split("=", 2).map((part) => part.trim()))
+          .filter(([key, value]) => key && value),
+      );
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+    void run(() =>
+      updateSpeakerWorkflow(speakerId, {
+        workflowStatus: String(data.get("workflowStatus")) as
+          | "invited"
+          | "onboarding"
+          | "ready"
+          | "blocked",
+        logistics: entries("logistics"),
+        customFields: entries("customFields"),
+      }),
+    );
+  }
+
   const latest = workspace.assets.filter((asset) => asset.isLatest !== false);
   const filteredSpeakers = workspace.speakers.filter(
     (speaker) => workflowFilter === "all" || speaker.workflowStatus === workflowFilter,
   );
+  // The chosen speaker, or the first one the filter still admits — so narrowing the filter past
+  // the current selection lands on a real speaker rather than an empty form.
+  //
+  // The picker below writes `workflowSpeakerId` on mount-time default as well as on change, so
+  // the selection is stored rather than derived. It used to fall through to `filteredSpeakers[0]`
+  // whenever nothing had been picked, and the roster arrives `ORDER BY name`: committing a CSV
+  // import that added an earlier name changed which speaker `[0]` was, remounted the form on its
+  // `key`, and replaced logistics the organizer had typed but not saved.
+  const workflowSpeaker =
+    filteredSpeakers.find(({ id }) => id === workflowSpeakerId) ?? filteredSpeakers[0];
+  // Commit the defaulted choice, so "whoever sorts first" becomes "the speaker on screen" and a
+  // later refetch cannot move it. Re-runs only when the current selection is no longer offered.
+  useEffect(() => {
+    if (workflowSpeaker && workflowSpeaker.id !== workflowSpeakerId)
+      setWorkflowSpeakerId(workflowSpeaker.id);
+  }, [workflowSpeaker, workflowSpeakerId]);
+  const revisions = workspace.revisions ?? [];
+
   return (
-    <div className="grid-auto">
-      <Card
+    <div className="tool-stack">
+      {feedback.node}
+
+      <ToolPanel
+        title="Speaker resources"
+        hint="Handbook and reference pages for the speaker portal."
+      >
+        <ResourceEditor eventId={eventId} workspace={workspace} busy={busy} run={run} />
+      </ToolPanel>
+
+      <ToolPanel
         title="Import speakers"
         hint="Validate first; duplicates and invalid rows are never silently imported."
       >
-        {feedback.node}
         <form className="form-stack" onSubmit={csv}>
           <label>
             CSV
@@ -97,7 +197,7 @@ export function ContentOperations({
             <Notice tone={preview.invalid ? "warn" : "success"}>
               {preview.valid} valid · {preview.duplicates} duplicate · {preview.invalid} invalid
             </Notice>
-            <ul>
+            <ul className="plain-list">
               {preview.rows.map((row) => (
                 <li key={`${row.row}-${row.email}`}>
                   Row {row.row}: {row.name || "Unnamed"} · {row.email || "No email"} ·{" "}
@@ -107,54 +207,63 @@ export function ContentOperations({
             </ul>
           </>
         ) : null}
-      </Card>
-      <AccelEventsSync eventId={eventId} busy={busy} run={run} />
-      <Card title="Speaker workflow" hint="Filter progress and maintain logistics per speaker.">
-        <label>
-          Progress filter
-          <select
-            value={workflowFilter}
-            onChange={(event) => setWorkflowFilter(event.target.value)}
-          >
-            <option value="all">All speakers</option>
-            <option value="invited">Invited</option>
-            <option value="onboarding">Onboarding</option>
-            <option value="ready">Ready</option>
-            <option value="blocked">Blocked</option>
-          </select>
-        </label>
-        {filteredSpeakers.map((speaker) => (
+      </ToolPanel>
+
+      <ToolPanel
+        title="Accelevents registrations"
+        hint="One-way: registrations are read from Accelevents and become speaker profiles here. Nothing is sent back."
+      >
+        <AccelEventsSync eventId={eventId} busy={busy} run={run} />
+      </ToolPanel>
+
+      <ToolPanel
+        title="Speaker workflow"
+        hint="Filter progress and maintain logistics for one speaker at a time."
+      >
+        <div className="workflow-picker">
+          <label>
+            Progress filter
+            <select
+              value={workflowFilter}
+              onChange={(event) => setWorkflowFilter(event.target.value)}
+            >
+              <option value="all">All speakers</option>
+              <option value="invited">Invited</option>
+              <option value="onboarding">Onboarding</option>
+              <option value="ready">Ready</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </label>
+          {filteredSpeakers.length ? (
+            <label>
+              Speaker
+              <select
+                value={workflowSpeaker?.id ?? ""}
+                onChange={(event) => setWorkflowSpeakerId(event.target.value)}
+              >
+                {filteredSpeakers.map((speaker) => (
+                  <option key={speaker.id} value={speaker.id}>
+                    {speaker.name} · {speaker.workflowStatus ?? "onboarding"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+        {workflowSpeaker ? (
           <form
-            key={speaker.id}
+            // Remounted per speaker so the uncontrolled fields below reload from the speaker
+            // chosen, instead of keeping the previous one's logistics on screen.
+            key={workflowSpeaker.id}
             className="form-stack"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const data = new FormData(event.currentTarget);
-              const entries = (name: string) =>
-                Object.fromEntries(
-                  String(data.get(name))
-                    .split("\n")
-                    .map((line) => line.split("=", 2).map((part) => part.trim()))
-                    .filter(([key, value]) => key && value),
-                );
-              // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-              void run(() =>
-                updateSpeakerWorkflow(speaker.id, {
-                  workflowStatus: String(data.get("workflowStatus")) as
-                    | "invited"
-                    | "onboarding"
-                    | "ready"
-                    | "blocked",
-                  logistics: entries("logistics"),
-                  customFields: entries("customFields"),
-                }),
-              );
-            }}
+            onSubmit={(event) => saveWorkflow(event, workflowSpeaker.id)}
           >
-            <strong>{speaker.name}</strong>
             <label>
               Status
-              <select name="workflowStatus" defaultValue={speaker.workflowStatus ?? "onboarding"}>
+              <select
+                name="workflowStatus"
+                defaultValue={workflowSpeaker.workflowStatus ?? "onboarding"}
+              >
                 <option value="invited">Invited</option>
                 <option value="onboarding">Onboarding</option>
                 <option value="ready">Ready</option>
@@ -165,7 +274,7 @@ export function ContentOperations({
               Logistics (one key=value per line)
               <textarea
                 name="logistics"
-                defaultValue={Object.entries(speaker.logistics ?? {})
+                defaultValue={Object.entries(workflowSpeaker.logistics ?? {})
                   .map(([key, value]) => `${key}=${value}`)
                   .join("\n")}
               />
@@ -174,18 +283,31 @@ export function ContentOperations({
               Custom fields (one key=value per line)
               <textarea
                 name="customFields"
-                defaultValue={Object.entries(speaker.customFields ?? {})
+                defaultValue={Object.entries(workflowSpeaker.customFields ?? {})
                   .map(([key, value]) => `${key}=${value}`)
                   .join("\n")}
               />
             </label>
             <button type="submit" disabled={busy}>
               Save workflow
+              <span className="visually-hidden"> for {workflowSpeaker.name}</span>
             </button>
           </form>
-        ))}
-      </Card>
-      <Card
+        ) : workspace.speakers.length ? (
+          <EmptyState title="No speakers match">
+            Choose another progress filter to see the rest of the roster.
+          </EmptyState>
+        ) : (
+          // Advice an organizer can act on. Telling somebody with an empty roster to change a
+          // filter sends them round a loop no filter setting can end.
+          <EmptyState title="No speakers yet">
+            Speaker records are created when you accept a proposal, import a CSV, or sync
+            registrations.
+          </EmptyState>
+        )}
+      </ToolPanel>
+
+      <ToolPanel
         title="Bulk assignments"
         hint="Select speakers, then assign one dated task to all of them."
       >
@@ -231,15 +353,16 @@ export function ContentOperations({
             Assign to selected
           </button>
         </form>
-      </Card>
-      <Card
+      </ToolPanel>
+
+      <ToolPanel
         title="Latest deliverables"
         hint="The ZIP contains only the latest selected version, with deterministic filenames."
       >
         {latest.length ? (
           <>
             {latest.map((asset) => (
-              <div key={asset.id}>
+              <div key={asset.id} className="deliverable-row">
                 <label>
                   <input
                     type="checkbox"
@@ -249,11 +372,15 @@ export function ContentOperations({
                   {asset.name} · v{asset.versionNumber ?? 1}
                 </label>
                 <form
+                  className="row-actions"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    const body = String(new FormData(event.currentTarget).get("body"));
+                    const form = event.currentTarget;
+                    const body = String(new FormData(form).get("body"));
                     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                    void run(() => addContentComment(asset.id, body));
+                    void run(() => addContentComment(asset.id, body)).then((result) => {
+                      if (result.ok) form.reset();
+                    });
                   }}
                 >
                   <input name="body" aria-label={`Comment on ${asset.name}`} required />
@@ -275,35 +402,65 @@ export function ContentOperations({
         ) : (
           <EmptyState title="No deliverables yet">Requested uploads appear here.</EmptyState>
         )}
-      </Card>
-      <Card
+      </ToolPanel>
+
+      <ToolPanel
         title="Edit history"
         hint="Every profile and session edit records its actor and can be restored without deleting history."
       >
-        {(workspace.revisions ?? []).length ? (
-          <ul>
-            {(workspace.revisions ?? []).map((revision) => (
-              <li key={revision.id}>
-                {revision.entityType} · revision {revision.revisionNumber} · {revision.actorId}{" "}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                    void run(() => restoreContentRevision(revision.id));
-                  }}
-                >
-                  Restore
-                </button>
-              </li>
-            ))}
-          </ul>
+        {revisions.length ? (
+          <div className="table-wrap">
+            <table className="data content-table">
+              <thead>
+                <tr>
+                  <th scope="col">Record</th>
+                  <th scope="col">Revision</th>
+                  <th scope="col">Who</th>
+                  <th scope="col">When</th>
+                  <th scope="col">
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {revisions.map((revision) => (
+                  <tr key={revision.id}>
+                    <td className="primary-cell" data-label="Record">
+                      {revision.entityType}
+                    </td>
+                    <td data-label="Revision">{revision.revisionNumber}</td>
+                    {/* Resolved through the directory the payload carries, so this reads
+                        "Olivia Organizer" rather than the stored id `seed-organizer` (#154). */}
+                    <td data-label="Who">{memberName(workspace, revision.actorId)}</td>
+                    <td data-label="When">{shortDateTime(revision.createdAt)}</td>
+                    <td data-label="Actions">
+                      <button
+                        type="button"
+                        className="secondary small"
+                        disabled={busy}
+                        onClick={() => {
+                          // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+                          void run(() => restoreContentRevision(revision.id));
+                        }}
+                      >
+                        Restore
+                        <span className="visually-hidden">
+                          {" "}
+                          {revision.entityType} revision {revision.revisionNumber}
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <EmptyState title="No edits yet">
             Attributed revisions appear after the first edit.
           </EmptyState>
         )}
-      </Card>
+      </ToolPanel>
     </div>
   );
 }

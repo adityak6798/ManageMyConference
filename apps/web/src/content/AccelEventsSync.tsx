@@ -19,7 +19,7 @@ import {
 import { useEffect, useState } from "react";
 import type { z } from "zod";
 import { apiFetch, decodeResponse } from "../api/config";
-import { Card, Notice, useActionFeedback } from "../ui/primitives";
+import { Notice, useActionFeedback } from "../ui/primitives";
 import type { Run } from "./shared";
 
 /*
@@ -134,11 +134,10 @@ export function AccelEventsSync({
   }
 
   const lastRun = integration?.lastRun ?? null;
+  // No Card of its own: this renders inside a tool disclosure that already carries the heading
+  // and the one-way hint (#144). A nested card here would draw a second border around them.
   return (
-    <Card
-      title="Accelevents registrations"
-      hint="One-way: registrations are read from Accelevents and become speaker profiles here. Nothing is sent back."
-    >
+    <>
       {feedback.node}
       {integration ? (
         <Notice tone={integration.mode === "live" ? "success" : "warn"}>
@@ -185,6 +184,6 @@ export function AccelEventsSync({
           </ul>
         </>
       ) : null}
-    </Card>
+    </>
   );
 }

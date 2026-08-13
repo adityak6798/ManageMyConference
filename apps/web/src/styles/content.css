@@ -280,10 +280,228 @@
   flex-wrap: wrap;
 }
 
+/* ------------------------- occasional tool panels ------------------------- *
+ *
+ * The stack that replaced the four-column band (#144). Full width, closed by default,
+ * so a rarely-used job costs one row of chrome instead of a column of reserved height.
+ */
+
+.tool-stack {
+  display: grid;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.tool-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  min-width: 0;
+}
+.tool-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  list-style: none;
+}
+/* The default disclosure triangle is replaced by one that reads at this type size and
+   rotates with the open state; ::-webkit-details-marker covers the older Safari form. */
+.tool-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-panel > summary::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--ink-4);
+  border-bottom: 2px solid var(--ink-4);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.tool-panel[open] > summary::before {
+  transform: rotate(45deg);
+}
+.tool-panel > summary:hover {
+  background: var(--surface-2);
+}
+.tool-panel > summary:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: -2px;
+}
+.tool-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.tool-heading h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.tool-panel[open] > summary {
+  border-bottom: 1px solid var(--line);
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+.tool-body {
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+  padding: var(--s-5);
+  min-width: 0;
+}
+
+/* One editor at a time, so these are single forms rather than a grid of them. */
+.resource-manager,
+.resource-list {
+  display: grid;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.resource-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* Named `resource-entry`, not `resource-row`: `.resource-row` is workspaces.css's global
+   (agenda's room, track and slot rows use it), and an unscoped redefinition here wins on
+   source order and silently restyles /agenda — including the row-level error text agenda.css
+   spans across the row. Scoped under .resource-list as well, so a future collision cannot
+   reach outside this list either. */
+.resource-list .resource-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.resource-list .resource-entry-name {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-weight: 600;
+}
+.resource-list .resource-entry-name .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+/* `display: grid` has to be declared here. `.form-stack` has no rule in any stylesheet, so
+   without this the track definition below and `.resource-form-wide`'s `grid-column` were both
+   inert and the fields never paired into columns. */
+.resource-form {
+  display: grid;
+  gap: var(--s-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.resource-form-wide {
+  grid-column: 1 / -1;
+}
+
+.workflow-picker {
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+
+.deliverable-row {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+
 /* Row actions read as one word, never as a two-line block inside a dense table.
    Declared last so it outranks the form-button rules above it. */
 .content-workspace table.data button {
   white-space: nowrap;
+}
+
+/*
+ * Phone width: the two data tables become stacked cards.
+ *
+ * Six columns cannot fit 390px, so `.table-wrap` scrolled and took the Actions column with it —
+ * Edit, Withdraw, Download and the two visibility toggles all sat past the right edge behind an
+ * unhinted swipe (#155). Widening the affordance does not help when the control is 150px off
+ * screen; the row has to stop being a row.
+ *
+ * Same recipe review.css uses for the triage table, so the two consoles restack one way: `thead`
+ * goes, each `tr` becomes a card, and each cell carries its own label through `data-label`. The
+ * editor and withdraw-confirmation rows are excluded — they are full-width panels spanning every
+ * column, and a label in front of them would be nonsense.
+ */
+@media (max-width: 780px) {
+  .content-workspace .content-table,
+  .content-workspace .content-table tbody,
+  .content-workspace .content-table tr,
+  .content-workspace .content-table td {
+    display: block;
+    width: 100%;
+  }
+  .content-workspace .content-table thead {
+    display: none;
+  }
+  .content-workspace .content-table tbody {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .content-workspace .content-table tr {
+    padding: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .content-workspace .content-table td[data-label] {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+    gap: var(--s-2);
+    padding: var(--s-2) 0;
+    border: 0;
+    white-space: normal;
+    text-align: left;
+  }
+  .content-workspace .content-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+  /* A cell's secondary line is part of its value. `::before` fills column 1 and the cell's own
+     children auto-flow after it, so a `.sub` span landed in column 1 of the next row — directly
+     under the label, reading as a second field label with nothing beside it. */
+  .content-workspace .content-table td[data-label] > .sub {
+    grid-column: 2;
+  }
+  /* The inline session editor and the withdraw confirmation keep their own full-width layout. */
+  .content-workspace .content-table tr.editor-row {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .content-workspace .content-table tr.editor-row > td {
+    display: block;
+    padding: 0;
+  }
+  .content-workspace .content-table button,
+  .content-workspace .content-table .download {
+    white-space: normal;
+  }
 }
 
 @media (max-width: 700px) {

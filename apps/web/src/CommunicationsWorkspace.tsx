@@ -302,18 +302,20 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                     return (
                       <Fragment key={delivery.id}>
                         <tr className={open ? "is-open" : undefined}>
-                          <td className="primary-cell">
+                          <td className="primary-cell" data-label="Recipient">
                             {delivery.recipientRef}
                             <span className="sub">{delivery.triggerType}</span>
                           </td>
-                          <td className="comms-channel">{delivery.channel}</td>
-                          <td>
+                          <td className="comms-channel" data-label="Channel">
+                            {delivery.channel}
+                          </td>
+                          <td data-label="Template">
                             {template.name}
                             {template.detail ? (
                               <span className="sub">{template.detail}</span>
                             ) : null}
                           </td>
-                          <td>
+                          <td data-label="State">
                             <span className={`delivery-state state-${delivery.state}`}>
                               {state?.icon}
                               {delivery.state}
@@ -324,7 +326,7 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                                 : `Updated ${stampedTime(delivery.updatedAt)}`}
                             </span>
                           </td>
-                          <td className="num">
+                          <td className="num" data-label="Attempts">
                             {attempts.length ? (
                               <button
                                 type="button"
@@ -351,14 +353,14 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                               <span className="comms-muted">0</span>
                             )}
                           </td>
-                          <td>
+                          <td data-label="Last error">
                             {error ? (
                               <code className="comms-error">{error}</code>
                             ) : (
                               <span className="comms-muted">—</span>
                             )}
                           </td>
-                          <td>
+                          <td data-label="Actions">
                             {RECOVERABLE.has(delivery.state) ? (
                               <button
                                 type="button"
