@@ -534,6 +534,10 @@
   flex: 1 1 220px;
   min-width: 0;
 }
+.criterion-text .field,
+.criterion-text .criterion-input {
+  flex-basis: 100%;
+}
 .criterion .hint {
   max-width: var(--measure);
 }
