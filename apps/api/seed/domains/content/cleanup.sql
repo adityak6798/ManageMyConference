@@ -1,5 +1,6 @@
 
 DELETE FROM speaker_resources;
+DELETE FROM speaker_task_templates;
 DELETE FROM content_asset_comments;
 DELETE FROM content_revisions;
 DELETE FROM content_speaker_import_rows;

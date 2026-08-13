@@ -38,6 +38,7 @@
     "content_sessions": "content",
     "speaker_profiles": "content",
     "speaker_tasks": "content",
+    "speaker_task_templates": "content",
     "speaker_assets": "content",
     "speaker_messages": "content",
     "speaker_resources": "content",

@@ -60,3 +60,4 @@ export interface ContentAgendaInterface {
    */
   unscheduleSession(actor: Actor | null, eventId: string, sessionId: string): Promise<void>;
 }
+export { agendaTemplateSlice } from "./template-slice";

@@ -77,7 +77,16 @@ succeeded; and the overall result says `partial` when that happens rather than `
 is to apply again, which is safe because every slice is idempotent on a natural key — `event_id` is
 the primary key of `cfp_forms` and `review_plans`, `(event_id, key)` of `cfp_statuses`, one row per
 event in `agenda_drafts` and `public_event_projections`, and `(event_id, slug)` for speaker
-resources, which is upserted rather than inserted.
+resources and `(event_id, title)` for speaker task templates, both upserted rather than inserted.
+
+Convergence needs one thing beyond a natural key, and it is easy to miss: **every slice compares
+before it writes.** Each of these commands stamps something on every call — an optimistic-concurrency
+version, an `updated_at`, a draft revision — so a second application of an unchanged template would
+rewrite the destination and change its bytes for no change in its configuration. Each slice
+therefore reads the destination, compares it against the payload, and returns `applied` with
+"nothing needed to be written" rather than calling the command at all. That is what makes
+"apply twice, then compare" a real assertion instead of one that has to make an exception for a
+counter, and it is asserted per slice with a spy on the storage seam.
 
 Dates are a parameter of the clone rather than a property of an event, because an event carries no
 start or end date in this system: the only event range is `startsOn`/`endsOn` inside publishing's

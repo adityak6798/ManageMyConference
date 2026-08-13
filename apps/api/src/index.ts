@@ -24,8 +24,15 @@ import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-
 import { resolveProviders, resolveRegistrationSource } from "./adapters/providers/configuration";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { AgendaService } from "./application/agenda/agenda-service";
+import { agendaTemplateSlice } from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
+import {
+  speakerChecklistTemplateSlice,
+  speakerResourceTemplateSlice,
+} from "./application/content/public";
+import { publishingTemplateSlice } from "./application/publishing/public";
+import { reviewTemplateSlice } from "./application/review/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
 import {
   AccelEventsSyncService,
@@ -818,14 +825,41 @@ export default {
      * its own application directory; this file — the declared composition root, and the only
      * place allowed to know about more than one domain — binds them. That is why
      * `application/events` imports no other domain and `context/architecture.json` gains
-     * nothing (`ARC-FLOW-006`). Slice order is apply order, and it is load-bearing: review's
-     * triage statuses must exist before CFP's routing rules can name them, so review's slice
-     * goes above CFP's when it arrives.
+     * nothing (`ARC-FLOW-006`).
+     *
+     * SLICE ORDER IS APPLY ORDER, and the first pair of it is load-bearing rather than
+     * cosmetic: `CfpService.save` validates every routing rule against the destination's
+     * configured triage statuses and drops the ones naming a status it does not have, so
+     * review's slice — which writes that status set — has to run before CFP's or a cloned form
+     * arrives with its routing silently thinned. The rest are independent of one another.
      */
     const eventTemplates = new EventTemplateService({
       repository: new D1EventTemplateRepository(environment.DB),
       events: service,
-      slices: [cfpTemplateSlice(cfpService)],
+      slices: [
+        reviewTemplateSlice(reviewService),
+        cfpTemplateSlice(cfpService),
+        agendaTemplateSlice(agenda),
+        publishingTemplateSlice(
+          publishing,
+          publicationRepository,
+          async (actor, eventId) => (await service.get(actor, eventId))?.name ?? null,
+        ),
+        /*
+         * The empty embed allowlist is the honest argument, not a placeholder.
+         *
+         * A resource's iframe host is authorized per request by the organizer saving it
+         * (`createSpeakerResourceInputSchema.embedAllowedHosts`) and is never stored — what
+         * persists is the already-sanitized markup — so an import has no caller to ask and this
+         * deployment holds no allowlist to fall back on. Reading one out of the stored payload
+         * would let a template authorize its own iframe, which is the whole point of
+         * re-sanitizing on import. So a cloned resource carrying an embed is reported as
+         * `incompatible` by name, and the organizer re-authorizes the host when they save it in
+         * the destination. Visible and safe beats convenient and forgeable.
+         */
+        speakerResourceTemplateSlice(content, []),
+        speakerChecklistTemplateSlice(content),
+      ],
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });

@@ -15,6 +15,7 @@
     "apps/api/src/adapters/persistence/d1-publication-repository.ts",
     "apps/api/migrations/0020_public_event_projections.sql",
     "apps/api/test/publication.test.ts",
+    "apps/api/test/publishing-template-slice.test.ts",
     "apps/api/test/d1-publication-repository.integration.test.ts",
     "apps/web/src/PublicEventApp.tsx",
     "apps/web/src/public-event/PublicEventApp.tsx",

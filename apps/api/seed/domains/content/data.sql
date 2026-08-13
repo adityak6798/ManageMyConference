@@ -37,6 +37,15 @@ INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,spea
 INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES
 ('30000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Confirm profile details','2026-08-20T23:59:00.000Z','open',NULL),
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
+-- The checklist those two tasks came from. A line belongs to the event rather than to a person,
+-- so it stays here until POST /api/events/{eventId}/speaker-checklist-assignments turns it into
+-- dated work for named speakers. The third line is deliberately assigned to nobody, so the demo
+-- can show that command bringing one speaker up to date without disturbing the work above, and
+-- so cloning this event into next year carries a checklist that is genuinely there.
+INSERT INTO speaker_task_templates (id,event_id,title,description,sort_order,due_offset_days,created_at) VALUES
+('42000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','Confirm profile details','Check your name, pronouns and organization in the speaker portal.',0,-21,'2026-08-10T16:00:00.000Z'),
+('42000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Upload a headshot','A square image, at least 800px on each side.',1,-14,'2026-08-10T16:00:00.000Z'),
+('42000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','Send your slides','A PDF at 16:9, uploaded against your session.',2,-7,'2026-08-10T16:00:00.000Z');
 INSERT INTO speaker_messages (id,event_id,speaker_profile_id,subject,sent_at) VALUES
 ('40000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Welcome to Greenroom Demo Summit','2026-08-10T16:00:00.000Z');
 INSERT INTO speaker_resources (id,event_id,title,slug,body_html,embed_html,visibility,sort_order) VALUES

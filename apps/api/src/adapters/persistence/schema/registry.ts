@@ -123,5 +123,6 @@ export const {
   speakerProfiles,
   speakerResources,
   speakerTasks,
+  speakerTaskTemplates,
   users,
 } = schema;

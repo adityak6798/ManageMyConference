@@ -30,6 +30,7 @@ DELETE FROM crm_contacts;
 DELETE FROM crm_prospects;
 
 DELETE FROM speaker_resources;
+DELETE FROM speaker_task_templates;
 DELETE FROM content_asset_comments;
 DELETE FROM content_revisions;
 DELETE FROM content_speaker_import_rows;
@@ -127,9 +128,16 @@ INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES
 );
 
 -- One reusable template captured from Greenroom Demo Summit, so the demo has something to
--- preview and apply without an organizer having to save one first. The payload is exactly what
--- `cfpTemplateSlice.export` produces from the seeded CFP form: title, description, fields and
--- routing, and nothing else. No published snapshot, no submissions, no people.
+-- preview and apply without an organizer having to save one first.
+--
+-- The payload below is not hand-written. It is exactly what the six slices produced when this
+-- template was captured from the seeded event through the running Worker, read back out of
+-- `event_template_versions` and pasted here — which is the only way it stays a true statement
+-- about what a capture contains. Regenerate it the same way if a slice's payload shape changes.
+--
+-- Note what is in it and what is not: triage statuses, a rubric, a CFP form, rooms, tracks,
+-- slots, a public summary and venue, one portal resource and three checklist entries. No
+-- submission, no evaluation, no decision, no person, no published snapshot, no address.
 INSERT INTO event_templates (id, organization_id, name, state, created_at, updated_at) VALUES (
   '00000000-0000-4000-8000-000000000110',
   '00000000-0000-4000-8000-000000000010',
@@ -146,7 +154,7 @@ INSERT INTO event_template_versions (
   '00000000-0000-4000-8000-000000000110',
   1,
   '00000000-0000-4000-8000-000000000001',
-  '{"capturedAt":"2026-08-11T09:00:00.000Z","source":{"eventId":"00000000-0000-4000-8000-000000000001","eventName":"Greenroom Demo Summit","timezone":"America/Los_Angeles"},"slices":{"cfp":{"title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"name","type":"short_text","label":"Your name","guidance":"How organizers should address you","required":false,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"routing":[]}}}',
+  '{"capturedAt":"2026-08-11T09:00:00.000Z","source":{"eventId":"00000000-0000-4000-8000-000000000001","eventName":"Greenroom Demo Summit","timezone":"America/Los_Angeles"},"slices":{"review":{"statuses":[{"key":"submitted","label":"Submitted","sortOrder":0},{"key":"under_review","label":"Under review","sortOrder":1},{"key":"reviewed","label":"Reviewed","sortOrder":2},{"key":"withdrawn","label":"Withdrawn","sortOrder":3},{"key":"accepted","label":"Accepted","sortOrder":90},{"key":"declined","label":"Declined","sortOrder":91}],"criteria":[{"id":"relevance","name":"Relevance","description":"Fit for this audience","type":"numeric","minScore":1,"maxScore":5,"weight":2},{"id":"format","name":"Recommended format","description":"Choose the best delivery format","type":"dropdown","options":["Talk","Workshop","Panel"],"weight":1},{"id":"feedback","name":"Reviewer feedback","description":"Explain the recommendation","type":"text","maxLength":1000,"weight":1}]},"cfp":{"title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"name","type":"short_text","label":"Your name","guidance":"How organizers should address you","required":false,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"routing":[]},"agenda":{"rooms":[{"id":"room-main","name":"Main stage"},{"id":"room-lab","name":"Workshop lab"}],"tracks":[{"id":"track-platform","name":"Platform","color":"#6257d9"},{"id":"track-practice","name":"Practice","color":"#16866b"}],"slots":[{"id":"slot-0900","startsAt":"2026-09-01T16:00:00.000Z","endsAt":"2026-09-01T17:00:00.000Z"},{"id":"slot-1000","startsAt":"2026-09-01T17:00:00.000Z","endsAt":"2026-09-01T18:00:00.000Z"}]},"publishing":{"summary":"A practical gathering for people building thoughtful, inclusive events.","venue":"Harbor Conference Center, Oakland"},"content-resources":{"resources":[{"title":"Speaker handbook","slug":"speaker-handbook","bodyHtml":"<h2>Welcome to Greenroom</h2><p>Use this portal to finish your tasks and share deliverables.</p>","embedHtml":"","visibility":"visible","sortOrder":0}]},"content-checklists":{"templates":[{"title":"Confirm profile details","description":"Check your name, pronouns and organization in the speaker portal.","sortOrder":0,"dueOffsetDays":-21},{"title":"Upload a headshot","description":"A square image, at least 800px on each side.","sortOrder":1,"dueOffsetDays":-14},{"title":"Send your slides","description":"A PDF at 16:9, uploaded against your session.","sortOrder":2,"dueOffsetDays":-7}]}}}',
   '2026-08-11T09:00:00.000Z',
   'seed-organizer'
 );
@@ -260,6 +268,15 @@ INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,spea
 INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES
 ('30000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Confirm profile details','2026-08-20T23:59:00.000Z','open',NULL),
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
+-- The checklist those two tasks came from. A line belongs to the event rather than to a person,
+-- so it stays here until POST /api/events/{eventId}/speaker-checklist-assignments turns it into
+-- dated work for named speakers. The third line is deliberately assigned to nobody, so the demo
+-- can show that command bringing one speaker up to date without disturbing the work above, and
+-- so cloning this event into next year carries a checklist that is genuinely there.
+INSERT INTO speaker_task_templates (id,event_id,title,description,sort_order,due_offset_days,created_at) VALUES
+('42000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','Confirm profile details','Check your name, pronouns and organization in the speaker portal.',0,-21,'2026-08-10T16:00:00.000Z'),
+('42000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Upload a headshot','A square image, at least 800px on each side.',1,-14,'2026-08-10T16:00:00.000Z'),
+('42000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','Send your slides','A PDF at 16:9, uploaded against your session.',2,-7,'2026-08-10T16:00:00.000Z');
 INSERT INTO speaker_messages (id,event_id,speaker_profile_id,subject,sent_at) VALUES
 ('40000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Welcome to Greenroom Demo Summit','2026-08-10T16:00:00.000Z');
 INSERT INTO speaker_resources (id,event_id,title,slug,body_html,embed_html,visibility,sort_order) VALUES

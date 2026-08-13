@@ -125,6 +125,30 @@ export interface SpeakerResource {
   readonly sortOrder: number;
 }
 
+/**
+ * One line of a reusable speaker checklist: what is being asked for, and when it comes due.
+ *
+ * Deliberately not a `SpeakerTask` with nobody attached. `speaker_tasks.speaker_profile_id` is
+ * `NOT NULL` because a task is a named person's work — the reminder cron, the portal and every
+ * completion badge read it that way — while a checklist line is the event's, and stays the
+ * event's until an organizer instantiates it against real speakers. Sharing one table would
+ * make "whose work is this?" a question answered by a nullable column.
+ *
+ * `dueOffsetDays` is a distance, not a date, because an event carries no date range of its own
+ * (`PRD-EVT-001`): the caller instantiating the checklist names the anchor it counts from, and
+ * the same checklist therefore lands correctly on next year's conference.
+ */
+export interface SpeakerTaskTemplate {
+  readonly id: string;
+  readonly eventId: string;
+  readonly title: string;
+  readonly description: string;
+  readonly sortOrder: number;
+  /** Days after the anchor the instantiated task falls due. Negative counts backwards from it. */
+  readonly dueOffsetDays: number;
+  readonly createdAt: string;
+}
+
 export interface ContentWorkspace {
   readonly sessions: readonly ContentSession[];
   readonly speakers: readonly SpeakerProfile[];

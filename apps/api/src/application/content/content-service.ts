@@ -2,10 +2,12 @@ import {
   type ContentSession,
   type ContentWorkspace,
   canBeProfilePhoto,
+  type ResourceVisibility,
   type SpeakerAsset,
   type SpeakerProfile,
   type SpeakerResource,
   type SpeakerTask,
+  type SpeakerTaskTemplate,
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import {
@@ -155,6 +157,54 @@ export interface ContentActorDirectoryPort {
   listAssignableOwnersForEvent(eventId: string): Promise<readonly AssignableOwner[]>;
 }
 
+/**
+ * A resource as an import states it, with the two things an import may not choose left out.
+ *
+ * There is no `id`: ids belong to the destination, and a payload that could name one could
+ * point an import at a row it was never shown. There is no `eventId` either — the command's
+ * input carries it, and it is the event the caller was authorized against.
+ */
+export interface SpeakerResourceImport {
+  readonly title: string;
+  readonly slug: string;
+  readonly bodyHtml: string;
+  readonly embedHtml: string;
+  readonly visibility: ResourceVisibility;
+  readonly sortOrder: number;
+}
+
+/** A checklist line as an import states it. Same rule: the destination mints the id. */
+export interface SpeakerTaskTemplateImport {
+  readonly title: string;
+  readonly description: string;
+  readonly sortOrder: number;
+  readonly dueOffsetDays: number;
+}
+
+/**
+ * What one imported line did, or why nothing was written for it.
+ *
+ * `unchanged` is a first-class answer rather than a quiet "updated". An import that rewrites a
+ * row it did not change still counts as an edit everywhere an edit is observed, and a caller
+ * asking "would applying this write anything?" has no other way to find out.
+ */
+export interface ContentImportRow {
+  /** The line's identity in its own namespace: a resource's slug, a checklist line's title. */
+  readonly key: string;
+  readonly label: string;
+  readonly disposition: "created" | "updated" | "unchanged" | "refused";
+  /** Present on `refused`, carrying the refusal's own words. */
+  readonly reason?: string;
+}
+
+export interface ContentImportReport {
+  readonly preview: boolean;
+  readonly rows: readonly ContentImportRow[];
+}
+
+/** The instantiation anchor was not an instant, so no due date could be derived from it. */
+export class SpeakerChecklistAnchorError extends Error {}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   /** Resolves the actor ids on revisions to the names an organizer recognises. */
@@ -206,6 +256,9 @@ function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speake
 
 /** RFC 5545 section 3.1: a content line carries at most 75 octets before its CRLF. */
 const CALENDAR_LINE_OCTETS = 75;
+
+/** Checklist offsets are whole days from an anchor instant. */
+const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 /**
  * RFC 5545 section 3.1 admits every character except CONTROL (%x00-08, %x0A-1F, %x7F) in a
@@ -520,6 +573,226 @@ export class ContentService {
     if (!existing) throw new CapabilityDeniedError();
     requireEventCapability(actor, existing.eventId, "content:manage");
     await this.dependencies.repository.deleteResource(resourceId);
+  }
+
+  /**
+   * Write a set of resources at their slugs, sanitizing every one of them on the way in.
+   *
+   * The markup is re-sanitized here rather than trusted, and that is the whole point of the
+   * command existing. Its caller is not the composer: an import replays HTML that has been at
+   * rest in a row an operator can write, so a sanitizer that ran only on the authoring path
+   * would leave this door open behind it. Sanitizing is idempotent, so paying it a second time
+   * costs one pass over a string and buys a boundary that holds however the payload arrived.
+   *
+   * `commit: false` computes every disposition and writes nothing, so a preview and the write
+   * it predicts come from one implementation rather than two that have to be kept in step —
+   * `importSpeakers` already answers that way.
+   *
+   * @spec PRD-CNT-001 PRD-EVT-002
+   */
+  async importSpeakerResources(
+    actor: Actor | null,
+    input: {
+      eventId: string;
+      resources: readonly SpeakerResourceImport[];
+      /** The destination's own embed allowlist. Never the payload's — see the slice. */
+      embedAllowedHosts: readonly string[];
+      commit: boolean;
+    },
+  ): Promise<ContentImportReport> {
+    requireEventCapability(actor, input.eventId, "content:manage");
+    if (!this.dependencies.sanitizeResourceHtml || !this.dependencies.sanitizeResourceEmbed)
+      throw new Error("Resource sanitizer is unavailable");
+    const sanitizeHtml = this.dependencies.sanitizeResourceHtml;
+    const sanitizeEmbed = this.dependencies.sanitizeResourceEmbed;
+    const existing = (await this.dependencies.repository.workspace(input.eventId)).resources ?? [];
+    const bySlug = new Map(existing.map((resource) => [resource.slug, resource]));
+    const rows: ContentImportRow[] = [];
+    for (const incoming of input.resources) {
+      const current = bySlug.get(incoming.slug);
+      let embedHtml: string;
+      try {
+        embedHtml = sanitizeEmbed(incoming.embedHtml, [...input.embedAllowedHosts]);
+      } catch (error) {
+        // ERROR-INTENT: an embed this deployment will not host is a disposition the caller
+        // reports to the organizer, not a fault — the refusal's own message travels in `reason`,
+        // and every other resource in the set is still written.
+        if (!(error instanceof ResourceEmbedDeniedError)) throw error;
+        rows.push({
+          key: incoming.slug,
+          label: incoming.title,
+          disposition: "refused",
+          reason: error.message,
+        });
+        continue;
+      }
+      const resource: SpeakerResource = {
+        id: current?.id ?? this.dependencies.newId(),
+        eventId: input.eventId,
+        title: incoming.title,
+        slug: incoming.slug,
+        bodyHtml: sanitizeHtml(incoming.bodyHtml),
+        embedHtml,
+        visibility: incoming.visibility,
+        sortOrder: incoming.sortOrder,
+      };
+      // Compared field by field, and after sanitizing: the only fair question is whether what
+      // would be stored differs from what is stored. Comparing the payload as it arrived would
+      // call every hostile body a change forever, because the stored one is the cleaned one.
+      if (
+        current &&
+        current.title === resource.title &&
+        current.bodyHtml === resource.bodyHtml &&
+        current.embedHtml === resource.embedHtml &&
+        current.visibility === resource.visibility &&
+        current.sortOrder === resource.sortOrder
+      ) {
+        rows.push({ key: incoming.slug, label: incoming.title, disposition: "unchanged" });
+        continue;
+      }
+      if (input.commit) await this.dependencies.repository.upsertResourceBySlug(resource);
+      rows.push({
+        key: incoming.slug,
+        label: incoming.title,
+        disposition: current ? "updated" : "created",
+      });
+    }
+    return { preview: !input.commit, rows };
+  }
+
+  /** The event's checklist as its organizers declared it. Not a speaker-facing read. */
+  async taskTemplates(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<readonly SpeakerTaskTemplate[]> {
+    const authorized = requireEventCapability(actor, eventId, "content:read");
+    if (!hasEventRole(authorized, eventId, "organizer"))
+      throw new CapabilityDeniedError("Speaker checklist access denied");
+    return this.dependencies.repository.listTaskTemplates(eventId);
+  }
+
+  /** `importSpeakerResources` for checklist lines, whose identity in an event is their title. */
+  async importTaskTemplates(
+    actor: Actor | null,
+    input: {
+      eventId: string;
+      templates: readonly SpeakerTaskTemplateImport[];
+      commit: boolean;
+    },
+  ): Promise<ContentImportReport> {
+    requireEventCapability(actor, input.eventId, "content:manage");
+    const existing = await this.dependencies.repository.listTaskTemplates(input.eventId);
+    const byTitle = new Map(existing.map((template) => [template.title, template]));
+    const rows: ContentImportRow[] = [];
+    for (const incoming of input.templates) {
+      const current = byTitle.get(incoming.title);
+      const template: SpeakerTaskTemplate = {
+        id: current?.id ?? this.dependencies.newId(),
+        eventId: input.eventId,
+        title: incoming.title,
+        description: incoming.description,
+        sortOrder: incoming.sortOrder,
+        dueOffsetDays: incoming.dueOffsetDays,
+        // A line was declared when it was declared. Re-applying a template re-dates nothing,
+        // which is what lets the store leave `created_at` alone on conflict.
+        createdAt: current?.createdAt ?? this.dependencies.now().toISOString(),
+      };
+      if (
+        current &&
+        current.description === template.description &&
+        current.sortOrder === template.sortOrder &&
+        current.dueOffsetDays === template.dueOffsetDays
+      ) {
+        rows.push({ key: incoming.title, label: incoming.title, disposition: "unchanged" });
+        continue;
+      }
+      if (input.commit) await this.dependencies.repository.upsertTaskTemplateByTitle(template);
+      rows.push({
+        key: incoming.title,
+        label: incoming.title,
+        disposition: current ? "updated" : "created",
+      });
+    }
+    return { preview: !input.commit, rows };
+  }
+
+  /**
+   * Turn the event's checklist into real work for real people.
+   *
+   * Idempotent per `(profile, line)`, keyed on the line's title rather than on a template
+   * pointer in `speaker_tasks`. Once a task is assigned it is that speaker's, and a stored
+   * pointer would make deleting a checklist line a question about somebody's homework. Running
+   * this again — after a speaker joins, say — assigns only what is missing, so an organizer can
+   * treat it as "bring everyone up to date" rather than as a one-shot they must not repeat.
+   *
+   * The due date is derived here because the offset is a distance and an event carries no date
+   * range of its own: the caller names the anchor it counts from.
+   *
+   * @spec PRD-SPK-002 PRD-CNT-001
+   */
+  async assignTaskChecklist(
+    actor: Actor | null,
+    input: {
+      eventId: string;
+      profileIds: readonly string[];
+      /** ISO instant the offsets count from. Defaults to now. */
+      anchorAt?: string | undefined;
+    },
+  ): Promise<readonly SpeakerTask[]> {
+    requireEventCapability(actor, input.eventId, "content:manage");
+    const anchor = input.anchorAt ? new Date(input.anchorAt) : this.dependencies.now();
+    if (Number.isNaN(anchor.getTime()))
+      throw new SpeakerChecklistAnchorError("Checklist anchor date is not an instant");
+    const profiles = await Promise.all(
+      input.profileIds.map((id) => this.dependencies.repository.findProfile(id)),
+    );
+    // A profile from another event is refused exactly as one that does not exist: an organizer
+    // of this event has no standing to assign work on somebody else's programme.
+    if (profiles.some((profile) => !profile || profile.eventId !== input.eventId))
+      throw new CapabilityDeniedError("Speaker profile access denied");
+    const templates = await this.dependencies.repository.listTaskTemplates(input.eventId);
+    if (templates.length === 0) return [];
+    const workspace = await this.dependencies.repository.workspace(input.eventId);
+    // Keyed as a pair rather than as a joined string: a title is organizer prose, and a
+    // separator it happens to contain would make two different lines look like one.
+    const assigned = new Set(
+      workspace.tasks.map((task) => JSON.stringify([task.speakerProfileId, task.title])),
+    );
+    const tasks: SpeakerTask[] = [];
+    for (const profile of profiles)
+      for (const template of templates) {
+        if (!profile || assigned.has(JSON.stringify([profile.id, template.title]))) continue;
+        tasks.push({
+          id: this.dependencies.newId(),
+          eventId: input.eventId,
+          speakerProfileId: profile.id,
+          title: template.title,
+          dueAt: new Date(
+            anchor.getTime() + template.dueOffsetDays * DAY_MILLISECONDS,
+          ).toISOString(),
+          status: "open",
+          type: "general",
+          instructions: template.description,
+        });
+      }
+    if (tasks.length === 0) return [];
+    await this.dependencies.repository.addTasks(tasks);
+    // Told after the work is durable, and once per task, for the reason `requestTasks` gives:
+    // three deliverables are three things to do by three dates.
+    for (const task of tasks) {
+      const profile = profiles.find((candidate) => candidate?.id === task.speakerProfileId);
+      if (!profile) continue;
+      await this.dependencies.speakerNotifications?.taskAssigned({
+        eventId: input.eventId,
+        profileId: profile.id,
+        taskId: task.id,
+        speakerName: profile.name,
+        speakerEmail: profile.email,
+        taskTitle: task.title,
+        dueAt: task.dueAt,
+      });
+    }
+    return tasks;
   }
 
   /**

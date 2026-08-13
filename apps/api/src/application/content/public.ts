@@ -104,3 +104,5 @@ export {
   CalendarOrganizerUnconfiguredError,
   SpeakerCalendarInviteService,
 } from "./speaker-calendar-invites";
+export { speakerResourceTemplateSlice } from "./template-slice";
+export { speakerChecklistTemplateSlice } from "./checklist-template-slice";

@@ -332,9 +332,20 @@ key would be a constraint the Drizzle declaration does not describe, and `npm ru
 compares foreign keys — so the columns record provenance without pretending to enforce it, and both
 the migration and the schema fragment say so.
 
-**Scope actually landed in PR 1: the template store, the orchestration seam, and the CFP slice.**
-Review and agenda slices are PR 2; publishing, speaker resources and the console surface are PR 3;
-speaker task checklists remain unbuilt and are argued in the PR body as their own issue rather than
-shipped as a preview category that always reports zero. `GAP-023` records the one limit that
-survives all four: applying is not atomic across domains, and a `partial` application is not
-surfaced anywhere after the response that reported it.
+**The lane's four pull requests became one, at the requester's direction.** The prompt splits issue
+#102 at the architecture's own seams and each split would have been independently green; the
+argument against one large change was made and the decision went the other way, which is the
+requester's to make. What that costs is real and worth naming: the template store and the CFP slice
+cannot land while the console surface is still in review, and a reviewer reads six slices at once.
+What it buys is that the seam and every implementation of it are reviewed together, which is where
+a port's shape is actually judged.
+
+**Speaker task checklists shipped rather than being deferred.** They are new product surface, not
+export of existing state — every task in the system is bound to a `speaker_profile_id`, so nothing
+checklist-shaped existed to clone. `speaker_task_templates` (migration `1405`, content-owned), the
+commands that author and instantiate one, the routes, and the seed all landed, so the category is
+genuinely populated rather than a preview line that always reports zero. It has **no console
+authoring surface**: an organizer reaches it through the API only, and the scorecard row says so.
+
+`GAP-023` records the limit that survives all of it: applying is not atomic across domains, and a
+`partial` application is not surfaced anywhere after the response that reported it.
