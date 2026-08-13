@@ -73,6 +73,44 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
+  /**
+   * One in-flight authorization-code attempt: its CSRF `state` proof, its PKCE verifier and its
+   * nonce. Deleted on the callback, so a row's existence is the attempt's remaining single use.
+   */
+  const identityOauthAttempts = sqliteTable(
+    "identity_oauth_attempts",
+    {
+      id: text("id").primaryKey().notNull(),
+      stateProof: text("state_proof").notNull(),
+      codeVerifier: text("code_verifier").notNull(),
+      nonce: text("nonce").notNull(),
+      expiresAt: integer("expires_at").notNull(),
+    },
+    (table) => [index("identity_oauth_attempts_expiry_idx").on(table.expiresAt)],
+  );
+
+  /**
+   * The link between an external provider identity and a Greenroom user. Keyed on the provider's
+   * stable subject rather than on an address, because an address can change and a workspace
+   * must not.
+   */
+  const identityProviderAccounts = sqliteTable(
+    "identity_provider_accounts",
+    {
+      provider: text("provider").notNull(),
+      subject: text("subject").notNull(),
+      userId: text("user_id")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+      linkedAt: integer("linked_at").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.provider, table.subject] }),
+      check("identity_provider_accounts_provider", sql`${table.provider} = 'google'`),
+      index("identity_provider_accounts_user_idx").on(table.userId),
+    ],
+  );
+
   const eventRoles = sqliteTable(
     "event_roles",
     {
@@ -94,5 +132,13 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
-  return { users, identityEmails, identityLoginChallenges, organizationMemberships, eventRoles };
+  return {
+    users,
+    identityEmails,
+    identityLoginChallenges,
+    identityOauthAttempts,
+    identityProviderAccounts,
+    organizationMemberships,
+    eventRoles,
+  };
 }

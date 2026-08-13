@@ -96,6 +96,8 @@ export const {
   events,
   identityEmails,
   identityLoginChallenges,
+  identityOauthAttempts,
+  identityProviderAccounts,
   messageTemplates,
   organizationMemberships,
   organizations,

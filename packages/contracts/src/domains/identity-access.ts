@@ -16,7 +16,22 @@ export const eventTokenResponseSchema = z.object({
   eventId: z.string().uuid(),
   expiresAt: z.string().datetime(),
 });
-export const authConfigResponseSchema = z.object({ demoMode: z.boolean() });
+/**
+ * Which doors this deployment actually offers, so the sign-in surface renders what works rather
+ * than what exists in the codebase. `google` is false whenever the deployment carries no Google
+ * configuration; a half configuration never reaches here, because `runtimeAuth` refuses to boot.
+ */
+export const authConfigResponseSchema = z.object({
+  demoMode: z.boolean(),
+  google: z.boolean(),
+});
+/**
+ * Sign-out clears the session cookie. It is deliberately not called "revoke": the cookie is a
+ * signed bearer with its own expiry and nothing server-side tracks it, so signing out ends this
+ * browser's session and does not invalidate a copy taken elsewhere. Durable revocation is issue
+ * #12; naming this honestly is what keeps that distinction visible.
+ */
+export const signOutResponseSchema = z.object({ signedOut: z.literal(true) });
 export const capabilitySchema = z.enum([
   "events:read",
   "events:create",

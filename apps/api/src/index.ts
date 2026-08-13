@@ -45,7 +45,15 @@ import { ItineraryService } from "./application/publishing/itinerary-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { ReviewService } from "./application/review/review-service";
 import type { ReviewNotificationPort } from "./application/review/review-service";
-import { createHttpApp } from "./transport/http/app";
+import { createHttpApp, type GoogleAuthProvider } from "./transport/http/app";
+import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
+import {
+  completeGoogleAuthorization,
+  type GoogleConfiguration,
+  startGoogleAuthorization,
+  stateProof,
+} from "./application/identity/google-oauth";
+import { SignupService } from "./application/identity/signup";
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import type { ReviewSuggestionPort } from "./application/review/suggestion-port";
 import { SuggestionUnavailableError } from "./application/review/suggestion-port";
@@ -120,6 +128,62 @@ export interface Environment {
   REVIEW_AI_API_KEY?: string;
   /** Pins the model `live` drafts with. Non-secret; a var. Defaults in the adapter. */
   REVIEW_AI_MODEL?: string;
+  /**
+   * Google sign-in. All three or none; a partial configuration refuses to boot
+   * (`resolveGoogleConfiguration`), because a deployment that believes it offers Google sign-in
+   * and cannot complete one is worse than a deployment that never offers it.
+   *
+   * `GOOGLE_CLIENT_ID` is the OAuth client's public identifier and belongs in vars.
+   * `GOOGLE_CLIENT_SECRET` is a credential and must be a Worker **secret**
+   * (`npx wrangler secret put GOOGLE_CLIENT_SECRET`); it is never written to `wrangler.toml`.
+   * `GOOGLE_REDIRECT_URI` is the exact URI registered in the Google Cloud console for this
+   * deployment. It is configuration rather than something derived from the request, which is
+   * what stops a request parameter deciding where an authorization code is delivered — and it
+   * cannot be derived from `PUBLIC_BASE_URL` either, because local development inherits that
+   * value from the deployed demo. See docs/engineering/local-development.md.
+   */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
+}
+
+/**
+ * Google configuration, or nothing, and never anything in between.
+ *
+ * The three bindings are one unit: with a client id and no secret the token exchange fails after
+ * the user has already been sent to Google and back, which reads to them as the product being
+ * broken, and to an operator as nothing at all. So a partial configuration throws by name at
+ * boot, exactly as a missing `SESSION_SECRET` does, and an absent configuration simply means the
+ * door is not offered — `/api/auth/config` reports `google: false` and the routes answer 404.
+ *
+ * The message names bindings, never values.
+ */
+export function resolveGoogleConfiguration(
+  environment: Pick<
+    Environment,
+    "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "GOOGLE_REDIRECT_URI"
+  >,
+): GoogleConfiguration | null {
+  const bindings = [
+    ["GOOGLE_CLIENT_ID", environment.GOOGLE_CLIENT_ID],
+    ["GOOGLE_CLIENT_SECRET", environment.GOOGLE_CLIENT_SECRET],
+    ["GOOGLE_REDIRECT_URI", environment.GOOGLE_REDIRECT_URI],
+  ] as const;
+  const missing = bindings.filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length === bindings.length) return null;
+  if (missing.length > 0)
+    throw new Error(`Google sign-in is partly configured; missing ${missing.join(", ")}`);
+  const redirectUri = environment.GOOGLE_REDIRECT_URI as string;
+  // A redirect URI that is not an absolute http(s) URL cannot be what Google has registered, and
+  // failing here names the binding instead of producing an authorization request Google refuses
+  // with an error page the user cannot act on.
+  if (!/^https?:\/\//.test(redirectUri))
+    throw new Error("GOOGLE_REDIRECT_URI must be an absolute http(s) URL");
+  return {
+    clientId: environment.GOOGLE_CLIENT_ID as string,
+    clientSecret: environment.GOOGLE_CLIENT_SECRET as string,
+    redirectUri,
+  };
 }
 
 const communicationsRepository = (environment: Environment) =>
@@ -217,7 +281,14 @@ export function pruneItineraries(environment: Environment): Promise<void> {
 export function runtimeAuth(
   environment: Pick<
     Environment,
-    "DEMO_MODE" | "SESSION_SECRET" | "ENVIRONMENT" | "AUTH_EMAIL_ENDPOINT" | "AUTH_EMAIL_TOKEN"
+    | "DEMO_MODE"
+    | "SESSION_SECRET"
+    | "ENVIRONMENT"
+    | "AUTH_EMAIL_ENDPOINT"
+    | "AUTH_EMAIL_TOKEN"
+    | "GOOGLE_CLIENT_ID"
+    | "GOOGLE_CLIENT_SECRET"
+    | "GOOGLE_REDIRECT_URI"
   >,
 ) {
   const demoMode = environment.DEMO_MODE === "true";
@@ -225,13 +296,28 @@ export function runtimeAuth(
     throw new Error("DEMO_MODE is allowed only when ENVIRONMENT=development");
   if (!environment.SESSION_SECRET || environment.SESSION_SECRET === "local-development-secret")
     throw new Error("Authentication requires a non-default SESSION_SECRET binding");
+  // Checked in both modes and before either return, so a half-configured Google binding is a
+  // boot failure rather than a surprise on somebody's first sign-in. Omitted from the result
+  // when absent, so a deployment without it is byte-for-byte the configuration it was before.
+  const google = resolveGoogleConfiguration(environment);
   if (demoMode)
-    return { demoMode: true as const, sessionSecret: environment.SESSION_SECRET as string };
+    return {
+      demoMode: true as const,
+      sessionSecret: environment.SESSION_SECRET as string,
+      ...(google ? { google } : {}),
+    };
+  // Emailed-code sign-in remains this deployment's requirement even with Google configured:
+  // Google is an additional provider, not a replacement, and `GAP-007` records the emailed-code
+  // path as the one that partially closed production auth.
   if (!environment.AUTH_EMAIL_ENDPOINT || !environment.AUTH_EMAIL_TOKEN)
     throw new Error(
       "Production authentication requires AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN bindings",
     );
-  return { demoMode: false as const, sessionSecret: environment.SESSION_SECRET };
+  return {
+    demoMode: false as const,
+    sessionSecret: environment.SESSION_SECRET,
+    ...(google ? { google } : {}),
+  };
 }
 
 // @spec PRD-EVT-001 ARC-OBS-001
@@ -329,6 +415,75 @@ export default {
         console.error(JSON.stringify({ level: "error", message, ...fields }));
       },
     };
+    /**
+     * The Google sign-in door, assembled only when the deployment is configured for it.
+     *
+     * Three collaborators meet here and nowhere else: the protocol (`application/identity`), the
+     * network (`adapters/identity`), and the provisioning workflow whose organization and event
+     * writes go through the events domain's public interface. Composing them in the composition
+     * root is what keeps identity from importing the events service directly and keeps the
+     * client secret out of every type the transport can see.
+     */
+    const googleAuth: GoogleAuthProvider | undefined = auth.google
+      ? ((configuration: GoogleConfiguration, sessionSecret: string): GoogleAuthProvider => {
+          const client = new GoogleOauthClient();
+          const signup = new SignupService({
+            directory: identityDirectory,
+            workspace: {
+              provisionOrganization: (command) => service.provisionOrganization(command),
+              // The ordinary authorized creation path, reached with the actor the membership
+              // written a moment earlier has just made an organizer. Nothing here bypasses
+              // `EventService.create`'s own capability and membership checks, which is the point:
+              // a first event is created exactly as every later one is.
+              createFirstEvent: (actor, command) => service.create(actor, command),
+            },
+            newId: () => crypto.randomUUID(),
+            now: () => Date.now(),
+          });
+          return {
+            async start(now) {
+              const started = await startGoogleAuthorization(configuration, sessionSecret, now);
+              await identityDirectory.saveOauthAttempt(started.attempt);
+              return {
+                authorizationUrl: started.authorizationUrl,
+                attemptId: started.attempt.id,
+              };
+            },
+            async complete({ attemptId, state, code, now }) {
+              // The attempt is spent before the code is exchanged. A callback that fails
+              // verification has still consumed its one use, so a stolen `state` cannot be
+              // retried against a different code.
+              const spent = await identityDirectory.consumeOauthAttempt(
+                attemptId,
+                await stateProof(state, sessionSecret),
+                now,
+              );
+              if (!spent) {
+                logger.warn({ reason: "attempt_not_current" }, "auth.google.refused");
+                return null;
+              }
+              try {
+                const identity = await completeGoogleAuthorization(
+                  { code, attempt: spent, configuration, now },
+                  { exchange: client.exchange, keys: client.keys },
+                );
+                return await signup.signInWithGoogle(identity);
+              } catch (error) {
+                // ERROR-INTENT: every refusal in this flow is reported here and reduced to one
+                // indistinguishable answer for the browser — see the callback route. The reason
+                // is an operator's, not a caller's, and the log line carries no address, no
+                // token and no code.
+                logger.warn(
+                  { reason: error instanceof Error ? error.message : String(error) },
+                  "auth.google.refused",
+                );
+                return null;
+              }
+            },
+            resolveUserActor: (userId: string) => identityDirectory.findByUserId(userId),
+          };
+        })(auth.google, auth.sessionSecret)
+      : undefined;
     /**
      * Turns a lifecycle fact into a queued delivery, and never lets that failure become the
      * lifecycle action's failure.
@@ -635,12 +790,18 @@ export default {
       logger,
       auth.demoMode
         ? {
-            ...auth,
+            demoMode: true as const,
+            sessionSecret: auth.sessionSecret,
             resolveActor: (persona: "organizer" | "reviewer" | "speaker" | "public") =>
               identityDirectory.findByPersona(persona),
+            // `auth.google` is the *configuration*; the transport is handed the *provider*, so
+            // no credential is reachable from a route module.
+            ...(googleAuth ? { google: googleAuth } : {}),
           }
         : {
-            ...auth,
+            demoMode: false as const,
+            sessionSecret: auth.sessionSecret,
+            ...(googleAuth ? { google: googleAuth } : {}),
             resolveActor: (userId: string) => identityDirectory.findByUserId(userId),
             resolveEmail: async (email: string) => {
               if (

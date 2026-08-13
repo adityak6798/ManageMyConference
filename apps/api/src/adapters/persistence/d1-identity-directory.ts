@@ -116,6 +116,133 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return users.results?.[0] ? this.resolve(users.results[0]) : null;
   }
 
+  /**
+   * Save one in-flight authorization attempt, sweeping attempts that can no longer complete.
+   *
+   * The sweep is the same shape as `saveLoginChallenge`'s and exists for the same reason: this
+   * table only ever grows otherwise, and every row in it is a secret that has outlived its use.
+   */
+  async saveOauthAttempt(attempt: {
+    id: string;
+    stateProof: string;
+    codeVerifier: string;
+    nonce: string;
+    expiresAt: number;
+  }): Promise<void> {
+    const results = await this.database.batch([
+      this.database
+        .prepare("DELETE FROM identity_oauth_attempts WHERE expires_at <= ?")
+        .bind(attempt.expiresAt - 600_000),
+      this.database
+        .prepare(
+          "INSERT INTO identity_oauth_attempts (id,state_proof,code_verifier,nonce,expires_at) VALUES (?,?,?,?,?)",
+        )
+        .bind(
+          attempt.id,
+          attempt.stateProof,
+          attempt.codeVerifier,
+          attempt.nonce,
+          attempt.expiresAt,
+        ),
+    ]);
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(`D1 failed to save sign-in attempt: ${failed.error ?? "unknown error"}`);
+  }
+
+  /**
+   * Spend one attempt, or refuse.
+   *
+   * `DELETE … RETURNING` rather than a read followed by a delete: a callback replayed twice, or
+   * two callbacks racing, must produce exactly one success, and only a single statement can
+   * promise that. Everything the caller needs comes back in the same round trip. A wrong
+   * `state_proof`, an expired attempt and an already-spent one are one indistinguishable refusal,
+   * which is the correct amount to tell whoever is trying.
+   */
+  async consumeOauthAttempt(
+    id: string,
+    stateProof: string,
+    now: number,
+  ): Promise<{ codeVerifier: string; nonce: string } | null> {
+    const result = await this.database
+      .prepare(
+        "DELETE FROM identity_oauth_attempts WHERE id=? AND state_proof=? AND expires_at>? RETURNING code_verifier, nonce",
+      )
+      .bind(id, stateProof, now)
+      .all<{ code_verifier: string; nonce: string }>();
+    if (!result.success)
+      throw new Error(`D1 failed to consume sign-in attempt: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row ? { codeVerifier: row.code_verifier, nonce: row.nonce } : null;
+  }
+
+  async findByProviderAccount(provider: "google", subject: string): Promise<Actor | null> {
+    const users = await this.database
+      .prepare(
+        "SELECT u.id, u.name, u.persona FROM users u JOIN identity_provider_accounts a ON a.user_id = u.id WHERE a.provider = ? AND a.subject = ? LIMIT 1",
+      )
+      .bind(provider, subject)
+      .all<UserRow>();
+    if (!users.success)
+      throw new Error(`D1 failed to resolve provider account: ${users.error ?? "unknown error"}`);
+    return users.results?.[0] ? this.resolve(users.results[0]) : null;
+  }
+
+  async linkProviderAccount(input: {
+    provider: "google";
+    subject: string;
+    userId: string;
+    linkedAt: number;
+  }): Promise<void> {
+    const result = await this.database
+      .prepare(
+        "INSERT INTO identity_provider_accounts (provider,subject,user_id,linked_at) VALUES (?,?,?,?) ON CONFLICT(provider,subject) DO NOTHING",
+      )
+      .bind(input.provider, input.subject, input.userId, input.linkedAt)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to link provider account: ${result.error ?? "unknown error"}`);
+  }
+
+  /**
+   * The whole identity half of a self-serve signup, in one batch.
+   *
+   * Four rows across four tables that are only meaningful together — an account with no address
+   * cannot be written to, and one with no membership has a console it cannot use. D1 applies a
+   * batch atomically, so the alternative to this is a user who can sign in to nothing.
+   */
+  async createSelfServeIdentity(input: {
+    userId: string;
+    name: string;
+    email: string;
+    provider: "google";
+    subject: string;
+    linkedAt: number;
+    organizationId: string;
+  }): Promise<void> {
+    const results = await this.database.batch([
+      this.database
+        .prepare("INSERT INTO users (id,name,persona) VALUES (?,?,'organizer')")
+        .bind(input.userId, input.name),
+      this.database
+        .prepare("INSERT INTO identity_emails (user_id,email) VALUES (?,?)")
+        .bind(input.userId, input.email.trim().toLowerCase()),
+      this.database
+        .prepare(
+          "INSERT INTO identity_provider_accounts (provider,subject,user_id,linked_at) VALUES (?,?,?,?)",
+        )
+        .bind(input.provider, input.subject, input.userId, input.linkedAt),
+      this.database
+        .prepare(
+          "INSERT INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
+        )
+        .bind(input.organizationId, input.userId),
+    ]);
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(`D1 failed to provision identity: ${failed.error ?? "unknown error"}`);
+  }
+
   async findByEmail(email: string): Promise<Actor | null> {
     const users = await this.database
       .prepare(

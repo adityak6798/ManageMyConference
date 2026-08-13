@@ -15,6 +15,7 @@ import {
   loginCodeVerifyResponseSchema,
   loginCodeVerifySchema,
   sessionResponseSchema,
+  signOutResponseSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -69,6 +70,45 @@ export const identityPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/auth/google/start",
+      description:
+        "Begin Google sign-in. Answers 302 to Google's authorization endpoint with a per-attempt " +
+        "state and an S256 PKCE challenge, and sets a short-lived attempt cookie. 404 when this " +
+        "deployment carries no Google configuration.",
+      responses: {
+        302: { description: "Redirect to Google's authorization endpoint" },
+        404: errorResponse,
+        429: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/auth/google/callback",
+      description:
+        "Google's return leg. Verifies the attempt, the state, and the id_token's signature, " +
+        "issuer, audience, expiry and nonce, then establishes a session and redirects. Every " +
+        "refusal redirects to the same destination and reports nothing about which check failed. " +
+        "The redirect URI is fixed server-side and is never read from a request parameter.",
+      responses: {
+        302: { description: "Signed session established, or sign-in refused" },
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/auth/signout",
+      description:
+        "Clear this browser's session cookie. Not revocation: the session token is a signed " +
+        "bearer with its own expiry and nothing server-side tracks it (issue #12).",
+      responses: {
+        200: { description: "Session cookie cleared", content: json(signOutResponseSchema) },
         500: errorResponse,
       },
     });

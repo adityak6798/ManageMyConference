@@ -24,6 +24,7 @@ import type { ContentService } from "../../application/content/content-service";
 import type { SpeakerCalendarInviteService } from "../../application/content/public";
 import type { CrmService } from "../../application/crm/public";
 import type { EventService } from "../../application/events/event-service";
+import type { Actor } from "../../application/identity/actor";
 import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
@@ -46,7 +47,12 @@ import {
 } from "./runtime";
 
 export type { HttpDependencies } from "./routes/contract";
-export type { BuildIdentity, RuntimeAuthConfig, StructuredLogger } from "./runtime";
+export type {
+  BuildIdentity,
+  GoogleAuthProvider,
+  RuntimeAuthConfig,
+  StructuredLogger,
+} from "./runtime";
 
 const correlationPattern = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -69,38 +75,52 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
     context.set("correlationId", correlationId);
     const authorization = context.req.header("authorization");
     const bearer = authorization?.match(/^Bearer (\S+)$/i)?.[1];
-    context.set(
-      "authentication",
-      auth.demoMode ? "demo" : authorization ? (bearer ? "bearer" : "none") : "session",
-    );
-    context.set(
-      "actor",
-      auth.demoMode
-        ? await resolveDemoSession(
-            getCookie(context, "greenroom_session"),
-            auth.sessionSecret,
-            (auth.now ?? Date.now)(),
-            auth.resolveActor,
-          )
-        : !auth.sessionSecret
-          ? null
-          : authorization
-            ? bearer
-              ? await resolveEventToken(
-                  bearer,
-                  auth.sessionSecret,
-                  (auth.now ?? Date.now)(),
-                  auth.resolveActor,
-                )
-              : null
-            : await resolveUserSession(
-                getCookie(context, "greenroom_session"),
-                auth.sessionSecret,
-                (auth.now ?? Date.now)(),
-                auth.resolveActor,
-              ),
-    );
-    if (!context.get("actor")) context.set("authentication", "none");
+    const cookie = getCookie(context, "greenroom_session");
+    const at = (auth.now ?? Date.now)();
+
+    /*
+     * Two doors, one cookie name, and no ambiguity between them.
+     *
+     * A demo-mode deployment that also has Google configured holds both kinds of credential at
+     * once, so the real session is tried first and the persona cookie second. That order is safe
+     * because the two token grammars are mutually unparseable — a demo token is
+     * `persona.expiry.signature` and `resolveUserSession` refuses anything that is not exactly
+     * two dot-separated parts, while `resolveDemoSession` refuses anything whose first part is
+     * not a known persona. Neither can be mistaken for the other even though both are signed
+     * with `SESSION_SECRET`.
+     *
+     * `authentication` follows what actually resolved rather than what the deployment mode is:
+     * a real Google session on a demo deployment is a `session`, and `/api/auth/tokens` is right
+     * to mint an event token for it.
+     */
+    let resolved: Actor | null = null;
+    let kind: Variables["authentication"] = "none";
+    if (auth.demoMode) {
+      if (auth.google)
+        resolved = await resolveUserSession(
+          cookie,
+          auth.sessionSecret,
+          at,
+          auth.google.resolveUserActor,
+        );
+      if (resolved) kind = "session";
+      else {
+        resolved = await resolveDemoSession(cookie, auth.sessionSecret, at, auth.resolveActor);
+        kind = "demo";
+      }
+    } else if (auth.sessionSecret) {
+      if (authorization) {
+        resolved = bearer
+          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor)
+          : null;
+        kind = "bearer";
+      } else {
+        resolved = await resolveUserSession(cookie, auth.sessionSecret, at, auth.resolveActor);
+        kind = "session";
+      }
+    }
+    context.set("actor", resolved);
+    context.set("authentication", resolved ? kind : "none");
     context.set("operation", `${context.req.method} ${context.req.path}`);
     context.header("x-correlation-id", correlationId);
     const startedAt = Date.now();
