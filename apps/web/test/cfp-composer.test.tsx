@@ -239,6 +239,82 @@ describe("building the question list", () => {
     // switched the type back, silently resurrecting a vocabulary that was removed.
     expect(writes(calls)[1]?.body.fields).toMatchObject([{ type: "short_text", options: [] }]);
   });
+
+  it("seeds conditional visibility as is answered, never as equals blank", async () => {
+    const conditionalForm = form({
+      fields: [field(), field({ id: "abstract", label: "Session abstract" })],
+    });
+    const calls = stubApi((url, init) => {
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return jsonResponse({ cfp: conditionalForm });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: conditionalForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    await screen.findByRole("button", { name: "Remove Session abstract" });
+    const abstract = question("Session abstract");
+    fireEvent.click(await within(abstract).findByLabelText("Show this question conditionally"));
+    expect(within(abstract).getByLabelText("Match")).toHaveValue("notEmpty");
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    expect(writes(calls)[0]?.body.fields).toMatchObject([
+      {},
+      { visibleWhen: { fieldId: "title", operator: "notEmpty", values: [] } },
+    ]);
+  });
+
+  it("saves both comma-separated routing answers with an operator that honours both", async () => {
+    const routedForm = form({
+      fields: [
+        field({ id: "track", type: "select", label: "Track", options: ["Workshop", "Lightning"] }),
+      ],
+    });
+    const calls = stubApi((url, init) => {
+      if (url.endsWith("/cfp/routing-statuses"))
+        return jsonResponse({ statuses: [{ key: "under_review", label: "Under review" }] });
+      if (url.startsWith("/api/events/") && init?.method === "PUT")
+        return jsonResponse({ cfp: routedForm });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: routedForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    const routingCard = await screen.findByRole("region", { name: "Submission routing" });
+    fireEvent.click(within(routingCard).getByRole("button", { name: "Add routing rule" }));
+    expect(within(routingCard).getByLabelText("Match")).toHaveValue("in");
+    fireEvent.change(within(routingCard).getByLabelText("Answer values"), {
+      target: { value: "Workshop, Lightning" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    expect(writes(calls)[0]?.body.routing).toMatchObject([
+      { when: { fieldId: "track", operator: "in", values: ["Workshop", "Lightning"] } },
+    ]);
+  });
+
+  it("refuses an empty equals condition before sending the draft", async () => {
+    const conditionalForm = form({
+      fields: [field(), field({ id: "abstract", label: "Session abstract" })],
+    });
+    const calls = stubApi((url) =>
+      url.startsWith("/api/events/") ? jsonResponse({ cfp: conditionalForm }) : undefined,
+    );
+    render(<CfpWorkspace eventId={eventId} organizer />);
+
+    await screen.findByRole("button", { name: "Remove Session abstract" });
+    const abstract = question("Session abstract");
+    fireEvent.click(await within(abstract).findByLabelText("Show this question conditionally"));
+    fireEvent.change(within(abstract).getByLabelText("Match"), { target: { value: "equals" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(
+      await within(abstract).findByText("Choose the answer that shows Session abstract."),
+    ).toBeInTheDocument();
+    expect(writes(calls)).toHaveLength(0);
+  });
 });
 
 describe("the live form beside the draft", () => {

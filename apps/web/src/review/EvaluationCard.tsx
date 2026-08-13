@@ -277,7 +277,11 @@ export function EvaluationCard({
                     </select>
                   )}
                   {value === undefined ? (
-                    <Pill tone={missing ? "danger" : "neutral"}>Not scored</Pill>
+                    <Pill tone={missing ? "danger" : "neutral"}>
+                      {criterion.type === "text" ? "Not answered" : "Not scored"}
+                    </Pill>
+                  ) : criterion.type === "text" ? (
+                    <Pill tone="ok">Answered</Pill>
                   ) : (
                     <Pill tone="ok">{value}</Pill>
                   )}

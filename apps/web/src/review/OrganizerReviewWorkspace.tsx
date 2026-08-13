@@ -41,7 +41,6 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   const [search, setSearch] = useState("");
   const [sortByScore, setSortByScore] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [selectedReviewers, setSelectedReviewers] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Which abstracts have their accept/decline confirmation open, and what it would record. A
@@ -907,45 +906,19 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         <Card
           labelledBy="review-progress"
           title="Reviewer progress"
-          hint="Select reviewers who still have outstanding evaluations."
-          tight
+          hint="Assigned, completed, and outstanding evaluations by reviewer."
         >
           {(data.progress ?? []).some(({ outstanding }) => outstanding > 0) ? (
             <>
               <ul className="assigned-reviewers">
                 {(data.progress ?? []).map((item) => (
                   <li key={item.reviewerId}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        disabled={item.outstanding === 0}
-                        checked={selectedReviewers.includes(item.reviewerId)}
-                        onChange={(event) =>
-                          setSelectedReviewers((current) =>
-                            event.target.checked
-                              ? [...current, item.reviewerId]
-                              : current.filter((id) => id !== item.reviewerId),
-                          )
-                        }
-                      />
-                      {reviewerName(item.reviewerId)} — {item.completed} of {item.assigned} complete
-                      {item.outstanding ? ` · ${item.outstanding} outstanding` : ""}
-                    </label>
+                    {reviewerName(item.reviewerId)} — {item.assigned} assigned · {item.completed}{" "}
+                    completed · {item.outstanding} outstanding
                   </li>
                 ))}
               </ul>
-              <button
-                type="button"
-                disabled
-                title="Waiting for issue #66's reviewer-reminder trigger"
-              >
-                Queue reminders for {selectedReviewers.length} reviewers
-              </button>
-              <p className="hint">
-                Delivery is waiting for communications issue #66 to add a reviewer-reminder trigger.
-                Review will enqueue through its public interface when that vocabulary exists; it
-                does not write delivery tables.
-              </p>
+              <p className="hint">Reminder emails to reviewers aren’t available yet.</p>
             </>
           ) : (
             <EmptyState title="No outstanding reviews" icon={<IconReview size={20} />}>

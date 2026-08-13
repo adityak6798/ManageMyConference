@@ -128,25 +128,51 @@ test("moves a placed session by dragging it onto another room and slot", async (
 
   // Native drag-and-drop is driven with real DragEvents so the same dragstart/dragover/
   // drop contract a person triggers is what the test exercises.
-  const dragged = await page.evaluate(() => {
+  const dragResult = await page.evaluate(async () => {
     const card = document.querySelector('[id^="agenda-placement-"]');
     const rows = document.querySelectorAll("table.board tbody tr");
     const lastRow = rows[rows.length - 1];
     const cells = lastRow?.querySelectorAll("td");
     const cell = cells?.[cells.length - 1];
-    if (!card || !cell) return false;
+    if (!card || !cell) return null;
+    const boardCells = [...document.querySelectorAll("table.board td")];
+    const bounds = () =>
+      boardCells.map((boardCell) => {
+        const rect = boardCell.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      });
+    const before = bounds();
+    const cardRect = card.getBoundingClientRect();
+    const pickup = { x: cardRect.left + cardRect.width / 2, y: cardRect.top + cardRect.height / 2 };
+    const pickupCellBefore = document.elementFromPoint(pickup.x, pickup.y)?.closest("td");
     const transfer = new DataTransfer();
     const fire = (node: Element, type: string) =>
       node.dispatchEvent(
         new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }),
       );
     fire(card, "dragstart");
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const after = bounds();
+    const pickupCellAfter = document.elementFromPoint(pickup.x, pickup.y)?.closest("td");
     // A drop target announces itself by cancelling dragover.
     const accepted = !fire(cell, "dragover");
     fire(cell, "drop");
-    return accepted;
+    return {
+      accepted,
+      stable: before.every((rect, index) => {
+        const next = after[index];
+        return (
+          next !== undefined &&
+          rect.x === next.x &&
+          rect.y === next.y &&
+          rect.width === next.width &&
+          rect.height === next.height
+        );
+      }),
+      pickupStayedInCell: pickupCellBefore !== null && pickupCellBefore === pickupCellAfter,
+    };
   });
-  expect(dragged).toBe(true);
+  expect(dragResult).toEqual({ accepted: true, stable: true, pickupStayedInCell: true });
 
   await expect(page.getByRole("status")).toContainText(
     "“Designing the calm conference” placed in Workshop lab at 10:00–11:00.",

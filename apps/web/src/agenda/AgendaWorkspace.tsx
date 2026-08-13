@@ -855,7 +855,7 @@ export function AgendaWorkspace({
       >
         <div className="board-cell" data-over={overCell === key ? "true" : undefined}>
           {inCell.map((placement) => renderCard(placement))}
-          {carry ? (
+          {carry?.viaKeyboard ? (
             <button
               id={`agenda-cell-${key}`}
               type="button"
@@ -1467,7 +1467,7 @@ export function AgendaWorkspace({
 
       {feedback.node}
 
-      {carry ? (
+      {carry?.viaKeyboard ? (
         <div className="agenda-carry">
           <IconGrip size={15} />
           <span>

@@ -474,7 +474,7 @@
    and an explicit badge so "not scored" is a state a reviewer can see. */
 .criterion {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s-4);
   flex-wrap: wrap;
@@ -492,10 +492,16 @@
   display: flex;
   align-items: center;
   gap: var(--s-3);
+  flex: 1 1 260px;
+  min-width: 0;
 }
 .criterion-input select {
   width: auto;
   min-width: 130px;
+}
+.criterion-input textarea {
+  flex: 1 1 260px;
+  min-width: 0;
 }
 
 .review-notes-field {
@@ -523,7 +529,7 @@
 
 .review-scores {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
   gap: var(--s-2) var(--s-4);
   margin: var(--s-4) 0 0;
   font-size: var(--text-sm);
@@ -534,9 +540,7 @@
 }
 .review-scores dd {
   margin: 0;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .review-queue {
