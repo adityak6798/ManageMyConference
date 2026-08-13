@@ -118,6 +118,26 @@ function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
     !("destination" in parsed)
   )
     refuse();
+  /*
+   * The two fields beside `slices`, to the depth their readers reach.
+   *
+   * The card renders `destination.startsOn` and `.endsOn`, and the mapper spreads `selection`.
+   * Checking that the keys are merely *present* left both a `TypeError` one layer out, which is
+   * the failure this function claims to convert into a named fault.
+   */
+  const shape = parsed as { destination?: unknown; selection?: unknown };
+  const destination = shape.destination as { startsOn?: unknown; endsOn?: unknown } | null;
+  if (
+    typeof destination !== "object" ||
+    destination === null ||
+    typeof destination.startsOn !== "string" ||
+    typeof destination.endsOn !== "string" ||
+    // Absent is the honest reading of a row written before the selection was stored; present and
+    // not a list of strings is a row nothing in this system wrote.
+    (shape.selection !== undefined &&
+      (!Array.isArray(shape.selection) || !shape.selection.every((key) => typeof key === "string")))
+  )
+    refuse();
   const outcome = parsed as EventTemplateApplicationOutcome;
   /*
    * Each category, not just the array around them.

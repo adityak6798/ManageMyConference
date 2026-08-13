@@ -216,13 +216,20 @@ export class D1ContentRepository
    *
    * A conditional write matching no row and a write that landed are both `success: true`; only
    * `meta.changes` separates them, and a driver that omits the count is refused rather than read
-   * as either (`d1-write-result.ts`). Every unguarded `UPDATE` in this file that a caller reads
-   * a row for first goes through here, because the gap between that read and the write is where
-   * another organizer's delete lands — and without the count, editing something that has gone
+   * as either (`d1-write-result.ts`). The gap between a caller's read and its write is where
+   * another organizer's delete lands, and without the count, editing something that has gone
    * answers 200 and announces "saved" over a projection that does not contain it.
    *
    * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
    * row" from "no visible difference" rather than refusing an edit that changed nothing.
+   *
+   * **Three unguarded writers still use `run` and do not read the count**, and it is worth naming
+   * them rather than claiming this is already the whole file's rule: `updateProfilePhoto`,
+   * `updateProfileWorkflow` and `updateAsset`. Each has the same read-then-write gap. Two of them
+   * want the same answer as the writers here; the third is why they were left rather than swept
+   * up — `updateProfileWorkflow` is the CSV import's writer, and what an import should do with a
+   * row that vanished mid-run is a product decision about imports, not a repair to this rule.
+   * Recorded in `docs/quality/known-gaps.md` as `GAP-025` rather than half-done.
    */
   private async write(query: string, ...values: unknown[]) {
     const result = await this.database

@@ -149,8 +149,13 @@ feature-by-feature verdict.
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable
   route with a rendered docs page, covered by a route test.
-- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Twice
-  observed: once locally on 2026-08-11 after roughly 45 minutes of uptime, and once in the `browser`
+- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** **Five
+  occurrences are now recorded**, and only the two below are described here; the third, fourth and
+  fifth — including the measurement that names ephemeral-port exhaustion, and the first sighting on
+  a single-tenant hosted runner — are in the
+  [wave coordination ledger](../exec-plans/competition-waves.md), which is where they were observed.
+  The two recorded here: once locally on 2026-08-11 after roughly 45 minutes of uptime, and once in
+  the `browser`
   job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with no message
   and exited 38 seconds into the suite. Every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
@@ -490,3 +495,25 @@ feature-by-feature verdict.
   its test is an inbox that shows a failure older than one page of history. An agenda-owned
   monotonic board revision or occurrence on each derived programme condition, carried into the
   platform key and covered by a resolve-then-recreate test, closes the sixth.
+
+- `GAP-025` **Three unguarded content writers still report a save for a write that matched no row.**
+  `d1-content-repository.ts` reads the affected-row count on every unguarded `UPDATE` a caller reads
+  a row for first *except* three: `updateProfilePhoto`, `updateProfileWorkflow` and `updateAsset`.
+  Each has the same read-then-write gap the others closed, and the same consequence — a successful
+  statement that matched nothing is indistinguishable from one that landed, so the response is a
+  200 describing a change to a row that is not there. Concretely: unpublishing an asset another
+  organizer deleted a moment earlier answers 200 and reports it private; naming a headshot on a
+  profile deleted mid-edit reports the headshot set, because the service falls back to the object
+  it constructed rather than to what the store did.
+
+  The three were left rather than swept up with the others because one of them cannot be closed
+  without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
+  writer, and what an import should do with a row that vanished mid-run — skip it, refuse the row,
+  fail the batch — is a product question about imports rather than a repair to the write rule. The
+  other two want the same answer as their siblings and are held with it so that the three are
+  decided together, since a file applying one rule to four writers and another to three is how the
+  first divergence happened.
+
+  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all three read
+  the count; the import's behaviour on a vanished row is decided and stated where the import is
+  documented; and a test per writer drives a row deleted between the read and the write.

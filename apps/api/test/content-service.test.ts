@@ -1209,6 +1209,43 @@ describe("speaker checklist authoring", () => {
     expect(await service.taskTemplates(organizer, eventId)).toHaveLength(2);
   });
 
+  /**
+   * Instantiating the checklist tells the speakers, and `PRD-SPK-002` says so.
+   *
+   * The specification's own sentence a paragraph later — "these records create no notification or
+   * delivery effect" — is about the *content records* it lists there, not about this command; the
+   * distinction is the difference between recording a message and asking for one to be sent. A
+   * claim in a normative document with no assertion behind it is how the two drift, so this pins
+   * it: one notification per task actually created, and none for a line the speaker already held.
+   */
+  it("tells each speaker about the work this assignment created, and only that", async () => {
+    const told: Parameters<SpeakerNotificationPort["taskAssigned"]>[0][] = [];
+    const { service } = setup({
+      speakerNotifications: {
+        async speakerAccepted(fact) {
+          // Recorded rather than ignored: this test asserts what was told *and* what was not, so
+          // an acceptance leaking into this path has to be visible rather than swallowed.
+          told.push({ ...fact, taskId: "unexpected-acceptance", taskTitle: "", dueAt: "" });
+        },
+        async taskAssigned(fact) {
+          told.push(fact);
+        },
+      },
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.createTaskTemplate(organizer, { eventId, ...line });
+    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+
+    expect(told).toMatchObject([
+      { eventId, profileId: samProfile.id, speakerName: "Sam Speaker", taskTitle: line.title },
+    ]);
+
+    // Idempotent, and so is the telling: a second run assigns nothing and announces nothing,
+    // which is what makes "run it again when somebody joins" safe rather than a way to nag.
+    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+    expect(told).toHaveLength(1);
+  });
+
   it("keeps the declaration date through an edit", async () => {
     const { service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
@@ -1262,11 +1299,14 @@ describe("speaker checklist authoring", () => {
   /**
    * A write that matched no row is refused, rather than announced as a save.
    *
-   * The three unguarded `UPDATE`s a caller reads a row for first — a checklist line, a portal
-   * resource, a speaker's task — all have the same gap between that read and the write, and it is
-   * where another organizer's delete lands. `success` alone cannot tell "rewrote the row" from
-   * "matched nothing", so before the affected-row count was read these answered 200 and reported
-   * a save over a projection that no longer contains the thing.
+   * Three writers a caller reads a row for first — a checklist line, a portal resource, a
+   * speaker's task — have the same gap between that read and the write, and it is where another
+   * organizer's delete lands. `success` alone cannot tell "rewrote the row" from "matched
+   * nothing", so before the affected-row count was read these answered 200 and reported a save
+   * over a projection that no longer contains the thing.
+   *
+   * Three *other* unguarded writers in the same adapter still have the gap. `GAP-025` names them
+   * and says why one of them cannot be closed without a decision about import semantics.
    */
   it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
     const { repository, service } = setup();
@@ -1309,10 +1349,95 @@ describe("speaker checklist authoring", () => {
     ).resolves.toBe(false);
   });
 
-  /*
-   * The cross-event refusal is asserted over HTTP instead of here. The seeded demo organizer
-   * carries actor-level capabilities that satisfy `requireEventCapability` for any event id, so
-   * this fixture cannot express "an event they do not administer" — `content-http.test.ts` uses
-   * a real session and can.
+  /**
+   * A line on an event this organizer does not administer, refused as one that does not exist.
+   *
+   * This is the **whole** authorization on `PATCH` and `DELETE /api/speaker-task-templates/:id`.
+   * Neither route carries a capability check of its own, deliberately: they take no event
+   * parameter, so the event is resolved from the stored row and `requireTaskTemplate` is the only
+   * thing between a caller and another organization's checklist. A route whose entire
+   * authorization is one service call needs that call asserted — and so does the byte-identical
+   * refusal both route comments claim, or "not an oracle for other organizations' ids" is a
+   * sentence rather than a behaviour.
    */
+  it("refuses another event's line exactly as it refuses one that does not exist", async () => {
+    const { repository, service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    // Written straight to the store: the point is a row this actor cannot reach, and the command
+    // that would create one refuses for the same reason this test is about.
+    const elsewhere = {
+      id: "00000000-0000-4000-8000-0000000000e1",
+      eventId: "00000000-0000-4000-8000-0000000000e0",
+      title: "Somebody else's line",
+      description: "",
+      sortOrder: 0,
+      dueOffsetDays: -7,
+      createdAt: "2026-08-10T12:00:00.000Z",
+    };
+    await repository.addTaskTemplate(elsewhere);
+    const unknown = "00000000-0000-4000-8000-0000000000e2";
+
+    /**
+     * The refusal a call raised, as a value.
+     *
+     * ERROR-INTENT: the refusals are this test's subject rather than an incident in it, and they
+     * are compared with *each other* — a `rejects` matcher per call asserts each alone and says
+     * nothing about the property under test, which is that all four are indistinguishable. Every
+     * captured value is asserted below, and a call that does not refuse fails on the first
+     * assertion rather than passing quietly.
+     */
+    const refusalOf = async (work: Promise<unknown>): Promise<unknown> => {
+      try {
+        await work;
+        return "no refusal was raised";
+      } catch (refusal) {
+        // ERROR-INTENT: returned to the caller, which asserts on it. Nothing is discarded — this
+        // is the value the whole test compares, and a call that raised nothing is reported as
+        // such above rather than silently reading as a refusal.
+        return refusal;
+      }
+    };
+    const refusals = await Promise.all(
+      [elsewhere.id, unknown].flatMap((id) => [
+        refusalOf(service.updateTaskTemplate(organizer, id, { ...line, title: "Renamed" })),
+        refusalOf(service.deleteTaskTemplate(organizer, id)),
+      ]),
+    );
+
+    /*
+     * Four refusals of one type. The *messages* differ — "no such line" comes from the row read,
+     * "not yours" from the capability check — and that is fine precisely because they never
+     * travel: `transport/http/app.ts` answers every `CapabilityDeniedError` with one 403 and one
+     * sentence. Asserting the messages equal here would pin an internal detail; the property that
+     * matters is observable, so it is asserted where a caller stands, in `content-http.test.ts`.
+     */
+    for (const refusal of refusals) expect(refusal).toBeInstanceOf(CapabilityDeniedError);
+    // And nothing was written to the other event's checklist on the way past.
+    await expect(repository.findTaskTemplate(elsewhere.id)).resolves.toEqual(elsewhere);
+  });
+
+  /**
+   * Existence is resolved before the title rule, which is the order D1 resolves them in.
+   *
+   * Discriminating on purpose: this renames a *vanished* line onto a title a **sibling** still
+   * holds. A store that checked the title first would answer "that title is taken" about a row
+   * that is not there, and a service test written against that more permissive double would pass
+   * through the wrong refusal entirely.
+   */
+  it("refuses a vanished line as gone rather than as a duplicate title", async () => {
+    const { repository, service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const survivor = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const doomed = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+      title: "Send your slides",
+      sortOrder: 1,
+    });
+    await repository.deleteTaskTemplate(doomed.id);
+
+    await expect(
+      service.updateTaskTemplate(organizer, doomed.id, { ...line, title: survivor.title }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+  });
 });

@@ -968,6 +968,66 @@ describe("content HTTP transport", () => {
     ).resolves.toMatchObject({ templates: [{ title: "Send your slides" }] });
   });
 
+  /**
+   * The anti-oracle property, asserted where a caller stands.
+   *
+   * `PATCH` and `DELETE /api/speaker-task-templates/:templateId` carry no route-level capability
+   * check by design — they take no event parameter, so the event is resolved from the stored row
+   * and one service call is the entire authorization on them. The two refusals that call can
+   * raise carry different internal messages ("no such line" from the read, "not yours" from the
+   * capability check), and the whole claim is that a caller cannot tell them apart. That is a
+   * statement about the response, so it is asserted on the response: byte for byte, correlation
+   * id aside.
+   */
+  it("answers for another event's checklist line exactly as for one that does not exist", async () => {
+    const store = new MemoryContentRepository({
+      sessions: [],
+      speakers: [samProfile],
+      tasks: [],
+      assets: [],
+      messages: [],
+    });
+    // A line this event's organizer has no standing over, written straight to the store.
+    await store.addTaskTemplate({
+      id: "00000000-0000-4000-8000-0000000000e1",
+      eventId: "00000000-0000-4000-8000-0000000000e0",
+      title: "Somebody else's line",
+      description: "",
+      sortOrder: 0,
+      dueOffsetDays: -7,
+      createdAt: "2026-08-10T12:00:00.000Z",
+    });
+    const api = app(undefined, undefined, undefined, store);
+    const organizer = await cookie("organizer");
+    const edit = { title: "Renamed", description: "", sortOrder: 0, dueOffsetDays: -7 };
+
+    const responses = await Promise.all(
+      ["0000000000e1", "0000000000e2"].flatMap((suffix) => {
+        const url = `/api/speaker-task-templates/00000000-0000-4000-8000-${suffix}`;
+        return [
+          api.request(url, { method: "PATCH", headers: organizer, body: JSON.stringify(edit) }),
+          api.request(url, { method: "DELETE", headers: organizer }),
+        ];
+      }),
+    );
+    const bodies = await Promise.all(
+      responses.map(async (response) => {
+        expect(response.status).toBe(403);
+        const envelope = (await response.json()) as { error: Record<string, unknown> };
+        // The correlation id is per request and is the one thing that must differ.
+        return JSON.stringify({ ...envelope.error, correlationId: undefined });
+      }),
+    );
+
+    // One distinct answer across all four: an id naming another event's line and an id naming
+    // nothing produce the same response.
+    expect(new Set(bodies).size).toBe(1);
+    // And nothing was written to the other event's checklist on the way past.
+    await expect(
+      store.findTaskTemplate("00000000-0000-4000-8000-0000000000e1"),
+    ).resolves.toMatchObject({ title: "Somebody else's line" });
+  });
+
   it("answers a profile edit that never wins the record with 409 CONFLICT", async () => {
     // The store refuses the way `D1ContentRepository` does after losing the revision number
     // five times running. What is under test is the transport: contention has to reach the

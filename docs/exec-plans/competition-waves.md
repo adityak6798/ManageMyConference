@@ -279,16 +279,6 @@ conclusion: #25 made `createMigratedDatabase()` mint a Miniflare instance per ca
 count now scales with test count, and seven concurrent lanes is a load pattern that did not exist
 before this month.
 
-**A fifth occurrence, on 2026-08-13, is the first on hosted CI rather than a developer machine.**
-`gate:browser` on PR #188 at `86662d3` failed 2 of 70 — both in `speaker-portal.spec.ts`, which is
-simply what was running when the Worker exited. The log is unambiguous about the mechanism and it is
-not an assertion: `workerd` raised `kj/async-io-unix.c++:186: disconnected: ::write(...): Broken
-pipe` repeatedly, `wrangler dev exited with status 1`, and every request after that point is
-`connect ECONNREFUSED`. The same suite had passed locally at the same commit minutes earlier, and a
-re-run of the unchanged job on CI passed. So the failure reaches a single-tenant GitHub runner with
-no concurrent worktrees, which rules out the cross-worktree load the fourth occurrence measured as a
-*necessary* condition — whatever kills the process can do it under one suite's own load.
-
 **A fourth occurrence, on 2026-08-12 at `c739ec6`, names the mechanism.** `gate:d1` failed 24 of 79
 with `fetch failed`, and `gate:browser` died *before the suite started* — inside `npm run reset`,
 with `connect EADDRNAVAIL 127.0.0.1:56532` from `wrangler d1 execute`. That is ephemeral-port
@@ -299,6 +289,24 @@ commit with no change. Two consequences for whoever fixes this: the failing D1 r
 deterministic (a second `gate:d1` failed 24 again but on a partly different set), and a run that
 dies during reset still leaves a record — my failing run overwrote `.evidence/d1.json` with
 `exitCode 1`, which is harmless only because `.evidence/` is gitignored.
+
+**A fifth occurrence, on 2026-08-13, is the first on a single-tenant hosted runner.** `gate:browser`
+on PR #188 at `86662d3` failed 2 of 70 — both in `speaker-portal.spec.ts`, which is simply what was
+running when the Worker exited. What the log settles is the *signature*, not the cause: `workerd`
+raised `kj/async-io-unix.c++:186: disconnected: ::write(...): Broken pipe` repeatedly, `wrangler dev
+exited with status 1`, and every later request is `connect ECONNREFUSED`. That is the runtime dying
+mid-run, which is this entry's first and second occurrences and emphatically not an assertion
+failure. The same suite had passed locally at the same commit minutes earlier, and a re-run of the
+unchanged job passed.
+
+Its value is one narrow ruling, and it is worth being exact about which symptom it rules on. **For
+the runtime dying mid-run, concurrent worktrees are not a necessary condition**: a GitHub runner has
+one checkout and one suite, and it still happened. That says nothing about the *fourth* occurrence,
+which measured something different — `EADDRNAVAIL` inside `npm run reset`, before the suite started,
+under seven `workerd` and ten `vite` processes. The entry itself calls that ephemeral-port
+exhaustion rather than a Worker crash, and nothing here shows that mechanism can occur without the
+concurrency that produced it. Two symptoms, one entry; whoever fixes this should not assume one
+cause.
 
 **`GAP-015` is closed.** W3-quality took the relay: #84's t=0 gate now proves the seeded Overview
 table names Sam Speaker, their open task and its due date, before any spec mutation. The

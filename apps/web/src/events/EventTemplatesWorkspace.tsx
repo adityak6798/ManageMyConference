@@ -363,15 +363,23 @@ export function EventTemplatesWorkspace({
    * an application where nothing landed is not a lesser problem than one where half did — it is
    * a clone the organizer believes happened.
    *
-   * **Newest only, and that is a correctness rule rather than tidiness.** An application row is
-   * keyed per version, so applying a *newer* version — or a different template — writes its own
-   * row and leaves an older `partial` one exactly where it was. Offering that older one as a
-   * repair would write its payload over the configuration that superseded it: every slice
-   * converges on the payload it is given, so "re-apply version 1" against an event since
-   * configured from version 2 is a revert wearing the word repair. The newest application is the
-   * only one whose payload is still the state the organizer chose, so it is the only one this
-   * card may offer — which is also exactly what the issue asked for, "events whose most recent
-   * application was `partial`".
+   * **Newest only, and it is a safety rule with a cost — both halves worth stating.**
+   *
+   * An application row is keyed per version, so applying a newer version, or a different
+   * template, writes its own row and leaves an older `partial` one exactly where it was.
+   * Offering that older one as a repair would write its payload over the configuration that
+   * replaced it: every slice converges on the payload it is given, so "re-apply version 1"
+   * against an event since configured from version 2 is a revert wearing the word repair. The
+   * newest application is the only one whose payload is still the state the organizer chose, so
+   * it is the only one this card may offer — which is also what the issue asked for, "events
+   * whose most recent application was `partial`".
+   *
+   * The cost: a later application naming a *different* template, or a subset of categories, is
+   * newer and may read `applied` while the category the earlier one could not write is still
+   * unconfigured — and the card then goes quiet about it. Answering that properly means asking
+   * whether a *category* is outstanding rather than whether an *application* was, which nothing
+   * supports today because `outcome_json` is a per-application document. Recorded as the largest
+   * of `GAP-023`'s three residuals rather than left for the next reader to rediscover here.
    */
   const incomplete = useMemo(() => {
     // Newest first, as the route promises; re-sorted here rather than trusted, because the whole
