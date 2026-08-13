@@ -50,7 +50,8 @@
     "apps/web/test/review-suggestions.test.tsx",
     "apps/api/src/transport/http/routes/review.ts",
     "apps/web/src/workspaces/review.tsx",
-    "docs/engineering/review-suggestions.md"
+    "docs/engineering/review-suggestions.md",
+    "apps/api/migrations/1311_review_decision_revision.sql"
   ],
   "symbols": {
     "ReviewService": "apps/api/src/application/review/review-service.ts",

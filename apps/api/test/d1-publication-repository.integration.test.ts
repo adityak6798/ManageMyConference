@@ -120,6 +120,25 @@ describe("D1PublicationRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
 
+  it("reports only the writer that actually transitions a published projection", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-unpublish-race" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const repository = new D1PublicationRepository(database);
+
+    const [first, second] = await Promise.all([
+      repository.unpublish(DEMO_EVENT),
+      repository.unpublish(DEMO_EVENT),
+    ]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect([first, second].filter((result) => result === null)).toHaveLength(1);
+  });
+
   it("refuses to migrate an existing live-to-draft slug collision", async () => {
     runtime = new Miniflare({
       modules: true,

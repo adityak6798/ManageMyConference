@@ -1,0 +1,21 @@
+-- How many times this proposal has actually been decided.
+--
+-- A decision row is overwritten in place: `saveDecision` upserts on `(event_id, proposal_id)`, and
+-- `ReviewService.decide` documents re-deciding as how a half-finished decision heals. That leaves
+-- no way to tell a **retry** of a decision from a **reinstatement** of one — accept, decline,
+-- accept again — because every column that changes on the second also changes on the first,
+-- `decided_at` included.
+--
+-- Nothing needed that distinction until the unified audit timeline (`PRD-OPS-003`), which has to
+-- record every decision exactly once: keying on the attempt duplicates a retry into a permanent
+-- row, and keying on the outcome alone drops the reinstatement. `revision` is the monotonic fact
+-- that separates them, and it is the decision's own property rather than the log's.
+--
+-- It advances **only when the outcome changes**, which is precisely the definition of a new
+-- decision: re-deciding the same way is the retry the service already treats as idempotent, and
+-- deciding differently is a decision. The increment is computed inside the upsert rather than by
+-- a read-then-write, so two organizers deciding at once cannot both read 1 and both write 2.
+--
+-- Existing rows are one decision each, which is what they are: `1` is the count of decisions made,
+-- not a schema version.
+ALTER TABLE review_decisions ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;

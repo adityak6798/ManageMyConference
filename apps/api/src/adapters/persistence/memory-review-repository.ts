@@ -181,8 +181,15 @@ export class MemoryReviewRepository implements ReviewRepository {
   async listOutcomes(eventId: string) {
     return [...this.outcomes.values()].filter((outcome) => outcome.eventId === eventId);
   }
-  async saveDecision(decision: ProposalDecision) {
-    this.decisions.set(`${decision.eventId}:${decision.proposalId}`, decision);
+  /** Mirrors the D1 rule: the revision advances only when the outcome changes. */
+  async saveDecision(decision: Omit<ProposalDecision, "revision">): Promise<number> {
+    const key = `${decision.eventId}:${decision.proposalId}`;
+    const existing = this.decisions.get(key);
+    const revision = existing
+      ? existing.revision + (existing.outcome === decision.outcome ? 0 : 1)
+      : 1;
+    this.decisions.set(key, { ...decision, revision });
+    return revision;
   }
   async findDecision(eventId: string, proposalId: string) {
     return this.decisions.get(`${eventId}:${proposalId}`) ?? null;

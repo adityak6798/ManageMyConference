@@ -8,6 +8,10 @@ import {
 import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
+import {
+  D1AuditRecordStore,
+  preparedAuditWriter,
+} from "./adapters/persistence/d1-audit-repository";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
 import {
   D1CommunicationsRepository,
@@ -18,13 +22,9 @@ import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1EventTemplateRepository } from "./adapters/persistence/d1-event-template-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
-import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
+import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
-import {
-  D1AuditRecordStore,
-  preparedAuditWriter,
-} from "./adapters/persistence/d1-audit-repository";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -58,21 +58,21 @@ import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
 import { EventService, EventTemplateService } from "./application/events/public";
 import {
-  AuditRecorder,
-  createRequestIdentity,
-  lifecycleAuditKey,
-  PlatformOperationsService,
-} from "./application/platform/public";
-import {
   completeGoogleAuthorization,
-  type GoogleConfiguration,
   GoogleAuthenticationError,
+  type GoogleConfiguration,
   startGoogleAuthorization,
   stateProof,
 } from "./application/identity/google-oauth";
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
+import {
+  AuditRecorder,
+  createRequestIdentity,
+  lifecycleAuditKey,
+  PlatformOperationsService,
+} from "./application/platform/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { publishingTemplateSlice } from "./application/publishing/public";
 import { PublicationService } from "./application/publishing/publication-service";
@@ -507,7 +507,11 @@ export default {
               action: "agenda.schedule_published",
               targetType: "agenda-publication",
               targetId: event.id,
-              idempotencyKey: `audit:agenda.schedule_published:${event.id}`,
+              idempotencyKey: lifecycleAuditKey({
+                action: "agenda.schedule_published",
+                eventId: event.eventId,
+                targetId: event.id,
+              }),
             }),
           ),
         ];
@@ -679,7 +683,11 @@ export default {
           action: "communications.delivery_enqueued",
           targetType: "delivery",
           targetId: enqueued.id,
-          idempotencyKey: `audit:communications.delivery_enqueued:${enqueued.id}`,
+          idempotencyKey: lifecycleAuditKey({
+            action: "communications.delivery_enqueued",
+            eventId,
+            targetId: enqueued.id,
+          }),
         });
       } catch (error) {
         // ERROR-INTENT: a message that cannot be queued must not fail the already-committed
@@ -824,25 +832,17 @@ export default {
         // The outcome is in the key for the same reason it is in the delivery's: a reversed
         // decision is a different thing that happened, and the log has to hold both.
         /*
-         * No occurrence component, and the reason is a limitation rather than an oversight.
-         *
-         * A decision can genuinely recur on one proposal — accept, decline, accept again is three
-         * decisions, and the outcome in the action separates only the first two. Distinguishing
-         * the third from the first needs something that changes on a real decision and not on a
-         * retry, and the review domain has nothing of the kind: `decide` recomputes `decidedAt`
-         * on every call, including the retry it documents as the way a half-finished decision
-         * heals, and a stored decision carries no revision.
-         *
-         * So the choice is forced, and `PRD-OPS-003` settles which way: a replayed command
-         * produces exactly one record. A reinstated decision therefore re-derives the first
-         * decision's key and is not recorded a second time. `GAP-022` names it, and the
-         * `occurrence` parameter above is the extension point that closes it once review can
-         * number its decisions.
+         * The revision is the occurrence, and it is the decision's own fact rather than this
+         * clock's. Re-deciding the same way holds it, so a retried `decide` — which review
+         * documents as how a half-finished decision heals — converges on one record. Accept,
+         * decline, accept again advances it to 3, so the reinstatement is a third record rather
+         * than a re-derivation of the first. Migration 1311 is what made both true at once.
          */
         await recordLifecycle(fact.eventId, {
           action: `review.decision_${fact.outcome}`,
           targetType: "proposal",
           targetId: fact.proposalId,
+          occurrence: `r${fact.revision}`,
         });
         if (!fact.submitterEmail) {
           logger.warn(
@@ -852,10 +852,10 @@ export default {
           return;
         }
         await notifyLifecycle(fact.eventId, { proposalId: fact.proposalId }, () => ({
-          // The outcome is in the key on purpose: a reversed decision is a different thing to
-          // announce, so re-deciding sends the corrected message instead of being deduplicated
-          // into silence by the first one.
-          idempotencyKey: `decision:${fact.eventId}:${fact.proposalId}:${fact.outcome}`,
+          // The occurrence joins the outcome because a reinstatement is another real decision:
+          // accept → decline → accept must not reuse the first acceptance's delivery key. A retry
+          // holds the revision, so it still converges on the original delivery.
+          idempotencyKey: `decision:${fact.eventId}:${fact.proposalId}:${fact.outcome}:r${fact.revision}`,
           triggerType: "decision.recorded",
           channel: "email",
           recipientRef: fact.submitterEmail as string,

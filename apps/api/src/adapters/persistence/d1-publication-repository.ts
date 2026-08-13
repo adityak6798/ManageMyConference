@@ -1,10 +1,11 @@
 import type { PublicationRepository } from "../../application/publishing/publication-repository";
 import { PublicationSlugTakenError } from "../../application/publishing/publication-service";
 import type { Publication, PublicEventProjection } from "../../domain/publishing/publication";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 
 interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
-  run(): Promise<{ success: boolean; error?: string }>;
+  run(): Promise<D1WriteResult>;
   all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
 }
 interface D1DatabasePort {
@@ -165,12 +166,13 @@ export class D1PublicationRepository implements PublicationRepository {
   async unpublish(eventId: string): Promise<Publication | null> {
     const result = await this.database
       .prepare(
-        "UPDATE public_event_projections SET state = 'unpublished', published_json = NULL, published_at = NULL WHERE event_id = ?",
+        "UPDATE public_event_projections SET state = 'unpublished', published_json = NULL, published_at = NULL WHERE event_id = ? AND state = 'published'",
       )
       .bind(eventId)
       .run();
     if (!result.success)
       throw new Error(`D1 failed to unpublish projection: ${result.error ?? "unknown error"}`);
+    if (changedRows(result, "unpublish projection") === 0) return null;
     return this.findByEventId(eventId);
   }
 }

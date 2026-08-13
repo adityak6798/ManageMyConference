@@ -127,6 +127,7 @@ type DecisionRow = {
   decided_by: string;
   decided_at: string;
   note: string;
+  revision: number;
 };
 
 const decision = (row: DecisionRow): ProposalDecision => ({
@@ -136,6 +137,7 @@ const decision = (row: DecisionRow): ProposalDecision => ({
   decidedBy: row.decided_by,
   decidedAt: row.decided_at,
   note: row.note,
+  revision: row.revision,
 });
 
 const assignment = (row: AssignmentRow): ReviewAssignment => ({
@@ -499,19 +501,37 @@ export class D1ReviewRepository implements ReviewRepository {
     this.ensure(result, "list completed evaluations");
     return (result.results ?? []).map(evaluation);
   }
-  async saveDecision(item: ProposalDecision) {
+  /**
+   * Upsert the decision and return the revision it now stands at.
+   *
+   * The increment is part of the same statement rather than a read-then-write, so two organizers
+   * deciding the same proposal at once cannot both read the old revision and both write the same
+   * new one. `RETURNING` is what lets the caller learn the allocated value without a second read
+   * that another writer could interleave with.
+   *
+   * `CASE WHEN review_decisions.outcome = excluded.outcome` is the whole rule: re-deciding the
+   * same way is a retry and holds the revision, deciding differently is a new decision and
+   * advances it.
+   */
+  async saveDecision(item: Omit<ProposalDecision, "revision">): Promise<number> {
     const result = await this.database
       .prepare(
-        "INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decided_at, note) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(event_id, proposal_id) DO UPDATE SET outcome = excluded.outcome, decided_by = excluded.decided_by, decided_at = excluded.decided_at, note = excluded.note",
+        "INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decided_at, note, revision) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT(event_id, proposal_id) DO UPDATE SET outcome = excluded.outcome, decided_by = excluded.decided_by, decided_at = excluded.decided_at, note = excluded.note, revision = review_decisions.revision + (CASE WHEN review_decisions.outcome = excluded.outcome THEN 0 ELSE 1 END) RETURNING revision",
       )
       .bind(item.eventId, item.proposalId, item.outcome, item.decidedBy, item.decidedAt, item.note)
-      .run();
+      .all<{ revision: number }>();
     this.ensure(result, "save review decision");
+    const revision = result.results?.[0]?.revision;
+    // A driver that cannot report the allocated revision must not be read as "1": that would
+    // silence a reinstatement on the audit timeline rather than fail visibly.
+    if (typeof revision !== "number")
+      throw new Error("D1 reported no revision while attempting to save a review decision");
+    return revision;
   }
   async findDecision(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note FROM review_decisions WHERE event_id = ? AND proposal_id = ? LIMIT 1",
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note, revision FROM review_decisions WHERE event_id = ? AND proposal_id = ? LIMIT 1",
       )
       .bind(eventId, proposalId)
       .all<DecisionRow>();
@@ -521,7 +541,7 @@ export class D1ReviewRepository implements ReviewRepository {
   async listDecisions(eventId: string) {
     const result = await this.database
       .prepare(
-        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note FROM review_decisions WHERE event_id = ? ORDER BY proposal_id",
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note, revision FROM review_decisions WHERE event_id = ? ORDER BY proposal_id",
       )
       .bind(eventId)
       .all<DecisionRow>();

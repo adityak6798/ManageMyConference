@@ -892,7 +892,38 @@ describe("what a review action asks to have sent (issues #52, #66)", () => {
         submitterName: "Robin Submitter",
         submitterEmail: "robin@example.test",
         proposalTitle: "Test proposal",
+        // First decision on this proposal. The revision is what lets an observer tell a retry
+        // from a reinstatement; the cases below drive both (issue #99, migration 1311).
+        revision: 1,
       },
+    ]);
+  });
+
+  it("holds the revision on a retry and advances it on a reinstatement", async () => {
+    /*
+     * The distinction the audit timeline is built on, and the one every other column loses.
+     *
+     * `decide` overwrites: `decidedBy`, `decidedAt` and the stored outcome all move on a retry as
+     * well as on a real decision, so an observer keyed on any of them either duplicates the retry
+     * or drops the reinstatement. `revision` advances only when the outcome changes, which is the
+     * definition of a new decision.
+     */
+    const notifications = recorder();
+    const { service } = build({ notifications: notifications.port });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.decide(organizer, eventId, [proposalId], "accepted");
+    // The retry `decide` documents as how a half-finished decision heals.
+    await service.decide(organizer, eventId, [proposalId], "accepted");
+    await service.decide(organizer, eventId, [proposalId], "declined");
+    // Reinstated: a third decision, not a re-derivation of the first.
+    await service.decide(organizer, eventId, [proposalId], "accepted");
+
+    expect(notifications.decided.map(({ outcome, revision }) => [outcome, revision])).toEqual([
+      ["accepted", 1],
+      ["accepted", 1],
+      ["declined", 2],
+      ["accepted", 3],
     ]);
   });
 

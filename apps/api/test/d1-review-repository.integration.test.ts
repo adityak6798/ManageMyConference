@@ -723,3 +723,62 @@ describe("review suggestion races and provenance guards", () => {
     await expect(insertEvaluation("manual", null)).resolves.toMatchObject({ success: true });
   });
 });
+
+describe("decision revisions", () => {
+  const EVENT = "00000000-0000-4000-8000-000000000001";
+  const PROPOSAL = "10000000-0000-4000-8000-000000000001";
+
+  const pending = (outcome: "accepted" | "declined", decidedAt: string) => ({
+    eventId: EVENT,
+    proposalId: PROPOSAL,
+    outcome,
+    decidedBy: "seed-organizer",
+    decidedAt,
+    note: "",
+  });
+
+  it("holds the revision on a retry and advances it on a reinstatement", async () => {
+    /*
+     * Against real D1 because the rule lives in the upsert, not in the service: the increment is
+     * a `CASE` inside `ON CONFLICT DO UPDATE`, and `RETURNING` is what hands the allocated value
+     * back without a second read another writer could interleave with. The in-memory twin
+     * implements the same rule; this is what proves the twin is telling the truth.
+     */
+    const harness = await createMigratedDatabase({ seed: true, label: "review-revision" });
+    const repository = new D1ReviewRepository(harness.database as never);
+
+    const first = await repository.saveDecision(pending("accepted", "2026-08-12T09:00:00.000Z"));
+    // Same outcome, later instant: the retry `decide` documents as how a decision heals.
+    const retry = await repository.saveDecision(pending("accepted", "2026-08-12T10:00:00.000Z"));
+    const reversed = await repository.saveDecision(pending("declined", "2026-08-12T11:00:00.000Z"));
+    const reinstated = await repository.saveDecision(
+      pending("accepted", "2026-08-12T12:00:00.000Z"),
+    );
+
+    expect([first, retry, reversed, reinstated]).toEqual([1, 1, 2, 3]);
+    // One row throughout — the revision counts decisions, it does not accumulate them.
+    const stored = await repository.findDecision(EVENT, PROPOSAL);
+    expect(stored).toMatchObject({ outcome: "accepted", revision: 3 });
+    expect(
+      (await repository.listDecisions(EVENT)).filter(({ proposalId }) => proposalId === PROPOSAL),
+    ).toHaveLength(1);
+    await harness.dispose();
+  });
+
+  it("starts a row that predates the column at one decision, not at zero", async () => {
+    // Migration 1311 defaults existing rows to 1, which is the count of decisions they represent.
+    const harness = await createMigratedDatabase({ seed: true, label: "review-revision-default" });
+    const repository = new D1ReviewRepository(harness.database as never);
+    await harness.database
+      .prepare(
+        "INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decided_at, note) VALUES (?, ?, 'accepted', 'seed-organizer', '2026-08-01T00:00:00.000Z', '')",
+      )
+      .bind(EVENT, PROPOSAL)
+      .run();
+
+    expect(await repository.findDecision(EVENT, PROPOSAL)).toMatchObject({ revision: 1 });
+    // …and the next genuine decision advances from it rather than restarting.
+    expect(await repository.saveDecision(pending("declined", "2026-08-12T09:00:00.000Z"))).toBe(2);
+    await harness.dispose();
+  });
+});
