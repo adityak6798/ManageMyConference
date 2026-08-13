@@ -26,6 +26,30 @@ test("the remote reset is pinned to the checked-in disposable demo resources", (
   ]);
 });
 
+test("resource validation is independent of TOML table order", () => {
+  const d1Start = config.indexOf("[[d1_databases]]");
+  const r2Start = config.indexOf("[[r2_buckets]]");
+  const d1Block = config.slice(d1Start, r2Start);
+  const r2Block = config.slice(r2Start);
+  assert.doesNotThrow(() => assertDemoConfig(`${config.slice(0, d1Start)}${r2Block}\n${d1Block}`));
+});
+
+test("D1 identity fields must belong to the same table block", () => {
+  const splitIdentity = config.replace(
+    `database_id = "${DEMO_TARGET.databaseId}"`,
+    `database_id = "production-id"\n\n[[d1_databases]]\nbinding = "PRODUCTION"\ndatabase_name = "production"\ndatabase_id = "${DEMO_TARGET.databaseId}"`,
+  );
+  assert.throws(() => assertDemoConfig(splitIdentity), /exact demo D1 database/);
+});
+
+test("R2 binding and bucket name must belong to the same table block", () => {
+  const splitIdentity = config.replace(
+    `bucket_name = "${DEMO_TARGET.bucketName}"`,
+    `bucket_name = "production-assets"\n\n[[r2_buckets]]\nbinding = "PRODUCTION"\nbucket_name = "${DEMO_TARGET.bucketName}"`,
+  );
+  assert.throws(() => assertDemoConfig(splitIdentity), /exact demo R2 bucket/);
+});
+
 for (const [label, changed] of [
   [
     "production authentication",

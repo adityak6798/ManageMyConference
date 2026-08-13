@@ -25,6 +25,19 @@ function quotedValue(text, key) {
   return new RegExp(`^${key}\\s*=\\s*"([^"]+)"\\s*$`, "m").exec(text)?.[1];
 }
 
+function tableBlocks(text, table) {
+  const heading = `[[${table}]]`;
+  return text
+    .split(/^\[\[([^\]]+)\]\]\s*$/m)
+    .flatMap((part, index, parts) => (index > 0 && parts[index - 1] === table ? [part] : []));
+}
+
+function hasBlock(text, table, expected) {
+  return tableBlocks(text, table).some((block) =>
+    Object.entries(expected).every(([key, value]) => quotedValue(block, key) === value),
+  );
+}
+
 /**
  * Refuse before authenticating if this checkout no longer describes the disposable demo.
  * Exact resource identities make copying this command into a production config fail closed.
@@ -34,10 +47,6 @@ export function assertDemoConfig(text) {
     ["name", DEMO_TARGET.worker],
     ["ENVIRONMENT", "development"],
     ["DEMO_MODE", "true"],
-    ["binding", DEMO_TARGET.databaseBinding],
-    ["database_name", DEMO_TARGET.databaseName],
-    ["database_id", DEMO_TARGET.databaseId],
-    ["bucket_name", DEMO_TARGET.bucketName],
   ];
   for (const [key, value] of expected) {
     if (quotedValue(text, key) !== value)
@@ -45,10 +54,24 @@ export function assertDemoConfig(text) {
         `Refusing remote reset: apps/api/wrangler.toml must declare ${key} = "${value}".`,
       );
   }
-  const bindings = [...text.matchAll(/^binding\s*=\s*"([^"]+)"\s*$/gm)].map((match) => match[1]);
-  if (!bindings.includes(DEMO_TARGET.bucketBinding))
+  if (
+    !hasBlock(text, "d1_databases", {
+      binding: DEMO_TARGET.databaseBinding,
+      database_name: DEMO_TARGET.databaseName,
+      database_id: DEMO_TARGET.databaseId,
+    })
+  )
     throw new Error(
-      `Refusing remote reset: apps/api/wrangler.toml must bind R2 as ${DEMO_TARGET.bucketBinding}.`,
+      "Refusing remote reset: apps/api/wrangler.toml must bind the exact demo D1 database as DB.",
+    );
+  if (
+    !hasBlock(text, "r2_buckets", {
+      binding: DEMO_TARGET.bucketBinding,
+      bucket_name: DEMO_TARGET.bucketName,
+    })
+  )
+    throw new Error(
+      "Refusing remote reset: apps/api/wrangler.toml must bind the exact demo R2 bucket as ASSETS.",
     );
 }
 
