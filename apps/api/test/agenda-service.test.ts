@@ -1,5 +1,5 @@
 // @acceptance ACC-AGENDA
-import { agendaAssistedDraftSchema, agendaDraftSchema } from "@greenroom/contracts";
+import { agendaAssistedDraftSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
@@ -384,30 +384,33 @@ describe("board occurrences", () => {
       { kind: "SPEAKER_OVERLAP", occurrence: 2 },
     ]);
 
-    // Adding a room is an edit to a different part of the programme. No derived condition reads
-    // the room list — an overlap is decided by the room *ids* the placements already carry — so
-    // counting it would resurface every dismissed conflict on the event for nothing.
-    const roomed = await agenda.configure(organizer, eventId, {
+    // Adding a room, and adding a time slot nothing is placed in, are edits to a different part
+    // of the programme. No derived condition reads the room list — an overlap is decided by the
+    // room *ids* the placements already carry — and an unreferenced slot cannot change any pair's
+    // overlap either, so counting either would resurface every dismissed conflict for nothing.
+    const widened = await agenda.configure(organizer, eventId, {
       rooms: [...draft.rooms, { id: "room-annex", name: "Annex" }],
       tracks: draft.tracks,
-      slots: draft.slots,
-    });
-    expect(roomed.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
-
-    // Retiming the slot is the other way a clash of these two placements can be resolved and
-    // reintroduced, so the slots carry an occurrence of their own.
-    const retimed = await agenda.configure(organizer, eventId, {
-      rooms: roomed.rooms,
-      tracks: draft.tracks,
       slots: [
-        { id: "slot-9", startsAt: "2026-09-01T16:00:00.000Z", endsAt: "2026-09-01T16:20:00.000Z" },
-        draft.slots[1] as (typeof draft.slots)[number],
+        ...draft.slots,
+        { id: "slot-11", startsAt: "2026-09-01T18:00:00.000Z", endsAt: "2026-09-01T19:00:00.000Z" },
       ],
+    });
+    expect(widened.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
+    // Retiming a slot the placements are actually in is the other way this clash can be resolved
+    // and reintroduced, so that — and only that — advances the slots' own number.
+    const retimed = await agenda.configure(organizer, eventId, {
+      rooms: widened.rooms,
+      tracks: draft.tracks,
+      slots: widened.slots.map((slot) =>
+        slot.id === "slot-9" ? { ...slot, endsAt: "2026-09-01T16:20:00.000Z" } : slot,
+      ),
     });
     expect(retimed.conflicts.every(({ occurrence }) => occurrence === 4)).toBe(true);
   });
 
-  it("answers a board stored before occurrences existed with them, on every path", async () => {
+  it("answers a board stored before occurrences existed with them, including from the repository", async () => {
     /*
      * No migration backfilled them, so every board written before this commit — the seeded one
      * included — carries none, and the contract this change made required is not optional about
@@ -439,13 +442,17 @@ describe("board occurrences", () => {
     const repository = new MemoryAgendaRepository([legacy]);
     const agenda = service(repository);
 
-    // Every cell this board has is taken, so the assisted pass seats nothing and answers with
-    // what it read. A third session with nowhere to go is the state that reaches it.
+    // Both sessions are already placed, so the pass has nothing to seat and answers with the
+    // board as it read it — the same branch a full board reaches when it cannot seat what is
+    // left, and the one path that returns a draft neither write path normalized.
     const seated = await agenda.autoPlace(organizer, eventId);
 
+    expect(seated.placed).toEqual([]);
     expect(seated.occurrences).toEqual({ sessions: {}, slots: 0 });
     expect(agendaAssistedDraftSchema.safeParse(seated).success).toBe(true);
-    expect(agendaDraftSchema.safeParse(await agenda.draft(organizer, eventId)).success).toBe(true);
+    // Asserted against the repository rather than against `draft()`, which normalizes on its own
+    // account: reading it through the service would pass with the repository's guarantee removed.
+    expect((await repository.getDraft(eventId))?.occurrences).toEqual({ sessions: {}, slots: 0 });
   });
 
   it("keeps them out of the publication snapshot", async () => {

@@ -601,23 +601,27 @@ shape as `nextSessionScheduleRevisions` (#141) one level down.
 **The occurrence is per session, not the board revision.** The closure condition allowed either. A
 board revision in the key is correct and useless: every dismissal on the programme would evaporate
 the moment anybody dragged a card. What is stored instead is, per session, the revision at which
-that session's placements last changed, plus one number for the **time slots**; a conflict takes
-the later of its two placements' and the slots'. Rooms and tracks carry no number, and the first
-version of this change counted them: `conflictsFor` reads slot *times* and ids that already live
-on the placements, and reads neither the room list nor the tracks, so counting an added room would
-have resurfaced every dismissed conflict on the event — the exact promise the pair of numbers
-exists to keep. `MISSING_SESSION` excludes the slots for the same kind of reason.
+that session's placements last changed, plus one number for a **retimed slot**; a conflict takes
+the later of its two placements' and the slots'. That second number was narrowed twice under
+review and both narrowings are one argument: `conflictsFor` reads slot *times* and ids that
+already live on the placements, and reads neither the room list nor the tracks — so the first
+version, which counted every resource edit, resurfaced every dismissed conflict on the event when
+somebody added a room, and the second, which compared the whole slot list, did the same when
+somebody added a time slot nothing was placed in. Both are the exact promise the pair of numbers
+exists to keep, failed in the small. What is left is the case that is real: a slot that keeps its
+id and moves in time. `MISSING_SESSION` excludes the slots for the same kind of reason.
 
 **Nothing is backfilled, and that is the visible cost of taking no migration.** Every programme
 dismissal recorded before this reads as occurrence zero, so its item returns open once on deploy
 and the old row stays in `platform_inbox_dismissals`. It is the conservative direction — the
 surface asks again rather than hiding something nobody has seen — and it is now stated in
 `PRD-OPS-002`, the interface docs and `GAP-022` rather than left to be discovered. The same
-absence is why both repositories normalize the field **on read**: `savePlacements` answers with the
-board it read when a plan seats nothing, which is the ordinary answer once every cell is taken, and
-that path served a draft with no `occurrences` to a console whose response contract now requires
-one. Caught by the review pass, not by a gate — `tsc` sees an optional field and `openapi:check`
-sees a schema, and neither knows which producer skips normalization.
+absence is why `AgendaRepository.getDraft` now promises the field and both implementations
+normalize **on read**: `savePlacements` answers with the board it read whenever a plan seats
+nothing — every session already placed, or nothing left that fits — and that path served a draft
+with no `occurrences` to a console whose response contract now requires one. Caught by the review
+pass, not by a gate: `tsc` sees an optional field and `openapi:check` sees a schema, and neither
+knows which producer skips normalization.
 
 **`occurrences` is on the wire, and eight web fixtures were updated for it.** The console does not
 read it, so hiding it from the response was the tempting alternative; it was rejected because the

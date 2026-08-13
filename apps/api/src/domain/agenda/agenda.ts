@@ -71,21 +71,27 @@ export interface BoardOccurrences {
    */
   readonly sessions: Readonly<Record<string, number>>;
   /**
-   * The revision at which the time slots last changed.
+   * The revision at which an existing time slot was last **retimed**.
    *
-   * The slots and nothing else, because they are the only resource a derived condition depends
-   * on: `conflictsFor` decides an overlap from slot *times* and from ids that live on the
-   * placements themselves, and reads neither the room list nor the tracks. Counting every
-   * resource edit here would have been the safer-looking choice and a worse one — adding a
-   * second room would have resurfaced every dismissed conflict on the event, which is exactly
-   * the "a dismissal survives an edit to a different part of the programme" promise this pair of
-   * numbers exists to keep. A slot removed or retimed can genuinely end a clash and bring it
-   * back with both placements untouched, and that is what this covers.
+   * Narrowed twice, and both narrowings are the same argument. `conflictsFor` decides an overlap
+   * from slot *times* and from ids that live on the placements themselves, and reads neither the
+   * room list nor the tracks — so counting every resource edit, which is what this first did,
+   * meant adding a second room resurfaced every dismissed conflict on the event. Adding a time
+   * slot is the same mistake one size down: a slot no placement references cannot change any
+   * pair's overlap, and adding one is a routine act while an organizer is building a board.
+   *
+   * What remains is the case that is real: a slot that keeps its id and moves in time can end a
+   * clash and bring it back with both placements untouched. Removing a referenced slot is not a
+   * third case — storage refuses it while a placement holds it.
    */
   readonly slots: number;
 }
 
-export const EMPTY_BOARD_OCCURRENCES: BoardOccurrences = { sessions: {}, slots: 0 };
+/** Frozen because it is handed out by reference on the read path, to every legacy board at once. */
+export const EMPTY_BOARD_OCCURRENCES: BoardOccurrences = Object.freeze({
+  sessions: Object.freeze({}),
+  slots: 0,
+});
 
 export interface AgendaDraft {
   readonly eventId: string;
@@ -272,8 +278,21 @@ function placedCells(draft: Pick<AgendaDraft, "placements">): ReadonlyMap<string
   return new Map([...cells].map(([sessionId, list]) => [sessionId, list.toSorted().join(",")]));
 }
 
-const sameSlots = (left: AgendaDraft, right: AgendaDraft) =>
-  JSON.stringify(left.slots) === JSON.stringify(right.slots);
+/**
+ * Whether every slot the two boards have in common still says the same hour.
+ *
+ * By id and pairwise, rather than by comparing the two lists: a slot that only one board has is
+ * either one being added — which no existing placement references, so it can change no pair's
+ * overlap — or one being removed, which storage refuses while a placement holds it. Comparing
+ * the arrays instead made both of those, and a mere reordering, look like a retiming.
+ */
+function sameSlotTimes(left: AgendaDraft, right: AgendaDraft): boolean {
+  const before = new Map(left.slots.map((slot) => [slot.id, slot]));
+  return right.slots.every((slot) => {
+    const held = before.get(slot.id);
+    return !held || (held.startsAt === slot.startsAt && held.endsAt === slot.endsAt);
+  });
+}
 
 /**
  * The occurrences one board write produces, given the ones in force before it.
@@ -293,8 +312,9 @@ const sameSlots = (left: AgendaDraft, right: AgendaDraft) =>
  *
  * *The slots carry their own number*, because a clash can be resolved by retiming a slot rather
  * than by moving either placement — and reintroduced the same way, with both placements'
- * occurrences untouched. Rooms and tracks are deliberately not counted: no derived condition
- * reads them, so an edit to either would resurface dismissals about conditions it cannot affect.
+ * occurrences untouched. Only a retiming counts: rooms, tracks, and slots being added or removed
+ * are all edits no derived condition reads, so counting them would resurface dismissals about
+ * conditions they cannot affect.
  *
  * An entry survives the session that owned it: the fold sees placements, not the content domain's
  * session list, so it cannot tell "deleted" from "not placed here". That leaves at most one small
@@ -314,7 +334,7 @@ export function advanceBoardOccurrences(
   for (const sessionId of before.keys()) if (!after.has(sessionId)) sessions[sessionId] = revision;
   return {
     sessions,
-    slots: sameSlots(previous, next) ? held.slots : revision,
+    slots: sameSlotTimes(previous, next) ? held.slots : revision,
   };
 }
 

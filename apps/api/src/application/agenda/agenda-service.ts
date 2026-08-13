@@ -73,9 +73,11 @@ export class AgendaService implements ContentAgendaInterface {
       speakerIds: session.speakerProfileIds,
     }));
     /*
-     * `occurrences` is normalized here rather than left absent, so every consumer sees the same
-     * shape whether or not the stored board predates them. A board that has never been edited
-     * since it was created answers `0` for everything, which is the truth about it.
+     * A backstop, not the mechanism. `AgendaRepository.getDraft` promises the occurrences and
+     * both implementations normalize on the way out, which is where the guarantee has to live —
+     * `savePlacements` can answer with a board it did not write, and that path never reaches
+     * here. This line costs nothing and means a repository that forgot would degrade to "nothing
+     * has happened yet" rather than to a response the console refuses.
      */
     const composed = {
       ...draft,

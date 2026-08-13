@@ -403,13 +403,14 @@ feature-by-feature verdict.
   It was six. The sixth — programme inbox dismissal keys carrying no occurrence, so a condition
   resolved and exactly recreated stayed hidden behind the old dismissal — **is closed** by issue
   #180. The agenda now maintains, in the same write that changes the board, the revision at which
-  each session's placements last changed and the one at which its time slots last changed; a
-  conflict carries the later of those, and platform's key carries it. A session nobody has touched
+  each session's placements last changed and the one at which an existing time slot was last
+  retimed; a conflict carries the later of those, and platform's key carries it. A session nobody has touched
   keeps its dismissal across every unrelated edit, which is why the number is per session rather
   than the board revision. Two consequences worth stating rather than discovering: the numbers are
   **not backfilled**, so every programme dismissal recorded before them reads as occurrence zero
   and its item returns open once — the conservative direction, and the reason no migration was
-  needed; and rooms and tracks carry no number at all, because no derived condition reads either.
+  needed; and rooms, tracks and added slots carry no number at all, because no derived condition
+  reads any of them.
   See `PRD-OPS-002` and `apps/api/test/platform-inbox.test.ts`.
 
   The console has **no per-record routes**. Every workspace is addressed by its path plus
