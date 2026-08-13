@@ -195,7 +195,8 @@
         "apps/api/test/d1-platform-repository.integration.test.ts",
         "apps/web/test/platform-inbox.test.tsx",
         "apps/api/test/platform-audit.test.ts",
-        "apps/web/test/platform-audit.test.tsx"
+        "apps/web/test/platform-audit.test.tsx",
+        "apps/api/test/publication-notifications.test.ts"
       ]
     }
   }

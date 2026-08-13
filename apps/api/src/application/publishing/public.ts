@@ -21,3 +21,9 @@ export {
   PublicationSlugTakenError,
 } from "./publication-service";
 export { publishingTemplateSlice } from "./template-slice";
+/**
+ * The seam platform's audit timeline observes publishing through (#99, `PRD-OPS-003`).
+ *
+ * Appended here rather than woven in, so a lane rebasing around this line moves nothing above it.
+ */
+export type { PublicationNotificationPort } from "./publication-service";

@@ -385,8 +385,9 @@ describe("the audit timeline in D1", () => {
  * lane's. The chain is: those suites prove the ports fire; this proves a firing port produces the
  * record the timeline shows.
  *
- * Publishing is deliberately absent. `PublicationService.publish` takes no port to record
- * through, and adding one edits publishing's application code, which belongs to PR 99d.
+ * Publishing is exercised through the port it now declares — `publication-notifications.test.ts`
+ * proves the service reports the fact, and the browser journey proves the record reaches the
+ * timeline; what this asserts is the ordering and attribution once a record is produced.
  */
 describe("one ordered timeline across domains", () => {
   it("records review, content, agenda and communications mutations with correct actor and source", async () => {
@@ -462,7 +463,7 @@ describe("one ordered timeline across domains", () => {
     });
 
     // The agenda's publication, committed in the batch its own write runs in — and with nobody
-    // signed in, because the drain and the cron are how publications can also arrive.
+    // signed in, which is how a record with no request behind it reaches the log.
     identity.set({ actor: null, correlationId: null });
     const write = preparedAuditWriter(harness.database as never);
     const database = harness.database as unknown as {
