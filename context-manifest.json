@@ -21,7 +21,7 @@
       {
         "path": "apps/api/src/application/events/public.ts",
         "governing": "ARC-DOM-001",
-        "reason": "The events domain's declared export surface. No cross-domain import reaches it today \u2014 consumers still use event-service.ts \u2014 and it stays declared so a new consumer has a surface to target instead of deep-importing the service."
+        "reason": "The events domain's declared export surface, and the slice port a template is assembled from. CFP's template slice imports EventConfigurationSlice from it \u2014 the first cross-domain consumer, targeting the surface instead of deep-importing the service, which is what it was declared for."
       },
       {
         "path": "apps/api/src/application/cfp/public.ts",
@@ -404,11 +404,13 @@
       "id": "events",
       "index": "docs/product/specifications.md",
       "specs": [
-        "PRD-EVT-001"
+        "PRD-EVT-001",
+        "PRD-EVT-002"
       ],
       "journeys": [],
       "acceptance": [
-        "ACC-IDENTITY-EVENTS"
+        "ACC-IDENTITY-EVENTS",
+        "ACC-EVENT-TEMPLATES"
       ],
       "plans": [
         "PLAN-002"
@@ -420,11 +422,16 @@
         "apps/api/src/domain/events",
         "apps/api/src/application/events",
         "apps/api/src/adapters/persistence/d1-event-repository.ts",
+        "apps/api/src/adapters/persistence/d1-event-template-repository.ts",
         "apps/api/src/adapters/persistence/event-mappers.ts",
         "apps/api/src/adapters/persistence/memory-event-repository.ts",
+        "apps/api/src/adapters/persistence/memory-event-template-repository.ts",
         "apps/api/test/d1-event-repository.integration.test.ts",
+        "apps/api/test/d1-event-template-repository.integration.test.ts",
         "apps/api/test/event-mappers.test.ts",
         "apps/api/test/event-service.test.ts",
+        "apps/api/test/event-templates.test.ts",
+        "apps/api/test/event-templates-http.test.ts",
         "apps/web/src/api/events.ts",
         "apps/web/test/App.test.tsx",
         "apps/web/test/error-fallback.test.tsx",
@@ -816,8 +823,11 @@
     "CrmContentQuery": "apps/api/src/application/content/public.ts",
     "CrmService": "apps/api/src/application/crm/public.ts",
     "D1EventRepository": "apps/api/src/adapters/persistence/d1-event-repository.ts",
+    "D1EventTemplateRepository": "apps/api/src/adapters/persistence/d1-event-template-repository.ts",
+    "EventConfigurationSlice": "apps/api/src/application/events/template-ports.ts",
     "EventRepository": "apps/api/src/application/events/event-repository.ts",
     "EventService": "apps/api/src/application/events/event-service.ts",
+    "EventTemplateService": "apps/api/src/application/events/event-template-service.ts",
     "ItineraryService": "apps/api/src/application/publishing/itinerary-service.ts",
     "OutboxWorker": "apps/api/src/application/communications/outbox-worker.ts",
     "OutreachDispatchPort": "apps/api/src/application/crm/outreach-dispatch.ts",

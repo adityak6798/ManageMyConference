@@ -297,3 +297,44 @@ still says feature 6 has "no test on its rows", which is one of the staleness it
 - **`acceptance-evidence.json` conflicts.** Seven lanes each edit one row. Assessed as small and
   mechanical — rows sit 8–14 lines apart and git merges them cleanly. Revisit only if it actually
   hurts; the fix would be the same shape as #105.
+
+### Issue #102 rulings
+
+Five decisions this lane made that a later reader would otherwise have to re-derive from the diff.
+
+**The composition root now calls `createHttpAppFrom`.** The wave's collision ruling tells every lane
+to append its service as a named property on the dependency object "immediately above the existing
+`createHttpAppFrom(` call". No such call existed in `apps/api/src/index.ts`: it called the positional
+`createHttpApp`, whose fourth argument is sorted out at runtime by testing for a method on it and
+which has no slot for a service added after it was written. `app.ts` already documents
+`createHttpAppFrom` as the form new code should use, and this lane may not edit `app.ts` — so the
+call site was converted, argument for argument, with no change in behaviour. Every later lane's
+addition is now the one-line append the ruling assumed. On a merge conflict here the resolution is
+one converted call plus both lanes' properties.
+
+**One entry in `context/architecture.json` had its `reason` corrected, and nothing was added.** The
+entry for `apps/api/src/application/events/public.ts` said "No cross-domain import reaches it today
+— consumers still use event-service.ts". That sentence stopped being true the moment
+`application/cfp/template-slice.ts` imported the slice port from it, which is precisely the "future
+consumer targets it rather than deep-importing" the same sentence anticipated. The allowlist itself
+is untouched: no path was added, no boundary widened. Events declares `EventConfigurationSlice`,
+each domain implements its own slice, and `index.ts` binds them, which creates no crossing to
+exempt.
+
+**`ACC-EVENT-TEMPLATES` is a new row rather than an edit to `ACC-IDENTITY-EVENTS`,** per this
+document's own override of the lane prompt, and it is the more honest claim besides: reusable event
+configuration is a different journey from the identity and event foundation, and #12 owns that row.
+
+**`created_by` and `applied_by` carry no foreign key.** `defineEventsSchema()` is constructed first
+in `schema/registry.ts` because identity-access's tables reference `events` and `organizations`, so
+a declared reference back to `users` is a cycle the registry cannot build. A migration-only foreign
+key would be a constraint the Drizzle declaration does not describe, and `npm run schema:check`
+compares foreign keys — so the columns record provenance without pretending to enforce it, and both
+the migration and the schema fragment say so.
+
+**Scope actually landed in PR 1: the template store, the orchestration seam, and the CFP slice.**
+Review and agenda slices are PR 2; publishing, speaker resources and the console surface are PR 3;
+speaker task checklists remain unbuilt and are argued in the PR body as their own issue rather than
+shipped as a preview category that always reports zero. `GAP-023` records the one limit that
+survives all four: applying is not atomic across domains, and a `partial` application is not
+surfaced anywhere after the response that reported it.

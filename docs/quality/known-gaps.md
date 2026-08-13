@@ -272,3 +272,26 @@ feature-by-feature verdict.
   not name, unless an explicit flag says to destroy them — or the demo and self-serve deployments
   become separate databases. Either one, plus a test that proves the refusal, closes this and makes
   it safe to configure Google on the deployed demo.
+
+- `GAP-023` **Applying an event template is not atomic across domains, and a half-applied template
+  is a state a person has to notice and repair.** There is no cross-domain transaction in this
+  repository: `D1DatabasePort.batch` is per-adapter and each domain's repository owns its own
+  writes, so "atomic across seven domains" would need a mechanism nobody has built. Issue #102's own
+  scope offers the alternative this took — a documented per-domain repairable result that hides no
+  partial state — and the implementation holds up its end: every category reports `applied`,
+  `skipped`, `incompatible`, `unauthorized` or `failed` with a reason, the overall result reads
+  `partial` rather than `applied` when any category failed, and `ARC-FLOW-006` states the guarantee
+  rather than implying a stronger one.
+
+  What is still missing is everything after the response. Re-applying is the repair and it is safe,
+  because every slice converges on a natural key — but nothing *prompts* it. No surface lists events
+  whose most recent application was `partial`, the recorded outcome in
+  `event_template_applications.outcome_json` is written and never read back by any query, and an
+  organizer who closes the tab before reading the summary has no way to learn that one category did
+  not land. The failure mode is quiet and shaped exactly like success: an event configured from a
+  template, missing one thing nobody mentioned again.
+
+  Owner: events. Governing ID: `PRD-EVT-002`. Closure: the stored per-slice outcome becomes readable
+  — a `partial` application is surfaced where the organizer will see it, with the re-apply that
+  repairs it one action away — and a test drives a failing slice through apply, asserts the event is
+  reported as partially configured afterwards, and asserts a second apply clears it.

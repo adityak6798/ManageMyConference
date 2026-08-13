@@ -1,6 +1,6 @@
 # Data flows
 
-Status: canonical | Owner: architecture | IDs: `ARC-FLOW-001`–`ARC-FLOW-005` | Last verified: 2026-08-12
+Status: canonical | Owner: architecture | IDs: `ARC-FLOW-001`–`ARC-FLOW-006` | Last verified: 2026-08-12
 
 ## Proposal to publication (`ARC-FLOW-001`)
 
@@ -39,3 +39,49 @@ organization row is written first and is inert if nothing follows it, the identi
 address, provider link, membership) commits together or not at all, and the first event is created
 last. A failure after the identity batch leaves an organizer with no event, which the next sign-in
 completes rather than duplicating.
+
+## Event configuration reuse (`ARC-FLOW-006`)
+
+Source event → each domain's slice exports its own configuration → one immutable template version
+(opaque JSON per slice, held by `events`) → organizer confirms a destination event and its date
+range → preview, which writes nothing → per-slice apply against the destination → one recorded
+application row binding that event to that version.
+
+The shape of this flow is set by three facts about this repository, and each of them is load-bearing.
+
+**Events does not import six domains.** It declares `EventConfigurationSlice` in
+`apps/api/src/application/events/template-ports.ts`; each domain implements its own slice inside its
+own application directory and exports it from that domain's `public.ts`; `apps/api/src/index.ts`,
+the declared composition root, constructs them and hands the array to `EventTemplateService`. Events
+therefore depends on nothing but its own port type, holds every payload as opaque JSON, and no
+architecture allowlist entry exists for any of it. The precedents are `OutreachDispatchPort`, which
+keeps CRM from importing communications, and `PreparedDeliveryWriter`.
+
+**Creating and configuring are two requests, deliberately.** The request actor is a frozen snapshot
+resolved once in middleware before any handler runs. `EventService.create` grants the caller the
+organizer role, that row lands in D1, and the in-flight actor object is not updated — so a single
+request that created a destination event and then configured it would be denied by every
+`requireEventCapability` on the event it had just made. `POST /api/events` creates; the client
+re-reads its session; `POST /api/events/:eventId/template-applications` applies. Nothing anywhere
+synthesises an actor to get around this, for the reason
+`apps/api/src/application/communications/public.ts` states at length: a fabricated actor is an
+authorization check that has stopped meaning anything.
+
+**There is no cross-domain transaction, and none is claimed.** `D1DatabasePort.batch` is per-adapter
+and each domain's repository owns its own writes, so "atomic across seven domains" is not achievable
+without inventing a mechanism, and inventing one is not this flow. What ships instead is the issue's
+own second option: a documented, repairable per-domain result that hides no partial state. Every
+slice reports exactly one of `applied`, `skipped`, `incompatible`, `unauthorized` or `failed` with a
+reason an organizer can act on; a `failed` slice does **not** roll back the slices that already
+succeeded; and the overall result says `partial` when that happens rather than `applied`. The repair
+is to apply again, which is safe because every slice is idempotent on a natural key — `event_id` is
+the primary key of `cfp_forms` and `review_plans`, `(event_id, key)` of `cfp_statuses`, one row per
+event in `agenda_drafts` and `public_event_projections`, and `(event_id, slug)` for speaker
+resources, which is upserted rather than inserted.
+
+Dates are a parameter of the clone rather than a property of an event, because an event carries no
+start or end date in this system: the only event range is `startsOn`/`endsOn` inside publishing's
+`public_event_projections.draft_json`, where `resolveEventDates` falls back to agenda-derived days.
+The organizer confirms a destination range on every application, and a slice holding absolute
+instants derives its own offset against it in the destination event's IANA timezone. Adding date
+columns to `events` would change publishing's date-resolution rule and belongs to its own issue.

@@ -15,6 +15,7 @@ import {
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
+import { D1EventTemplateRepository } from "./adapters/persistence/d1-event-template-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
@@ -24,6 +25,7 @@ import { resolveProviders, resolveRegistrationSource } from "./adapters/provider
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { AgendaService } from "./application/agenda/agenda-service";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
+import { cfpTemplateSlice } from "./application/cfp/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
 import {
   AccelEventsSyncService,
@@ -40,12 +42,12 @@ import { SpeakerCalendarInviteService } from "./application/content/public";
 import { CrmService } from "./application/crm/crm-service";
 import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
-import { EventService } from "./application/events/public";
+import { EventService, EventTemplateService } from "./application/events/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { PublicationService } from "./application/publishing/publication-service";
 import { ReviewService } from "./application/review/review-service";
 import type { ReviewNotificationPort } from "./application/review/review-service";
-import { createHttpApp, type GoogleAuthProvider } from "./transport/http/app";
+import { createHttpAppFrom, type GoogleAuthProvider } from "./transport/http/app";
 import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import {
   completeGoogleAuthorization,
@@ -808,10 +810,37 @@ export default {
       new D1ItineraryRepository(environment.DB),
       publicationRepository,
     );
-    const app = createHttpApp(
-      service,
+    // --- events (issue #102) ---
+    /*
+     * The orchestration seam for reusable event templates.
+     *
+     * Events declares `EventConfigurationSlice`; each domain implements its own slice inside
+     * its own application directory; this file — the declared composition root, and the only
+     * place allowed to know about more than one domain — binds them. That is why
+     * `application/events` imports no other domain and `context/architecture.json` gains
+     * nothing (`ARC-FLOW-006`). Slice order is apply order, and it is load-bearing: review's
+     * triage statuses must exist before CFP's routing rules can name them, so review's slice
+     * goes above CFP's when it arrives.
+     */
+    const eventTemplates = new EventTemplateService({
+      repository: new D1EventTemplateRepository(environment.DB),
+      events: service,
+      slices: [cfpTemplateSlice(cfpService)],
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    // --- end events ---
+    /*
+     * The named form. The positional `createHttpApp` this used to call sorts its fourth
+     * argument out at runtime by testing for a method on it, and it has no slot for a service
+     * added after it was written — so a new domain either renames the seam or is unreachable.
+     * `createHttpAppFrom` is what app.ts already tells new code to use; the mapping below is
+     * exactly what the positional wrapper did, argument for argument.
+     */
+    const app = createHttpAppFrom({
+      events: service,
       logger,
-      auth.demoMode
+      auth: auth.demoMode
         ? {
             demoMode: true as const,
             sessionSecret: auth.sessionSecret,
@@ -857,20 +886,22 @@ export default {
                 throw new Error(`Authentication email provider returned ${response.status}`);
             },
           },
-      reviewService,
-      cfpService,
+      review: reviewService,
+      cfp: cfpService,
       content,
       crm,
       agenda,
       communications,
       publishing,
-      environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
-        ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
-        : undefined,
       itineraries,
       speakerCalendarInvites,
       accelEventsSync,
-    );
+      eventTemplates,
+      build:
+        environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
+          ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
+          : undefined,
+    });
     return Promise.resolve(app.fetch(request));
   },
   /**

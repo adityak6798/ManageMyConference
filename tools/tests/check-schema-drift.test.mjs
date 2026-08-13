@@ -91,14 +91,14 @@ test("the declared schema reproduces the migrated database", async () => {
   assert.deepEqual(diffModels(readModel(migrated), modelOf(await loadDeclaredDdl())), []);
 });
 
-test("the registry and public aggregate expose all 55 domain-owned tables", async () => {
+test("the registry and public aggregate expose all 58 domain-owned tables", async () => {
   const registry = await loadDeclaredSchema();
   const aggregate = await import(
     new URL("../../apps/api/src/adapters/persistence/schema.ts", import.meta.url).href
   );
   assert.equal(
     generateDdl(registry).filter((statement) => statement.startsWith("CREATE TABLE")).length,
-    55,
+    58,
   );
   assert.deepEqual(diffModels(modelOf(generateDdl(aggregate)), modelOf(generateDdl(registry))), []);
 });
