@@ -1521,7 +1521,7 @@ export function AgendaWorkspace({
           List view keeps the full width for its table and stacks a non-empty rail below. */}
       <div
         className="agenda-layout"
-        data-rail={unscheduled.length > 0 && view !== "conflicts" && view !== "list"}
+        data-rail={unscheduledCount > 0 && view !== "conflicts" && view !== "list"}
       >
         <div
           className="agenda-panel"
@@ -1535,7 +1535,7 @@ export function AgendaWorkspace({
           </Card>
         </div>
 
-        {view === "conflicts" || !unscheduled.length ? null : (
+        {view === "conflicts" || !unscheduledCount ? null : (
           <UnscheduledRail
             sessions={unscheduled}
             selection={selection}
