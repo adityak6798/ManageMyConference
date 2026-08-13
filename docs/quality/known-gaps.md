@@ -296,10 +296,15 @@ feature-by-feature verdict.
   both directions occur — until some later publication changes that session's triple and
   resynchronises it.
 
-  Both directions are calendar-visible, and the two failures are not equally bad. A **higher**
-  stale revision sends a speaker a duplicate invitation, which is a nuisance. A **lower** one
-  *suppresses* an invitation that should have been sent, which is the failure #136 exists to
-  prevent. The concrete case: a session is placed at v1 and its speakers invited with
+  Of the two directions, only one is reachable from this cause, and it is the bad one. Both the
+  stored ref and the ref a Send computes come from this same table, so the comparison never sees
+  the replay's numbering at all — and skipping a publication can only merge or erase a session's
+  change points, never invent one. A drifted table therefore sends *weakly fewer* invitations than
+  a correct one, never more: a **higher** stale revision means the numbering differs while the
+  mail is identical, and a **lower** one *suppresses* an invitation that should have been sent,
+  which is the failure #136 exists to prevent. (A genuine duplicate needs the second cause below —
+  an arbitrary writer, or a repair that rewrites the row wrongly.) The concrete suppression case:
+  a session is placed at v1 and its speakers invited with
   `scheduleRef` `1|…`; the missed publication at v2 unplaces it, so a correct table drops the row
   while the stale one keeps `revision 1`; v3 places it back at the identical time. The replay
   would say `revision 3` — absence resets — and send the REQUEST that puts the talk back on the
@@ -312,15 +317,19 @@ feature-by-feature verdict.
   emits an iTIP `CANCEL` — `buildSpeakerInvite` only ever produces `REQUEST` — so the v1 entry is
   still on the speaker's calendar, at the right hour, because a suppressed resend requires the
   time to be identical. What is lost is the re-affirming REQUEST. That matters for exactly the
-  speakers who no longer hold the entry: one who declined or deleted it while the session was
-  unplaced, which is the very scenario the absence-resets rule exists for, and one whose original
-  invitation never arrived. For them the talk is missing and no later action puts it back, and the
-  organizer is told everything was fine.
+  speakers who no longer hold the entry: one who deleted it while the session was unplaced, which
+  is the very scenario the absence-resets rule exists for, and one whose original invitation never
+  arrived. For them the talk is missing, no repeat of Send will put it back — the stale ref keeps
+  comparing equal however many times it runs — and the organizer is told everything was fine. It
+  takes one of the repairs below to make a later Send deliver it.
 
   Second, the invariant that every writer of
   `agenda_publications` also maintains `agenda_session_schedules` is convention, not a constraint —
-  today the only writers are `D1AgendaRepository.publish` and the seed, and both do, but a future
-  import, fixture or repair path that inserts a publication directly would desynchronise silently.
+  the only writers of production data are `D1AgendaRepository.publish` and the seed, and both do,
+  but a future import or repair path that inserts a publication directly would desynchronise
+  silently. Test fixtures already insert publications directly and deliberately do not maintain
+  the table — that is how the backfill is tested — so the convention is one nothing enforces even
+  today.
   Related: nothing checks that a publication's version is the event's newest before rewriting the
   table, which is unreachable through `AgendaService.publish` (it allocates `max + 1`) but not
   through such a path.
@@ -333,9 +342,15 @@ feature-by-feature verdict.
   Until then, the operational mitigation is to avoid the window rather than to repair it: do not
   deploy while an organizer may be publishing. Republishing the same board afterwards is **not** a
   repair — an identical board compares equal and folds the stale `revision` straight through, so
-  the one number that matters is the one it does not restore. Two things do work, and they differ
-  in what they cost. Publishing the session to a different hour and back resynchronises it, since
-  both the stale and the correct fold then derive the revision from the publication that moved it;
-  that needs no database access but sends the affected speakers real invitations. Correcting the
-  row in `agenda_session_schedules` against a replay of `agenda_publications` restores the
-  replay's exact number and sends nothing, which is why it is preferable where it is available.
+  the one number that matters is the one it does not restore. Two things do work, and the
+  difference between them is not what they mail to whom, because neither publishing nor row
+  surgery sends a calendar invitation at all: `SpeakerCalendarInviteService.send` is reached only
+  from the organizer's explicit Send. What each costs is this. Publishing the session to a
+  different hour and back resynchronises the revision, because both folds then derive it from the
+  publication that moved it — but it is two publications, so it emits two `EVT-SCHEDULE-PUBLISHED`
+  records, and each fans out to one `schedule-published` email per speaker **on the whole event**,
+  not merely the affected one; it also leaves the published programme naming the wrong hour in
+  between. Correcting the row in `agenda_session_schedules` against a replay of
+  `agenda_publications` restores the replay's exact number, mails nobody, and moves no programme,
+  which is why it is preferable wherever database access is available. Either way the speakers who
+  lost the entry get it back at the next Send, which is the point of repairing at all.

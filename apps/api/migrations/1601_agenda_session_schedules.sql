@@ -5,8 +5,9 @@
 -- "When and where does the schedule in force put this session, and at which publication did that
 -- last meaningfully change" was answered by replaying the entire publication history: every
 -- `agenda_publications` row carries a complete board, and every one of them was transferred out
--- of D1 and parsed on every content workspace read that resolves session times — the organizer
--- content workspace and the speaker calendar-invite send both. The cost was
+-- of D1 and parsed on every content workspace read that resolves session times — which is every
+-- read of that workspace, organizer's and speaker's alike, every mutation that answers with it,
+-- and the speaker calendar-invite send. The cost was
 -- O(publications x board size) and grew without bound as an event was republished (issue #141).
 --
 -- The answer is now stored. It is written inside the same batch that commits the publication, so
@@ -52,10 +53,12 @@ CREATE TABLE agenda_session_schedules (
 --   * A gap in a session's own run of publications is an absence, and an absence resets: the
 --     returning publication's version is the revision even when the hour is unchanged.
 --
--- `IS NOT` rather than `<>` throughout. Belt and braces rather than load-bearing: `prev_*` is
--- NULL only on a partition's first row, which `prev_ordinal IS NULL` already catches, and
--- `location` cannot be NULL because of the COALESCE. Kept because the null-safe form stays
--- correct if a later reader adds a nullable column to the comparison.
+-- `IS NOT` rather than `<>` throughout. Belt and braces rather than load-bearing on the data this
+-- system can store: `location` cannot be NULL because of the COALESCE, and `prev_*` is NULL only
+-- on a partition's first row, which `prev_ordinal IS NULL` already catches. Both of those lean on
+-- the validator named below — a malformed slot would make `json_extract(s.value, '$.startsAt')`
+-- NULL — and the null-safe form is what keeps this correct rather than silently dropping the row
+-- from `meaningful` if that ever stopped being true.
 --
 -- The equivalence with the TypeScript fold is exact for every snapshot this system can store,
 -- and conditional on `agendaResourcesSchema`, which has enforced unique room, track and slot ids
@@ -156,13 +159,15 @@ in_force AS (
 -- meaningful ...)`, and the difference is not cosmetic. `EXPLAIN QUERY PLAN` on the correlated
 -- form shows `MATERIALIZE changes` followed by `CORRELATED SCALAR SUBQUERY` →
 -- `SEARCH changes USING AUTOMATIC PARTIAL COVERING INDEX (event_id=? AND session_id=?)`: the
--- planner does not flatten it, it builds a temporary index and seeks once per surviving row.
--- The cost of each seek grows with how many rows that session has in `meaningful`, which is
+-- planner does not flatten it, it builds a temporary index and seeks once per row of
+-- `meaningful`. The cost of each seek grows with how many rows that session has there, which is
 -- driven by how much the board *changes* between publications — so the cost depends on churn,
 -- not just on history length.
 --
--- Measured under `node:sqlite`, 50 sessions a board, 100 to 800 publications, fitting an
--- exponent over that range:
+-- Measured once, on one machine, under `node:sqlite`, 50 sessions a board, 100 to 800
+-- publications, fitting an exponent over that range. The numbers are an illustration and are not
+-- reproduced by any committed benchmark; the claim that survives them is the mechanism above,
+-- which `EXPLAIN QUERY PLAN` will still show:
 --
 --       board between publications      correlated            this (window)
 --       unchanged                       400→2861ms  n^0.95    355→2855ms  n^1.00
