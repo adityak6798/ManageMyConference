@@ -12,8 +12,9 @@
 // The shape that fixes it
 //   Root `package.json` holds one `gate:<name>` script per CI job. That script *is* the
 //   gate: it is the only place a check is named.
-//     * every job in ci.yml runs exactly `npm run gate:<its own job name>`, plus
+//     * every merge-gate job in ci.yml runs exactly `npm run gate:<its own job name>`, plus
 //       allowlisted environment setup (installing npm/uv/browsers);
+//     * the one `deploy` release job runs `npm run deploy` only after every merge gate;
 //     * `check` is nothing but a `&&` chain of `npm run gate:*` invocations;
 //     * a gate `check` does not run must be listed, with a reason, under the
 //       "Gates the local check deliberately skips" heading of
@@ -41,6 +42,8 @@ export const WORKFLOW_PATH = ".github/workflows/ci.yml";
 export const SETUP_ACTION_PATH = ".github/actions/setup/action.yml";
 export const DOC_PATH = "docs/engineering/ci-and-release.md";
 export const EXCLUSION_HEADING = "## Gates the local check deliberately skips";
+export const DEPLOY_JOB = "deploy";
+export const DEPLOY_CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 
 /**
  * Commands a CI job may run that are not gates: they build the environment the gate
@@ -101,6 +104,8 @@ export function parseWorkflowJobs(text) {
     }
     if (!job) continue;
     if (indent === 4) {
+      const property = /^ {4}([A-Za-z-]+):[ ]?(.*)$/.exec(line);
+      if (property && property[1] !== "steps") job[property[1]] = property[2];
       insideSteps = line.trim() === "steps:";
       continue;
     }
@@ -183,6 +188,22 @@ export function analyse({ workflow, packageJson, doc, setupAction }) {
     );
 
   for (const [name, job] of jobs) {
+    if (name === DEPLOY_JOB) {
+      const gateNames = [...jobs.keys()].filter((candidate) => candidate !== DEPLOY_JOB);
+      const expectedNeeds = `[${gateNames.join(", ")}]`;
+      if (job.if !== DEPLOY_CONDITION)
+        problems.push(`${WORKFLOW_PATH} job "${DEPLOY_JOB}" must run only for main-branch pushes.`);
+      if (job.needs !== expectedNeeds)
+        problems.push(
+          `${WORKFLOW_PATH} job "${DEPLOY_JOB}" must need every gate: ${expectedNeeds}.`,
+        );
+      const commands = job.steps.map((step) => step.run).filter((run) => run !== undefined);
+      if (commands.length !== 1 || commands[0] !== "npm run deploy")
+        problems.push(
+          `${WORKFLOW_PATH} job "${DEPLOY_JOB}" must run exactly \`npm run deploy\` once.`,
+        );
+      continue;
+    }
     const gate = `gate:${name}`;
     if (!gates.has(gate))
       problems.push(

@@ -118,3 +118,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/setup
       - run: npm run gate:security
+
+  # Deployment is a release action, not a seventh definition of "green". It is deliberately
+  # downstream of every gate, so a failed or cancelled check prevents the main branch from
+  # reaching Cloudflare. tools/check-gate-drift.mjs enforces this shape.
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [integrity, test-build, d1, browser, evidence, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -47,6 +47,7 @@
     "apps/web/e2e/quality-global-setup.ts",
     "docs/demo-runbook.md",
     "apps/web/src/AppShell.tsx",
+    "apps/web/src/InstanceMarker.tsx",
     "apps/web/src/OverviewPage.tsx",
     "apps/web/test/overview-dashboard.test.tsx",
     "apps/web/test/shell-error-surface.test.tsx",
