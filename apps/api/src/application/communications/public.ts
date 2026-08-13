@@ -38,6 +38,8 @@ import type {
 } from "../../domain/communications/delivery";
 
 export { CommunicationsService } from "./communications-service";
+export { WebhookService } from "./webhooks";
+export { WebhookUnavailableError } from "./errors";
 /**
  * The inbound Accelevents registration sync, composed by the transport alongside the service
  * above. Its typed failure is exported with it because the route module translates that failure

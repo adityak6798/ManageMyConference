@@ -141,4 +141,9 @@ export const {
   speakerTasks,
   speakerTaskTemplates,
   users,
+  webhookSubscriptions,
+  webhookSubscriptionEventTypes,
+  webhookDeliveries,
+  webhookDeliveryAttempts,
+  webhookIdempotencyRecords,
 } = schema;

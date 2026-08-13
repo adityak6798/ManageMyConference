@@ -165,6 +165,8 @@
         "apps/api/test/accelevents-sync.test.ts",
         "apps/api/test/integrations-http.test.ts",
         "apps/api/test/d1-migration-rebuild.integration.test.ts",
+        "apps/api/test/d1-webhooks.integration.test.ts",
+        "apps/api/test/webhook-security.test.ts",
         "apps/web/test/accelevents-sync-panel.test.tsx"
       ]
     },

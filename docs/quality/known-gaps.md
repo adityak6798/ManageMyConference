@@ -82,6 +82,27 @@ feature-by-feature verdict.
 
 ## Missing product capability
 
+- `GAP-025` **Webhook wrapping-key retirement lacks a bulk rewrap command.** Webhook HMAC keys and
+  secret-bearing idempotency responses are AES-GCM envelopes with an explicit key version, and the
+  runtime accepts a keyring so adding a new current key does not strand old rows. What is absent is
+  an operator command that rewrites every old envelope to the current version before its old key is
+  removed. Impact: key addition and forward rotation work, but retiring compromised/obsolete key
+  material requires a reviewed one-off migration and the old key must remain configured until it
+  completes. Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`.
+  Closure: a tested, resumable command rewraps subscription and idempotency envelopes, reports the
+  versions remaining, and refuses retirement while any row still names the old version.
+
+- `GAP-026` **The trusted webhook egress service is specified but not deployed or live-verified.**
+  The Worker adapter fails closed and can communicate only with an authenticated enforcement
+  origin, while executable fixtures prove mixed DNS answers and send-time rebinding are refused.
+  This repository does not contain the separately operated resolver-and-pinned-connection service,
+  and no production endpoint has been exercised. Impact: webhook routes correctly return
+  `503 WEBHOOK_UNAVAILABLE` without configuration, but production webhook delivery cannot be
+  claimed. Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`.
+  Closure: [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194) deploys the
+  service and records live mixed-answer, rebinding, TLS-hostname, redirect and token-isolation
+  verification.
+
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). The target is now provisioned and a hosted URL **is** evidenced:

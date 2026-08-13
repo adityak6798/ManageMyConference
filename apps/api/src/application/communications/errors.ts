@@ -14,3 +14,4 @@ export class CommunicationsNotFoundError extends Error {}
 
 /** The delivery exists but its current state does not permit the requested transition. */
 export class CommunicationsConflictError extends Error {}
+export class WebhookUnavailableError extends Error {}

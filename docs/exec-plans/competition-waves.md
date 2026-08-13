@@ -207,6 +207,10 @@ The rule therefore has two axes: how long it takes, **and how far the decision r
 A short change can be a large decision. When it is, file — and name it as a divergence *you*
 introduced rather than as someone else's problem, the way #130 links #133.
 
+### Issue #100 REST API rulings
+
+Webhook schedule fan-out composes the existing schedule-mail consumer with an idempotent webhook consumer; it does not widen `OutboxWorker` or introduce a second event source. Each subscription has a separate delivery queue so one receiver's retry does not resend another receiver's success. Webhook secret rotation keeps the previous secret for 24 hours and signs with both during that overlap. Webhook management reuses the existing `communications:manage` capability vocabulary; it does not add a parallel scope system.
+
 ### Evidence gate ordering
 
 `npm run check` includes `gate:evidence`, which binds run records to the commit. So: **commit

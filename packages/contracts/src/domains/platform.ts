@@ -39,6 +39,7 @@ export const apiErrorCodeSchema = z.enum([
   // our bug and not the caller's mistake, and telling an organizer "internal error" sends them
   // to the wrong place. Carries a normalized code, never the upstream's own message.
   "UPSTREAM_UNAVAILABLE",
+  "WEBHOOK_UNAVAILABLE",
   "INTERNAL_ERROR",
 ]);
 

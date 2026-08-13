@@ -15,6 +15,7 @@ import type { CfpService } from "../../../application/cfp/public";
 import type {
   AccelEventsSyncService,
   CommunicationsService,
+  WebhookService,
 } from "../../../application/communications/public";
 import type { ContentService } from "../../../application/content/content-service";
 import type { SpeakerCalendarInviteService } from "../../../application/content/public";
@@ -83,6 +84,7 @@ export interface HttpDependencies {
   apiClients?: ApiClientService | undefined;
   agenda?: AgendaService | undefined;
   communications?: CommunicationsService | undefined;
+  webhooks?: WebhookService | undefined;
   /** The inbound Accelevents registration sync, and the last-run state its surface reads. */
   accelEventsSync?: AccelEventsSyncService | undefined;
   publishing?: PublicationService | undefined;

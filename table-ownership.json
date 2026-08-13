@@ -76,6 +76,11 @@
     "accelevents_sync_runs": "communications-integrations",
     "review_suggestions": "review",
     "platform_inbox_dismissals": "platform",
-    "platform_audit_records": "platform"
+    "platform_audit_records": "platform",
+    "webhook_subscriptions": "communications-integrations",
+    "webhook_subscription_event_types": "communications-integrations",
+    "webhook_deliveries": "communications-integrations",
+    "webhook_delivery_attempts": "communications-integrations",
+    "webhook_idempotency_records": "communications-integrations"
   }
 }
