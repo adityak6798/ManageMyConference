@@ -87,6 +87,54 @@ test("a workflow whose jobs each run their own gate agrees with check", () => {
   assert.deepEqual(analyse(inputs()), []);
 });
 
+test("a release job is allowed only after every gate on a main push", () => {
+  const withDeploy = {
+    ...inputs(),
+    workflow: `${workflow}
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [integrity, browser]
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run deploy:assert-current
+      - run: npm run deploy
+`,
+  };
+  assert.deepEqual(analyse(withDeploy), []);
+  assert.match(
+    analyse({
+      ...withDeploy,
+      workflow: withDeploy.workflow.replace("needs: [integrity, browser]", "needs: [integrity]"),
+    }).join("\n"),
+    /must need every gate/,
+  );
+  assert.match(
+    analyse({
+      ...withDeploy,
+      workflow: withDeploy.workflow.replace("refs/heads/main", "refs/heads/demo"),
+    }).join("\n"),
+    /only for main-branch pushes/,
+  );
+  assert.match(
+    analyse({
+      ...withDeploy,
+      workflow: withDeploy.workflow.replace("      group: production-deploy\n", ""),
+    }).join("\n"),
+    /must serialize production deploys/,
+  );
+  assert.match(
+    analyse({
+      ...withDeploy,
+      workflow: withDeploy.workflow.replace("      - run: npm run deploy:assert-current\n", ""),
+    }).join("\n"),
+    /must refuse stale main/,
+  );
+});
+
 test("the reader keeps step attributes with their step and ignores action configuration", () => {
   const jobs = parseWorkflowJobs(workflow);
   assert.deepEqual([...jobs.keys()], ["integrity", "browser"]);

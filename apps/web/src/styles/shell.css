@@ -145,6 +145,20 @@
   flex: 1;
 }
 
+.instance-marker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px var(--s-3);
+  border: 1px solid var(--green-200);
+  border-radius: var(--r-full);
+  background: var(--green-50);
+  color: var(--green-800);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .identity {
   display: flex;
   align-items: center;

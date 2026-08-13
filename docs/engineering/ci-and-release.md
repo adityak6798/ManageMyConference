@@ -1,20 +1,14 @@
 # CI and release
 
-Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-11 (working tree: commit `3630977`)
+Status: canonical | Owner: platform | ID: `ENG-CI-001` | Last verified: 2026-08-12
 
 ## Hosted CI status, stated plainly
 
-**No hosted CI run exists for any commit on this branch.** The most recent green run of all five
-jobs is run `31471037575` at head `10eab436`, the head of pull request #88. That head and this branch
-are **divergent**: neither is an ancestor of the other, so this branch is neither ahead of nor behind
-the green run. Measured on 2026-08-11, `git merge-base HEAD 10eab436` answers `fd21987` and
-`git rev-list --left-right --count 10eab436...HEAD` answers one commit on the run's side and five on
-this branch's — this branch was cut one commit before #88's head, so the green run includes one
-commit this branch does not have, and this branch has five commits that run never saw. Every result quoted elsewhere in the documentation set is local
-unless it names that run.
+Hosted CI runs on pull requests and pushes to `main`. Run `31650751784` passed all six gates at
+`2e9ec0c` on 2026-08-12. Results quoted elsewhere remain local unless they name a hosted run.
 
 **`main` is not protected.** On 2026-08-11 `gh api repos/:owner/:repo/branches/main/protection`
-answered 404 "Branch not protected". None of the five jobs is a required check today, and neither
+answered 404 "Branch not protected". None of the six jobs is a required check today, and neither
 independent approval, nor resolved conversations, nor force-push protection is enforced. The
 workflow file proves the gates exist; it does not prove anything blocks a merge (`GAP-003`).
 
@@ -51,7 +45,7 @@ build output or database state. Because the action is a `uses:` step, the gate-d
 still sees exactly one `run:` per job — its own gate — and it reads the action directly for the
 npm pin, so moving the bootstrap did not take that check out of service.
 
-The workflow runs five jobs:
+The workflow runs six gate jobs:
 
 1. `integrity` (`gate:integrity`): gate-drift check; Biome/Ruff; context routing/integrity; Python CLI tests; AST error policy; TypeScript; generated OpenAPI drift; declared-schema/migration drift.
 
@@ -73,7 +67,34 @@ The workflow runs five jobs:
 5. `evidence` (`gate:evidence`): refuses a quality-scorecard row whose stated verdict no run supports. Each suite writes a record under `.evidence/` — suite, command, exit status, counts, commit, timestamp — and this gate fails a row citing a suite with no record, a record from another commit, a record of a failing run, or a spec file that no longer exists. It is the one job that consumes another job's output, and what it consumes is read-only JSON: `test-build`, `d1` and `browser` upload their records with `if: always()`, and this job downloads and merges them. No build output and no database crosses between jobs. It runs `if: always()` after those three so a red suite produces a red evidence gate rather than a skipped one.
 6. `security`: `gate:security` is `npm audit --audit-level=high`; the job additionally runs configured full-history gitleaks scanning as a marketplace action, which is therefore not reachable from `npm run check` or from any gate script.
 
-All five jobs are *intended* required branch-protection checks and none of them is one yet: see the status section above. Protection must also require independent approval, resolved review conversations, and disallow force pushes and deletion. The reference slice includes automated unauthenticated and forbidden coverage. Provider adapter contracts and deployment smoke tests remain future product/release work, and cannot exist before a deployment target does (`GAP-008`).
+All six jobs are *intended* required branch-protection checks and none of them is one yet: see the status section above. Protection must also require independent approval, resolved review conversations, and disallow force pushes and deletion. The reference slice includes automated unauthenticated and forbidden coverage.
+
+## Main-branch deployment
+
+The `deploy` job is a release action, not another gate. It runs only for a push to `main`, declares
+all six gate jobs in `needs`, and runs `npm run deploy` only after they succeed. That command first
+applies every pending remote D1 migration and stops on failure; only then does it build the web
+artifact and upload the Worker. Code that expects a new table therefore cannot deploy over a
+database whose migration failed. D1 captures a backup and rolls back a failing migration, while
+already-completed earlier migrations remain valid deployed history. The job reads
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from GitHub repository secrets; neither value
+belongs in source, workflow literals, artifacts, or logs. `tools/check-gate-drift.mjs` recognizes
+this one non-gate job and enforces its branch condition, complete dependency list, and sole command.
+
+Main deploy jobs share one non-cancelling concurrency group. After a queued job acquires that lock,
+it fetches `origin/main` and refuses unless the workflow SHA is still the branch head. Thus a newer
+push may deploy first, but an older run can never subsequently overwrite it. The drift checker
+enforces the concurrency block, stale-head guard, and upload ordering.
+
+The previous Cloudflare Workers Builds connection was removed rather than repointed. It belonged
+to the placeholder `managemyconf` service, whose URL returned `Hello world`, while its successful
+`Workers Builds: managemyconf` check appeared on this repository's commits. Keeping two deployment
+owners would leave a second green signal with no relationship to `project-greenroom-api`; the
+GitHub Actions job is now the sole repository-triggered deployment path.
+
+A deploy exit code is not release verification. After a main deployment, follow the request-based
+smoke in the [deployed demo runbook](../demo-runbook.md): health, organizer demo session, public
+event/schedule/speakers, both embeds, and the R2-served headshot.
 
 ### What sharing the bootstrap did and did not buy
 

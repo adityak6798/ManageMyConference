@@ -21,6 +21,7 @@ import {
   verifyLoginCode,
 } from "./api/events";
 import { OverviewPage } from "./OverviewPage";
+import { InstanceMarker } from "./InstanceMarker";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
 import { IconDashboard, IconSettings } from "./ui/icons";
@@ -334,6 +335,9 @@ export function App() {
   if (!session)
     return (
       <main className="page-body" style={{ maxWidth: 560, margin: "12vh auto" }}>
+        <div>
+          <InstanceMarker />
+        </div>
         <PageHeader
           eyebrow="Project Greenroom"
           title={demoMode ? "Demo mode: choose a workspace role" : "Sign in to Greenroom"}

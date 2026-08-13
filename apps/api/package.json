@@ -8,6 +8,7 @@
     "deploy": "wrangler deploy",
     "dev": "node ../../tools/local-wrangler.mjs dev",
     "migrate:local": "node ../../tools/local-wrangler.mjs migrate",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "reset": "node ../../tools/local-wrangler.mjs reset",
     "test": "vitest run --coverage --coverage.reporter=text --coverage.include='src/**'",
     "test:d1": "vitest run --config vitest.integration.config.ts",

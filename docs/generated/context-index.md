@@ -66,6 +66,7 @@
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `test` / `repository-fact`: [tools/tests/remote-demo-reset.test.mjs](../../tools/tests/remote-demo-reset.test.mjs)
 
 ### `ACC-HARNESS`
 - `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
@@ -84,6 +85,7 @@
 - `test` / `repository-fact`: [apps/web/test/shell-error-surface.test.tsx](../../apps/web/test/shell-error-surface.test.tsx)
 - `specification` / `normative`: [docs/exec-plans/completed.md](../../docs/exec-plans/completed.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `test` / `repository-fact`: [tools/tests/assert-current-main.test.mjs](../../tools/tests/assert-current-main.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-errors.test.mjs](../../tools/tests/check-errors.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-evidence.test.mjs](../../tools/tests/check-evidence.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-gate-drift.test.mjs](../../tools/tests/check-gate-drift.test.mjs)
@@ -220,14 +222,18 @@
 - `code` / `repository-fact`: [packages/contracts/openapi/contract.ts](../../packages/contracts/openapi/contract.ts)
 - `code` / `repository-fact`: [packages/contracts/openapi/registry.ts](../../packages/contracts/openapi/registry.ts)
 - `code` / `repository-fact`: [packages/contracts/scripts/generate-openapi.ts](../../packages/contracts/scripts/generate-openapi.ts)
+- `code` / `repository-fact`: [tools/assert-current-main.mjs](../../tools/assert-current-main.mjs)
 - `code` / `repository-fact`: [tools/check-evidence.mjs](../../tools/check-evidence.mjs)
 - `code` / `repository-fact`: [tools/check-gate-drift.mjs](../../tools/check-gate-drift.mjs)
 - `code` / `repository-fact`: [tools/compose-seed.mjs](../../tools/compose-seed.mjs)
 - `code` / `repository-fact`: [tools/greenroom_tools/context.py](../../tools/greenroom_tools/context.py)
 - `code` / `repository-fact`: [tools/record-run.mjs](../../tools/record-run.mjs)
+- `code` / `repository-fact`: [tools/remote-demo-reset.mjs](../../tools/remote-demo-reset.mjs)
+- `test` / `repository-fact`: [tools/tests/assert-current-main.test.mjs](../../tools/tests/assert-current-main.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-evidence.test.mjs](../../tools/tests/check-evidence.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-gate-drift.test.mjs](../../tools/tests/check-gate-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/compose-seed.test.mjs](../../tools/tests/compose-seed.test.mjs)
+- `test` / `repository-fact`: [tools/tests/remote-demo-reset.test.mjs](../../tools/tests/remote-demo-reset.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 
 ### `JNY-001`

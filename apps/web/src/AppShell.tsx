@@ -7,6 +7,7 @@
 
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import type { ReactNode } from "react";
+import { InstanceMarker } from "./InstanceMarker";
 import { useLinkProps } from "./router";
 import { IconGlobe } from "./ui/icons";
 
@@ -119,6 +120,7 @@ export function AppShell({
           <p className="visually-hidden">
             {selectedEvent ? `${selectedEvent.name} workspace` : "Greenroom workspace"}
           </p>
+          <InstanceMarker />
           <span className="spacer" />
 
           {publicHref ? (

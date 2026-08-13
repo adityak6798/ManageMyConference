@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { bytesToBase64 } from "../src/ContentWorkspace";
+import { instanceLabel } from "../src/InstanceMarker";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
@@ -111,6 +112,12 @@ describe("App", () => {
     expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
   });
 
+  it("names local and deployed instances without relying on the URL bar", () => {
+    expect(instanceLabel("localhost")).toBe("Local instance");
+    expect(instanceLabel("project-greenroom-api.adityak6798.workers.dev")).toBe("Deployed demo");
+    expect(instanceLabel("greenroom.example.com")).toBe("Hosted instance");
+  });
+
   it("lands an organizer on the overview with role-aware navigation", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -127,8 +134,9 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: /Event settings/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Agenda/ })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Signed-in role" })).toHaveValue("organizer");
-    // The organizer console is the product, not a walkthrough of one: no shipped copy calls
-    // the seeded identities a demo (issue #35).
+    expect(screen.getByText("Local instance")).toBeInTheDocument();
+    // The console remains the product, not a walkthrough of seeded identities. Only the
+    // environment marker names a deployment as a demo (issue #146 supersedes issue #35 here).
     expect((document.body.textContent ?? "").toLowerCase()).not.toContain("demo");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(

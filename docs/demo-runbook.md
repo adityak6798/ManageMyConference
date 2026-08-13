@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12 (working tree: commit `bb637d4`)
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12
 
 ## Where it is deployed
 
@@ -26,8 +26,34 @@ embeds serve; the seeded headshot resolves from R2; `/openapi.json` and `/docs` 
 `* * * * *` cron drains the outbox every minute against `COMMUNICATIONS_PROVIDERS=fixture`, so
 nothing leaves the Worker.
 
-Deploying is `npm run deploy` from the repository root, which builds `apps/web` first — a stale
-build ships a stale frontend, because `[assets] directory = "../web/dist"` uploads whatever is there.
+Deploying is `npm run deploy` from the repository root. It first applies pending migrations to the
+remote D1 database and stops if one fails; only then does it build `apps/web` and upload the Worker.
+That ordering prevents code expecting a new table from reaching an older schema. The build step is
+still load-bearing: `[assets] directory = "../web/dist"` uploads whatever is there.
+
+## Restore the deployed demo
+
+Local and deployed data are deliberately separate. `npm run reset` resets only this checkout's
+isolated D1 and R2 fixture, which the browser suite is allowed to mutate. It never reaches the
+remote database. The console labels itself `Local instance`, `Deployed demo`, or `Hosted instance`
+so the distinction is visible without inspecting the address bar.
+
+After authenticating Wrangler to the Cloudflare account that owns the demo, restore migrations,
+`seed/reset.sql`, and the seeded R2 headshot with one command from the repository root:
+
+```bash
+npm run reset:demo -- --confirm project-greenroom-api
+```
+
+The confirmation is intentional. Before authenticating, the command requires the checked-in
+Wrangler configuration to match the exact demo Worker, database ID, D1 binding, R2 bucket,
+`ENVIRONMENT=development`, and `DEMO_MODE=true`. A production-authenticated configuration, renamed
+resource, or disabled demo mode fails closed. Do not weaken these checks to reuse the command for
+production.
+
+Reseeding is on demand, not scheduled: a timer could erase a visitor's work mid-demo. Run it before
+a review or after a visitor degrades the shared seed; the weekly gardening workflow remains
+read-only.
 
 ## What this demo is, and is not
 
