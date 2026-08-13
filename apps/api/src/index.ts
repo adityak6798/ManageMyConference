@@ -21,6 +21,10 @@ import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-director
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
+import {
+  D1AuditRecordStore,
+  preparedAuditWriter,
+} from "./adapters/persistence/d1-audit-repository";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -53,7 +57,12 @@ import { CrmService } from "./application/crm/crm-service";
 import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
 import { EventService, EventTemplateService } from "./application/events/public";
-import { PlatformOperationsService } from "./application/platform/public";
+import {
+  AuditRecorder,
+  createRequestIdentity,
+  lifecycleAuditKey,
+  PlatformOperationsService,
+} from "./application/platform/public";
 import {
   completeGoogleAuthorization,
   type GoogleConfiguration,
@@ -407,6 +416,32 @@ export default {
       new D1SubmittedProposalAdapter(environment.DB),
     );
     const now = () => new Date();
+    /*
+     * The audit timeline (issue #99). Constructed here rather than beside the other platform
+     * services because two things below need it: the agenda's publication batch, which commits a
+     * record with the publication, and the lifecycle ports, which record after the fact.
+     *
+     * `requestIdentity` is what makes a record say who did it. Platform's own transport
+     * middleware sets it once per request; every writer below reads it rather than being handed
+     * an actor, because a domain reporting a lifecycle fact has no business knowing about audit.
+     */
+    const requestIdentity = createRequestIdentity();
+    const auditRecorder = new AuditRecorder({
+      store: new D1AuditRecordStore(environment.DB),
+      identity: requestIdentity,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+      report: (error, context) =>
+        // The recorder never throws, so this line is the only way a lost record is visible. It
+        // carries the idempotency key, which is what makes the record reconstructible by hand.
+        logger.error(
+          { ...context, error: error instanceof Error ? error.message : String(error) },
+          "audit.record.failed",
+        ),
+    });
+    const writeAuditRecord = preparedAuditWriter(
+      environment.DB as Parameters<typeof preparedAuditWriter>[0],
+    );
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),
       eventDirectory: service,
@@ -444,17 +479,38 @@ export default {
         // point of sharing one: a schedule nobody can be told about is not a published schedule.
         if (!organizationId)
           throw new Error(`Event ${event.eventId} has no owning organization to announce to`);
-        return writePublicationEvent(
-          await communications.prepareEnqueue({
-            organizationId,
-            eventId: event.eventId,
-            idempotencyKey: event.id,
-            triggerType: "schedule.published",
-            channel: "event",
-            recipientRef: `event:${event.eventId}`,
-            payload: { ...event },
-          }),
-        );
+        /*
+         * Three things in one batch: the publication, the announcement, and the audit record.
+         *
+         * The record is prepared rather than written, for the same reason the announcement is —
+         * a published schedule with no record of who published it, or a record of a publication
+         * that rolled back, are both worse than neither. The idempotency key is the event's own
+         * derived id, so a retried publish converges on one record and republishing after an
+         * edit allocates a new version, a new key, and a new record.
+         */
+        return [
+          ...writePublicationEvent(
+            await communications.prepareEnqueue({
+              organizationId,
+              eventId: event.eventId,
+              idempotencyKey: event.id,
+              triggerType: "schedule.published",
+              channel: "event",
+              recipientRef: `event:${event.eventId}`,
+              payload: { ...event },
+            }),
+          ),
+          ...writeAuditRecord(
+            auditRecorder.prepare({
+              organizationId,
+              eventId: event.eventId,
+              action: "agenda.schedule_published",
+              targetType: "agenda-publication",
+              targetId: event.id,
+              idempotencyKey: `audit:agenda.schedule_published:${event.id}`,
+            }),
+          ),
+        ];
       }),
       now,
       contentRepository,
@@ -609,10 +665,21 @@ export default {
         // Not an error to swallow quietly: an event with no owning organization means the id is
         // wrong or the row is gone, and either way there is nobody to address the message to.
         if (!organizationId) throw new Error("Event has no owning organization");
-        await communications.enqueue({
+        const enqueued = await communications.enqueue({
           organizationId,
           eventId,
           ...request(organizationId),
+        });
+        // The delivery is communications' mutation, and it belongs on the timeline as one: an
+        // organizer reading the log should see the message go out beside the thing that caused
+        // it. Keyed on the delivery, so a converged retry records once.
+        await auditRecorder.record({
+          organizationId,
+          eventId,
+          action: "communications.delivery_enqueued",
+          targetType: "delivery",
+          targetId: enqueued.id,
+          idempotencyKey: `audit:communications.delivery_enqueued:${enqueued.id}`,
         });
       } catch (error) {
         // ERROR-INTENT: a message that cannot be queued must not fail the already-committed
@@ -625,32 +692,114 @@ export default {
         );
       }
     };
+    /**
+     * Record a lifecycle fact on the timeline.
+     *
+     * Resolves the owning organization itself rather than taking one, because the domains that
+     * report these facts are event-scoped and have no reason to know which organization runs the
+     * event.
+     *
+     * **Never throws, and the try/catch is the whole of that promise.** `AuditRecorder.record` is
+     * already safe, but `organizationOf` is a D1 read that can reject, and this is the *first*
+     * statement of five lifecycle ports whose owning domains await them unguarded and whose own
+     * documentation says an implementation must not throw. Without the wrapper, a transient read
+     * failure fails an action that has already committed: `requestTasks` would 500 after writing
+     * its tasks, and the organizer's retry would mint a second set of them and a second set of
+     * speaker emails — precisely the failure `SpeakerNotificationPort` exists to prevent. The
+     * sibling `notifyLifecycle` below wraps the identical call for the identical reason.
+     *
+     * The key is scoped to the **event** as well as the action and target. The uniqueness
+     * constraint behind it is `(organization_id, idempotency_key)`, and several targets are only
+     * unique within an event — a reviewer's round number, a proposal id — so an event-less key
+     * silently dropped the second event's record on an organization running two conferences.
+     * `occurrence` is for a fact that can genuinely happen again to the same target: a decision
+     * that is reversed and reinstated is three things that happened, not one.
+     */
+    const recordLifecycle = async (
+      eventId: string,
+      entry: {
+        action: string;
+        targetType: string;
+        targetId: string;
+        occurrence?: string;
+      },
+    ): Promise<void> => {
+      try {
+        const organizationId = await service.organizationOf(eventId);
+        if (!organizationId) throw new Error("Event has no owning organization");
+        await auditRecorder.record({
+          organizationId,
+          eventId,
+          action: entry.action,
+          targetType: entry.targetType,
+          targetId: entry.targetId,
+          idempotencyKey: lifecycleAuditKey({ ...entry, eventId }),
+        });
+      } catch (error) {
+        // ERROR-INTENT: reported rather than raised — the change this describes is already
+        // durable, and failing here would undo nothing while breaking the action that succeeded.
+        // Carries what the record would have said, so it can be reconstructed by hand.
+        logger.error(
+          {
+            eventId,
+            action: entry.action,
+            targetId: entry.targetId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "audit.record.failed",
+        );
+      }
+    };
     const speakerNotifications: SpeakerNotificationPort = {
-      speakerAccepted: (fact) =>
-        notifyLifecycle(fact.eventId, { profileId: fact.profileId }, () => ({
+      speakerAccepted: async (fact) => {
+        await recordLifecycle(fact.eventId, {
+          action: "content.speaker_accepted",
+          targetType: "speaker-profile",
+          targetId: fact.profileId,
+        });
+        await notifyLifecycle(fact.eventId, { profileId: fact.profileId }, () => ({
           idempotencyKey: `speaker-invite:${fact.eventId}:${fact.profileId}`,
           triggerType: "speaker.invited",
           channel: "email",
           recipientRef: fact.speakerEmail,
           payload: { speakerName: fact.speakerName, sessionTitle: fact.sessionTitle },
           templateKey: "speaker-invite",
-        })),
-      taskAssigned: (fact) =>
-        notifyLifecycle(fact.eventId, { taskId: fact.taskId, profileId: fact.profileId }, () => ({
-          idempotencyKey: `speaker-task:${fact.taskId}`,
-          triggerType: "speaker.task_assigned",
-          channel: "email",
-          recipientRef: fact.speakerEmail,
-          payload: {
-            speakerName: fact.speakerName,
-            taskTitle: fact.taskTitle,
-            dueAt: fact.dueAt,
-          },
-          templateKey: "speaker-task",
-        })),
+        }));
+      },
+      taskAssigned: async (fact) => {
+        await recordLifecycle(fact.eventId, {
+          action: "content.task_assigned",
+          targetType: "speaker-task",
+          targetId: fact.taskId,
+        });
+        await notifyLifecycle(
+          fact.eventId,
+          { taskId: fact.taskId, profileId: fact.profileId },
+          () => ({
+            idempotencyKey: `speaker-task:${fact.taskId}`,
+            triggerType: "speaker.task_assigned",
+            channel: "email",
+            recipientRef: fact.speakerEmail,
+            payload: {
+              speakerName: fact.speakerName,
+              taskTitle: fact.taskTitle,
+              dueAt: fact.dueAt,
+            },
+            templateKey: "speaker-task",
+          }),
+        );
+      },
     };
     const reviewNotifications: ReviewNotificationPort = {
       async reviewerAssigned(fact) {
+        // Recorded before the message is resolved, deliberately: a reviewer with no linked
+        // address is unreachable but the assignment still happened, and a timeline that only
+        // showed the reachable ones would be describing the mail rather than the event.
+        await recordLifecycle(fact.eventId, {
+          action: "review.reviewer_assigned",
+          targetType: "review-round",
+          targetId: `${fact.reviewerId}:r${fact.round}`,
+        });
         const reviewer = await identityDirectory.findRecipient(fact.reviewerId);
         // No address means nobody to write to. Logged rather than queued, because a delivery to
         // a non-address would burn an attempt and fail terminally with a code that describes the
@@ -672,6 +821,29 @@ export default {
         }));
       },
       async decisionRecorded(fact) {
+        // The outcome is in the key for the same reason it is in the delivery's: a reversed
+        // decision is a different thing that happened, and the log has to hold both.
+        /*
+         * No occurrence component, and the reason is a limitation rather than an oversight.
+         *
+         * A decision can genuinely recur on one proposal — accept, decline, accept again is three
+         * decisions, and the outcome in the action separates only the first two. Distinguishing
+         * the third from the first needs something that changes on a real decision and not on a
+         * retry, and the review domain has nothing of the kind: `decide` recomputes `decidedAt`
+         * on every call, including the retry it documents as the way a half-finished decision
+         * heals, and a stored decision carries no revision.
+         *
+         * So the choice is forced, and `PRD-OPS-003` settles which way: a replayed command
+         * produces exactly one record. A reinstated decision therefore re-derives the first
+         * decision's key and is not recorded a second time. `GAP-022` names it, and the
+         * `occurrence` parameter above is the extension point that closes it once review can
+         * number its decisions.
+         */
+        await recordLifecycle(fact.eventId, {
+          action: `review.decision_${fact.outcome}`,
+          targetType: "proposal",
+          targetId: fact.proposalId,
+        });
         if (!fact.submitterEmail) {
           logger.warn(
             { eventId: fact.eventId, proposalId: fact.proposalId },
@@ -991,6 +1163,8 @@ export default {
       },
       dismissals: new D1InboxDismissalStore(environment.DB),
       now: () => new Date(),
+      audit: auditRecorder,
+      identity: requestIdentity,
     });
     // --- end platform ---
     const app = createHttpAppFrom({

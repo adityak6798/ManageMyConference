@@ -61,6 +61,10 @@ export const UNMODELLED_OBJECTS = [
   "trigger:review_evaluation_source_update",
   "trigger:public_event_projections_slug_reservation_insert",
   "trigger:public_event_projections_slug_reservation_update",
+  // The two guards that make the audit timeline append-only. Drizzle cannot declare either, and
+  // they are the whole reason the table is evidence rather than a log somebody can rewrite.
+  "trigger:platform_audit_records_no_update",
+  "trigger:platform_audit_records_no_delete",
 ];
 
 const dialect = new SQLiteSyncDialect();

@@ -15,7 +15,7 @@ Dependency direction is `domain → application → adapter/transport` when read
 | agenda | rooms, tracks, slots, placements | published schedule projection |
 | communications-integrations | templates, outbox, attempts, provider projections | delivery status and typed provider ports |
 | publishing | public projections/embed config | public queries |
-| platform | inbox dismissals (`platform_inbox_dismissals`) | cross-domain operational reads — search and the inbox — composed from other domains' public application interfaces |
+| platform | inbox dismissals (`platform_inbox_dismissals`), the append-only audit timeline (`platform_audit_records`) | cross-domain operational reads — search and the inbox — composed from other domains' public application interfaces |
 
 Rules:
 

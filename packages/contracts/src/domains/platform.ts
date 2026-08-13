@@ -126,7 +126,7 @@ export const searchQuerySchema = z.object({
 });
 
 /**
- * An operational inbox item. @spec PRD-OPS-001
+ * An operational inbox item. @spec PRD-OPS-002
  *
  * Derived on every read, never stored: resolving the underlying condition removes the item with
  * no write anywhere. `key` is identity *and* occurrence — it carries the task's deadline or the
@@ -196,6 +196,41 @@ export type InboxItemDto = z.infer<typeof inboxItemSchema>;
 export type InboxSectionDto = z.infer<typeof inboxSectionSchema>;
 export type InboxCategoryKey = keyof z.infer<typeof inboxCategoriesSchema>;
 export type InboxResponseDto = z.infer<typeof inboxResponseSchema>;
+
+/**
+ * One entry on the unified audit timeline. @spec PRD-OPS-003
+ *
+ * `actorId` is null for a record nobody signed — a lifecycle consequence with no request behind
+ * it — and `actorName` still says what it was, so a reader is never shown a blank. `source`
+ * distinguishes a person from a program; only `human` and `system` are produced today.
+ */
+export const auditRecordSchema = z.object({
+  id: z.string(),
+  occurredAt: z.string(),
+  actorId: z.string().nullable(),
+  actorName: z.string(),
+  source: z.enum(["human", "api", "agent", "system"]),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string(),
+  correlationId: z.string().nullable(),
+});
+
+export const AUDIT_PAGE_LIMIT_MAX = 50;
+
+export const auditQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(AUDIT_PAGE_LIMIT_MAX).default(25),
+  cursor: z.string().min(1).max(200).optional(),
+});
+
+export const auditResponseSchema = z.object({
+  records: z.array(auditRecordSchema),
+  /** Absent as `null` rather than omitted, so "no more" and "not asked" cannot be confused. */
+  nextCursor: z.string().nullable(),
+});
+
+export type AuditRecordDto = z.infer<typeof auditRecordSchema>;
+export type AuditResponseDto = z.infer<typeof auditResponseSchema>;
 
 export type SearchResultKind = z.infer<typeof searchResultKindSchema>;
 export type SearchResultDto = z.infer<typeof searchResultSchema>;

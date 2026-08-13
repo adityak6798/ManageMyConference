@@ -1,7 +1,12 @@
 // @acceptance ACC-OPS
 
-import { inboxResponseSchema, searchResponseSchema } from "@greenroom/contracts";
+import {
+  auditResponseSchema,
+  inboxResponseSchema,
+  searchResponseSchema,
+} from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { MemoryAuditRecordStore } from "../src/adapters/persistence/d1-audit-repository";
 import { MemoryInboxDismissalStore } from "../src/adapters/persistence/d1-platform-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { EventService } from "../src/application/events/event-service";
@@ -11,6 +16,8 @@ import {
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
 import {
+  AuditRecorder,
+  createRequestIdentity,
   PlatformOperationsService,
   type PlatformSources,
 } from "../src/application/platform/public";
@@ -381,5 +388,101 @@ describe("inbox HTTP transport", () => {
       expect.objectContaining({ operation: "inbox.programme" }),
       "request.exception",
     );
+  });
+});
+
+describe("audit HTTP transport", () => {
+  const auditFor = async (persona: "organizer" | "reviewer" | "public" | null, query = "") => {
+    const store = new MemoryAuditRecordStore();
+    const identity = createRequestIdentity();
+    const audit = new AuditRecorder({
+      store,
+      identity,
+      newId: () => "record-1",
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+      report: vi.fn(),
+    });
+    await store.append({
+      id: "record-seed",
+      organizationId: ORGANIZATION,
+      eventId: EVENT_ONE,
+      occurredAt: "2026-08-12T09:00:00.000Z",
+      actorId: "seed-organizer",
+      actorName: "Olivia Organizer",
+      source: "human",
+      action: "review.reviewer_assigned",
+      targetType: "review-round",
+      targetId: "seed-reviewer:r1",
+      correlationId: "corr-earlier",
+      idempotencyKey: "audit:review.reviewer_assigned:seed-reviewer:r1",
+    });
+    const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = createHttpAppFrom({
+      events: new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+      logger,
+      auth: {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      platformOps: new PlatformOperationsService({
+        sources: sources(),
+        dismissals: new MemoryInboxDismissalStore(),
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+        audit,
+        identity,
+      }),
+    });
+    return app.request(
+      `/api/events/${EVENT_ONE}/audit${query}`,
+      persona ? { headers: await cookieFor(persona) } : {},
+    );
+  };
+
+  it("refuses an anonymous caller and one without events:settings:read", async () => {
+    expect((await auditFor(null)).status).toBe(401);
+    expect((await auditFor("public")).status).toBe(403);
+    // A reviewer holds `events:read` on this event and still may not read the log: it names who
+    // did what, which is the organizer's administrative view rather than everybody's.
+    expect((await auditFor("reviewer")).status).toBe(403);
+  });
+
+  it("answers an organizer with the record, and never with the idempotency key", async () => {
+    const response = await auditFor("organizer");
+
+    expect(response.status).toBe(200);
+    const text = await response.clone().text();
+    const body = auditResponseSchema.parse(await response.json());
+    expect(body.records).toEqual([
+      {
+        id: "record-seed",
+        occurredAt: "2026-08-12T09:00:00.000Z",
+        actorId: "seed-organizer",
+        actorName: "Olivia Organizer",
+        source: "human",
+        action: "review.reviewer_assigned",
+        targetType: "review-round",
+        targetId: "seed-reviewer:r1",
+        correlationId: "corr-earlier",
+      },
+    ]);
+    expect(body.nextCursor).toBeNull();
+    // The key is derived from the fact and is the one field a caller could use to guess at
+    // records they were not shown.
+    expect(text).not.toContain("idempotencyKey");
+  });
+
+  it("rejects a page size beyond the contract's maximum", async () => {
+    const response = await auditFor("organizer", "?limit=500");
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { limit: expect.any(Array) } },
+    });
   });
 });

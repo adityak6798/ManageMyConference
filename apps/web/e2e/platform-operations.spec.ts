@@ -205,3 +205,64 @@ test("a reviewer's inbox carries their own work and names what their role omits"
   ).toBeVisible();
   await expect(page.getByText(/Not available to your role/)).toBeVisible();
 });
+
+test("the activity timeline records a real mutation with the organizer who made it", async ({
+  page,
+}) => {
+  /*
+   * Its own event, for the same reason `publishing.spec.ts` creates one: the audit table is
+   * append-only and nothing cleans it up, so asserting against the shared demo event would be
+   * asserting against every previous run of the suite as well. A fresh event has an empty
+   * timeline, which makes "this action produced this record" a claim the test can actually make.
+   */
+  const name = `Greenroom Activity Trial ${Date.now()}`;
+  await openConsoleAs(page, "organizer");
+  await page.getByRole("link", { name: /Event settings/ }).click();
+  await page.getByLabel("Event name", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "Create event" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
+
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Activity", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+  await expect(page.getByText("Nothing recorded yet")).toBeVisible();
+
+  // Publish a schedule: an agenda mutation whose audit record commits inside the publication's
+  // own batch, so this is also the browser-level evidence that the batch writer is wired.
+  await page.getByRole("link", { name: /Agenda/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
+  await page.getByRole("button", { name: "Create agenda" }).click();
+  await page.locator("summary").filter({ hasText: "Manage rooms, tracks, and times" }).click();
+  await page.getByLabel("New timeslot start").fill("2026-11-04T09:00");
+  await page.getByLabel("New timeslot end").fill("2026-11-04T10:00");
+  await page.getByRole("button", { name: "Add timeslot" }).click();
+  await expect(page.getByRole("status")).toContainText("Timeslot added.");
+  await page.getByRole("button", { name: "Publish schedule" }).click();
+  await expect(page.getByRole("status")).toContainText("Published version 1");
+
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Activity", exact: true })
+    .click();
+  const published = page.getByRole("row", { name: /agenda\.schedule_published/ });
+  await expect(published).toBeVisible();
+  // The organizer who pressed Publish, named, and marked as a person rather than a program.
+  await expect(published).toContainText("Olivia Organizer");
+  await expect(published).toContainText("human");
+});
+
+test("a role without events:settings:read is not offered the activity timeline", async ({
+  page,
+}) => {
+  await openConsoleAs(page, "reviewer");
+
+  // The log names who did what to an event, which is the administrative view of it rather than
+  // something every role on the event may read.
+  await expect(
+    page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("link", { name: "Activity", exact: true }),
+  ).toHaveCount(0);
+});

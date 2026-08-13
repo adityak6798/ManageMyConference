@@ -2,7 +2,7 @@
   "id": "platform",
   "order": 10,
   "index": "docs/architecture/README.md",
-  "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001", "PRD-OPS-001", "PRD-OPS-002"],
+  "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001", "PRD-OPS-001", "PRD-OPS-002", "PRD-OPS-003"],
   "journeys": [],
   "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE", "ACC-OPS"],
   "plans": ["PLAN-001", "PLAN-002"],
@@ -81,7 +81,11 @@
     "apps/api/migrations/1900_platform_inbox_dismissals.sql",
     "apps/api/test/platform-inbox.test.ts",
     "apps/api/test/d1-platform-repository.integration.test.ts",
-    "apps/web/test/platform-inbox.test.tsx"
+    "apps/web/test/platform-inbox.test.tsx",
+    "apps/api/migrations/1901_platform_audit_records.sql",
+    "apps/api/src/adapters/persistence/d1-audit-repository.ts",
+    "apps/api/test/platform-audit.test.ts",
+    "apps/web/test/platform-audit.test.tsx"
   ],
   "symbols": {
     "createHttpApp": "apps/api/src/transport/http/app.ts",

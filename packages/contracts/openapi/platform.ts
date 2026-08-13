@@ -5,6 +5,8 @@
  * fragment, and the aggregate `openapi.json` is still generated from all of them together.
  */
 import {
+  auditQuerySchema,
+  auditResponseSchema,
   eventIdParamsSchema,
   healthResponseSchema,
   inboxDismissalInputSchema,
@@ -108,6 +110,25 @@ export const platformPaths: OpenApiFragment = {
       request: { params: inboxDismissalParamsSchema },
       responses: {
         204: { description: "Dismissal removed" },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/audit",
+      description:
+        "The unified audit timeline for one event, newest first. Append-only in storage: two " +
+        "triggers refuse an UPDATE and a DELETE, so a record cannot be edited or removed. " +
+        "Gated on `events:settings:read`, and paged by an opaque cursor over " +
+        "`(occurredAt, id)` — the id is in the key because two records written in the same " +
+        "millisecond are ordinary. The idempotency key never leaves the server.",
+      security: [{ sessionCookie: [] }],
+      request: { params: eventIdParamsSchema, query: auditQuerySchema },
+      responses: {
+        200: { description: "Audit timeline page", content: json(auditResponseSchema) },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,

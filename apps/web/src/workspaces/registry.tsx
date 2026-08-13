@@ -18,7 +18,7 @@ import type { NavGroupName, WorkspaceAccess, WorkspaceModule } from "./contract"
 import { crmDirectoryWorkspace, crmWorkspace } from "./crm";
 import { eventTemplatesWorkspace } from "./events";
 import { membersWorkspace } from "./identity";
-import { inboxWorkspace, searchWorkspace } from "./platform";
+import { auditWorkspace, inboxWorkspace, searchWorkspace } from "./platform";
 import { publishingWorkspace } from "./publishing";
 import { abstractsWorkspace, reviewsWorkspace } from "./review";
 
@@ -37,6 +37,7 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   eventTemplatesWorkspace,
   searchWorkspace,
   inboxWorkspace,
+  auditWorkspace,
 ];
 
 /**

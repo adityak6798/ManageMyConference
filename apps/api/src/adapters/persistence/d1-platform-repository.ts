@@ -5,7 +5,7 @@
  * from another domain's read at request time, which is why this adapter has three methods and no
  * projection to maintain.
  *
- * @spec PRD-OPS-001
+ * @spec PRD-OPS-002
  */
 import type { InboxDismissal, InboxDismissalStore } from "../../application/platform/public";
 import { changedRows, type D1WriteResult } from "./d1-write-result";

@@ -72,6 +72,7 @@
     "publication_slug_reservation_audit": "publishing",
     "accelevents_sync_runs": "communications-integrations",
     "review_suggestions": "review",
-    "platform_inbox_dismissals": "platform"
+    "platform_inbox_dismissals": "platform",
+    "platform_audit_records": "platform"
   }
 }
