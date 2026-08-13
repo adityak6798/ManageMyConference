@@ -138,3 +138,132 @@ describe("assisted placement route", () => {
     expect(response.status).toBe(404);
   });
 });
+
+/**
+ * The organizer's own answer to "is this event's stored schedule sound", and its repair.
+ *
+ * Issue #169's on-demand half. Neither route is the primary defence — reads re-derive a drifted
+ * answer before serving it, and the one-minute tick sweeps the events nobody reads — so what is
+ * asserted here is the two things only these can do: report without acting, and act on request.
+ */
+describe("schedule reconciliation route", () => {
+  const reconciliationPath = `/api/events/${eventId}/agenda/schedule-reconciliation`;
+
+  const drifted = async () => {
+    const repository = new MemoryAgendaRepository([board]);
+    const published = {
+      eventId,
+      version: 1,
+      publishedAt: "2026-08-11T10:00:00.000Z",
+      publishedBy: "organizer",
+      agenda: {
+        ...board,
+        placements: [
+          {
+            id: "placement-1",
+            sessionId: "session-1",
+            roomId: "room-main",
+            trackId: "track-web",
+            slotId: "slot-9",
+          },
+        ],
+      },
+    };
+    expect(await repository.publish(published)).toBe("committed");
+    // The deploy window: a publication that unplaces the session, written by something that does
+    // not maintain the derived table.
+    await repository.recordUnmaintainedPublication({
+      ...published,
+      version: 2,
+      publishedAt: "2026-08-12T10:00:00.000Z",
+      agenda: board,
+    });
+    return createHttpAppFrom({
+      events: new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date(),
+      }),
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      auth: {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+      },
+      agenda: new AgendaService(
+        repository,
+        () => new Date("2026-08-11T10:00:00.000Z"),
+        new FixtureSchedulableContentQuery(new Map([[eventId, board.sessions]])),
+      ),
+    });
+  };
+
+  const report = async (response: Response) =>
+    (
+      (await response.json()) as {
+        reconciliation: {
+          inSync: boolean;
+          repaired: boolean;
+          publications: number;
+          publicationWatermark: number | null;
+          materializedWatermark: number | null;
+          drift: { missing: string[]; phantom: string[]; divergent: unknown[] };
+        };
+      }
+    ).reconciliation;
+
+  it("requires an organizer of the event", async () => {
+    const app = await drifted();
+    expect((await app.request(reconciliationPath)).status).toBe(401);
+    expect(
+      (await app.request(reconciliationPath, { headers: await cookie("speaker") })).status,
+    ).toBe(403);
+    expect(
+      (await app.request(reconciliationPath, { method: "POST", headers: await cookie("speaker") }))
+        .status,
+    ).toBe(403);
+  });
+
+  it("reports the divergence without repairing it, then repairs it on request", async () => {
+    const app = await drifted();
+    const headers = await cookie("organizer");
+
+    const first = await app.request(reconciliationPath, { headers });
+    expect(first.status).toBe(200);
+    const found = await report(first);
+    expect(found).toMatchObject({
+      inSync: false,
+      repaired: false,
+      publications: 2,
+      publicationWatermark: 2,
+      materializedWatermark: 1,
+    });
+    // A phantom row: the session the second publication unplaced still reads as scheduled, which
+    // is what mails an invitation to a session the programme does not schedule.
+    expect(found.drift.phantom).toEqual(["session-1"]);
+
+    // Asking twice gives the same answer, because asking is not acting.
+    expect(
+      (await report(await app.request(reconciliationPath, { headers }))).drift.phantom,
+    ).toEqual(["session-1"]);
+
+    const repaired = await report(
+      await app.request(reconciliationPath, { method: "POST", headers }),
+    );
+    expect(repaired).toMatchObject({ inSync: false, repaired: true, materializedWatermark: 2 });
+    // `inSync` above describes what was found, not what was left behind — so the proof it worked
+    // is the next read.
+    const after = await report(await app.request(reconciliationPath, { headers }));
+    expect(after).toMatchObject({ inSync: true, repaired: false, materializedWatermark: 2 });
+    expect(after.drift).toEqual({ missing: [], phantom: [], divergent: [] });
+  });
+
+  it("refuses a malformed event id rather than replaying nothing", async () => {
+    const app = await drifted();
+    const response = await app.request("/api/events/not-a-uuid/agenda/schedule-reconciliation", {
+      headers: await cookie("organizer"),
+    });
+    expect(response.status).toBe(400);
+  });
+});

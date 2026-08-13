@@ -3,8 +3,9 @@
  *
  * Everything another domain is allowed to know about the programme's shape in time. Nothing
  * outside `apps/api/src/application/agenda` and the agenda repositories reads `agenda_drafts`,
- * `agenda_publications` or `agenda_session_schedules`. `table-ownership.json` is the enforced
- * statement of that set; this sentence is the readable one and has to be kept level with it.
+ * `agenda_publications`, `agenda_session_schedules` or `agenda_schedule_materializations`.
+ * `table-ownership.json` is the enforced statement of that set; this sentence is the readable one
+ * and has to be kept level with it.
  */
 import type { SessionScheduleRevision } from "../../domain/agenda/agenda";
 import type { Actor } from "../identity/actor";
@@ -17,7 +18,18 @@ export {
   AgendaService,
 } from "./agenda-service";
 export type { SchedulePublishedEvent } from "../../domain/agenda/agenda";
-export type { PublicSchedule } from "./agenda-repository";
+export type { PublicSchedule, ScheduleReconciliation } from "./agenda-repository";
+export type {
+  SessionScheduleDivergence,
+  SessionScheduleDrift,
+} from "../../domain/agenda/agenda";
+export { isScheduleInSync } from "../../domain/agenda/agenda";
+export {
+  SCHEDULE_SWEEP_LIMIT,
+  sweepDriftedSchedules,
+  type ScheduleSweepDependencies,
+  type ScheduleSweepResult,
+} from "./schedule-reconciliation";
 export type { PlacedSessionTime as SessionSchedule } from "../../domain/agenda/agenda";
 
 /**

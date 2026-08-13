@@ -240,21 +240,41 @@ export function AgendaWorkspace({
   const tracks = draft.tracks;
   const slotRange = (slot: Slot) => `${clock.hhmm(slot.startsAt)}–${clock.hhmm(slot.endsAt)}`;
   const allSlots = [...draft.slots].sort(byStart);
+  /*
+   * Each slot's day and time-of-day range, read once (`DEBT-009`).
+   *
+   * Both are `Intl.formatToParts` calls — `dayKey` costs three of them — and both used to be made
+   * from inside the week board's nested day × time loop, once per slot per cell, on every render
+   * of a drag. Reading them here makes the board's cost linear in slots and leaves the loops
+   * doing map lookups.
+   */
+  const slotDays = new Map(allSlots.map((slot) => [slot.id, clock.dayKey(slot.startsAt)]));
+  // The fallback is the same answer computed the slow way, and is reached only for a slot that is
+  // not on the board — which `slotOf` cannot return.
+  const dayOf = (slot: Slot) => slotDays.get(slot.id) ?? clock.dayKey(slot.startsAt);
   // Day buckets are the *event's* calendar days. A 21:00 local slot stays on its local
   // day even when that instant already belongs to tomorrow in UTC, so the Day, Week,
   // Room and Track views group the way the organizer's own programme reads.
-  const days = [...new Set(allSlots.map((slot) => clock.dayKey(slot.startsAt)))].sort();
+  const days = [...new Set(slotDays.values())].sort();
   // Each key is labelled from a real instant on that day, so no synthetic midday
   // timestamp has to be invented and no zone offset is assumed.
-  const dayLabels = new Map(
-    allSlots.map((slot) => [clock.dayKey(slot.startsAt), clock.dayLabel(slot.startsAt)]),
-  );
+  const dayLabels = new Map(allSlots.map((slot) => [dayOf(slot), clock.dayLabel(slot.startsAt)]));
   const labelForDay = (day: string) => dayLabels.get(day) ?? day;
   const activeDay = selectedDay && days.includes(selectedDay) ? selectedDay : (days[0] ?? null);
-  const daySlots = allSlots.filter((slot) => clock.dayKey(slot.startsAt) === activeDay);
+  const daySlots = allSlots.filter((slot) => dayOf(slot) === activeDay);
   const newTrackId = trackForNew ?? tracks[0]?.id ?? "";
-  // DST makes the abbreviation date-dependent, so it is read at a time the board shows.
-  const zoneAbbreviation = clock.abbreviation(allSlots[0]?.startsAt ?? new Date().toISOString());
+  /*
+   * The zone's abbreviation, read at an instant the board actually shows (`DEBT-008`).
+   *
+   * DST makes it date-dependent, so it can only be read from a slot. An empty board therefore
+   * gets **no abbreviation at all**, where it used to fall back to `new Date()` and label the
+   * conference with today's DST state — "PDT" for a January event configured in the winter half,
+   * stated as confidently as a real reading. The event record carries no dates of its own
+   * (`EventDto` is id, organization, name, timezone and creation time), so there is no honest
+   * instant to substitute: with no slots the board shows no time, and the zone's IANA name alone
+   * is the whole of what is known.
+   */
+  const zoneAbbreviation = allSlots[0] ? clock.abbreviation(allSlots[0].startsAt) : "";
   const zoneLabel =
     zoneAbbreviation && zoneAbbreviation !== clock.zone
       ? `${clock.zone} (${zoneAbbreviation})`
@@ -961,8 +981,24 @@ export function AgendaWorkspace({
 
   function renderWeekBoard() {
     if (!allSlots.length) return renderBoardEmpty();
+    /*
+     * Every slot bucketed by (day, time of day), in one pass (`DEBT-009`).
+     *
+     * The cells below are the product of those two axes, and each one used to rescan every slot
+     * — recomputing its calendar day and its range through `Intl` as it went — so the board cost
+     * grew with the square of the slot count while a drag re-rendered it continuously. The rows
+     * are read off the same pass, since they are exactly the distinct ranges.
+     */
+    const cells = new Map<string, string[]>();
+    const ranges = new Set<string>();
+    for (const slot of allSlots) {
+      const range = slotRange(slot);
+      ranges.add(range);
+      const key = `${dayOf(slot)}|${range}`;
+      cells.set(key, [...(cells.get(key) ?? []), slot.id]);
+    }
     // Slots repeat across days, so the rows are the distinct times of day.
-    const timeRows = [...new Set(allSlots.map((slot) => slotRange(slot)))].sort();
+    const timeRows = [...ranges].sort();
     return (
       <div className="table-wrap">
         <table className="data board">
@@ -984,13 +1020,11 @@ export function AgendaWorkspace({
               <tr key={range}>
                 <th scope="row">{range}</th>
                 {days.map((day) => {
-                  const slotIds = allSlots
-                    .filter(
-                      (slot) => clock.dayKey(slot.startsAt) === day && slotRange(slot) === range,
-                    )
-                    .map((slot) => slot.id);
+                  const slotIds = new Set(cells.get(`${day}|${range}`) ?? []);
+                  // Filtered from `placements` rather than gathered per slot, so the cards keep
+                  // the board's own placement order where a cell holds more than one slot.
                   const inCell = draft.placements.filter((placement) =>
-                    slotIds.includes(placement.slotId),
+                    slotIds.has(placement.slotId),
                   );
                   return (
                     <td key={`${day}-${range}`}>

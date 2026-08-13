@@ -1,4 +1,9 @@
-import type { AgendaDraft, Placement, SessionScheduleRevision } from "../../domain/agenda/agenda";
+import type {
+  AgendaDraft,
+  Placement,
+  SessionScheduleDrift,
+  SessionScheduleRevision,
+} from "../../domain/agenda/agenda";
 
 export interface PublishedSchedule {
   readonly eventId: string;
@@ -91,10 +96,64 @@ export interface AgendaRepository {
    * bound as an event was republished (issue #141). An implementation maintains this in the
    * same durable operation as the publication that changes it, so a reader can never see a
    * revision for a snapshot that did not commit, nor miss one that did.
+   *
+   * **Never serves an answer it knows to be stale.** Maintaining the stored form is the write
+   * path's job; noticing that some *other* writer moved the history is this one's. An
+   * implementation that stores the answer must check, cheaply, that it still describes the
+   * publication history — and re-derive it before answering if it does not (issue #169). What
+   * "cheaply" has to mean is one indexed row: a check that replayed the history on every read
+   * would reinstate exactly the cost #141 removed.
    */
   sessionScheduleRevisions(eventId: string): Promise<ReadonlyMap<string, SessionScheduleRevision>>;
+  /**
+   * Replay the publication history and say how the stored revisions differ from it — and,
+   * optionally, make them agree.
+   *
+   * The expensive, exact counterpart to the cheap check above. The watermark can only notice that
+   * the history moved; this recomputes the fold from the immutable snapshots and compares every
+   * field of every row, so it also catches a table that was corrupted without the history moving
+   * at all. That is why the on-demand surface runs this rather than trusting the watermark.
+   *
+   * `repair: false` is a pure read and writes nothing, including the watermark: an operator
+   * asking "is this event sound" must be able to ask without changing the answer.
+   */
+  reconcileSessionSchedules(
+    eventId: string,
+    options: { readonly repair: boolean },
+  ): Promise<ScheduleReconciliation>;
+  /**
+   * Events whose stored revisions are known to lag their publication history, newest first is
+   * *not* promised — the order is the storage's own and the caller repairs all of them.
+   *
+   * Bounded by `limit` because this feeds a one-minute tick: a sweep that tried to repair every
+   * event of a large deployment in one tick would replay every history in one invocation. Drift
+   * left behind by the bound is picked up by the next tick, and is in the meantime still repaired
+   * on demand by any read of that event's schedule.
+   */
+  driftedEvents(limit: number): Promise<readonly string[]>;
   /** The publication a previous attempt of this command committed, if it got that far. */
   findByCommandKey(eventId: string, commandKey: string): Promise<PublishedSchedule | null>;
+}
+
+/**
+ * What a reconciliation found, and whether it acted.
+ *
+ * The two watermarks are reported alongside the drift because they answer different questions.
+ * The drift says what is wrong *now*; the watermarks say whether anything had noticed — a
+ * divergence with equal watermarks is a table that was written behind the fold's back, which is a
+ * different problem from a publication the fold never saw.
+ */
+export interface ScheduleReconciliation {
+  readonly eventId: string;
+  /** The version of the most recent publication written for this event; null if none ever was. */
+  readonly publicationWatermark: number | null;
+  /** What that watermark held when the stored revisions were last derived; null means never. */
+  readonly materializedWatermark: number | null;
+  /** How many publications the replay walked, which is the cost this call actually paid. */
+  readonly publications: number;
+  readonly drift: SessionScheduleDrift;
+  /** Whether this call wrote the replayed answer back. False when asked not to, or when sound. */
+  readonly repaired: boolean;
 }
 
 export type PublicSchedule = Omit<PublishedSchedule, "publishedBy">;

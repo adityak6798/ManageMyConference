@@ -1,6 +1,6 @@
 # Competition wave plan and coordination ledger
 
-Status: working | Owner: delivery coordination | Last verified: 2026-08-12
+Status: working | Owner: delivery coordination | Last verified: 2026-08-13
 
 This is the durable record of how the remaining backlog is being worked: which lanes exist, what
 blocks what, and every cross-lane ruling that has been made. It exists because the coordination
@@ -407,8 +407,9 @@ sessions still in force whose room the final snapshot dropped. Counting shapes r
 discriminating cases is what let two mutations of `1601` survive the suite in the first place.
 
 The self-healing watermark read described as the honest second choice was therefore
-not needed and is not present; what replaces it as the residual risk is recorded in
-[known gaps](../quality/known-gaps.md) as `GAP-024`.
+not needed for the backfill; what replaced it as the residual risk was recorded as `GAP-024`, and
+issue #169 has since closed it — with a watermark read that *is* self-healing, plus a trigger that
+moves the watermark for writers the application never sees. See "Issue #169 rulings" below.
 
 **`agenda/public.ts` is now edited as predicted.** `ContentAgendaInterface.publishedSessionSchedules`
 is expressed as `ReadonlyMap<string, SessionScheduleRevision>`, which is structurally identical to
@@ -416,6 +417,70 @@ the `PlacedSessionTime & { revision; revisedAt }` it replaces — no file under
 `application/content/` or `application/communications/` needed a change, which was the contract
 test for this lane. A lane appending to this file should add its export below the interface and
 edit nothing above.
+### Issue #169 rulings
+
+`GAP-024` is closed, and the entry is deleted from [known gaps](../quality/known-gaps.md) rather
+than annotated, which is what this repository does with a closed gap.
+
+**The detection had to be in the database, not in the application.** The invariant #141 relied on —
+"every writer of `agenda_publications` also maintains `agenda_session_schedules`" — was convention,
+and the two ways it breaks are precisely the ways application code cannot see: the *old* Worker
+committing publications during the deploy window, after `migrate:remote` and before the upload, and
+any future direct writer. A trigger belongs to the database the migration has already reached, so it
+fires for both. It cannot make an unmaintained insert *impossible* — the derived rows are a fold
+over the whole history that no `CHECK` can express, and a trigger cannot see statements that come
+later in the same transaction — but it makes one impossible to go unnoticed, which is the strongest
+thing available and is enough, because everything downstream now re-derives before believing.
+
+**Repair runs on all three paths, and the reasoning differs for each.**
+
+- *On every read.* Not because reads should write, but because of what this particular read decides:
+  whether a speaker is mailed an invitation to a session the programme does not schedule, and
+  whether the invitation that puts a returning talk back on their calendar is suppressed. Mail does
+  not roll back. The check is one indexed row in the same `batch` as the rows themselves, so the
+  steady state costs a round trip's share of nothing and the replay happens only when the history
+  really has moved.
+- *On the existing cron.* For the events nobody reads, bounded at twenty a tick, because each
+  repair replays one history and an unbounded sweep would reintroduce on a schedule exactly the
+  cost #141 removed.
+- *On demand, as two routes.* Because the watermark can only ever notice that the *history* moved.
+  A derived table edited directly leaves it undisturbed, and only a full replay finds that. And
+  because an operator must be able to ask "is this event sound" without the asking changing the
+  answer, which is why the `GET` writes nothing, including the watermark.
+
+**The masking objection is real and is answered by noise, not by inaction.** An automatic repair can
+hide the write path producing the drift: a future importer writing publications directly would be
+corrected forever and look correct. Leaving the damage in place is not the alternative it appears to
+be, because nothing surfaces the condition — an organizer pressing Send is shown a count and no
+error in either direction. So every repair logs `agenda.schedule.drift_repaired` with both
+watermarks and the three divergence counts (not the session ids: that line reaches a shared sink).
+In a healthy deployment this logs nothing, ever, so one line is a deploy that raced a publication
+and a recurring line names the writer that needs fixing.
+
+**`1602` marks every already-published event as *unverified*, not as current.** `1601` derived the
+table from the whole history one migration earlier and it almost certainly still matches — but the
+deploy window is open while the two migrations run, and a migration that asserted "already current"
+would put the first false statement into the very table whose purpose is to be believed. The cost is
+one replay per published event on the first sweep after deploy. The seed, by contrast, *does* claim
+the watermark, because the seed genuinely maintains the derived table; without that the demo fixture
+would start life flagged as drifted.
+
+**Two agenda debts closed here rather than left for a later lane.** `DEBT-008` (an empty board read
+the timezone abbreviation at `new Date()`, so a January conference announced itself as PDT in July)
+and `DEBT-009` (the week board recomputed every slot's calendar day in every cell). Both are agenda's
+own, both are in agenda's own files, and both now carry the regression test the register asked for —
+`DEBT-008` closes differently from how its row anticipated, because rendering "the event's"
+abbreviation needs event dates that `EventDto` does not carry, so the board names no abbreviation at
+all. Also deleted: `apps/web/src/AgendaWorkspace.tsx`, a one-line re-export shim left over from
+#70's decomposition that every consumer imported through.
+
+**#131's NUL-byte gate is still worth having, and this lane proved it again.** A template literal
+written into `AgendaWorkspace.tsx` during this work carried a literal NUL as its separator, turning
+the file into a binary blob exactly as `D12` describes — `file` said `data`, and `grep` silently
+matched nothing while `sed` printed the text. It was caught within minutes because the separator was
+also read back wrongly, but nothing in `npm run check` would have caught it. The gate lives in
+`tools/`, which is platform, so this lane did not add it.
+
 ### Issue #99 rulings
 
 **The composition root now calls `createHttpAppFrom`, and it had to.** `apps/api/src/index.ts` was

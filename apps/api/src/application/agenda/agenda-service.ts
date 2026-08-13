@@ -11,7 +11,11 @@ import {
 } from "../../domain/agenda/assisted-placement";
 import type { AgendaContentQuery } from "../content/public";
 import { type Actor, requireEventCapability } from "../identity/actor";
-import type { AgendaRepository, PublishedSchedule } from "./agenda-repository";
+import type {
+  AgendaRepository,
+  PublishedSchedule,
+  ScheduleReconciliation,
+} from "./agenda-repository";
 import type { ContentAgendaInterface } from "./public";
 
 export class AgendaConflictError extends Error {
@@ -278,6 +282,30 @@ export class AgendaService implements ContentAgendaInterface {
     eventId: string,
   ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
     return this.repository.sessionScheduleRevisions(eventId);
+  }
+
+  /**
+   * Whether the stored schedule revisions still describe this event's publication history, and
+   * optionally put them right.
+   *
+   * The organizer-facing half of issue #169. Reads repair themselves and the tick sweeps what
+   * nobody reads, so this exists for the two things neither can do: to *answer the question*
+   * without changing anything, and to catch a divergence the watermark cannot see. The watermark
+   * only knows that the history moved; this replays the immutable snapshots and compares every
+   * field of every row, so a table someone edited directly — leaving the watermark undisturbed —
+   * is found here and nowhere else.
+   *
+   * Behind `agenda:manage` rather than open like `published`, because the report names sessions
+   * and hours the published programme may not carry: a phantom row describes a session the event
+   * has *stopped* scheduling, which is organizer information.
+   */
+  async reconcileSchedule(
+    actor: Actor | null,
+    eventId: string,
+    options: { readonly repair: boolean },
+  ): Promise<ScheduleReconciliation> {
+    await this.organizer(actor, eventId);
+    return this.repository.reconcileSessionSchedules(eventId, options);
   }
 
   /**

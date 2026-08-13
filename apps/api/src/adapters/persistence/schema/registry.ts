@@ -80,6 +80,7 @@ export const {
   calendarInviteStates,
   agendaDrafts,
   agendaPublications,
+  agendaScheduleMaterializations,
   agendaSessionSchedules,
   attendeeItineraries,
   cfpForms,

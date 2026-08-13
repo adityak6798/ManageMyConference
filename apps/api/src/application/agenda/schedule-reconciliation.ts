@@ -1,0 +1,105 @@
+/*
+ * Sweeping the events whose stored schedule revisions have fallen behind their history.
+ *
+ * `agenda_session_schedules` is derived state that is written rather than recomputed (issue #141),
+ * and `GAP-024` recorded what that costs: a publication written by anything other than
+ * `D1AgendaRepository.publish` — the old Worker during a deploy, an import, a repair script —
+ * leaves the derived table describing a history that has moved on. Every read of that event's
+ * schedule now re-derives it before answering, so the drift a *read* can reach is already closed.
+ * This is the other half: the events nobody reads.
+ *
+ * **Why the repair is automatic, and what that costs.** Leaving it to a human means the harm runs
+ * until somebody notices, and nothing surfaces the condition to notice: the organizer pressing
+ * Send is shown a count and no error either way. The harm itself is mail — an invitation to a
+ * session the programme does not schedule, or a withheld invitation for one that returned — and
+ * mail does not roll back. So it repairs itself, on the tick, without being asked.
+ *
+ * The price of that decision is worth stating plainly rather than discovering later: **an
+ * automatic repair can hide a write path that is producing drift.** If some future importer wrote
+ * publications directly every hour, this sweep would quietly correct after it forever and the
+ * importer would look correct. The answer is not to leave the damage in place, it is to make the
+ * repair loud: every repair is reported to the observer this takes, with the event, both
+ * watermarks, and what actually differed. A repair is not a routine event — in a healthy
+ * deployment this sweep does nothing at all, forever — so any occurrence at all is a signal, and
+ * a *recurring* one names the writer that needs fixing.
+ *
+ * @spec PRD-AGD-001 PRD-SPK-002
+ */
+import type { AgendaRepository, ScheduleReconciliation } from "./agenda-repository";
+
+/**
+ * How many events one sweep repairs.
+ *
+ * Each repair replays one event's whole publication history, so an unbounded sweep would turn a
+ * one-minute tick into a scan of every board a deployment has ever published — the cost #141
+ * removed, reintroduced on a schedule. What the bound leaves behind is not lost: the drifted rows
+ * stay in the partial index, the next tick takes them, and any read of that event repairs it
+ * immediately in the meantime.
+ */
+export const SCHEDULE_SWEEP_LIMIT = 20;
+
+export interface ScheduleSweepResult {
+  /** Events the storage reported as drifted, at most `limit` of them. */
+  readonly scanned: number;
+  /** Events this sweep brought back into agreement with their history. */
+  readonly repaired: number;
+  /** Events whose repair threw. Reported, never swallowed, and retried on the next tick. */
+  readonly failed: number;
+}
+
+export interface ScheduleSweepDependencies {
+  readonly schedules: Pick<AgendaRepository, "driftedEvents" | "reconcileSessionSchedules">;
+  /**
+   * Told about every repair, because a repair nobody hears about is how a broken writer survives.
+   *
+   * Carries the whole reconciliation rather than a count: which sessions were phantom, which were
+   * missing and which merely disagreed is the difference between "a publication was missed" and
+   * "something is writing this table directly", and only the first is explained by a deploy.
+   */
+  readonly onRepair?: (report: ScheduleReconciliation) => void;
+  /** Told about every failure, with the event that caused it. */
+  readonly onFailure?: (fields: { readonly eventId: string; readonly error: string }) => void;
+}
+
+/**
+ * Repair every drifted event this sweep is allowed to take, and say what it did.
+ *
+ * One event's failure does not end the sweep. A tick that abandoned the remaining events because
+ * the first one threw would let a single unrepairable event — a publication whose `schedule_json`
+ * some future writer left unparseable, say — indefinitely protect every other event's drift from
+ * being fixed. The failure is reported rather than swallowed and the event stays flagged, so the
+ * next tick tries it again and the observer sees it happen every minute, which is the correct
+ * amount of noise for something genuinely broken.
+ */
+export async function sweepDriftedSchedules(
+  dependencies: ScheduleSweepDependencies,
+  limit: number = SCHEDULE_SWEEP_LIMIT,
+): Promise<ScheduleSweepResult> {
+  const drifted = await dependencies.schedules.driftedEvents(limit);
+  let repaired = 0;
+  let failed = 0;
+  for (const eventId of drifted) {
+    try {
+      const report = await dependencies.schedules.reconcileSessionSchedules(eventId, {
+        repair: true,
+      });
+      if (report.repaired) {
+        repaired += 1;
+        dependencies.onRepair?.(report);
+      }
+    } catch (error) {
+      // ERROR-INTENT: one unrepairable event must not protect every other event's drift from
+      // being fixed. A tick that abandoned the rest because the first threw would let a single
+      // bad event — a publication whose `schedule_json` some future writer left unparseable —
+      // hold the whole sweep hostage indefinitely. Reported with the event that caused it rather
+      // than discarded, and the event stays flagged, so the next tick tries it again and the
+      // observer sees it every minute for as long as it is broken.
+      failed += 1;
+      dependencies.onFailure?.({
+        eventId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { scanned: drifted.length, repaired, failed };
+}

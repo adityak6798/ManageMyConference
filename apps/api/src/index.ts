@@ -37,7 +37,11 @@ import { AesGcmWebhookSecretProtector } from "./adapters/persistence/webhook-sec
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
-import { agendaTemplateSlice } from "./application/agenda/public";
+import {
+  agendaTemplateSlice,
+  sweepDriftedSchedules,
+  type ScheduleSweepResult,
+} from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
@@ -403,6 +407,59 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
     runBounded(() => webhookWorker.runOne()),
   ]);
   return communicationsProcessed + webhooksProcessed;
+}
+
+/**
+ * Repair the events whose stored schedule revisions have fallen behind their history (issue #169).
+ *
+ * The composition is deliberately the repository alone. `AgendaService` needs the content domain's
+ * schedulable-session query to answer anything about a board, and a reconciliation asks nothing
+ * about a board: it replays immutable snapshots the agenda already owns. Building a service here
+ * to reach one method would make the tick depend on a domain it has no business in.
+ *
+ * Every repair is logged, and that line is the whole answer to the objection this design invites.
+ * Repairing on a schedule can hide the writer producing the drift — a future importer writing
+ * publications directly would be silently corrected forever and look correct. In a healthy
+ * deployment this logs nothing, ever, so one line is a deploy that raced a publication and a
+ * recurring line is a writer that needs fixing. The alternative, leaving the drift in place until
+ * a human notices, has nothing to notice *with*: the failure it causes is mail, and it is silent
+ * in both directions.
+ */
+export async function reconcileScheduleMaterializations(
+  environment: Environment,
+): Promise<ScheduleSweepResult> {
+  return sweepDriftedSchedules({
+    schedules: new D1AgendaRepository(environment.DB, () => new Date()),
+    onRepair(report) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "agenda.schedule.drift_repaired",
+          eventId: report.eventId,
+          publicationWatermark: report.publicationWatermark,
+          materializedWatermark: report.materializedWatermark,
+          publications: report.publications,
+          // Counts rather than session ids: this line reaches a shared log sink, and which
+          // sessions moved is organizer data. The three counts are what distinguishes a missed
+          // publication from a table somebody wrote directly, which is what the line is for.
+          missing: report.drift.missing.length,
+          phantom: report.drift.phantom.length,
+          divergent: report.drift.divergent.length,
+        }),
+      );
+    },
+    onFailure(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "agenda.schedule.drift_repair_failed",
+          ...fields,
+        }),
+      );
+    },
+  });
 }
 
 export function pruneItineraries(environment: Environment): Promise<void> {
@@ -1409,11 +1466,20 @@ export default {
    * reports rather than throws, including when the open-task read itself fails, precisely so one
    * broken template cannot leave every queued delivery unsent.
    *
-   * The drain and the itinerary prune stay concurrent with each other, as they were: neither
-   * depends on the other and both are bounded.
+   * The drain, the itinerary prune and the schedule reconciliation stay concurrent with each
+   * other: none depends on the others and all three are bounded.
+   *
+   * The reconciliation joins them rather than running before the drain, even though the drift it
+   * repairs is what makes a calendar invitation wrong, because nothing in the drain sends one —
+   * `SpeakerCalendarInviteService.send` is reached only from the organizer's explicit Send. There
+   * is no ordering here that would make a queued delivery more correct.
    */
   async scheduled(_controller: unknown, environment: Environment): Promise<void> {
     await remindDueSpeakerTasks(environment);
-    await Promise.all([drainOutbox(environment), pruneItineraries(environment)]);
+    await Promise.all([
+      drainOutbox(environment),
+      pruneItineraries(environment),
+      reconcileScheduleMaterializations(environment),
+    ]);
   },
 };

@@ -675,7 +675,19 @@ describe("D1AgendaRepository session schedule revisions", () => {
     expect(await storedRevisions(migrated.database)).toEqual(before);
   });
 
-  it("reads the revisions with one statement, whatever the length of the history", async () => {
+  /**
+   * The steady-state read costs the same whatever the history, which is what #141 bought.
+   *
+   * It is now two statements rather than one — the rows, and the watermark that says whether they
+   * can be believed — and both are in one `batch`, so it is still one round trip and still
+   * independent of how many boards the event has published. What it must never do is read
+   * `agenda_publications`: a check that replayed would have given the cost straight back.
+   *
+   * The second half is the other side of that bargain. Twelve publications written *directly*, as
+   * the deploy window writes them, and the very next read notices and replays. That read is
+   * expensive precisely once, and the read after it is two statements again.
+   */
+  it("reads the revisions without touching the history, until the history moves without them", async () => {
     const migrated = await createMigratedDatabase({ label: "agenda-read-cost", seed: true });
     runtime = migrated.runtime;
     let prepared: string[] = [];
@@ -696,22 +708,289 @@ describe("D1AgendaRepository session schedule revisions", () => {
 
     prepared = [];
     await repository.sessionScheduleRevisions(eventId);
-    const withOnePublication = prepared.length;
+    const withOnePublication = [...prepared];
 
     await insertHistory(
       migrated.database,
       Array.from({ length: 12 }, (_, index) =>
-        publication(index + 2, board([at("place-a", sessionA, mainStage.id, slot0900.id)])),
+        publication(index + 2, board([at("place-a", sessionA, mainStage.id, slot1000.id)])),
       ),
     );
 
     prepared = [];
+    const repaired = await repository.sessionScheduleRevisions(eventId);
+    const whileDrifted = [...prepared];
+
+    prepared = [];
     await repository.sessionScheduleRevisions(eventId);
 
-    expect(withOnePublication).toBe(1);
-    // Thirteen publications, still one statement — which is the whole point of storing this.
-    expect(prepared).toHaveLength(1);
-    expect(prepared[0]).toContain("agenda_session_schedules");
-    expect(prepared[0]).not.toContain("agenda_publications");
+    expect(withOnePublication).toHaveLength(2);
+    expect(withOnePublication.some((query) => query.includes("agenda_publications"))).toBe(false);
+    // The drifted read replays; the answer it returns is the fold's, not the stale table's.
+    expect(whileDrifted.some((query) => query.includes("agenda_publications"))).toBe(true);
+    expect(repaired).toEqual(await foldStoredHistory(migrated.database));
+    // Thirteen publications, back to two statements — which is the whole point of storing this.
+    expect(prepared).toHaveLength(2);
+    expect(prepared.some((query) => query.includes("agenda_publications"))).toBe(false);
+  });
+
+  /**
+   * Drift detection and repair (issue #169, closing `GAP-024`).
+   *
+   * Every case here reaches a state no supported code path produces, by writing
+   * `agenda_publications` the way the old Worker does during a deploy: directly, with nothing
+   * maintaining the derived table. That is the point — the invariant #141 relied on was
+   * convention, and these prove that breaking it is now *noticed* rather than merely possible.
+   */
+  const watermarks = async (database: {
+    prepare(query: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results?: T[] }> } };
+  }) =>
+    (
+      await database
+        .prepare(
+          "SELECT publication_watermark, materialized_watermark FROM agenda_schedule_materializations WHERE event_id = ?",
+        )
+        .bind(eventId)
+        .all<{ publication_watermark: number; materialized_watermark: number | null }>()
+    ).results?.[0];
+
+  it("leaves the seeded fixture sound, so drift means something", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-seed", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    // The seed writes publications directly, so `1602`'s trigger creates its row — and the seed
+    // claims the watermark itself, because it does maintain the derived table.
+    expect(await watermarks(migrated.database)).toEqual({
+      publication_watermark: 1,
+      materialized_watermark: 1,
+    });
+    expect(await repository.driftedEvents(10)).toEqual([]);
+    const report = await repository.reconcileSessionSchedules(eventId, { repair: false });
+    expect(report.drift).toEqual({ missing: [], phantom: [], divergent: [] });
+    expect(report.repaired).toBe(false);
+  });
+
+  /**
+   * The phantom row: the case that sends mail nobody should receive.
+   *
+   * A publication that unplaces the session makes a correct table drop its row, so a Send skips
+   * it. A stale table keeps the row, and nothing downstream re-checks it against the board in
+   * force, so the session still reads as scheduled at the hour it used to hold and the speakers
+   * are mailed an invitation to a session the programme does not schedule.
+   */
+  it("detects a publication written behind its back, and repairs the phantom row it leaves", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-phantom", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    await insertHistory(migrated.database, [publication(2, board([]))]);
+
+    // The trigger fires for a writer that knows nothing about the derived table, which is the
+    // only reason this is detectable at all.
+    expect(await watermarks(migrated.database)).toEqual({
+      publication_watermark: 2,
+      materialized_watermark: 1,
+    });
+    expect(await repository.driftedEvents(10)).toEqual([eventId]);
+    expect((await repository.reconcileSessionSchedules(eventId, { repair: false })).drift).toEqual({
+      missing: [],
+      phantom: [sessionA],
+      divergent: [],
+    });
+    // Still stale: a read-only check is a question, not an action.
+    expect(await storedRevisions(migrated.database)).toEqual(
+      new Map([
+        [
+          sessionA,
+          {
+            startsAt: slot0900.startsAt,
+            endsAt: slot0900.endsAt,
+            location: mainStage.name,
+            revision: 1,
+            revisedAt: "2026-08-10T20:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+
+    // Nothing had to be asked. Reading the schedule is what repairs it.
+    expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
+    expect(await storedRevisions(migrated.database)).toEqual(new Map());
+    expect(await repository.driftedEvents(10)).toEqual([]);
+    expect(await watermarks(migrated.database)).toEqual({
+      publication_watermark: 2,
+      materialized_watermark: 2,
+    });
+  });
+
+  /**
+   * The stale revision: the case that withholds mail somebody should receive.
+   *
+   * Session A is invited at version 1 with ref `1|…`. A missed publication unplaces it. Version 3
+   * places it back at the identical hour, through the repository this time. Absence resets, so the
+   * replay says revision 3 and the REQUEST that puts the talk back on the speaker's calendar goes
+   * out. Folding version 3 over the stale version 1 row would compute "unchanged", keep revision
+   * 1, match the ref already in `calendar_invite_states`, and send nothing — verbatim the
+   * regression issue #136 exists to prevent.
+   */
+  it("does not fold a missed publication through into the next one", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-suppress", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    await insertHistory(migrated.database, [publication(2, board([]))]);
+    expect(
+      await repository.publish(
+        publication(3, board([at("place-a", sessionA, mainStage.id, slot0900.id)])),
+      ),
+    ).toBe("committed");
+
+    expect((await repository.sessionScheduleRevisions(eventId)).get(sessionA)).toEqual({
+      startsAt: slot0900.startsAt,
+      endsAt: slot0900.endsAt,
+      location: mainStage.name,
+      revision: 3,
+      revisedAt: "2026-08-12T00:00:03.000Z",
+    });
+    expect(await storedRevisions(migrated.database)).toEqual(
+      await foldStoredHistory(migrated.database),
+    );
+    expect(await repository.driftedEvents(10)).toEqual([]);
+  });
+
+  /**
+   * A derived table edited directly leaves the watermark undisturbed, which is exactly why the
+   * on-demand reconciliation replays instead of trusting it.
+   *
+   * The cheap check can only ever notice that the *history* moved. This is the divergence it
+   * cannot see, and the surface that exists to find it.
+   */
+  it("finds a divergence the watermark cannot see, and only the replay does", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-edited", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    await migrated.database
+      .prepare(
+        "UPDATE agenda_session_schedules SET starts_at = ?, location = ? WHERE event_id = ? AND session_id = ?",
+      )
+      .bind(slot1000.startsAt, workshopLab.name, eventId, sessionA)
+      .run();
+
+    // The watermark still says "current", because nothing wrote the history.
+    expect(await repository.driftedEvents(10)).toEqual([]);
+    expect((await repository.sessionScheduleRevisions(eventId)).get(sessionA)?.startsAt).toBe(
+      slot1000.startsAt,
+    );
+
+    const found = await repository.reconcileSessionSchedules(eventId, { repair: false });
+    expect(found.drift.divergent).toHaveLength(1);
+    expect(found.drift.divergent[0]?.stored.location).toBe(workshopLab.name);
+    expect(found.drift.divergent[0]?.replayed.location).toBe(mainStage.name);
+    expect(found.repaired).toBe(false);
+
+    const repaired = await repository.reconcileSessionSchedules(eventId, { repair: true });
+    expect(repaired.repaired).toBe(true);
+    expect(await storedRevisions(migrated.database)).toEqual(
+      await foldStoredHistory(migrated.database),
+    );
+  });
+
+  /**
+   * `1602` will not claim that `1601` caught everything, and the first repair is what settles it.
+   *
+   * Two migrations run in sequence against a live database, and a publication can land between
+   * them — the deploy window is open while they run. So the backfill marks every already-published
+   * event as never derived, and the sweep replays each one exactly once. Reconstructed here by
+   * dropping the table and re-applying the migration, which is the state a deployed database is in
+   * the moment `1602` finishes.
+   */
+  it("treats an event backfilled by 1602 as unverified until something verifies it", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-backfill", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+    const before = await storedRevisions(migrated.database);
+
+    // Its triggers hang off `agenda_publications`, so dropping the table alone leaves them
+    // behind and re-applying the migration fails on the first `CREATE TRIGGER`.
+    for (const object of [
+      "TABLE agenda_schedule_materializations",
+      "TRIGGER agenda_publication_insert_advances_watermark",
+      "TRIGGER agenda_publication_delete_invalidates_watermark",
+    ])
+      await migrated.database.prepare(`DROP ${object}`).run();
+    await applyMigrationFile(migrated.database, "1602_agenda_schedule_materializations.sql");
+
+    expect(await watermarks(migrated.database)).toEqual({
+      publication_watermark: 1,
+      materialized_watermark: null,
+    });
+    expect(await repository.driftedEvents(10)).toEqual([eventId]);
+
+    // The rows were right all along; what the repair adds is a table that says so.
+    const report = await repository.reconcileSessionSchedules(eventId, { repair: true });
+    expect(report.drift).toEqual({ missing: [], phantom: [], divergent: [] });
+    expect(report.repaired).toBe(true);
+    expect(await storedRevisions(migrated.database)).toEqual(before);
+    expect(await repository.driftedEvents(10)).toEqual([]);
+  });
+
+  /**
+   * A history that *shrank* invalidates the fold as surely as one that grew.
+   *
+   * Not a path this system takes — publications are immutable and only the seed reset removes
+   * them — but the invariant is "the derived table reflects the history", and the delete trigger
+   * is what keeps that true rather than merely usually true.
+   */
+  it("re-derives after a publication is deleted", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-deleted", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1AgendaRepository(migrated.database, () => new Date());
+
+    await migrated.database
+      .prepare("DELETE FROM agenda_publications WHERE event_id = ? AND version = 1")
+      .bind(eventId)
+      .run();
+
+    expect((await watermarks(migrated.database))?.materialized_watermark).toBeNull();
+    expect(await repository.driftedEvents(10)).toEqual([eventId]);
+    expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
+    expect(await repository.driftedEvents(10)).toEqual([]);
+  });
+
+  /**
+   * The one affected-row count in this adapter that is load-bearing, refused when it is absent.
+   *
+   * The claim "these rows describe every publication up to version N" is conditional on the
+   * watermark not having moved, and a driver that omits `meta.changes` makes "matched" and "did
+   * not match" indistinguishable. Guessing "matched" would mark a partial replay as current and
+   * silence the detector permanently; guessing "did not match" would retry a repair that
+   * succeeded. Neither is available, so the call fails and says which count it wanted.
+   *
+   * The write itself may well have landed — this is a driver that under-reports, not one that
+   * refused — and that is precisely why the answer cannot be inferred from anything else here.
+   */
+  it("refuses to claim the watermark when the driver reports no row count", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-nocount", seed: true });
+    runtime = migrated.runtime;
+    const countless = {
+      prepare: (query: string) => migrated.database.prepare(query),
+      batch: async (statements: unknown[]) => {
+        const results = (await (
+          migrated.database as unknown as { batch(s: unknown[]): Promise<unknown[]> }
+        ).batch(statements)) as Array<Record<string, unknown>>;
+        return results.map(({ meta: _dropped, ...rest }) => rest);
+      },
+    };
+    const repository = new D1AgendaRepository(
+      countless as unknown as ConstructorParameters<typeof D1AgendaRepository>[0],
+      () => new Date(),
+    );
+
+    await insertHistory(migrated.database, [publication(2, board([]))]);
+    await expect(repository.sessionScheduleRevisions(eventId)).rejects.toThrow(
+      /reported no row count while attempting to claim the agenda schedule watermark/,
+    );
   });
 });

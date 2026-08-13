@@ -27,6 +27,11 @@ DELETE FROM communication_deliveries;
 DELETE FROM message_templates;
 
 DELETE FROM agenda_session_schedules;
+-- Before the publications, so the delete trigger `1602` declares has nothing left to invalidate.
+-- It also has to be before the events cleanup below: this table references events(id) and does not
+-- cascade, so leaving a row behind fails the reset with a bare FOREIGN KEY constraint failure that
+-- names no table.
+DELETE FROM agenda_schedule_materializations;
 DELETE FROM agenda_publications;
 DELETE FROM agenda_drafts;
 
@@ -271,7 +276,22 @@ INSERT INTO agenda_session_schedules (
   '00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
   '2026-09-01T16:00:00.000Z', '2026-09-01T17:00:00.000Z', 'Main stage',
   1, '2026-08-10T20:00:00.000Z'
-);
+);-- And the statement that says the row above is current.
+--
+-- The insert into `agenda_publications` already created this row through `1602`'s trigger, with
+-- `materialized_watermark` NULL — the seed is precisely one of the direct writers that motivated
+-- the trigger, and the trigger cannot tell that this one does maintain the derived table. Claiming
+-- the watermark here is what makes the seeded event *sound* rather than merely correct: without it
+-- every fixture starts life flagged as drifted, and the first read of the demo schedule would
+-- replay a one-publication history to rediscover the row three lines above (issue #169).
+INSERT INTO agenda_schedule_materializations (
+  event_id, publication_watermark, materialized_watermark, materialized_at
+) VALUES (
+  '00000000-0000-4000-8000-000000000001', 1, 1, '2026-08-10T20:00:00.000Z'
+)
+ON CONFLICT(event_id) DO UPDATE SET
+  materialized_watermark = excluded.materialized_watermark,
+  materialized_at = excluded.materialized_at;
 
 -- Jordan carries the seeded headshot so the public gallery demonstrates both avatar
 -- paths — a real portrait and a monogram — and so Sam's open "Upload a headshot" task
