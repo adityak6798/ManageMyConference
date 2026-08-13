@@ -115,7 +115,7 @@ export function SpeakerOutreach({
       <Card labelledBy="speaker-roster" title="Speakers" hint="Who still owes you work." tight>
         {rows.length ? (
           <div className="table-wrap">
-            <table className="data">
+            <table className="data content-table">
               <thead>
                 <tr>
                   <th scope="col">Speaker</th>
@@ -133,11 +133,11 @@ export function SpeakerOutreach({
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.speaker.id}>
-                    <td className="primary-cell">
+                    <td className="primary-cell" data-label="Speaker">
                       {row.speaker.name}
                       <span className="sub">{row.speaker.organization || row.speaker.email}</span>
                     </td>
-                    <td className="num">
+                    <td className="num" data-label="Open">
                       {row.overdue ? (
                         <Pill tone="danger">{row.open}</Pill>
                       ) : row.open ? (
@@ -148,8 +148,10 @@ export function SpeakerOutreach({
                         </Pill>
                       )}
                     </td>
-                    <td className="num">{row.assets}</td>
-                    <td>
+                    <td className="num" data-label="Assets">
+                      {row.assets}
+                    </td>
+                    <td data-label="Actions">
                       <button
                         type="button"
                         className="ghost small"

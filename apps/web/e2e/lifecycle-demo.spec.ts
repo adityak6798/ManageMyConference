@@ -29,24 +29,24 @@ async function expectNoAxeViolations(page: Page, surface: string) {
 }
 
 /**
- * Surfaces whose data table still puts its row actions outside a 390px viewport.
+ * Organizer routes whose data table still puts its row actions outside a 390px viewport.
  *
- * Measured on the seeded fixture at this commit, after the tab strips were made to wrap:
- * `/abstracts` 7 controls, `/communications` 7, `/sessions` 7. One defect in three places — a
- * five- or six-column `table.data` cannot fit 390px, so its Actions column lands inside the
- * `.table-wrap` scroller. The fix is the stacked-card restack `#155` asks for, per surface, and
- * `/abstracts` is the one #155 actually scopes; the other two are the same defect found by this
- * assertion and are named in that issue rather than fixed silently here.
+ * When this assertion was first written it found the same defect on three surfaces — a five- or
+ * six-column `table.data` cannot fit 390px, so its Actions column lands inside the `.table-wrap`
+ * scroller with nothing to indicate it is there. `/abstracts` and `/sessions` have since been
+ * restacked into cards below 780px (review.css and content.css respectively, one recipe) and are
+ * asserted like every other route. `/communications` is the last one, at 7 controls, and belongs
+ * to the lane that owns that surface.
  *
- * This list is the honest form of a partial fix: the check runs everywhere, and the three
- * surfaces that cannot pass it yet are enumerated with a reason instead of the assertion being
- * quietly weakened for all eleven. Deleting an entry is how the next lane proves its restack.
+ * The list is the honest form of a partial fix: the check runs everywhere, and what cannot pass
+ * yet is enumerated with a reason rather than the assertion being weakened for all eleven routes.
+ * Deleting the last entry is how that lane proves its restack.
  *
- * Entries are whole labels, not path fragments. `/sessions` as a fragment also matched the label
- * `public /sessions` — the public listing, which has no `table.data` and is not part of this
- * defect — and silently exempted a route nobody had measured.
+ * Entries are matched as whole organizer routes, not substrings. As a fragment, `/sessions` also
+ * matched the label `public /sessions` — the public listing, which has no `table.data` and was
+ * never part of this defect — and silently exempted a route nobody had measured.
  */
-const OFFSCREEN_ACTIONS_PENDING_155 = ["/abstracts", "/communications", "/sessions"];
+const OFFSCREEN_ACTIONS_PENDING_155 = ["/communications"];
 
 /**
  * Whether `surface` is one of the exempt organizer routes.

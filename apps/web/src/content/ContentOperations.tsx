@@ -403,7 +403,7 @@ export function ContentOperations({
       >
         {revisions.length ? (
           <div className="table-wrap">
-            <table className="data">
+            <table className="data content-table">
               <thead>
                 <tr>
                   <th scope="col">Record</th>
@@ -418,13 +418,15 @@ export function ContentOperations({
               <tbody>
                 {revisions.map((revision) => (
                   <tr key={revision.id}>
-                    <td className="primary-cell">{revision.entityType}</td>
-                    <td>{revision.revisionNumber}</td>
+                    <td className="primary-cell" data-label="Record">
+                      {revision.entityType}
+                    </td>
+                    <td data-label="Revision">{revision.revisionNumber}</td>
                     {/* Resolved through the directory the payload carries, so this reads
                         "Olivia Organizer" rather than the stored id `seed-organizer` (#154). */}
-                    <td>{memberName(workspace, revision.actorId)}</td>
-                    <td>{shortDateTime(revision.createdAt)}</td>
-                    <td>
+                    <td data-label="Who">{memberName(workspace, revision.actorId)}</td>
+                    <td data-label="When">{shortDateTime(revision.createdAt)}</td>
+                    <td data-label="Actions">
                       <button
                         type="button"
                         className="secondary small"

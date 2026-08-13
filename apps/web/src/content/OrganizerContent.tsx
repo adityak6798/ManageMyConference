@@ -336,7 +336,7 @@ export function OrganizerView({
               aria-labelledby={`tab-${stateFilter}`}
             >
               {visibleSessions.length ? (
-                <table className="data">
+                <table className="data content-table">
                   <thead>
                     <tr>
                       <th scope="col">Session</th>
@@ -356,14 +356,14 @@ export function OrganizerView({
                       return (
                         <Fragment key={session.id}>
                           <tr>
-                            <td className="primary-cell">
+                            <td className="primary-cell" data-label="Session">
                               {session.title}
                               {session.tags.length ? (
                                 <span className="sub">{session.tags.join(" · ")}</span>
                               ) : null}
                             </td>
-                            <td>{session.format}</td>
-                            <td>
+                            <td data-label="Format">{session.format}</td>
+                            <td data-label="Speakers">
                               {session.speakerProfileIds.length ? (
                                 session.speakerProfileIds
                                   .map((id) => speakerById.get(id)?.name ?? "Unknown speaker")
@@ -372,12 +372,12 @@ export function OrganizerView({
                                 <span className="hint">Unassigned</span>
                               )}
                             </td>
-                            <td>
+                            <td data-label="Publication">
                               <Pill tone={PUBLICATION_TONE[session.publicationState]}>
                                 {PUBLICATION_LABEL[session.publicationState]}
                               </Pill>
                             </td>
-                            <td>
+                            <td data-label="Schedule">
                               {session.schedule ? (
                                 <>
                                   {shortDateTime(session.schedule.startsAt)}
@@ -387,7 +387,7 @@ export function OrganizerView({
                                 <span className="hint">Not on the published schedule</span>
                               )}
                             </td>
-                            <td aria-label="Session actions">
+                            <td aria-label="Session actions" data-label="Actions">
                               <div className="row-actions">
                                 <button
                                   type="button"
@@ -496,7 +496,7 @@ export function OrganizerView({
             <div className="content-feedback">{assetFeedback.node}</div>
             {workspace.assets.length ? (
               <div className="table-wrap">
-                <table className="data">
+                <table className="data content-table">
                   <thead>
                     <tr>
                       <th scope="col">File</th>
@@ -514,21 +514,21 @@ export function OrganizerView({
                       const isPhoto = Boolean(owner && owner.photoAssetId === asset.id);
                       return (
                         <tr key={asset.id}>
-                          <td className="primary-cell">
+                          <td className="primary-cell" data-label="File">
                             {asset.name}
                             <span className="sub">
                               {asset.contentType}
                               {isPhoto ? " · Profile photo" : ""}
                             </span>
                           </td>
-                          <td>{owner?.name ?? "Unknown speaker"}</td>
-                          <td>{shortDate(asset.uploadedAt)}</td>
-                          <td>
+                          <td data-label="Speaker">{owner?.name ?? "Unknown speaker"}</td>
+                          <td data-label="Uploaded">{shortDate(asset.uploadedAt)}</td>
+                          <td data-label="Visibility">
                             <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
                               {asset.visibility === "publishable" ? "Publishable" : "Private"}
                             </Pill>
                           </td>
-                          <td>
+                          <td data-label="Actions">
                             {/* Both controls stay mounted through the round trip, so the
                                 keyboard focus that triggered one is not thrown back to the
                                 body; each is a toggle, because both decisions are reversible. */}
