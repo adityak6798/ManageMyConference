@@ -286,8 +286,12 @@ feature-by-feature verdict.
   Two ways the table could diverge, neither observed and neither currently detected. First, the
   deploy window: `npm run deploy` runs `migrate:remote` before it uploads the Worker, so for the
   length of a web build the old Worker is still serving and still commits publications without
-  maintaining the new table; a publication landing in that window desynchronises that event until
-  something else happens to move the session. Second, the invariant that every writer of
+  maintaining the new table; a publication landing in that window desynchronises that event. Be
+  precise about how that recovers: the next publication rewrites the whole event's rows, so the
+  *times* become right again, but it folds forward from the stale row, so a session whose move was
+  missed can keep a `revision` permanently lower than the replay would have given it. The lasting
+  symptom is therefore one spurious invitation resend at the next real move, not a permanently
+  wrong time. Second, the invariant that every writer of
   `agenda_publications` also maintains `agenda_session_schedules` is convention, not a constraint —
   today the only writers are `D1AgendaRepository.publish` and the seed, and both do, but a future
   import, fixture or repair path that inserts a publication directly would desynchronise silently.

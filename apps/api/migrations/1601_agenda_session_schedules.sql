@@ -58,10 +58,14 @@ CREATE TABLE agenda_session_schedules (
 -- correct if a later reader adds a nullable column to the comparison.
 --
 -- The equivalence with the TypeScript fold is exact for every snapshot this system can store,
--- and conditional on `agendaResourcesSchema`, which has enforced unique room, track and slot
--- ids and non-empty names since the agenda's first commit. Where a snapshot to violate that,
--- the two would break the tie differently: SQLite's scalar subquery takes the first duplicate
--- id and TypeScript's `Map` takes the last. No write path can produce one.
+-- and conditional on `agendaResourcesSchema`, which has enforced unique room, track and slot ids
+-- and non-empty names since the agenda's first commit. Were a snapshot to violate that, the two
+-- would break the tie differently, by two different routes: a duplicate *room* id is resolved by
+-- the scalar subquery below, which stops at the first match, while a duplicate *slot* id fans the
+-- row out through the join and lets the `last_wins` ranking pick the winner. Both happen to land
+-- on the first duplicate where TypeScript's `Map` would take the last. No write path can produce
+-- one — though note the seed writes `agenda_drafts.draft_json` directly and so does not pass
+-- through that validator.
 WITH pubs AS (
   SELECT
     event_id,
@@ -147,13 +151,26 @@ in_force AS (
 -- The most recent meaningful change per session is the revision in force.
 --
 -- Ranked with a window rather than selected with `WHERE version = (SELECT MAX(...) FROM
--- meaningful ...)`. Both are near-linear in practice — measured under `node:sqlite` at 50
--- sessions a board, 100 to 1600 publications, the correlated form ran 454ms to 7081ms and this
--- one 387ms to 6845ms — so this is a choice of shape rather than a rescue. The window form is
--- linear because it makes one ranking pass; the correlated form is linear only while the
--- planner keeps flattening a subquery that re-derives the whole `meaningful` chain per
--- surviving row. This migration is the one statement here that runs against precisely the
--- unbounded history the change exists to stop replaying, so it should not depend on that.
+-- meaningful ...)`, and the difference is not cosmetic. `EXPLAIN QUERY PLAN` on the correlated
+-- form shows `MATERIALIZE changes` followed by `CORRELATED SCALAR SUBQUERY` →
+-- `SEARCH changes USING AUTOMATIC PARTIAL COVERING INDEX (event_id=? AND session_id=?)`: the
+-- planner does not flatten it, it builds a temporary index and seeks once per surviving row.
+-- The cost of each seek grows with how many rows that session has in `meaningful`, which is
+-- driven by how much the board *changes* between publications — so the cost depends on churn,
+-- not just on history length.
+--
+-- Measured under `node:sqlite`, 50 sessions a board, 100 to 800 publications, fitting an
+-- exponent over that range:
+--
+--       board between publications      correlated            this (window)
+--       unchanged                       400→2861ms  n^0.95    355→2855ms  n^1.00
+--       every session moves             441→8752ms  n^1.44    369→3002ms  n^1.01
+--
+-- An earlier revision of this comment claimed both forms were near-linear. That was measured on
+-- a board that barely changed, which is the one shape where the correlated form behaves — and
+-- the least representative one, since an event is republished precisely because its board moved.
+-- This migration runs against exactly the unbounded history the change exists to stop replaying,
+-- so the statement that walks it is the last one that should degrade with it.
 latest AS (
   SELECT
     m.*,
