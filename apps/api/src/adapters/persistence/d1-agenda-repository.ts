@@ -270,6 +270,14 @@ export class D1AgendaRepository implements AgendaRepository {
    * publication legitimately deletes nothing, so no count here is load-bearing and none needs
    * `changedRows`. Targeted statements would make every count load-bearing and each would have
    * to be refused when the driver omitted it.
+   *
+   * One insert statement per placed session, rather than one multi-row insert. That looks like
+   * the obvious saving and is not available: D1 caps a query at **100 bound parameters**, this
+   * table has seven columns, so a multi-row insert holds fourteen sessions and fails on the
+   * fifteenth — on every board large enough for the saving to matter. Chunking to fourteen would
+   * work, but D1 documents no limit on statements per batch, so it would trade a plain loop for
+   * an arithmetic one to relieve a limit that does not exist. `d1-content-repository.ts` writes
+   * its speakers, tasks and messages the same way for the same reason.
    */
   async publish(schedule: PublishedSchedule) {
     const revisions = nextSessionScheduleRevisions(
@@ -341,13 +349,18 @@ export class D1AgendaRepository implements AgendaRepository {
    *
    * No index beyond the primary key: `(event_id, session_id)` already leads with `event_id`, so
    * this is a range scan of exactly the rows it returns.
+   *
+   * `ORDER BY session_id` costs nothing — the primary key already walks in that order — and makes
+   * the returned map's iteration order a stated property rather than one that happens to hold.
+   * Every caller today reads by key, so nothing depends on it; the point is that nothing later
+   * can come to depend on an accident of the engine either.
    */
   async sessionScheduleRevisions(
     eventId: string,
   ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
     const result = await this.database
       .prepare(
-        `SELECT ${SESSION_SCHEDULE_COLUMNS} FROM agenda_session_schedules WHERE event_id = ?`,
+        `SELECT ${SESSION_SCHEDULE_COLUMNS} FROM agenda_session_schedules WHERE event_id = ? ORDER BY session_id`,
       )
       .bind(eventId)
       .all<SessionScheduleRow>();
