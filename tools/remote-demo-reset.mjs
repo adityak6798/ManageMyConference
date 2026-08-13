@@ -17,7 +17,7 @@ export const DEMO_TARGET = Object.freeze({
   databaseId: "5aa5ed70-b4f8-443a-a3a4-f3a4e41cce7b",
   bucketBinding: "ASSETS",
   bucketName: "manage-my-conf",
-  assetKey:
+  assetPath:
     "manage-my-conf/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001",
 });
 
@@ -60,7 +60,7 @@ export function remoteResetCommands() {
       "r2",
       "object",
       "put",
-      `${DEMO_TARGET.bucketName}/${DEMO_TARGET.assetKey}`,
+      DEMO_TARGET.assetPath,
       "--remote",
       "--file",
       "seed/assets/speaker-portrait.png",

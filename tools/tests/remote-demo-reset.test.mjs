@@ -16,7 +16,7 @@ test("the remote reset is pinned to the checked-in disposable demo resources", (
       "r2",
       "object",
       "put",
-      `manage-my-conf/${DEMO_TARGET.assetKey}`,
+      DEMO_TARGET.assetPath,
       "--remote",
       "--file",
       "seed/assets/speaker-portrait.png",
