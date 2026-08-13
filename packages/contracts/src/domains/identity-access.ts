@@ -103,12 +103,22 @@ export const createInvitationResponseSchema = z.object({
   invitation: invitationSchema,
   token: z.string().min(1),
 });
+/**
+ * A role somebody actually holds on an event.
+ *
+ * The same four values as `demoPersonaSchema` and the `event_roles` CHECK, declared separately
+ * because they are a different thing that happens to coincide: this is a production grant, and
+ * naming the *demo persona* vocabulary in a production response would make the two impossible to
+ * change apart. Wider than `invitableRoleSchema`, which excludes `public` because nobody is
+ * invited into what everybody already has.
+ */
+export const eventRoleNameSchema = z.enum(["organizer", "reviewer", "speaker", "public"]);
 export const organizationMemberSchema = z.object({
   userId: z.string(),
   name: z.string(),
   /** Null where the directory holds no address for this member. */
   email: z.string().nullable(),
-  eventRoles: z.array(z.object({ eventId: z.string().uuid(), role: demoPersonaSchema })),
+  eventRoles: z.array(z.object({ eventId: z.string().uuid(), role: eventRoleNameSchema })),
 });
 export const organizationMembersResponseSchema = z.object({
   members: z.array(organizationMemberSchema),

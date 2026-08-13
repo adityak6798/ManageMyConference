@@ -425,7 +425,9 @@
         "apps/web/src/api/membership.ts",
         "apps/web/e2e/members.spec.ts",
         "docs/engineering/security-operations.md",
-        "apps/api/src/adapters/persistence/identity-revocation-statements.mjs"
+        "apps/api/src/adapters/persistence/identity-revocation-statements.mjs",
+        "apps/web/src/AcceptInvitationPage.tsx",
+        "apps/web/test/accept-invitation.test.tsx"
       ]
     },
     {

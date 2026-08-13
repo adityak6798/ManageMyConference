@@ -532,14 +532,23 @@ export const identityRoutes: RouteModule = {
 
     app.get("/api/organizations/:organizationId/audit-events", async (context) => {
       if (!membership) return noMembership(context);
-      const before = Number(context.req.query("before"));
-      const limit = Number(context.req.query("limit"));
+      // `Number("")` is 0 and `Number.isSafeInteger(0)` is true, so `?limit=` would have clamped
+      // the page to one row and `?before=` would have asked for rows older than the epoch — an
+      // empty page where the caller asked for the first one. An empty value means absent.
+      const positiveInteger = (name: string) => {
+        const raw = context.req.query(name);
+        if (raw === undefined || raw.trim() === "") return undefined;
+        const value = Number(raw);
+        return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+      };
+      const limit = positiveInteger("limit");
+      const before = positiveInteger("before");
       const events = await membership.listAuditEvents(
         context.get("actor"),
         context.req.param("organizationId"),
         {
-          ...(Number.isSafeInteger(limit) ? { limit } : {}),
-          ...(Number.isSafeInteger(before) ? { before } : {}),
+          ...(limit === undefined ? {} : { limit }),
+          ...(before === undefined ? {} : { before }),
         },
       );
       return context.json({

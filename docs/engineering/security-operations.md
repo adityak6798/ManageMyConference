@@ -94,9 +94,11 @@ into SQL, because `wrangler d1 execute` takes a command string rather than bound
 anything else is refused rather than escaped. Add `--local` to act on the local development
 database.
 
-Every run writes its own `session.revoked_all` audit row with `source = 'system'` and prints the
-correlation id that row carries, which is how the action is found afterwards. The revocation runs
-before the audit row, so a failed revocation leaves no record claiming it happened.
+A run that revokes something writes a `session.revoked_all` audit row with `source = 'system'` and
+prints the correlation id that row carries, which is how the action is found afterwards. A run that
+revoked *nothing* writes no row: the revocation runs first and the audit insert is guarded on its
+affected-row count, so neither a failed statement nor a zero-row sweep leaves a record claiming a
+revocation happened.
 
 **What revocation does and does not reach.** It ends sessions, and with them every event bearer
 token minted from one. It does not change memberships, roles or passwords, and it does not stop the

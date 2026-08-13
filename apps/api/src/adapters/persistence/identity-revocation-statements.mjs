@@ -25,15 +25,23 @@
  * The audit row carries `system` as its source and the caller's correlation id, which is how an
  * operator connects the command they ran to what the table shows afterwards.
  */
-export function identityRevocationStatements({ userId, now, correlationId }) {
+export function identityRevocationStatements({ userId, now, correlationId, rowId }) {
   const scope = userId ? ` AND user_id = '${userId}'` : "";
   const subject = userId ? `'${userId}'` : "NULL";
   const detail = JSON.stringify({ tool: "revoke-sessions", scope: userId ? "user" : "all" });
   return [
     `UPDATE identity_sessions SET revoked_at = ${now} WHERE revoked_at IS NULL AND expires_at > ${now}${scope}`,
+    // `WHERE changes() > 0`, exactly as the in-Worker writers use: a sweep that revoked nothing
+    // is a no-op, not an event, and a row claiming otherwise would be both a lie and a way to
+    // append to this table at will. `changes()` reports the statement immediately before it, and
+    // the two are sent as one command so nothing can run between them.
+    //
+    // `rowId` is the row's own primary key, separate from `correlationId`: a run repeated with
+    // the same correlation id would otherwise collide on the PRIMARY KEY and fail the command
+    // rather than recording a second revocation.
     "INSERT INTO identity_audit_events (id, occurred_at, action, outcome, source, actor_user_id, " +
       "subject_user_id, organization_id, event_id, correlation_id, detail) " +
-      `VALUES ('${correlationId}', ${now}, 'session.revoked_all', 'succeeded', 'system', NULL, ` +
-      `${subject}, NULL, NULL, '${correlationId}', '${detail}')`,
+      `SELECT '${rowId}', ${now}, 'session.revoked_all', 'succeeded', 'system', NULL, ` +
+      `${subject}, NULL, NULL, '${correlationId}', '${detail}' WHERE changes() > 0`,
   ];
 }

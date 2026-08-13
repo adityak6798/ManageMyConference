@@ -89,11 +89,12 @@ export function parseArguments(argv) {
  * every other cross-domain read respects. Re-exported so this module stays the one surface the
  * command's own test drives.
  */
-export function revokeStatements(target, now, correlationId) {
+export function revokeStatements(target, now, correlationId, rowId = crypto.randomUUID()) {
   return identityRevocationStatements({
     ...(target.all ? {} : { userId: target.user }),
     now,
     correlationId,
+    rowId,
   });
 }
 

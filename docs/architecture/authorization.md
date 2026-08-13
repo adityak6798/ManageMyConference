@@ -170,6 +170,12 @@ condition is the one that is easy to leave out: the first two can be satisfied b
 organizations at once, so somebody who organizes an event in A and merely belongs to B would
 otherwise administer B on the strength of a grant A gave them.
 
+What this bounds is the **organization**, and that is wider than `requireEventCapability` — an
+organizer of one of its events can administer the whole of it, including staffing themselves on an
+event they hold no grant on. That is intended: the organization is the tenant boundary and its
+organizers are its administrators. It is stated because it is not what an event-scoped capability
+would give, and somebody reading only the capability name would assume otherwise.
+
 An event role is addressed under the organization that owns the event —
 `/api/organizations/{organizationId}/events/{eventId}/roles/{userId}` — rather than under the event
 alone, because the address is where the authorization happens: the organization in the path is what

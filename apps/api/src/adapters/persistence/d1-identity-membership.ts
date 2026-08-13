@@ -208,10 +208,17 @@ export class D1MembershipRepository implements MembershipRepository {
    * Spend an invitation and grant what it offers, as one batch.
    *
    * Four statements, and the order is the design. The `UPDATE` is the gate: it matches only a
-   * live invitation and stamps `accepted_by_user_id`, so exactly one of two racing callers wins
-   * it. The two grants then `SELECT` from the row *that caller* just stamped — which is why they
-   * name `accepted_by_user_id = ?` rather than re-deriving anything — and each is a no-op for the
-   * offer it does not apply to. The audit row is guarded the same way.
+   * live invitation and stamps `accepted_by_user_id`, so exactly one of two callers presenting
+   * the same token wins it. The two grants then `SELECT` from the row *that caller* just
+   * stamped — which is why they name `accepted_by_user_id = ?` rather than re-deriving anything
+   * from a value read in an earlier round trip — and each is a no-op for the offer it does not
+   * apply to. The audit row is guarded the same way.
+   *
+   * **All four are in one batch, and that is the whole point.** An earlier shape read the
+   * `UPDATE … RETURNING` in its own round trip and then batched the grant: a failure between the
+   * two left the token permanently spent, the invitee with no membership, and *nothing in the
+   * audit log saying the invitation had been consumed* — while the organizer's list showed it as
+   * accepted. One batch is one transaction, so either all of it happened or none of it did.
    *
    * `INSERT OR IGNORE` on the grants: accepting an invitation to something you already have is
    * not an error, and the invitation is spent either way.
@@ -223,44 +230,52 @@ export class D1MembershipRepository implements MembershipRepository {
     context: AuditContext;
   }): Promise<AcceptedInvitation | null> {
     const { tokenHash, userId, now, context } = input;
-    const spent = await this.database
-      .prepare(
-        `UPDATE identity_invitations SET accepted_at = ?, accepted_by_user_id = ? WHERE token_hash = ? AND ${LIVE_INVITATION} RETURNING id, organization_id, event_id, role`,
-      )
-      .bind(now, userId, tokenHash, now)
-      .all<{ id: string; organization_id: string; event_id: string | null; role: InvitableRole }>();
-    if (!spent.success)
-      throw new Error(`D1 failed to accept an invitation: ${spent.error ?? "unknown error"}`);
-    const row = spent.results?.[0];
-    // Unknown, expired, revoked and already-spent are one answer, deliberately.
-    if (!row) return null;
-
-    const grant = row.event_id
-      ? this.database
-          .prepare("INSERT OR IGNORE INTO event_roles (event_id, user_id, role) VALUES (?,?,?)")
-          .bind(row.event_id, userId, row.role)
-      : this.database
-          .prepare(
-            "INSERT OR IGNORE INTO organization_memberships (organization_id, user_id, role) VALUES (?,?,'organizer')",
-          )
-          .bind(row.organization_id, userId);
+    // What this caller just stamped, and nothing else. Used by all three statements after the
+    // `UPDATE` so none of them can act on a row a different caller won.
+    const mine = "token_hash = ? AND accepted_by_user_id = ? AND accepted_at = ?";
     const results = await this.database.batch([
-      grant,
-      auditEventStatement(
-        this.database,
-        {
-          action: "membership.accepted",
-          outcome: "succeeded",
-          occurredAt: now,
-          organizationId: row.organization_id,
-          subjectUserId: userId,
-          ...(row.event_id ? { eventId: row.event_id } : {}),
-          detail: { invitationId: row.id, role: row.role },
-        },
-        context,
-      ),
+      this.database
+        .prepare(
+          `UPDATE identity_invitations SET accepted_at = ?, accepted_by_user_id = ? WHERE token_hash = ? AND ${LIVE_INVITATION} RETURNING id, organization_id, event_id, role`,
+        )
+        .bind(now, userId, tokenHash, now),
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO organization_memberships (organization_id, user_id, role) " +
+            `SELECT organization_id, ?, 'organizer' FROM identity_invitations WHERE ${mine} AND event_id IS NULL`,
+        )
+        .bind(userId, tokenHash, userId, now),
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO event_roles (event_id, user_id, role) " +
+            `SELECT event_id, ?, role FROM identity_invitations WHERE ${mine} AND event_id IS NOT NULL`,
+        )
+        .bind(userId, tokenHash, userId, now),
+      this.database
+        .prepare(
+          "INSERT INTO identity_audit_events (id, occurred_at, action, outcome, source, actor_user_id, subject_user_id, organization_id, event_id, correlation_id, detail) " +
+            "SELECT ?, ?, 'membership.accepted', 'succeeded', ?, ?, ?, organization_id, event_id, ?, json_object('invitationId', id, 'role', role) " +
+            `FROM identity_invitations WHERE ${mine}`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          now,
+          context.source,
+          context.actorUserId,
+          userId,
+          context.correlationId,
+          tokenHash,
+          userId,
+          now,
+        ),
     ]);
-    this.assertBatch(results, "grant an accepted invitation");
+    this.assertBatch(results, "accept an invitation");
+    const row = results[0]?.results?.[0] as
+      | { id: string; organization_id: string; event_id: string | null; role: InvitableRole }
+      | undefined;
+    // Unknown, expired, revoked and already-spent are one answer, deliberately. The three
+    // statements after the `UPDATE` selected nothing in that case, so nothing was written.
+    if (!row) return null;
     return { organizationId: row.organization_id, eventId: row.event_id, role: row.role };
   }
 
@@ -282,11 +297,12 @@ export class D1MembershipRepository implements MembershipRepository {
       this.database
         .prepare("DELETE FROM organization_memberships WHERE organization_id = ? AND user_id = ?")
         .bind(organizationId, userId),
-      this.database
-        .prepare(
-          "DELETE FROM event_roles WHERE user_id = ? AND event_id IN (SELECT value FROM json_each(?))",
-        )
-        .bind(userId, JSON.stringify([...eventIds])),
+      // Second, not last: `changes()` reports the statement immediately before it, and the
+      // membership delete is the one whose count decides whether anything was removed. A removal
+      // that matched no member records nothing — the same guard every other conditional write
+      // here uses, and the reason is the same: an audit row saying somebody was removed when
+      // nobody was is both a lie and an unbounded append anyone authorized could drive by
+      // repeating the request.
       auditEventStatement(
         this.database,
         {
@@ -297,7 +313,13 @@ export class D1MembershipRepository implements MembershipRepository {
           subjectUserId: userId,
         },
         context,
+        { onlyWhenChanged: true },
       ),
+      this.database
+        .prepare(
+          "DELETE FROM event_roles WHERE user_id = ? AND event_id IN (SELECT value FROM json_each(?))",
+        )
+        .bind(userId, JSON.stringify([...eventIds])),
     ]);
     this.assertBatch(results, "remove a member");
     const [membership] = results;
@@ -407,6 +429,7 @@ export class D1MembershipRepository implements MembershipRepository {
       subjectUserId?: string;
       eventId?: string;
       detail?: Record<string, unknown>;
+      occurredAt: number;
     },
     context: AuditContext,
   ): Promise<void> {
@@ -415,7 +438,7 @@ export class D1MembershipRepository implements MembershipRepository {
       {
         action: entry.action,
         outcome: "refused",
-        occurredAt: Date.now(),
+        occurredAt: entry.occurredAt,
         organizationId: entry.organizationId,
         ...(entry.subjectUserId ? { subjectUserId: entry.subjectUserId } : {}),
         ...(entry.eventId ? { eventId: entry.eventId } : {}),

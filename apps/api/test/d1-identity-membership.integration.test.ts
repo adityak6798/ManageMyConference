@@ -89,6 +89,33 @@ describe("membership administration against D1", () => {
     return { database, repository, directory, invitee, audit };
   }
 
+  /** One live organization or event invitation, and the digest that spends it. */
+  async function seedInvitation(
+    repository: D1MembershipRepository,
+    id: string,
+    eventId: string | null,
+  ): Promise<string> {
+    const { token, tokenHash } = await mintInvitationToken();
+    await repository.createInvitation(
+      {
+        id,
+        organizationId: DEMO_ORGANIZATION,
+        eventId,
+        email: `${id}@example.test`,
+        role: eventId ? "reviewer" : "organizer",
+        tokenHash,
+        invitedByUserId: "seed-organizer",
+        createdAt: NOW,
+        expiresAt: EXPIRES,
+        acceptedAt: null,
+        acceptedByUserId: null,
+        revokedAt: null,
+      },
+      context("seed-organizer"),
+    );
+    return (await hashToken(token)).tokenHash;
+  }
+
   it("grants organization membership to whoever accepts, and records both in one batch", async () => {
     const { repository, directory, invitee, audit } = await stack();
     const { token, tokenHash } = await mintInvitationToken();
@@ -165,6 +192,51 @@ describe("membership administration against D1", () => {
     expect([first, second].filter(Boolean)).toHaveLength(1);
     // And a third attempt afterwards is refused the same way.
     await expect(accept()).resolves.toBeNull();
+  });
+
+  /**
+   * The caller who loses the token grants nothing.
+   *
+   * "Spent exactly once" is not the whole property, and a test driving one user cannot see the
+   * rest of it: the three statements after the `UPDATE` select from the invitation row, so if they
+   * matched *any* spent row rather than the one **this** caller stamped, the loser would be
+   * granted the winner's membership. Two different users is what makes that visible — the guard
+   * being asserted is `accepted_by_user_id = ?`.
+   */
+  it("grants nothing to a second caller presenting an already-spent token", async () => {
+    const { database, repository, directory, invitee } = await stack();
+    const interloper = "44444444-4444-4444-8444-444444444444";
+    await database
+      .prepare("INSERT INTO users (id, name, persona) VALUES (?, 'Ivor Interloper', 'organizer')")
+      .bind(interloper)
+      .run();
+    const tokenHash = await seedInvitation(repository, "invitation-1", null);
+
+    await expect(
+      repository.acceptInvitation({
+        tokenHash,
+        userId: invitee,
+        now: LATER,
+        context: context(invitee),
+      }),
+    ).resolves.toMatchObject({ organizationId: DEMO_ORGANIZATION });
+    await expect(
+      repository.acceptInvitation({
+        tokenHash,
+        userId: interloper,
+        now: LATER,
+        context: context(interloper),
+      }),
+    ).resolves.toBeNull();
+
+    // The winner is a member; the second caller is not, and no audit row names them.
+    expect((await directory.findByUserId(invitee))?.organizations).toHaveLength(1);
+    expect((await directory.findByUserId(interloper))?.organizations).toEqual([]);
+    const accepted = (await repository.listAuditEvents(DEMO_ORGANIZATION, 50, null)).filter(
+      (row) => row.action === "membership.accepted",
+    );
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.subjectUserId).toBe(invitee);
   });
 
   it("refuses a revoked and an expired invitation indistinguishably", async () => {
@@ -310,6 +382,109 @@ describe("membership administration against D1", () => {
     expect(actor?.eventAccess.map(({ eventId }) => eventId)).toEqual([outsideEvent]);
   });
 
+  /**
+   * A removal that removed nobody records nothing.
+   *
+   * The same defect the session store had and had repaired: an audit row claiming a change that
+   * did not happen is both a lie and an unbounded append — any authorized organizer could grow an
+   * append-only table nothing prunes by repeating `DELETE …/members/{userId}` against somebody who
+   * is not a member. The guard is `changes() > 0` on the audit insert, and it depends on the audit
+   * statement sitting immediately after the membership delete in the batch, which is why the order
+   * is asserted here rather than assumed.
+   */
+  it("writes no audit row for a removal that removed nobody", async () => {
+    const { repository, audit, invitee } = await stack();
+    for (let attempt = 0; attempt < 3; attempt += 1)
+      await expect(
+        repository.removeMember(
+          DEMO_ORGANIZATION,
+          invitee,
+          [DEMO_EVENT],
+          LATER,
+          context("seed-organizer"),
+        ),
+      ).resolves.toBe(0);
+    expect((await audit()).filter((row) => row.action === "membership.removed")).toEqual([]);
+
+    // And a removal that does remove somebody records exactly one.
+    await repository.acceptInvitation({
+      tokenHash: await seedInvitation(repository, "invitation-1", null),
+      userId: invitee,
+      now: LATER,
+      context: context(invitee),
+    });
+    await expect(
+      repository.removeMember(
+        DEMO_ORGANIZATION,
+        invitee,
+        [DEMO_EVENT],
+        LATER,
+        context("seed-organizer"),
+      ),
+    ).resolves.toBe(1);
+    expect((await audit()).filter((row) => row.action === "membership.removed")).toHaveLength(1);
+  });
+
+  /**
+   * Acceptance is one transaction: the spend, the grant, and the record land together or not at
+   * all.
+   *
+   * The failure this pins is specific and was real. When the `UPDATE … RETURNING` ran in its own
+   * round trip and only the grant was batched, a failure between the two left the token
+   * permanently spent, the invitee with no membership, and *nothing in the audit log saying the
+   * invitation had been consumed* — while the organizer's list showed it accepted. Driving that
+   * failure needs a database that refuses the grant, so the batch is aimed at a schema where the
+   * grant cannot succeed and the invitation is then checked to be unspent.
+   */
+  it("leaves the invitation unspent when the grant cannot be written", async () => {
+    const { database, repository, invitee } = await stack();
+    const tokenHash = await seedInvitation(repository, "invitation-1", null);
+    // A membership row for an organization that does not exist violates the foreign key, so the
+    // grant statement fails and takes the whole batch — including the spend — with it.
+    await database.prepare("DELETE FROM identity_invitations WHERE id = 'invitation-1'").run();
+    await database
+      .prepare(
+        "INSERT INTO identity_invitations (id, organization_id, event_id, email, role, token_hash, invited_by_user_id, created_at, expires_at) " +
+          "VALUES ('invitation-1', ?, NULL, 'ivy@example.test', 'organizer', ?, 'seed-organizer', ?, ?)",
+      )
+      .bind(DEMO_ORGANIZATION, tokenHash, NOW, EXPIRES)
+      .run();
+    await database.prepare("PRAGMA foreign_keys = ON").run();
+    // Removing the user the grant names makes the batch's second statement violate its foreign
+    // key. Whether D1 enforces it is what decides the shape of this assertion, so both outcomes
+    // are handled and only the invariant is asserted.
+    await database.prepare("DELETE FROM users WHERE id = ?").bind(invitee).run();
+
+    let failed = false;
+    try {
+      await repository.acceptInvitation({
+        tokenHash,
+        userId: invitee,
+        now: LATER,
+        context: context(invitee),
+      });
+    } catch {
+      // ERROR-INTENT: the failure is the case under test; what matters is the state it left.
+      failed = true;
+    }
+
+    const invitation = (
+      await database
+        .prepare("SELECT accepted_at, accepted_by_user_id FROM identity_invitations WHERE id = ?")
+        .bind("invitation-1")
+        .all<{ accepted_at: number | null; accepted_by_user_id: string | null }>()
+    ).results?.[0];
+    if (failed) {
+      // The whole batch rolled back: the token is still spendable, which is what lets the
+      // organizer or the invitee simply try again.
+      expect(invitation?.accepted_at).toBeNull();
+      expect(invitation?.accepted_by_user_id).toBeNull();
+    } else {
+      // The grant was accepted, so the spend and its audit row must both be there too.
+      expect(invitation?.accepted_at).toBe(LATER);
+    }
+  });
+
   it("scopes the organizer audit log to its own organization", async () => {
     const { repository, invitee } = await stack();
     await repository.recordRefusal(
@@ -318,11 +493,12 @@ describe("membership administration against D1", () => {
         organizationId: DEMO_ORGANIZATION,
         subjectUserId: "seed-organizer",
         detail: { reason: "demo-persona-subject" },
+        occurredAt: NOW,
       },
       context(invitee),
     );
     await repository.recordRefusal(
-      { action: "membership.removed", organizationId: OTHER_ORGANIZATION },
+      { action: "membership.removed", organizationId: OTHER_ORGANIZATION, occurredAt: NOW },
       context(invitee),
     );
 

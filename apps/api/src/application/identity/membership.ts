@@ -153,6 +153,8 @@ export interface MembershipRepository {
       subjectUserId?: string;
       eventId?: string;
       detail?: Record<string, unknown>;
+      /** The service's clock, not the adapter's: a refusal is stamped when it was decided. */
+      occurredAt: number;
     },
     context: AuditContext,
   ): Promise<void>;
@@ -196,8 +198,11 @@ export class MembershipService {
    *    two different organizations at once: somebody who organizes an event in A and merely
    *    belongs to B would otherwise administer B on the strength of a grant A gave them.
    *
-   * There is deliberately no global administrator. The effect is only ever narrower than event
-   * access, never wider.
+   * There is deliberately no global administrator. What this bounds is the *organization*: an
+   * organizer of one of its events can administer the whole of it, including staffing themselves
+   * on an event they hold no grant on. That is intended — the organization is the tenant boundary
+   * and its organizers are its administrators — and it is worth saying rather than leaving to be
+   * discovered, because it is wider than `requireEventCapability` would be.
    */
   private async requireOrganization(actor: Actor | null, organizationId: string): Promise<Actor> {
     const authorized = requireCapability(actor, "identity:manage");
@@ -229,18 +234,21 @@ export class MembershipService {
     action: AuditAction,
     context: AuditContext,
   ): Promise<void> {
-    if (context.source === "human" && isDemoPersonaId(actor.id)) {
-      await this.dependencies.repository.recordRefusal(
-        {
-          action,
-          organizationId,
-          subjectUserId: actor.id,
-          detail: { reason: "demo-persona-actor" },
-        },
-        context,
-      );
-      throw new MembershipRefusedError("A demo persona cannot administer membership");
-    }
+    // Keyed on the actor alone. An earlier form also tested `context.source === "human"`, which
+    // held only because every call site hardcodes that value — the rule is about *who* is acting,
+    // and one day's audit-metadata change would have removed it with no test failing.
+    if (!isDemoPersonaId(actor.id)) return;
+    await this.dependencies.repository.recordRefusal(
+      {
+        action,
+        organizationId,
+        subjectUserId: actor.id,
+        detail: { reason: "demo-persona-actor" },
+        occurredAt: this.dependencies.now(),
+      },
+      context,
+    );
+    throw new MembershipRefusedError("A demo persona cannot administer membership");
   }
 
   /** Rule 2: a seeded persona is never a valid grant target. Refusal is recorded. */
@@ -259,6 +267,7 @@ export class MembershipService {
         subjectUserId,
         ...(eventId ? { eventId } : {}),
         detail: { reason: "demo-persona-subject" },
+        occurredAt: this.dependencies.now(),
       },
       context,
     );
@@ -412,8 +421,10 @@ export class MembershipService {
   ): Promise<number> {
     const authorized = await this.requireOrganization(actor, organizationId);
     await this.requireRealSession(authorized, organizationId, "event_role.granted", context);
-    await this.refuseDemoSubject(userId, organizationId, "event_role.granted", context, eventId);
+    // Before the demo-subject refusal, so a refusal row can never name an event that does not
+    // belong to the organization it is filed under.
     await this.requireOrganizationEvent(organizationId, eventId);
+    await this.refuseDemoSubject(userId, organizationId, "event_role.granted", context, eventId);
     if (!(await this.dependencies.repository.isMember(organizationId, userId)))
       throw new MembershipRefusedError("That person is not a member of this organization");
     return this.dependencies.repository.setEventRole(
@@ -435,8 +446,8 @@ export class MembershipService {
   ): Promise<number> {
     const authorized = await this.requireOrganization(actor, organizationId);
     await this.requireRealSession(authorized, organizationId, "event_role.revoked", context);
-    await this.refuseDemoSubject(userId, organizationId, "event_role.revoked", context, eventId);
     await this.requireOrganizationEvent(organizationId, eventId);
+    await this.refuseDemoSubject(userId, organizationId, "event_role.revoked", context, eventId);
     return this.dependencies.repository.revokeEventRole(
       eventId,
       userId,

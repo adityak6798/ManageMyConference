@@ -84,15 +84,19 @@ test("scopes a user revocation and leaves an --all sweep unscoped", () => {
  * prints, which is how the operator connects what they ran to what the table shows.
  */
 test("writes an audit row after the revocation, never before it", () => {
-  const [first, second] = revokeStatements({ all: true, user: undefined }, 1000, "corr-1");
+  const [first, second] = revokeStatements({ all: true, user: undefined }, 1000, "corr-1", "row-1");
   assert.match(first, /^UPDATE /);
   assert.match(first, /SET revoked_at = 1000/);
   assert.match(second, /^INSERT /);
+  // A sweep that revoked nothing records nothing, and the row's own key is not the correlation
+  // id -- a run repeated with the same correlation id would otherwise collide on the PRIMARY KEY.
+  assert.match(second, /WHERE changes\(\) > 0$/);
+  assert.match(second, /'row-1'/);
   assert.match(second, /'session\.revoked_all', 'succeeded', 'system'/);
   assert.match(second, /'corr-1'/);
   // A user-scoped sweep names its subject; an --all sweep has none to name.
   assert.match(
-    revokeStatements({ all: false, user: "seed-organizer" }, 1000, "corr-1")[1],
+    revokeStatements({ all: false, user: "seed-organizer" }, 1000, "corr-1", "row-1")[1],
     /'seed-organizer'/,
   );
 });

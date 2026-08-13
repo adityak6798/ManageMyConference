@@ -16,7 +16,6 @@
  */
 import { type FormEvent, useCallback, useState } from "react";
 import {
-  acceptInvitation,
   inviteMember,
   listAuditEvents,
   listMembers,
@@ -67,7 +66,6 @@ export function MembersWorkspace({
   const [role, setRole] = useState<Role>("reviewer");
   const [scope, setScope] = useState<"organization" | "event">("event");
   const [busy, setBusy] = useState(false);
-  const [acceptToken, setAcceptToken] = useState("");
 
   const members = useLoad<string, MembersResponse>(
     organizationId,
@@ -307,37 +305,6 @@ export function MembersWorkspace({
             Everything sent has been accepted or withdrawn.
           </EmptyState>
         )}
-      </Card>
-
-      {/*
-        Accepting from inside the console, for somebody who was invited while already signed in.
-        The token names the invitation; this browser's session names the person — which is why
-        there is no field here for who is accepting, and cannot be.
-      */}
-      <Card title="Accept an invitation">
-        <form
-          className="stack"
-          onSubmit={(formEvent) => {
-            formEvent.preventDefault();
-            // ERROR-INTENT: handlers cannot await; `run` announces its own failure.
-            void run("Invitation accepted.", async () => {
-              await acceptInvitation(acceptToken);
-              setAcceptToken("");
-            });
-          }}
-        >
-          <label>
-            Invitation token
-            <input
-              value={acceptToken}
-              onChange={(changed) => setAcceptToken(changed.target.value)}
-              required
-            />
-          </label>
-          <button type="submit" disabled={busy}>
-            Accept
-          </button>
-        </form>
       </Card>
 
       <Card title="Recent identity activity">
