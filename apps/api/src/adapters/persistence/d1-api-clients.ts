@@ -30,6 +30,16 @@ interface ClientRow {
   revoked_at: number | null;
 }
 
+interface ClientScopeRow {
+  client_id: string;
+  capability: Capability;
+}
+
+interface ClientEventRow {
+  client_id: string;
+  event_id: string;
+}
+
 const SELECT_CLIENT =
   "SELECT id, organization_id, name, key_prefix, secret_hash, previous_secret_hash, " +
   "previous_secret_expires_at, created_by, created_at, expires_at, revoked_at FROM api_clients";
@@ -53,7 +63,7 @@ export class D1ApiClientRepository implements ApiClientRepository {
       .bind(organizationId)
       .all<ClientRow>();
     this.assertRead(found, "list API clients");
-    return Promise.all((found.results ?? []).map((row) => this.hydrate(row)));
+    return this.hydrateMany(found.results ?? []);
   }
 
   async create(client: ApiClientRecord, context: AuditContext): Promise<void> {
@@ -190,6 +200,57 @@ export class D1ApiClientRepository implements ApiClientRepository {
     ]);
     this.assertRead(scopes, "load API client scopes");
     this.assertRead(events, "load API client events");
+    return this.toRecord(
+      row,
+      (scopes.results ?? []).map(({ capability }) => capability),
+      (events.results ?? []).map(({ event_id }) => event_id),
+    );
+  }
+
+  private async hydrateMany(rows: readonly ClientRow[]): Promise<readonly ApiClientRecord[]> {
+    if (rows.length === 0) return [];
+    const clientIds = rows.map(({ id }) => id);
+    const [scopes, events] = await Promise.all([
+      this.database
+        .prepare(
+          "SELECT client_id, capability FROM api_client_scopes " +
+            "WHERE client_id IN (SELECT value FROM json_each(?)) ORDER BY client_id, capability",
+        )
+        .bind(JSON.stringify(clientIds))
+        .all<ClientScopeRow>(),
+      this.database
+        .prepare(
+          "SELECT client_id, event_id FROM api_client_events " +
+            "WHERE client_id IN (SELECT value FROM json_each(?)) ORDER BY client_id, event_id",
+        )
+        .bind(JSON.stringify(clientIds))
+        .all<ClientEventRow>(),
+    ]);
+    this.assertRead(scopes, "load API client scopes");
+    this.assertRead(events, "load API client events");
+
+    const scopesByClient = new Map<string, Capability[]>();
+    for (const { client_id: clientId, capability } of scopes.results ?? []) {
+      const values = scopesByClient.get(clientId) ?? [];
+      values.push(capability);
+      scopesByClient.set(clientId, values);
+    }
+    const eventsByClient = new Map<string, string[]>();
+    for (const { client_id: clientId, event_id: eventId } of events.results ?? []) {
+      const values = eventsByClient.get(clientId) ?? [];
+      values.push(eventId);
+      eventsByClient.set(clientId, values);
+    }
+    return rows.map((row) =>
+      this.toRecord(row, scopesByClient.get(row.id) ?? [], eventsByClient.get(row.id) ?? []),
+    );
+  }
+
+  private toRecord(
+    row: ClientRow,
+    scopes: readonly Capability[],
+    eventIds: readonly string[],
+  ): ApiClientRecord {
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -202,8 +263,8 @@ export class D1ApiClientRepository implements ApiClientRepository {
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       revokedAt: row.revoked_at,
-      scopes: (scopes.results ?? []).map(({ capability }) => capability),
-      eventIds: (events.results ?? []).map(({ event_id }) => event_id),
+      scopes,
+      eventIds,
     };
   }
 
@@ -213,6 +274,7 @@ export class D1ApiClientRepository implements ApiClientRepository {
   }
 
   private assertBatch(results: readonly D1WriteResult[], operation: string): void {
-    if (results.some((result) => !result.success)) throw new Error(`D1 failed to ${operation}`);
+    const failed = results.find((result) => !result.success);
+    if (failed) throw new Error(`D1 failed to ${operation}: ${failed.error ?? "unknown error"}`);
   }
 }

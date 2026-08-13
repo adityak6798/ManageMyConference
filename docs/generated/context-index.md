@@ -89,6 +89,7 @@
 - `test` / `repository-fact`: [apps/api/test/api-clients.test.ts](../../apps/api/test/api-clients.test.ts)
 - `test` / `repository-fact`: [apps/api/test/api-docs.test.ts](../../apps/api/test/api-docs.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-api-clients.integration.test.ts](../../apps/api/test/d1-api-clients.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-api-clients.test.ts](../../apps/api/test/d1-api-clients.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-event-repository.integration.test.ts](../../apps/api/test/d1-event-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-harness.integration.test.ts](../../apps/api/test/d1-harness.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-write-result.test.ts](../../apps/api/test/d1-write-result.test.ts)
