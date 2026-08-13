@@ -54,11 +54,12 @@ CREATE TABLE agenda_session_schedules (
 --     returning publication's version is the revision even when the hour is unchanged.
 --
 -- `IS NOT` rather than `<>` throughout. Belt and braces rather than load-bearing on the data this
--- system can store: `location` cannot be NULL because of the COALESCE, and `prev_*` is NULL only
--- on a partition's first row, which `prev_ordinal IS NULL` already catches. Both of those lean on
--- the validator named below — a malformed slot would make `json_extract(s.value, '$.startsAt')`
--- NULL — and the null-safe form is what keeps this correct rather than silently dropping the row
--- from `meaningful` if that ever stopped being true.
+-- system can store: `location` cannot be NULL at all, because of the COALESCE, and `prev_*` is
+-- NULL only on a partition's first row, which `prev_ordinal IS NULL` already catches. The second
+-- of those — and only the second — leans on the validator named below: a slot carrying a
+-- malformed instant would make `json_extract(s.value, '$.startsAt')` NULL, and `<>` against NULL
+-- yields NULL, which would silently drop the row from `meaningful` rather than count it as the
+-- change it is. The null-safe form is what keeps that correct if the validator ever stops holding.
 --
 -- The equivalence with the TypeScript fold is exact for every snapshot this system can store,
 -- and conditional on `agendaResourcesSchema`, which has enforced unique room, track and slot ids

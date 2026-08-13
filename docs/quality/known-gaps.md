@@ -279,9 +279,11 @@ feature-by-feature verdict.
   was self-correcting by construction: it recomputed from the immutable snapshots on every read, so
   a wrong answer was not representable. The stored form gives that up in exchange for the read cost,
   and the failure it admits is silent. `AgendaService.publishedSessionSchedules` returns whatever
-  the table holds, and every consumer reads an absent row as "not scheduled yet" — including
+  the table holds, and nothing anywhere re-checks it against the board in force. So the table is
+  believed in both directions: an absent row reads as "not scheduled yet" — including in
   `speaker-calendar-invites.ts`, which skips such a session **without** adding it to `unreachable`,
-  so an organizer pressing Send would be shown zero invitations sent and zero problems found.
+  so an organizer pressing Send is shown zero invitations sent and zero problems found — and a row
+  that should not be there reads as a real placement, at whatever hour it happens to name.
 
   Two ways the table could diverge, neither observed and neither currently detected. First, the
   deploy window: `npm run deploy` runs `migrate:remote` before it uploads the Worker, so for the
@@ -296,27 +298,40 @@ feature-by-feature verdict.
   both directions occur — until some later publication changes that session's triple and
   resynchronises it.
 
-  Of the two directions, only one is reachable from this cause, and it is the bad one. Both the
-  stored ref and the ref a Send computes come from this same table, so the comparison never sees
-  the replay's numbering at all — and skipping a publication can only merge or erase a session's
-  change points, never invent one. A drifted table therefore sends *weakly fewer* invitations than
-  a correct one, never more: a **higher** stale revision means the numbering differs while the
-  mail is identical, and a **lower** one *suppresses* an invitation that should have been sent,
-  which is the failure #136 exists to prevent. (A genuine duplicate needs the second cause below —
-  an arbitrary writer, or a repair that rewrites the row wrongly.) The concrete suppression case:
-  a session is placed at v1 and its speakers invited with
-  `scheduleRef` `1|…`; the missed publication at v2 unplaces it, so a correct table drops the row
-  while the stale one keeps `revision 1`; v3 places it back at the identical time. The replay
-  would say `revision 3` — absence resets — and send the REQUEST that puts the talk back on the
-  speaker's calendar. The desynchronised table computes "unchanged", keeps `revision 1`, matches
-  the ref already stored in `calendar_invite_states`, and sends nothing. The `legacyMatch` branch
-  does not rescue it: that arm requires a stored ref with no `<digits>|` prefix, and this one has
-  one, so the `scheduleRevisedAt` comparison behind it is never reached.
+  The table diverges along two axes, not one, and it is worth separating them because they fail
+  in opposite directions.
 
-  Be equally precise about the harm, which is narrower than "the talk vanishes". Nothing here
-  emits an iTIP `CANCEL` — `buildSpeakerInvite` only ever produces `REQUEST` — so the v1 entry is
-  still on the speaker's calendar, at the right hour, because a suppressed resend requires the
-  time to be identical. What is lost is the re-affirming REQUEST. That matters for exactly the
+  *Which row exists.* A publication that unplaces a session makes the correct table drop its row;
+  the missed one leaves the row standing. Nothing downstream re-checks the row against the board
+  in force — `publishedSessionSchedules` hands the table's contents straight back — so a session
+  the published programme no longer schedules still reads as scheduled, at the hour it used to
+  hold. A Send then computes a ref that differs from the stored one, allocates a new SEQUENCE, and
+  mails the speakers an invitation to a session that is not on the programme. The correct table
+  skips that session entirely and mails nothing, so this is strictly *more* mail than a correct
+  table sends, and every message of it is wrong.
+
+  *What the revision says.* Here the drift is bounded: both the stored ref and the ref a Send
+  computes come from this same table, so the comparison never sees the replay's numbering, and
+  removing a publication cannot add a change point to a session that stays placed throughout. For
+  such a session a stale revision therefore changes the numbering without changing the mail. What
+  it can do is *suppress*, and that is the failure #136 exists to prevent: a session placed at v1
+  and invited with `scheduleRef` `1|…`; the missed publication at v2 unplaces it, so a correct
+  table drops the row while the stale one keeps `revision 1`; v3 places it back at the identical
+  time. The replay would say `revision 3` — absence resets — and send the REQUEST that puts the
+  talk back on the speaker's calendar. The desynchronised table computes "unchanged", keeps
+  `revision 1`, matches the ref already in `calendar_invite_states`, and sends nothing. The
+  `legacyMatch` branch does not rescue it: that arm requires a stored ref with no `<digits>|`
+  prefix, and this one has one, so the `scheduleRevisedAt` comparison behind it is never reached.
+
+  So a single missed publication can both send mail it should not and withhold mail it should,
+  depending on which session you look at. Any claim that the drift is one-directional is wrong;
+  an earlier revision of this entry made it in both directions before this one settled.
+
+  Be equally precise about the harm in that suppression case, which is narrower than "the talk
+  vanishes". Nothing here emits an iTIP `CANCEL` — `buildSpeakerInvite` only ever produces
+  `REQUEST` — so the v1 entry is still on the speaker's calendar, at the right hour, because a
+  suppressed resend requires the time to be identical. What is lost is the re-affirming REQUEST.
+  That matters for exactly the
   speakers who no longer hold the entry: one who deleted it while the session was unplaced, which
   is the very scenario the absence-resets rule exists for, and one whose original invitation never
   arrived. For them the talk is missing, no repeat of Send will put it back — the stale ref keeps
@@ -337,7 +352,11 @@ feature-by-feature verdict.
   Owner: agenda. Governing IDs: `PRD-AGD-001`, `PRD-SPK-002`. Closure: either a reconciliation that
   can detect and repair divergence — a per-event watermark compared against `MAX(version)`, replayed
   once when it lags — or a trigger on `agenda_publications` that makes an unmaintained insert
-  impossible; plus a test that proves a desynchronised table is detected rather than served.
+  impossible; plus a test that proves a desynchronised table is detected rather than served. Note
+  that whichever is chosen has to cover **both** divergence axes above: a repair that only
+  recomputes revisions for rows that exist would leave a phantom row inviting speakers to a session
+  the programme does not schedule. A replay of the history rebuilds the row set as well as the
+  numbers, which is why it is the safer shape.
 
   Until then, the operational mitigation is to avoid the window rather than to repair it: do not
   deploy while an organizer may be publishing. Republishing the same board afterwards is **not** a
