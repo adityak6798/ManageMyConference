@@ -760,6 +760,117 @@ describe("content HTTP transport", () => {
     ).resolves.toMatchObject({ sessions: [] });
   });
 
+  /*
+   * The checklist half of the speaker portal, over HTTP.
+   *
+   * Declaring the lines and instantiating them are two requests on purpose: the first is event
+   * configuration nobody is told about, and the second is what puts dated work in a speaker's
+   * portal. Both are organizer work, and a speaker holding `content:read` for their own portal
+   * is refused each of them — a line nobody has been assigned yet is not part of being a
+   * speaker here.
+   */
+  it("declares an event checklist and instantiates it against named speakers", async () => {
+    const api = app();
+    const organizer = await cookie("organizer");
+    const speaker = await cookie("speaker");
+    const templates = `/api/events/${eventId}/speaker-task-templates`;
+    const assignments = `/api/events/${eventId}/speaker-checklist-assignments`;
+    const checklist = {
+      templates: [
+        {
+          title: "Upload a headshot",
+          description: "A square image, at least 800px on each side.",
+          sortOrder: 0,
+          dueOffsetDays: -14,
+        },
+        {
+          title: "Send your slides",
+          description: "A PDF at 16:9.",
+          sortOrder: 1,
+          dueOffsetDays: -7,
+        },
+      ],
+    };
+    const declare = (headers: Record<string, string>, body: unknown = checklist) =>
+      api.request(templates, { method: "POST", headers, body: JSON.stringify(body) });
+
+    const declared = await declare(organizer);
+    expect(declared.status).toBe(200);
+    await expect(declared.json()).resolves.toMatchObject({
+      templates: [
+        { title: "Upload a headshot", sortOrder: 0, dueOffsetDays: -14 },
+        { title: "Send your slides", sortOrder: 1, dueOffsetDays: -7 },
+      ],
+    });
+    // Declaring assigns nothing: the portal is exactly as empty of work as it was.
+    await expect(
+      (await api.request(`/api/events/${eventId}/content`, { headers: organizer })).json(),
+    ).resolves.toMatchObject({ tasks: [] });
+
+    // Re-declaring the same checklist converges rather than appending a second copy of it,
+    // because a line is written at its (event_id, title) identity.
+    expect((await declare(organizer)).status).toBe(200);
+    const listed = await api.request(templates, { headers: organizer });
+    expect(listed.status).toBe(200);
+    expect((await listed.json()).templates).toHaveLength(2);
+
+    const assign = (headers: Record<string, string>, body: unknown) =>
+      api.request(assignments, { method: "POST", headers, body: JSON.stringify(body) });
+    const assigned = await assign(organizer, {
+      profileIds: [samProfile.id],
+      anchorAt: "2026-09-01T00:00:00.000Z",
+    });
+    expect(assigned.status).toBe(201);
+    // Each line dated from the anchor the caller named, plus that line's own offset.
+    await expect(assigned.json()).resolves.toMatchObject({
+      tasks: [
+        { title: "Upload a headshot", dueAt: "2026-08-18T00:00:00.000Z", status: "open" },
+        { title: "Send your slides", dueAt: "2026-08-25T00:00:00.000Z", status: "open" },
+      ],
+    });
+    // Idempotent per speaker and line, so running it again is how a newcomer is brought up to
+    // date rather than a way to assign somebody the same work twice.
+    const again = await assign(organizer, {
+      profileIds: [samProfile.id],
+      anchorAt: "2026-09-01T00:00:00.000Z",
+    });
+    expect(again.status).toBe(201);
+    await expect(again.json()).resolves.toMatchObject({ tasks: [] });
+    await expect(
+      (await api.request(`/api/events/${eventId}/content`, { headers: organizer })).json(),
+    ).resolves.toMatchObject({ tasks: [expect.anything(), expect.anything()] });
+
+    // Neither half is a speaker's or a reviewer's to reach, and an anonymous caller is not
+    // even authenticated. A refusal here is the same 403 whatever the body says.
+    for (const headers of [speaker, await cookie("reviewer")]) {
+      expect((await api.request(templates, { headers })).status).toBe(403);
+      expect((await declare(headers)).status).toBe(403);
+      expect((await assign(headers, { profileIds: [samProfile.id] })).status).toBe(403);
+    }
+    const anonymous = { "content-type": "application/json" };
+    expect((await api.request(templates)).status).toBe(401);
+    expect((await declare(anonymous)).status).toBe(401);
+    expect((await assign(anonymous, { profileIds: [samProfile.id] })).status).toBe(401);
+
+    // A checklist that cannot converge — one title twice — and an empty one that cannot mean
+    // what sending it would mean, are both refused before anything is written.
+    expect((await declare(organizer, { templates: [] })).status).toBe(400);
+    expect(
+      (await declare(organizer, { templates: [...checklist.templates, checklist.templates[0]] }))
+        .status,
+    ).toBe(400);
+    expect((await assign(organizer, { profileIds: [] })).status).toBe(400);
+    expect((await assign(organizer, { profileIds: ["not-a-uuid"] })).status).toBe(400);
+    expect(
+      (await api.request("/api/events/not-a-uuid/speaker-task-templates", { headers: organizer }))
+        .status,
+    ).toBe(400);
+    // None of those refusals moved the checklist.
+    await expect(
+      (await api.request(templates, { headers: organizer })).json(),
+    ).resolves.toMatchObject({ templates: [{ title: "Upload a headshot" }, {}] });
+  });
+
   it("answers a profile edit that never wins the record with 409 CONFLICT", async () => {
     // The store refuses the way `D1ContentRepository` does after losing the revision number
     // five times running. What is under test is the transport: contention has to reach the

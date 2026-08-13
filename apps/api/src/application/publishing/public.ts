@@ -20,3 +20,4 @@ export {
   PublicationSettingsError,
   PublicationSlugTakenError,
 } from "./publication-service";
+export { publishingTemplateSlice } from "./template-slice";

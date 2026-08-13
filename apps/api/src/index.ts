@@ -5,9 +5,10 @@ import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
 } from "./adapters/content/sanitize-resource-html";
+import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
+import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1CfpRepository } from "./adapters/persistence/d1-cfp-repository";
-import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import {
   D1CommunicationsRepository,
   preparedDeliveryWriter,
@@ -15,6 +16,7 @@ import {
 import { D1ContentRepository } from "./adapters/persistence/d1-content-repository";
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
+import { D1EventTemplateRepository } from "./adapters/persistence/d1-event-template-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
@@ -24,31 +26,32 @@ import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository"
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { resolveProviders, resolveRegistrationSource } from "./adapters/providers/configuration";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
+import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
+import { agendaTemplateSlice } from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
+import { cfpTemplateSlice } from "./application/cfp/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
+import type { DeliveryRequest } from "./application/communications/public";
 import {
   AccelEventsSyncService,
   CommunicationsInputError,
   CommunicationsNotFoundError,
   CommunicationsService,
 } from "./application/communications/public";
-import type { DeliveryRequest } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
-import { ContentService } from "./application/content/content-service";
 import type { SpeakerNotificationPort } from "./application/content/content-service";
-import { SpeakerCalendarInviteService } from "./application/content/public";
+import { ContentService } from "./application/content/content-service";
+import {
+  SpeakerCalendarInviteService,
+  speakerChecklistTemplateSlice,
+  speakerResourceTemplateSlice,
+} from "./application/content/public";
 import { CrmService } from "./application/crm/crm-service";
 import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
-import { EventService } from "./application/events/public";
-import { ItineraryService } from "./application/publishing/itinerary-service";
-import { PublicationService } from "./application/publishing/publication-service";
-import { ReviewService } from "./application/review/review-service";
-import type { ReviewNotificationPort } from "./application/review/review-service";
-import { createHttpApp, type GoogleAuthProvider } from "./transport/http/app";
-import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
+import { EventService, EventTemplateService } from "./application/events/public";
 import {
   completeGoogleAuthorization,
   type GoogleConfiguration,
@@ -59,9 +62,15 @@ import {
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
-import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
+import { ItineraryService } from "./application/publishing/itinerary-service";
+import { publishingTemplateSlice } from "./application/publishing/public";
+import { PublicationService } from "./application/publishing/publication-service";
+import { reviewTemplateSlice } from "./application/review/public";
+import type { ReviewNotificationPort } from "./application/review/review-service";
+import { ReviewService } from "./application/review/review-service";
 import type { ReviewSuggestionPort } from "./application/review/suggestion-port";
 import { SuggestionUnavailableError } from "./application/review/suggestion-port";
+import { createHttpAppFrom, type GoogleAuthProvider } from "./transport/http/app";
 
 export interface Environment {
   DB: D1DatabasePort;
@@ -887,10 +896,84 @@ export default {
       new D1ItineraryRepository(environment.DB),
       publicationRepository,
     );
-    const app = createHttpApp(
-      service,
+    // --- events (issue #102) ---
+    /*
+     * The orchestration seam for reusable event templates.
+     *
+     * Events declares `EventConfigurationSlice`; each domain implements its own slice inside
+     * its own application directory; this file — the declared composition root, and the only
+     * place allowed to know about more than one domain — binds them. That is why
+     * `application/events` imports no other domain and `context/architecture.json` gains
+     * nothing (`ARC-FLOW-006`).
+     *
+     * SLICE ORDER IS APPLY ORDER, and the first pair of it is load-bearing rather than
+     * cosmetic: `CfpService.save` validates every routing rule against the destination's
+     * configured triage statuses and drops the ones naming a status it does not have, so
+     * review's slice — which writes that status set — has to run before CFP's or a cloned form
+     * arrives with its routing silently thinned. The rest are independent of one another.
+     */
+    const eventTemplates = new EventTemplateService({
+      repository: new D1EventTemplateRepository(environment.DB),
+      events: service,
+      slices: [
+        reviewTemplateSlice(reviewService),
+        cfpTemplateSlice(cfpService),
+        agendaTemplateSlice(agenda),
+        publishingTemplateSlice(
+          publishing,
+          publicationRepository,
+          async (actor, eventId) => (await service.get(actor, eventId))?.name ?? null,
+        ),
+        /*
+         * The empty embed allowlist is the honest argument, not a placeholder.
+         *
+         * A resource's iframe host is authorized per request by the organizer saving it
+         * (`createSpeakerResourceInputSchema.embedAllowedHosts`) and is never stored — what
+         * persists is the already-sanitized markup — so an import has no caller to ask and this
+         * deployment holds no allowlist to fall back on. Reading one out of the stored payload
+         * would let a template authorize its own iframe, which is the whole point of
+         * re-sanitizing on import. So a cloned resource carrying an embed is reported as
+         * `incompatible` by name, and the organizer re-authorizes the host when they save it in
+         * the destination. Visible and safe beats convenient and forgeable.
+         */
+        speakerResourceTemplateSlice(content, []),
+        speakerChecklistTemplateSlice(content),
+      ],
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+      /*
+       * Where a slice's unexpected throw is written, once, at the boundary that owns it.
+       *
+       * The organizer is told the category failed and that applying again is the repair; the
+       * cause is here, because a per-category `reason` is a product surface and the driver's
+       * text belongs in a log a responder reads (`ARC-OBS-001`). Which slice, which stage and
+       * which event — never a payload, which is another domain's business by construction.
+       */
+      onSliceFault: ({ sliceKey, stage, eventId, error }) => {
+        logger.error(
+          {
+            sliceKey,
+            stage,
+            eventId,
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          },
+          "event.template.slice.failed",
+        );
+      },
+    });
+    // --- end events ---
+    /*
+     * The named form. The positional `createHttpApp` this used to call sorts its fourth
+     * argument out at runtime by testing for a method on it, and it has no slot for a service
+     * added after it was written — so a new domain either renames the seam or is unreachable.
+     * `createHttpAppFrom` is what app.ts already tells new code to use; the mapping below is
+     * exactly what the positional wrapper did, argument for argument.
+     */
+    const app = createHttpAppFrom({
+      events: service,
       logger,
-      auth.demoMode
+      auth: auth.demoMode
         ? {
             demoMode: true as const,
             sessionSecret: auth.sessionSecret,
@@ -939,21 +1022,23 @@ export default {
                 throw new Error(`Authentication email provider returned ${response.status}`);
             },
           },
-      reviewService,
-      cfpService,
+      review: reviewService,
+      cfp: cfpService,
       content,
       crm,
       agenda,
       communications,
       publishing,
-      environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
-        ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
-        : undefined,
       itineraries,
       speakerCalendarInvites,
       accelEventsSync,
       membership,
-    );
+      eventTemplates,
+      build:
+        environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
+          ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
+          : undefined,
+    });
     return Promise.resolve(app.fetch(request));
   },
   /**

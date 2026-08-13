@@ -338,6 +338,35 @@ export class ReviewService implements AcceptedProposalQuery {
     };
   }
 
+  /**
+   * The event's review configuration, read without repairing it.
+   *
+   * For a caller deciding whether it needs to write at all — a template preview, which promises
+   * to write nothing — `organizerWorkspace` is the wrong read twice over: it loads proposals,
+   * evaluations, outcomes, decisions and progress that such a caller never looks at, and it goes
+   * through `storedStatuses`, whose completion of the reserved keys is itself a write. So this
+   * answers from `listStatuses` as storage holds it and leaves the completion to whoever writes.
+   *
+   * `statusesInUse` is the vocabulary `configureStatuses` refuses to drop, and `hasAssignments`
+   * is what locks the rubric; both are stated here so a caller can report those two refusals
+   * before provoking either.
+   */
+  async reviewConfiguration(actor: Actor | null, eventId: string) {
+    this.organizer(actor, eventId);
+    const [statuses, plan, assignments, proposals] = await Promise.all([
+      this.dependencies.proposals.listStatuses(eventId),
+      this.dependencies.repository.getPlan(eventId),
+      this.dependencies.repository.listAssignments(eventId),
+      this.dependencies.proposals.list(eventId),
+    ]);
+    return {
+      statuses,
+      plan,
+      statusesInUse: [...new Set(proposals.map(({ status }) => status))],
+      hasAssignments: assignments.length > 0,
+    };
+  }
+
   async configureStatuses(
     actor: Actor | null,
     eventId: string,

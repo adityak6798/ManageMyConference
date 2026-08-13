@@ -21,7 +21,7 @@
       {
         "path": "apps/api/src/application/events/public.ts",
         "governing": "ARC-DOM-001",
-        "reason": "The events domain's declared export surface. No cross-domain import reaches it today \u2014 consumers still use event-service.ts \u2014 and it stays declared so a new consumer has a surface to target instead of deep-importing the service."
+        "reason": "The events domain's declared export surface, and the slice port a template is assembled from. Five domains import EventConfigurationSlice from it \u2014 review, cfp, agenda, publishing and content, whose two slices bring the file count to six \u2014 each targeting the surface instead of deep-importing the service, which is what it was declared for."
       },
       {
         "path": "apps/api/src/application/cfp/public.ts",

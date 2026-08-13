@@ -20,6 +20,7 @@ import type {
   SpeakerProfile,
   SpeakerResource,
   SpeakerTask,
+  SpeakerTaskTemplate,
 } from "../../domain/content/content";
 
 const by =
@@ -38,6 +39,9 @@ export class MemoryContentRepository
   private resources: NonNullable<ContentWorkspace["resources"]> = [];
   private comments: NonNullable<ContentWorkspace["comments"]> = [];
   private revisions: NonNullable<ContentWorkspace["revisions"]> = [];
+  // Not part of `ContentWorkspace`: a checklist line is event configuration, not somebody's
+  // work, so it is read by `listTaskTemplates` and never lands in a speaker's projection.
+  private taskTemplates: readonly SpeakerTaskTemplate[] = [];
   private imports = new Map<string, "pending" | "complete">();
 
   constructor(seed?: ContentWorkspace) {
@@ -281,6 +285,37 @@ export class MemoryContentRepository
   }
   async findResource(resourceId: string) {
     return this.resources.find(({ id }) => id === resourceId) ?? null;
+  }
+  /** Mirrors `ON CONFLICT(event_id,slug) DO UPDATE` in D1, id of the existing row included. */
+  async upsertResourceBySlug(resource: SpeakerResource) {
+    const existing = this.resources.find(
+      (item) => item.eventId === resource.eventId && item.slug === resource.slug,
+    );
+    this.resources = existing
+      ? this.resources.map((item) =>
+          item.id === existing.id ? { ...resource, id: existing.id } : item,
+        )
+      : [...this.resources, resource];
+  }
+  async listTaskTemplates(eventId: string) {
+    return this.taskTemplates
+      .filter((item) => item.eventId === eventId)
+      .toSorted(
+        (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
+      );
+  }
+  /** The `(event_id, title)` counterpart of `upsertResourceBySlug`, with the same id rule. */
+  async upsertTaskTemplateByTitle(template: SpeakerTaskTemplate) {
+    const existing = this.taskTemplates.find(
+      (item) => item.eventId === template.eventId && item.title === template.title,
+    );
+    this.taskTemplates = existing
+      ? this.taskTemplates.map((item) =>
+          item.id === existing.id
+            ? { ...template, id: existing.id, createdAt: existing.createdAt }
+            : item,
+        )
+      : [...this.taskTemplates, template];
   }
   async addComment(comment: ContentComment) {
     this.comments = [...this.comments, comment];

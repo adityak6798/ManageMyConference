@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   acceptContentInputSchema,
   addContentCommentInputSchema,
+  assignSpeakerChecklistInputSchema,
   bulkDownloadDeliverablesInputSchema,
   bulkRequestSpeakerTaskInputSchema,
   contentCommentSchema,
@@ -20,6 +21,7 @@ import {
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
   restoreContentRevisionInputSchema,
+  saveSpeakerTaskTemplatesInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
   speakerAssetSchema,
@@ -31,6 +33,7 @@ import {
   speakerResourceParamsSchema,
   speakerResourceSchema,
   speakerTaskSchema,
+  speakerTaskTemplateSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
@@ -434,6 +437,66 @@ export const contentPaths: OpenApiFragment = {
         200: {
           description: "Content workspace with the withdrawn session removed",
           content: json(contentWorkspaceSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/speaker-task-templates",
+      description:
+        "The event's reusable speaker checklist: the lines every speaker is asked for, held as event configuration rather than as anybody's work. Organizer-only — a speaker holds `content:read` for their own portal, and a line nobody has been assigned yet is not part of it.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventContentParamsSchema },
+      responses: {
+        200: {
+          description: "Checklist lines in the order the organizer declared them",
+          content: json(z.object({ templates: z.array(speakerTaskTemplateSchema) })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/speaker-task-templates",
+      description:
+        "Declares checklist lines. Each is written at its `(event_id, title)` identity, so sending the same checklist twice converges instead of appending a second copy of every line, and two lines under one title are refused. Lines the request does not name are left alone: this declares, it does not delete. Answers the whole checklist that results.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventContentParamsSchema,
+        body: { required: true, content: json(saveSpeakerTaskTemplatesInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "The event's checklist after the declaration",
+          content: json(z.object({ templates: z.array(speakerTaskTemplateSchema) })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/speaker-checklist-assignments",
+      description:
+        "Instantiates the event's checklist as real tasks for the named speaker profiles, dating each line from `anchorAt` (or from now) plus that line's offset. Deliberately separate from declaring the lines, because this is what puts dated work in people's portals and tells them about it. Idempotent per speaker and line: running it again assigns only what is missing, so it is the way to bring a newcomer up to date without touching anybody else's work. Answers only the tasks it created, which is an empty list when there was nothing left to assign. A profile from another event is refused exactly like one that does not exist.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventContentParamsSchema,
+        body: { required: true, content: json(assignSpeakerChecklistInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "The tasks this request created",
+          content: json(z.object({ tasks: z.array(speakerTaskSchema) })),
         },
         400: errorResponse,
         401: errorResponse,

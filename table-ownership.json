@@ -3,6 +3,9 @@
   "tables": {
     "organizations": "events",
     "events": "events",
+    "event_templates": "events",
+    "event_template_versions": "events",
+    "event_template_applications": "events",
     "users": "identity-access",
     "identity_emails": "identity-access",
     "identity_login_challenges": "identity-access",
@@ -38,6 +41,7 @@
     "content_sessions": "content",
     "speaker_profiles": "content",
     "speaker_tasks": "content",
+    "speaker_task_templates": "content",
     "speaker_assets": "content",
     "speaker_messages": "content",
     "speaker_resources": "content",
