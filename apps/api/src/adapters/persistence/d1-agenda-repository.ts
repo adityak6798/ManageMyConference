@@ -532,10 +532,9 @@ export class D1AgendaRepository implements AgendaRepository {
    */
   private async currentRevisions(eventId: string) {
     const stored = await this.readMaterialized(eventId);
-    if (
-      stored.publicationWatermark === null ||
-      stored.materializedWatermark === stored.publicationWatermark
-    )
+    // Equal covers "never published" too: no materialization row makes both `null`, which is the
+    // correct answer for an event whose history has never been written.
+    if (stored.materializedWatermark === stored.publicationWatermark)
       return { revisions: stored.revisions, watermark: stored.publicationWatermark };
     const repaired = await this.reconcile(eventId, true);
     return {
@@ -707,10 +706,11 @@ export class D1AgendaRepository implements AgendaRepository {
    * affected-row count is then the report of what happened: one means the guard held throughout,
    * zero means the history was written during the replay and the caller retries.
    *
-   * That count is the one affected-row count in this adapter that is load-bearing, and it is
-   * load-bearing in the direction the row-count contract exists for. `changedRows` refuses a
-   * driver that omits it outright, because "no count" would otherwise be indistinguishable from
-   * "matched", and guessing wrong here silences the detector permanently.
+   * That count is load-bearing in the direction the row-count contract exists for, and it is the
+   * second such count in this adapter rather than the only one — `updateDraft` reads the same
+   * helper for its optimistic revision check. `changedRows` refuses a driver that omits the count
+   * outright, because "no count" would otherwise be indistinguishable from "matched", and guessing
+   * wrong here silences the detector permanently.
    */
   private async rebuildSessionSchedules(
     eventId: string,

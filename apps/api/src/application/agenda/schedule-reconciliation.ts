@@ -49,7 +49,7 @@ export interface ScheduleSweepResult {
   /** Events this sweep brought back into agreement with their history. */
   readonly repaired: number;
   /**
-   * Events that were drifted, were asked to repair, and did not.
+   * Events that were still drifted when this sweep reached them, were asked to repair, and did not.
    *
    * That is contention rather than breakage: every attempt lost its race to a publication, so
    * nothing was written and the event stays flagged. It is counted separately because it is
@@ -57,6 +57,13 @@ export interface ScheduleSweepResult {
    * happened, so the repair observer misses it too. An event being published faster than its
    * history can be walked is exactly the condition `REPAIR_ATTEMPTS` exists to stop looping on,
    * and a condition worth stopping on is worth reporting.
+   *
+   * **"Still drifted" is the load-bearing half.** The list of drifted events is read once and its
+   * entries are reconciled one after another, so an event can be healed in between — by a read, or
+   * by a publication, which are the paths this design expects to handle most drift, and which are
+   * busiest during exactly the period `1602`'s backfill is settling. Such an event answers
+   * `inSync: true, repaired: false`, and counting it would report contention for an event that
+   * lost no race and is not flagged. It is `inSync` that separates the two.
    */
   readonly contended: number;
   /** Events whose repair threw. Reported, never swallowed, and retried on the next tick. */
@@ -67,6 +74,13 @@ export interface ScheduleSweepDependencies {
   readonly schedules: Pick<AgendaRepository, "driftedEvents" | "reconcileSessionSchedules">;
   /** Told about every failure, with the event that caused it. */
   readonly onFailure?: (fields: { readonly eventId: string; readonly error: string }) => void;
+  /**
+   * Told about every event that was drifted and declined to repair, by name.
+   *
+   * A count alone cannot be acted on — the operator needs to know *which* event is being published
+   * faster than its history can be walked, the same way `onFailure` names the event that threw.
+   */
+  readonly onContention?: (fields: { readonly eventId: string }) => void;
 }
 
 /**
@@ -102,7 +116,12 @@ export async function sweepDriftedSchedules(
       // Reported by the repository's own observer, which sees repairs from every path. Counted
       // here so the tick can say what it did without a second log line for the same event.
       if (report.repaired) repaired += 1;
-      else contended += 1;
+      // Not merely `else`: an event healed between the listing and this call is sound, not
+      // contended, and reporting it would make the tick cry wolf every time a read got there first.
+      else if (!report.inSync) {
+        contended += 1;
+        dependencies.onContention?.({ eventId });
+      }
     } catch (error) {
       // ERROR-INTENT: one unrepairable event must not protect every other event's drift from
       // being fixed. A tick that abandoned the rest because the first threw would let a single

@@ -127,6 +127,31 @@ describe("comparing stored revisions against a replay", () => {
     expect(isScheduleInSync(compareSessionScheduleRevisions(stored, replayed))).toBe(false);
   });
 
+  /*
+   * Sorted, because a report is meant to be pasted into an issue and compared with the next one.
+   * `Map` iteration follows insertion order, so without the sort two reconciliations of the same
+   * divergence would list the same sessions in whatever order storage happened to return them.
+   */
+  it("orders every list, so two reports of one divergence read identically", () => {
+    const drift = compareSessionScheduleRevisions(
+      new Map([
+        ["s-c", revision()],
+        ["s-a", revision()],
+        ["s-d", revision({ revision: 9 })],
+        ["s-b", revision({ revision: 9 })],
+      ]),
+      new Map([
+        ["s-f", revision()],
+        ["s-e", revision()],
+        ["s-d", revision()],
+        ["s-b", revision()],
+      ]),
+    );
+    expect(drift.phantom).toEqual(["s-a", "s-c"]);
+    expect(drift.missing).toEqual(["s-e", "s-f"]);
+    expect(drift.divergent.map(({ sessionId }) => sessionId)).toEqual(["s-b", "s-d"]);
+  });
+
   it("reports agreement as agreement", () => {
     const drift = compareSessionScheduleRevisions(
       new Map([["session-1", revision()]]),
@@ -262,6 +287,7 @@ describe("the sweep", () => {
    */
   it("counts a drifted event that declined to repair, which nothing else reports", async () => {
     const onFailure = vi.fn();
+    const onContention = vi.fn();
     expect(
       await sweepDriftedSchedules({
         schedules: {
@@ -277,9 +303,42 @@ describe("the sweep", () => {
           }),
         },
         onFailure,
+        onContention,
       }),
     ).toEqual({ scanned: 1, repaired: 0, contended: 1, failed: 0 });
     expect(onFailure).not.toHaveBeenCalled();
+    // Named, not merely counted: a count cannot be acted on.
+    expect(onContention).toHaveBeenCalledWith({ eventId: "contended" });
+  });
+
+  /*
+   * And an event somebody else healed is not contention.
+   *
+   * The drifted list is read once and its entries are reconciled one at a time, so a read or a
+   * publication can heal an event in between — which is the *expected* path for most drift, and
+   * busiest while `1602`'s backfill settles. Counting that as contention would make the tick warn
+   * about an event that lost no race and is not flagged.
+   */
+  it("does not report an event that was healed between the listing and the repair", async () => {
+    const onContention = vi.fn();
+    expect(
+      await sweepDriftedSchedules({
+        schedules: {
+          driftedEvents: async () => ["healed"],
+          reconcileSessionSchedules: async (id: string) => ({
+            eventId: id,
+            publicationWatermark: 4,
+            materializedWatermark: 4,
+            publications: 4,
+            drift: { missing: [], phantom: [], divergent: [] },
+            inSync: true,
+            repaired: false,
+          }),
+        },
+        onContention,
+      }),
+    ).toEqual({ scanned: 1, repaired: 0, contended: 0, failed: 0 });
+    expect(onContention).not.toHaveBeenCalled();
   });
 
   it("takes no more events than it is allowed to", async () => {

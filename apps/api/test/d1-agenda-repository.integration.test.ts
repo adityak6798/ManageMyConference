@@ -920,6 +920,12 @@ describe("D1AgendaRepository session schedule revisions", () => {
     const migrated = await createMigratedDatabase({ label: "agenda-drift-backfill", seed: true });
     runtime = migrated.runtime;
     const repository = new D1AgendaRepository(migrated.database, () => new Date());
+    // More than one publication, so `COUNT(*)` in the backfill is distinguishable from a constant.
+    await insertHistory(migrated.database, [
+      publication(2, board([at("place-a", sessionA, mainStage.id, slot0900.id)])),
+      publication(3, board([at("place-a", sessionA, mainStage.id, slot0900.id)])),
+    ]);
+    await repository.sessionScheduleRevisions(eventId);
     const before = await storedRevisions(migrated.database);
 
     // Its triggers hang off `agenda_publications`, so dropping the table alone leaves them
@@ -932,8 +938,10 @@ describe("D1AgendaRepository session schedule revisions", () => {
       await migrated.database.prepare(`DROP ${object}`).run();
     await applyMigrationFile(migrated.database, "1602_agenda_schedule_materializations.sql");
 
+    // Three publications written, so the counter starts at three: it counts writes, and `COUNT(*)`
+    // is what a migration can know about writes that happened before it existed.
     expect(await watermarks(migrated.database)).toEqual({
-      publication_watermark: 1,
+      publication_watermark: 3,
       materialized_watermark: null,
     });
     expect(await repository.driftedEvents(10)).toEqual([eventId]);
@@ -963,10 +971,89 @@ describe("D1AgendaRepository session schedule revisions", () => {
       .bind(eventId)
       .run();
 
-    expect((await watermarks(migrated.database))?.materialized_watermark).toBeNull();
+    const invalidated = await watermarks(migrated.database);
+    expect(invalidated?.materialized_watermark).toBeNull();
+    /*
+     * The counter moves too, and that half is the one easy to leave out. Clearing the claim alone
+     * would let a repair that read the watermark *before* the delete still match afterwards,
+     * writing rows that include the deleted snapshot and erasing this very invalidation.
+     */
+    expect(invalidated?.publication_watermark).toBe(2);
     expect(await repository.driftedEvents(10)).toEqual([eventId]);
     expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
     expect(await repository.driftedEvents(10)).toEqual([]);
+  });
+
+  /**
+   * The `missing` axis: a row deleted straight out of the derived table.
+   *
+   * The other direction of the drift the on-demand replay exists for. It leaves the watermark
+   * undisturbed, so no cheap check can see it, and every consumer reads the session as "not
+   * scheduled yet" — the speaker calendar send skips it without adding it to `unreachable`, so the
+   * organizer is shown zero invitations and zero problems. Worth its own case rather than being
+   * folded into the phantom one: the repair's affected-row count is read from the *claim*, and a
+   * `DELETE` that legitimately removes nothing is exactly how reading it from the wrong statement
+   * would go unnoticed.
+   */
+  it("repairs a row deleted straight out of the derived table", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-missing", seed: true });
+    runtime = migrated.runtime;
+    const repairs: string[] = [];
+    const repository = new D1AgendaRepository(
+      migrated.database,
+      () => new Date(),
+      undefined,
+      (report) => repairs.push(`${report.eventId}:${report.drift.missing.length}`),
+    );
+    const before = await storedRevisions(migrated.database);
+
+    await migrated.database
+      .prepare("DELETE FROM agenda_session_schedules WHERE event_id = ?")
+      .bind(eventId)
+      .run();
+
+    // The watermark never moved, so nothing flags it and the read serves the empty table.
+    expect(await repository.driftedEvents(10)).toEqual([]);
+    expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
+
+    const report = await repository.reconcileSessionSchedules(eventId, { repair: true });
+    expect(report.drift.missing).toEqual([sessionA]);
+    expect(report.repaired).toBe(true);
+    expect(repairs).toEqual([`${eventId}:1`]);
+    expect(await storedRevisions(migrated.database)).toEqual(before);
+  });
+
+  /**
+   * A failed statement inside the batched read is an error, not an empty answer.
+   *
+   * The two reads share one `batch`, and D1 reports each statement's outcome separately — so a
+   * failure on the watermark arrives as `success: false` on that entry rather than as a rejected
+   * promise. Reading `results` without checking would turn it into "this event has never
+   * published", which is the one wrong answer that silences drift detection entirely.
+   */
+  it("refuses a batched read whose statement failed, rather than reading it as empty", async () => {
+    const migrated = await createMigratedDatabase({ label: "agenda-drift-readfail", seed: true });
+    runtime = migrated.runtime;
+    const failing = {
+      prepare: (query: string) => migrated.database.prepare(query),
+      batch: async (statements: unknown[]) => {
+        const results = (await (
+          migrated.database as unknown as { batch(s: unknown[]): Promise<unknown[]> }
+        ).batch(statements)) as Array<Record<string, unknown>>;
+        // The watermark statement, reported as having failed.
+        return results.map((result, index) =>
+          index === 1 ? { ...result, success: false, error: "no such table" } : result,
+        );
+      },
+    };
+    const repository = new D1AgendaRepository(
+      failing as unknown as ConstructorParameters<typeof D1AgendaRepository>[0],
+      () => new Date(),
+    );
+
+    await expect(repository.sessionScheduleRevisions(eventId)).rejects.toThrow(
+      /failed to read the schedule watermark/,
+    );
   });
 
   /**

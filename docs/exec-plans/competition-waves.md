@@ -482,9 +482,12 @@ twenty events a tick, so ⌈N/20⌉ minutes for the events nobody reads rather t
 the watermark, because the seed genuinely maintains the derived table; without that the demo fixture
 would start life flagged as drifted.
 
-**What review changed, and it was not the design.** Three adversarial passes ran against the risk
-map. The mechanism, the migration, the trigger pair and both `GAP-024` failure axes survived all
-three. What did not survive was the repair's write ordering: `rebuildSessionSchedules` rewrote the
+**What review changed, and it was not the design.** Five adversarial passes ran in three rounds
+against the risk map. The mechanism, the migration, the trigger pair and both `GAP-024` failure axes
+survived every one. Nothing else about the repair path did, and the sequence is worth recording
+because each round found the previous round's *fix* incomplete rather than finding new ground.
+
+*Round one* found the repair's write ordering: `rebuildSessionSchedules` rewrote the
 rows unconditionally and guarded only the watermark claim, and a D1 batch does not abort on a
 zero-row `UPDATE` — so a repair that lost its race to a concurrent publication committed a stale
 prefix of the history *underneath* a watermark that publication had already marked current. That is
@@ -493,8 +496,32 @@ itself, and it was found with a reproduction rather than by reading. Every state
 now carries the guard, so a losing attempt writes nothing at all. Two test gaps went with it: no
 history exceeded one replay page, so a one-character mutation of the paging terminator silently
 truncated every long history and then claimed the watermark for it; and the lost-claim branch was
-never driven, so `=== 1` could be mutated to `>= 0` with a green suite. Both are pinned now, and all
-four mutants die.
+never driven, so `=== 1` could be mutated to `>= 0` with a green suite. Both are pinned now.
+
+*Round two* verified those repairs and found two of them incomplete. The repair observer had moved
+onto the repository class but had never been given to the repository the **request path** builds —
+so read-path repairs, which are most of them, were still silent, and the four canonical statements
+round one had corrected were false again. And when every attempt lost its race, `reconcile` served
+the *stored* rows while the comment above it said it served the replayed ones; the value handed back
+was the phantom row, with `drift.phantom` non-empty in the same object, delivered to the
+calendar-invite read by the method that had just detected it. Round two found that by probing the
+returned value rather than by reading the comment. It also found `publish`'s conditional claim — the
+half the counter redesign added — unpinned, with two independent mutations surviving the whole
+integration suite.
+
+*Round three* verified those, found both closed, and found a false claim in a canonical document:
+the scorecard and the adapter both called the watermark claim "the one affected-row count in this
+adapter", when `updateDraft`'s optimistic revision check is another. It also found `contended`
+counting an event that a read had healed between the sweep's listing and its repair — reporting
+contention for an event that lost no race — and five more mutants that no test killed.
+
+The two composition-root defects are the same defect twice, so the fix is structural rather than
+another test: `agendaRepository(...)` in `index.ts` attaches the observer once, and both
+compositions call it. `index.ts` is untested by construction here, and two independent argument
+lists that must agree is exactly the shape that keeps not agreeing.
+
+**Fifteen mutants of the shipped SQL and TypeScript are now killed by the suite**, each one named by
+a review pass that found it surviving.
 
 **The watermark counts writes rather than naming a version**, which is the same review's doing. A
 version-valued token cannot distinguish a publication inserted out of order — issue #169's own

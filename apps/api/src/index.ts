@@ -450,6 +450,22 @@ const logScheduleRepair = (report: ScheduleReconciliation) => {
 };
 
 /**
+ * The agenda's storage, with the repair observer already attached.
+ *
+ * A factory rather than two `new D1AgendaRepository(...)` calls because the observer has to reach
+ * *both* compositions — the request-scoped one, where a read repairs the moment anybody opens the
+ * workspace, and the tick's. Wiring them separately is not a hypothetical mistake: it was made,
+ * reviewed, reported, and then made again in the commit that claimed to fix it, because nothing
+ * about two independent argument lists says they must agree. One place to attach it is the fix
+ * that a test could not have been.
+ */
+const agendaRepository = (
+  environment: Environment,
+  now: () => Date,
+  writePublicationEvent?: ConstructorParameters<typeof D1AgendaRepository>[2],
+) => new D1AgendaRepository(environment.DB, now, writePublicationEvent, logScheduleRepair);
+
+/**
  * Repair the events whose stored schedule revisions have fallen behind their history (issue #169).
  *
  * The composition is deliberately the repository alone. `AgendaService` needs the content domain's
@@ -464,12 +480,7 @@ export async function reconcileScheduleMaterializations(
   environment: Environment,
 ): Promise<ScheduleSweepResult> {
   const swept = await sweepDriftedSchedules({
-    schedules: new D1AgendaRepository(
-      environment.DB,
-      () => new Date(),
-      undefined,
-      logScheduleRepair,
-    ),
+    schedules: agendaRepository(environment, () => new Date()),
     onFailure(fields) {
       // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
       console.warn(
@@ -480,23 +491,23 @@ export async function reconcileScheduleMaterializations(
         }),
       );
     },
+    /*
+     * A drifted event that neither repaired nor threw lost every attempt to a concurrent
+     * publication. Nothing else says so — the repair observer only fires on success and
+     * `onFailure` only on a throw — so without this an event being published faster than its
+     * history can be walked would be swept, declined and forgotten every minute in silence.
+     */
+    onContention(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "agenda.schedule.drift_unrepaired",
+          ...fields,
+        }),
+      );
+    },
   });
-  /*
-   * A drifted event that neither repaired nor threw lost every attempt to a concurrent
-   * publication. Nothing else says so: the repair observer only fires on success and `onFailure`
-   * only on a throw, so without this line an event being published faster than its history can be
-   * walked would be swept, declined and forgotten every minute in silence.
-   */
-  if (swept.contended > 0)
-    // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
-    console.warn(
-      JSON.stringify({
-        level: "warn",
-        message: "agenda.schedule.drift_unrepaired",
-        contended: swept.contended,
-        scanned: swept.scanned,
-      }),
-    );
   return swept;
 }
 
@@ -676,55 +687,50 @@ export default {
       environment.DB as Parameters<typeof preparedDeliveryWriter>[0],
     );
     const agenda = new AgendaService(
-      new D1AgendaRepository(
-        environment.DB,
-        now,
-        async (_database, event) => {
-          const organizationId = await service.organizationOf(event.eventId);
-          // A publication whose event has no owning organization cannot be announced to anyone.
-          // Throwing fails the batch, so the publication does not commit either — which is the
-          // point of sharing one: a schedule nobody can be told about is not a published schedule.
-          if (!organizationId)
-            throw new Error(`Event ${event.eventId} has no owning organization to announce to`);
-          /*
-           * Three things in one batch: the publication, the announcement, and the audit record.
-           *
-           * The record is prepared rather than written, for the same reason the announcement is —
-           * a published schedule with no record of who published it, or a record of a publication
-           * that rolled back, are both worse than neither. The idempotency key is the event's own
-           * derived id, so a retried publish converges on one record and republishing after an
-           * edit allocates a new version, a new key, and a new record.
-           */
-          return [
-            ...writePublicationEvent(
-              await communications.prepareEnqueue({
-                organizationId,
-                eventId: event.eventId,
-                idempotencyKey: event.id,
-                triggerType: "schedule.published",
-                channel: "event",
-                recipientRef: `event:${event.eventId}`,
-                payload: { ...event },
-              }),
-            ),
-            ...writeAuditRecord(
-              auditRecorder.prepare({
-                organizationId,
-                eventId: event.eventId,
+      agendaRepository(environment, now, async (_database, event) => {
+        const organizationId = await service.organizationOf(event.eventId);
+        // A publication whose event has no owning organization cannot be announced to anyone.
+        // Throwing fails the batch, so the publication does not commit either — which is the
+        // point of sharing one: a schedule nobody can be told about is not a published schedule.
+        if (!organizationId)
+          throw new Error(`Event ${event.eventId} has no owning organization to announce to`);
+        /*
+         * Three things in one batch: the publication, the announcement, and the audit record.
+         *
+         * The record is prepared rather than written, for the same reason the announcement is —
+         * a published schedule with no record of who published it, or a record of a publication
+         * that rolled back, are both worse than neither. The idempotency key is the event's own
+         * derived id, so a retried publish converges on one record and republishing after an
+         * edit allocates a new version, a new key, and a new record.
+         */
+        return [
+          ...writePublicationEvent(
+            await communications.prepareEnqueue({
+              organizationId,
+              eventId: event.eventId,
+              idempotencyKey: event.id,
+              triggerType: "schedule.published",
+              channel: "event",
+              recipientRef: `event:${event.eventId}`,
+              payload: { ...event },
+            }),
+          ),
+          ...writeAuditRecord(
+            auditRecorder.prepare({
+              organizationId,
+              eventId: event.eventId,
+              action: "agenda.schedule_published",
+              targetType: "agenda-publication",
+              targetId: event.id,
+              idempotencyKey: lifecycleAuditKey({
                 action: "agenda.schedule_published",
-                targetType: "agenda-publication",
+                eventId: event.eventId,
                 targetId: event.id,
-                idempotencyKey: lifecycleAuditKey({
-                  action: "agenda.schedule_published",
-                  eventId: event.eventId,
-                  targetId: event.id,
-                }),
               }),
-            ),
-          ];
-        },
-        logScheduleRepair,
-      ),
+            }),
+          ),
+        ];
+      }),
       now,
       contentRepository,
       async (actor, eventId) => {
