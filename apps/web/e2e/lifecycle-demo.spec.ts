@@ -28,11 +28,67 @@ async function expectNoAxeViolations(page: Page, surface: string) {
   ).toEqual([]);
 }
 
+/**
+ * Surfaces whose data table still puts its row actions outside a 390px viewport.
+ *
+ * Measured on the seeded fixture at this commit, after the tab strips were made to wrap:
+ * `/abstracts` 7 controls, `/communications` 7, `/sessions` 7. One defect in three places — a
+ * five- or six-column `table.data` cannot fit 390px, so its Actions column lands inside the
+ * `.table-wrap` scroller. The fix is the stacked-card restack `#155` asks for, per surface, and
+ * `/abstracts` is the one #155 actually scopes; the other two are the same defect found by this
+ * assertion and are named in that issue rather than fixed silently here.
+ *
+ * This list is the honest form of a partial fix: the check runs everywhere, and the three
+ * surfaces that cannot pass it yet are enumerated with a reason instead of the assertion being
+ * quietly weakened for all eleven. Deleting an entry is how the next lane proves its restack.
+ */
+const OFFSCREEN_ACTIONS_PENDING_155 = ["/abstracts", "/communications", "/sessions"];
+
+/**
+ * The document does not pan sideways, *and* the things an organizer came to press are on screen.
+ *
+ * The document half alone is not the guarantee it reads as (#155): a `.table-wrap` scrolls its
+ * own overflow, so `/abstracts` passed this check at 390px while the Decision column — the
+ * primary action of the whole surface — started 235px past the right edge. Measuring only
+ * `documentElement` certifies "the page does not overflow" and says nothing about whether the
+ * page is usable, which is the property the row in the scorecard is actually claiming.
+ *
+ * A control is counted when it is visible and inside `main`; the offenders are named rather than
+ * counted, because "3 controls are off-screen" is not something anyone can act on.
+ */
 async function expectNoHorizontalOverflow(page: Page, surface: string) {
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow, `${surface} overflows horizontally by ${overflow}px`).toBeLessThanOrEqual(0);
+
+  if (OFFSCREEN_ACTIONS_PENDING_155.some((path) => surface.includes(path))) return;
+
+  const offscreen = await page.evaluate(() => {
+    const main = document.querySelector("main");
+    if (!main) return [];
+    const width = document.documentElement.clientWidth;
+    return [...main.querySelectorAll<HTMLElement>("button, a[href]")]
+      .filter((element) => {
+        if (element.hasAttribute("disabled") || element.getAttribute("aria-hidden") === "true")
+          return false;
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        const box = element.getBoundingClientRect();
+        // A zero-box control is collapsed or inside a closed disclosure, not misplaced.
+        if (box.width === 0 || box.height === 0) return false;
+        return box.right > width + 1 || box.left < -1;
+      })
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        return `${element.tagName.toLowerCase()}“${(element.textContent ?? "").trim().slice(0, 40)}” at x=${Math.round(box.left)}..${Math.round(box.right)}`;
+      });
+  });
+
+  expect(
+    offscreen,
+    `${surface} puts ${offscreen.length} control(s) outside the viewport: ${offscreen.join("; ")}`,
+  ).toEqual([]);
 }
 
 async function openOrganizer(page: Page) {
@@ -84,7 +140,26 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   }
 
   await page.goto("/sessions");
-  await expect(page.getByRole("heading", { name: "Speaker resources" })).toBeVisible();
+  // #144: the dashboard leads. The accepted-sessions table is above the authoring tools and
+  // inside the first screen, where it used to start 1420px down — 32% of a 4475px page.
+  const sessionsHeading = page.getByRole("heading", { name: "Accepted sessions" });
+  const resourcesHeading = page.getByRole("heading", { name: "Speaker resources" });
+  await expect(sessionsHeading).toBeVisible();
+  const sessionsBox = await sessionsHeading.boundingBox();
+  const resourcesBox = await resourcesHeading.boundingBox();
+  expect(sessionsBox, "the accepted-sessions table is rendered").not.toBeNull();
+  expect(resourcesBox, "the resource tool is rendered").not.toBeNull();
+  expect(
+    sessionsBox?.y ?? 0,
+    "accepted sessions is visible without scrolling past authoring forms",
+  ).toBeLessThan(900);
+  expect(sessionsBox?.y ?? 0, "the dashboard is above the authoring tools").toBeLessThan(
+    resourcesBox?.y ?? 0,
+  );
+  // Authoring is one deliberate action away, and its HTML fields are not rendered until then.
+  await expect(page.locator('input[value="Speaker handbook"]')).toHaveCount(0);
+  await resourcesHeading.click();
+  await page.getByRole("button", { name: "Edit Speaker handbook" }).click();
   await expect(page.locator('input[value="Speaker handbook"]')).toBeVisible();
   await expect(page.locator('input[value="speaker-handbook"]')).toBeVisible();
   await page.goto("/agenda");

@@ -414,6 +414,39 @@ dl.grid-auto {
 .table-wrap {
   position: relative;
   overflow-x: auto;
+
+  /* A scrolled-away column has to look scrolled away (#155). macOS draws overlay
+     scrollbars, so `offsetHeight - clientHeight` is 0 and nothing on the element hinted
+     that a Decision column or an Unschedule button existed off the right edge.
+
+     Four backgrounds in two pairs. The covers are `local`, so they travel with the
+     content; the shadows are `scroll`, so they stay pinned to the container's edges. At
+     rest a cover sits exactly on top of its shadow and hides it, and scrolling slides the
+     cover away to reveal it. The affordance therefore appears only on the side that has
+     content left to reach, and disappears at both ends — a container that does not
+     scroll never paints one. */
+  background:
+    linear-gradient(to right, var(--surface) 30%, transparent) left center,
+    linear-gradient(to left, var(--surface) 30%, transparent) right center,
+    radial-gradient(
+      farthest-side at 0 50%,
+      color-mix(in srgb, var(--ink-4) 34%, transparent),
+      transparent
+    )
+    left center,
+    radial-gradient(
+      farthest-side at 100% 50%,
+      color-mix(in srgb, var(--ink-4) 34%, transparent),
+      transparent
+    )
+    right center;
+  background-repeat: no-repeat;
+  background-size:
+    32px 100%,
+    32px 100%,
+    14px 100%,
+    14px 100%;
+  background-attachment: local, local, scroll, scroll;
 }
 table.data {
   width: 100%;
@@ -753,7 +786,32 @@ input[type="radio"] {
     display: grid;
     gap: var(--s-1);
   }
+  /* The links pack into columns here; the group heading must not become one of them.
+     On desktop the base rule is single-column, so the heading spanned by accident of the
+     column count — this states it, instead of leaving "Program" beside the active link (#156). */
+  .sidebar .nav-group > h2 {
+    grid-column: 1 / -1;
+  }
   .page-body {
     padding: var(--s-4);
+  }
+  /*
+   * Filter tabs wrap here rather than scroll (#155).
+   *
+   * The strip is `overflow-x: auto` at every width, which on a 390px screen put four of seven
+   * `/abstracts` filters — Reviewed, Withdrawn, Accepted, Declined — past the right edge behind
+   * an unhinted swipe, and clipped the last tab mid-word on `/sessions`, `/agenda`, `/speakers`
+   * and `/communications` too. A filter nobody can see is a filter nobody uses.
+   *
+   * This is the same answer `.pub-viewswitch` already gives on the public schedule
+   * (`public-pages.css:295-305`), whose comment says it "wraps rather than scrolls, so a 390px
+   * screen never pushes the page sideways". Two surfaces doing one job now do it one way.
+   *
+   * `overflow-x: visible` is required as well as `flex-wrap`: a flex container that still
+   * establishes a scroll port will keep its single-line scroll behaviour on the rows it wraps to.
+   */
+  .tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 }
