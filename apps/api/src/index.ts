@@ -17,6 +17,7 @@ import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
+import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -55,6 +56,7 @@ import {
   startGoogleAuthorization,
   stateProof,
 } from "./application/identity/google-oauth";
+import { MembershipService, mintInvitationToken } from "./application/identity/membership";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import type { ReviewSuggestionPort } from "./application/review/suggestion-port";
@@ -785,6 +787,15 @@ export default {
         return new OutreachRejectedError(error.message);
       return error;
     };
+    // `service` is the events domain's own application interface, which is how identity reaches
+    // "does this event belong to that organization" without reading the events tables.
+    const membership = new MembershipService({
+      repository: new D1MembershipRepository(environment.DB),
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+      mintToken: mintInvitationToken,
+    });
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
       speakerConversion,
@@ -902,6 +913,7 @@ export default {
       itineraries,
       speakerCalendarInvites,
       accelEventsSync,
+      membership,
     );
     return Promise.resolve(app.fetch(request));
   },

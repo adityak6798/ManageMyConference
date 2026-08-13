@@ -61,6 +61,96 @@ export const googleCallbackQuerySchema = z.object({
   code: z.string().describe("The authorization code Google issued for this attempt."),
   state: z.string().describe("The opaque per-attempt value this deployment issued."),
 });
+/**
+ * Membership administration.
+ *
+ * The role vocabulary is three values, not four: `public` is what everybody already has and
+ * cannot be granted. An invitation naming an event grants that role on that event; one naming no
+ * event grants organization membership, which is only ever the organizer role because that is
+ * what `organization_memberships` stores.
+ */
+export const invitableRoleSchema = z.enum(["organizer", "reviewer", "speaker"]);
+export const createInvitationSchema = z
+  .object({
+    email: z.string().email().max(254),
+    role: invitableRoleSchema,
+    /** Omit to invite into the organization; name an event to staff somebody on it. */
+    eventId: z.string().uuid().optional(),
+  })
+  .refine((value) => value.eventId !== undefined || value.role === "organizer", {
+    message: "An organization invitation grants the organizer role",
+    path: ["role"],
+  });
+/**
+ * The created invitation, and the **only** time its token exists outside the caller's own
+ * request. The database stores a SHA-256 digest, so nothing can reissue this value; an organizer
+ * who loses it revokes the invitation and sends another.
+ */
+export const invitationSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid().nullable(),
+  email: z.string(),
+  role: invitableRoleSchema,
+  invitedByUserId: z.string(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  acceptedAt: z.string().datetime().nullable(),
+  acceptedByUserId: z.string().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+});
+export const createInvitationResponseSchema = z.object({
+  invitation: invitationSchema,
+  token: z.string().min(1),
+});
+export const organizationMemberSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  /** Null where the directory holds no address for this member. */
+  email: z.string().nullable(),
+  eventRoles: z.array(z.object({ eventId: z.string().uuid(), role: demoPersonaSchema })),
+});
+export const organizationMembersResponseSchema = z.object({
+  members: z.array(organizationMemberSchema),
+  invitations: z.array(invitationSchema),
+});
+/**
+ * Acceptance carries the token and nothing else.
+ *
+ * There is deliberately no address, no user id and no organization in this body: the token says
+ * *which* invitation and the caller's session says *who*. A body that named the person would be
+ * the address-lookup acceptance `docs/architecture/authorization.md` forbids.
+ */
+export const acceptInvitationSchema = z.object({ token: z.string().min(1) });
+export const acceptInvitationResponseSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid().nullable(),
+  role: invitableRoleSchema,
+});
+export const eventRoleSchema = z.object({ role: invitableRoleSchema });
+/** How many rows the write changed. Zero is a legitimate answer, not a failure. */
+export const membershipChangeResponseSchema = z.object({ changed: z.number().int().min(0) });
+/**
+ * One organizer-visible audit row.
+ *
+ * `detail` is opaque JSON text rather than a parsed object: its shape belongs to the action, and
+ * a schema that pinned it would have to change every time an action gained a field. No row here
+ * ever carries a credential.
+ */
+export const auditEventSchema = z.object({
+  id: z.string(),
+  occurredAt: z.string().datetime(),
+  action: z.string(),
+  outcome: z.enum(["succeeded", "refused"]),
+  source: z.enum(["human", "api", "system"]),
+  actorUserId: z.string().nullable(),
+  subjectUserId: z.string().nullable(),
+  eventId: z.string().uuid().nullable(),
+  correlationId: z.string(),
+  detail: z.string().nullable(),
+});
+export const auditEventsResponseSchema = z.object({ events: z.array(auditEventSchema) });
+
 export const capabilitySchema = z.enum([
   "events:read",
   "events:create",
@@ -73,6 +163,7 @@ export const capabilitySchema = z.enum([
   "content:manage",
   "review:manage",
   "review:evaluate",
+  "identity:manage",
 ]);
 
 export const sessionEventAccessSchema = z.object({

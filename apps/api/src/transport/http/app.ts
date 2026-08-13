@@ -24,6 +24,7 @@ import type { ContentService } from "../../application/content/content-service";
 import type { SpeakerCalendarInviteService } from "../../application/content/public";
 import type { CrmService } from "../../application/crm/public";
 import type { EventService } from "../../application/events/event-service";
+import type { MembershipService } from "../../application/identity/membership";
 import type { Actor } from "../../application/identity/actor";
 import {
   AuthenticationRequiredError,
@@ -320,6 +321,7 @@ export function createHttpApp(
   itineraries?: ItineraryService,
   speakerCalendarInvites?: SpeakerCalendarInviteService,
   accelEventsSync?: AccelEventsSyncService,
+  membership?: MembershipService,
 ) {
   const review =
     reviewOrCfpService && "organizerWorkspace" in reviewOrCfpService
@@ -353,6 +355,7 @@ export function createHttpApp(
     itineraries,
     speakerCalendarInvites,
     accelEventsSync,
+    membership,
     build: buildIdentity,
   });
 }

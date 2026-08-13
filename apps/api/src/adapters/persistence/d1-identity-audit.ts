@@ -50,8 +50,7 @@ const INSERT_AUDIT_EVENT = `INSERT INTO identity_audit_events (${COLUMNS}) VALUE
  * append-only table nothing prunes. A refusal that *is* a refusal — a demo persona named as a
  * grant target — is written unconditionally, because that one really did happen.
  */
-const INSERT_AUDIT_EVENT_WHEN_CHANGED =
-  `INSERT INTO identity_audit_events (${COLUMNS}) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE changes() > 0`;
+const INSERT_AUDIT_EVENT_WHEN_CHANGED = `INSERT INTO identity_audit_events (${COLUMNS}) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE changes() > 0`;
 
 /**
  * One bound insert, ready to be batched with the change it records.

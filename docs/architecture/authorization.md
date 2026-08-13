@@ -120,21 +120,29 @@ administration is the first feature that can break that, because `seed/reset.sql
 personas real addresses (`organizer@greenroom.test` and the rest). These three rules exist so it
 cannot, and each is proved by breaking the guard and watching a named test fail.
 
-Rules 1 and 2 bind the membership administration this lane has yet to land; there is no route in
-the repository that writes `organization_memberships` or `event_roles` today, and they are stated
-here first so that the work is written against them rather than audited afterwards. Rule 3 is in
-force now.
+All three are in force. Rules 1 and 2 govern membership administration, which is
+`MembershipService` and the `/api/organizations/{organizationId}/…` routes; rule 3 governs session
+issuance.
 
 1. **An invitation is accepted by the accepting session's own identity, never by address lookup.**
    Acceptance requires `authentication === "session"` and grants membership to *that actor's* user
    id. Were acceptance a match against a stored address, a real organizer could invite
    `organizer@greenroom.test`, and pressing **Continue as organizer** on the demo landing page
    would afterwards open a real organization.
-2. **A demo persona id is never a valid grant target.** The predicate is derived from the
-   `personas` object's own keys in `application/identity/demo-session.ts`, so it cannot drift from
-   the four seeded rows, and every membership, invitation and event-role write whose subject is
-   one is refused. The seeded demo grants come from seed SQL, so refusing them at the route costs
-   nothing and removes the crossing entirely. The refusal is audited.
+2. **A demo persona id is never a valid grant target — nor a valid administrator.**
+   `isDemoPersonaId` is derived from the `personas` object's own keys in
+   `application/identity/demo-session.ts`, so it cannot drift from the four seeded rows, and every
+   membership, invitation and event-role write whose subject is one is refused. The seeded demo
+   grants come from seed SQL, so refusing them costs nothing real and removes the crossing
+   entirely. A persona is also refused as the *actor* of any membership write, which is wider than
+   the crossing strictly requires and is the deliberate choice: a persona holds the seeded
+   organizer's capabilities, so anything it wrote would be real state in the demo organization,
+   handed to whoever presses **Continue as organizer** next. Both refusals are audited with
+   `outcome = 'refused'`, which is the row an operator most wants to find. The cost is that the
+   browser suite — which runs in demo mode and has only personas — cannot drive the
+   invite-and-accept journey at all; that journey is proved against real D1 in
+   `d1-identity-membership.integration.test.ts` and at the transport in `membership-http.test.ts`,
+   and the browser asserts the refusal instead.
 3. **A seeded persona id is never the subject of a real session, and a session record is never a
    route to an actor.** Four functions resolve an actor, and being exact about them matters more
    than a slogan: `findByPersona` for a demo persona cookie, `findByUserId` for a session or
@@ -150,6 +158,28 @@ force now.
    never followed to produce an actor. A demo persona cookie takes no session lookup at all, which
    `identity-sessions-http.test.ts` asserts by counting the store's reads across a persona's whole
    request.
+
+## Membership administration is authorized at the organization
+
+`identity:manage` is an event-earned capability like every other, granted by the organizer role,
+and it is deliberately not a global administrator. An organization-addressed route takes three
+conditions together — the capability, membership of the named organization, **and** that the
+capability was earned on an event belonging to that organization — which is the pattern the CRM
+directory already uses and which `MembershipService.requireOrganization` implements. The third
+condition is the one that is easy to leave out: the first two can be satisfied by two *different*
+organizations at once, so somebody who organizes an event in A and merely belongs to B would
+otherwise administer B on the strength of a grant A gave them.
+
+An event role is addressed under the organization that owns the event —
+`/api/organizations/{organizationId}/events/{eventId}/roles/{userId}` — rather than under the event
+alone, because the address is where the authorization happens: the organization in the path is what
+`requireOrganization` runs against, and the event is then checked to belong to it.
+
+Removing a membership or an event role takes effect on the **next request**, without touching any
+session record, because `resolveUserSession` re-derives the actor from D1 every time. That is why
+removal does not revoke sessions: the person may hold memberships elsewhere that are none of this
+organization's business. `d1-identity-membership.integration.test.ts` proves it by removing a role
+and resolving the actor again.
 
 ## Two credential grammars, one cookie name
 

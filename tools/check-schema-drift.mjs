@@ -78,16 +78,18 @@ function renderSql(fragment) {
 
 /** `"events"."name" > 0` -> `name > 0`, so migration text and rendered Drizzle text can meet. */
 function normaliseExpression(text, tableName) {
-  return text
-    // Comments can sit inside a CHECK body as well as between columns, and their prose would
-    // otherwise become part of the expression the two models are compared on.
-    .replaceAll(/--[^\n]*/g, " ")
-    .replaceAll(/\/\*[\s\S]*?\*\//g, " ")
-    .replaceAll(`${quote(tableName)}.`, "")
-    .replaceAll('"', "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*([(),])\s*/g, "$1")
-    .trim();
+  return (
+    text
+      // Comments can sit inside a CHECK body as well as between columns, and their prose would
+      // otherwise become part of the expression the two models are compared on.
+      .replaceAll(/--[^\n]*/g, " ")
+      .replaceAll(/\/\*[\s\S]*?\*\//g, " ")
+      .replaceAll(`${quote(tableName)}.`, "")
+      .replaceAll('"', "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*([(),])\s*/g, "$1")
+      .trim()
+  );
 }
 
 function renderDefault(column) {

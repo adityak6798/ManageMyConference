@@ -166,6 +166,46 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
+  /**
+   * One outstanding invitation. Accepted by the accepting session's own identity — `email`
+   * addresses the invitation and authorizes nothing. See `1003_identity_invitations.sql`.
+   */
+  const identityInvitations = sqliteTable(
+    "identity_invitations",
+    {
+      id: text("id").primaryKey().notNull(),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => references.organizationsId, { onDelete: "cascade" }),
+      eventId: text("event_id").references(() => references.eventsId, { onDelete: "cascade" }),
+      email: text("email").notNull(),
+      role: text("role").notNull(),
+      tokenHash: text("token_hash").notNull().unique(),
+      invitedByUserId: text("invited_by_user_id")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+      createdAt: integer("created_at").notNull(),
+      expiresAt: integer("expires_at").notNull(),
+      acceptedAt: integer("accepted_at"),
+      acceptedByUserId: text("accepted_by_user_id").references(() => users.id, {
+        onDelete: "set null",
+      }),
+      revokedAt: integer("revoked_at"),
+    },
+    (table) => [
+      check(
+        "identity_invitations_role",
+        sql`${table.role} IN ('organizer', 'reviewer', 'speaker')`,
+      ),
+      check(
+        "identity_invitations_scope",
+        sql`${table.eventId} IS NOT NULL OR ${table.role} = 'organizer'`,
+      ),
+      index("identity_invitations_org_idx").on(table.organizationId, table.createdAt),
+      index("identity_invitations_email_idx").on(table.email),
+    ],
+  );
+
   const eventRoles = sqliteTable(
     "event_roles",
     {
@@ -195,6 +235,7 @@ export function defineIdentityAccessSchema(references: {
     identityProviderAccounts,
     identitySessions,
     identityAuditEvents,
+    identityInvitations,
     organizationMemberships,
     eventRoles,
   };

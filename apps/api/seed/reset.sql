@@ -59,9 +59,14 @@ DELETE FROM review_plans;
 DELETE FROM cfp_status_audit;
 DELETE FROM cfp_submissions;
 DELETE FROM cfp_statuses;
-DELETE FROM cfp_forms;
+DELETE FROM cfp_forms;-- Before `events` and `organizations`, which this references, and for the reason the users
+-- fragment gives: D1 does not honour `PRAGMA foreign_keys` between statements, so a cascade
+-- cannot be relied on and a row left behind is a live acceptance link pointing at an
+-- organization the next reset has already replaced.
+DELETE FROM identity_invitations;
 DELETE FROM event_roles;
 DELETE FROM organization_memberships;
+
 DELETE FROM events;
 DELETE FROM identity_login_challenges;
 -- In-flight sign-in attempts hold no foreign key, but a reset that leaves them behind leaves a

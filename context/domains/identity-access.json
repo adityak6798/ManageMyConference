@@ -31,6 +31,15 @@
     "apps/api/test/google-oauth.test.ts",
     "apps/api/test/google-oauth-client.test.ts",
     "apps/api/test/signup-service.test.ts",
-    "apps/api/test/real-auth.test.ts"
+    "apps/api/test/real-auth.test.ts",
+    "apps/api/migrations/1003_identity_invitations.sql",
+    "apps/api/src/adapters/persistence/d1-identity-membership.ts",
+    "apps/api/test/membership-service.test.ts",
+    "apps/api/test/membership-http.test.ts",
+    "apps/api/test/d1-identity-membership.integration.test.ts",
+    "apps/web/src/MembersWorkspace.tsx",
+    "apps/web/src/workspaces/identity.tsx",
+    "apps/web/src/api/membership.ts",
+    "apps/web/e2e/members.spec.ts"
   ]
 }

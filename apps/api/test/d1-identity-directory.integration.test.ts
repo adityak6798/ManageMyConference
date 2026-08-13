@@ -42,6 +42,7 @@ describe("D1IdentityDirectory", () => {
         "content:read",
         "content:manage",
         "review:manage",
+        "identity:manage",
         "review:evaluate",
       ]),
     });
@@ -63,6 +64,7 @@ describe("D1IdentityDirectory", () => {
         "content:read",
         "content:manage",
         "review:manage",
+        "identity:manage",
         "review:evaluate",
       ]),
     });

@@ -51,6 +51,20 @@ function productionApp(
 
 const cookieHeader = (token: string) => ({ cookie: `greenroom_session=${token}` });
 
+/**
+ * Every response header, sorted, minus the one that is per-request by construction.
+ *
+ * `x-correlation-id` is a fresh UUID on each request and must differ; every other header has to
+ * be identical across the three sign-out answers, which is the property being asserted.
+ */
+function collectHeaders(response: Response): [string, string][] {
+  const collected: [string, string][] = [];
+  response.headers.forEach((value, name) => {
+    if (name !== "x-correlation-id") collected.push([name, value]);
+  });
+  return collected.sort();
+}
+
 describe("session revocation over HTTP", () => {
   /**
    * The property the whole lane exists for: a cookie that worked a moment ago stops working,
@@ -99,9 +113,7 @@ describe("session revocation over HTTP", () => {
         // `x-session-revoked: 1` on the hit path would satisfy a narrower assertion while
         // breaking exactly the property this test exists for. `x-correlation-id` is per-request
         // by construction and is the one field that must differ.
-        headers: [...response.headers.entries()]
-          .filter(([name]) => name !== "x-correlation-id")
-          .sort(),
+        headers: collectHeaders(response),
       });
     }
     expect(answers[0]?.headers.map(([name]) => name)).toContain("set-cookie");

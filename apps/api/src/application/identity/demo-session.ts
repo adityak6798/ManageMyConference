@@ -23,6 +23,7 @@ const personas = {
         "content:read",
         "content:manage",
         "review:manage",
+        "identity:manage",
       ] as const,
     })),
     capabilities: [
@@ -34,6 +35,7 @@ const personas = {
       "content:read",
       "content:manage",
       "review:manage",
+      "identity:manage",
     ] as const,
   },
   reviewer: {

@@ -107,17 +107,20 @@ feature-by-feature verdict.
   timeline; this lane builds none, and the columns are shaped so #99 can project them without a
   migration.
 
-  What issue #12 still owns: **credential rotation and recovery operations** — no
-  `SESSION_SECRET` rotation path exists, so rotating today invalidates every session instantly,
-  and there is no documented procedure for it, for `GOOGLE_CLIENT_SECRET`, or for incident
-  revocation — and **organization invitation and membership administration**: there is still no
-  route in the repository that writes `organization_memberships` or `event_roles`, so a self-serve
-  organizer cannot add a reviewer or a co-organizer to their event, and the `membership.*` and
-  `event_role.*` half of the audit vocabulary is declared but unwritten. Owner: identity-access.
-  Governing IDs: `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`, `ADR-005`. Closure: the membership
-  administration surfaces with the three demo-safety rules in
-  [authorization](../architecture/authorization.md) proved by test, plus a rotation and recovery
-  runbook.
+  **Membership administration exists.** `MembershipService` and the
+  `/api/organizations/{organizationId}/…` routes invite into an organization or onto one of its
+  events, accept by the accepting session's own identity, remove members, grant and revoke event
+  roles, and serve the organization's own audit log; the console surface is `/members`. All three
+  demo-safety rules in [authorization](../architecture/authorization.md) are enforced and proved
+  by test. Authorization is the three-condition organization pattern the CRM directory uses, on a
+  new event-earned `identity:manage` capability rather than a global administrator role.
+
+  **Credential rotation and recovery is what remains.** No `SESSION_SECRET` rotation path exists,
+  so rotating today invalidates every session instantly; and there is no documented procedure for
+  it, for `GOOGLE_CLIENT_SECRET`, or for incident revocation. Owner: identity-access. Governing
+  IDs: `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`, `ADR-005`. Closure: dual-secret verification with
+  a documented rotation window, an incident revocation tool, and a security-operations runbook
+  covering provider configuration, key rotation, incident revocation and recovery.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). The target is now provisioned and a hosted URL **is** evidenced:

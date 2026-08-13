@@ -9,7 +9,16 @@ export type Capability =
   | "content:read"
   | "content:manage"
   | "review:manage"
-  | "review:evaluate";
+  | "review:evaluate"
+  /**
+   * Administer who belongs to an organization and who is staffed on its events.
+   *
+   * Event-earned like every other capability here, and deliberately *not* a global administrator
+   * role: an organization-addressed route requires this capability, membership of the named
+   * organization, and that the capability was earned on an event belonging to it. See
+   * `MembershipService.requireOrganization` and `docs/architecture/authorization.md`.
+   */
+  | "identity:manage";
 
 export interface EventAccess {
   readonly eventId: string;

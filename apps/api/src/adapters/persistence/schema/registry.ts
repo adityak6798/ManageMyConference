@@ -96,6 +96,7 @@ export const {
   events,
   identityAuditEvents,
   identityEmails,
+  identityInvitations,
   identityLoginChallenges,
   identityOauthAttempts,
   identityProviderAccounts,

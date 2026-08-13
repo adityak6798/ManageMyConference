@@ -42,6 +42,7 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
     "content:read",
     "content:manage",
     "review:manage",
+    "identity:manage",
   ],
   reviewer: ["events:read", "review:evaluate"],
   speaker: ["events:read", "content:read"],

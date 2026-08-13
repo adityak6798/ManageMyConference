@@ -6,7 +6,7 @@ Shared Zod schemas own every current request and response shape: event mutations
 
 ## Route groups
 
-- `API-AUTH-*`: session, seeded demo identity switch, current capabilities.
+- `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration.
 - `API-ORG-*`, `API-EVENT-*`: organization/event commands and queries.
 - `API-CFP-*`, `API-REVIEW-*`: forms, submissions, assignments, evaluations.
 - `API-CONTENT-*`, `API-CRM-*`: speakers, sessions, tasks/assets, prospects/activity/conversion.
@@ -50,6 +50,25 @@ because the route requires `authentication === "session"` first: a demo persona 
 `demo` and is refused, and a deployment that records no sessions answers 404. A session token
 minted before session records existed carries no session id and is refused outright, so the change
 signs everybody out once.
+
+Membership administration is addressed by organization, for the same reason the CRM directory is:
+the answer spans events, so an event-scoped path could not carry it, and the organization is the
+one place cross-event visibility is authorized. `GET /api/organizations/{organizationId}/members`
+returns the members and every invitation; `POST .../invitations` creates one and answers its token
+**once**, because only a SHA-256 digest is stored and nothing can reissue it; `DELETE
+.../invitations/{invitationId}` withdraws one; `DELETE .../members/{userId}` removes somebody from
+the organization and from every role on its events; `PUT` and `DELETE` on
+`.../events/{eventId}/roles/{userId}` grant and revoke one role on one event, addressed under the
+owning organization because that is where the authorization runs; and
+`GET .../audit-events` serves that organization's own identity audit log. Authorization takes the
+same three conditions as the CRM directory — `identity:manage`, membership of the named
+organization, and that the capability was earned on an event belonging to it — on a new
+event-earned capability rather than a global administrator role. `POST /api/invitations/accept` is
+addressed outside any organization, because the caller does not belong to one yet; it requires
+`authentication === "session"` and grants to *that* identity, never to the address the invitation
+names, so a demo persona can never accept one. An unknown, expired, revoked or already-accepted
+token are one indistinguishable 404. Removing a membership or a role takes effect on the next
+request without revoking any session, because the actor is re-derived from D1 every time.
 GET /api/session returns the freshly resolved actor, memberships, event roles,
 and capabilities. /api/demo-session remains an internal harness route available only with
 DEMO_MODE=true and exact ENVIRONMENT=development. Errors follow

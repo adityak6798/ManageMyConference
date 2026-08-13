@@ -7,7 +7,10 @@
  * @spec PRD-IAM-001 PRD-IAM-002
  */
 import {
+  acceptInvitationSchema,
+  createInvitationSchema,
   demoSessionInputSchema,
+  eventRoleSchema,
   eventTokenRequestSchema,
   loginCodeRequestSchema,
   loginCodeVerifySchema,
@@ -19,6 +22,12 @@ import {
 import { createDemoSession, isDemoPersonaId } from "../../../application/identity/demo-session";
 import type { AuditContext } from "../../../application/identity/audit";
 import {
+  EventOutsideOrganizationError,
+  InvitationInvalidError,
+  type InvitableRole,
+  MembershipRefusedError,
+} from "../../../application/identity/membership";
+import {
   createEventToken,
   createLoginChallenge,
   createUserSession,
@@ -26,7 +35,7 @@ import {
   sessionIdFrom,
 } from "../../../application/identity/real-auth";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { envelope, type HttpContext, readJson } from "../runtime";
+import { envelope, type HttpContext, readJson, validationFields } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -41,6 +50,14 @@ const routes = [
   "POST /api/auth/sessions/revoke-all",
   "POST /api/demo-session",
   "GET /api/session",
+  "GET /api/organizations/{organizationId}/members",
+  "POST /api/organizations/{organizationId}/invitations",
+  "DELETE /api/organizations/{organizationId}/invitations/{invitationId}",
+  "POST /api/invitations/accept",
+  "DELETE /api/organizations/{organizationId}/members/{userId}",
+  "PUT /api/organizations/{organizationId}/events/{eventId}/roles/{userId}",
+  "DELETE /api/organizations/{organizationId}/events/{eventId}/roles/{userId}",
+  "GET /api/organizations/{organizationId}/audit-events",
 ] as const;
 const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
 /**
@@ -336,6 +353,203 @@ export const identityRoutes: RouteModule = {
         ),
       });
     });
+    /*
+     * Membership administration.
+     *
+     * Addressed by organization, because that is the scope the answer spans and because it gives
+     * cross-event visibility exactly one place to be authorized — the same reasoning the CRM
+     * directory records. `MembershipService` owns the three-condition authorization and the
+     * demo-persona guard; these handlers own shape and status and nothing else.
+     *
+     * Every one of them 404s when the service is unwired, rather than 500ing, because a
+     * deployment composed without it genuinely does not have these doors.
+     */
+    const membership = dependencies.membership;
+    const noMembership = (context: HttpContext) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    /** Instants cross the wire as ISO strings; the database keeps them as epoch milliseconds. */
+    const asInvitationDto = (invitation: {
+      id: string;
+      organizationId: string;
+      eventId: string | null;
+      email: string;
+      role: InvitableRole;
+      invitedByUserId: string;
+      createdAt: number;
+      expiresAt: number;
+      acceptedAt: number | null;
+      acceptedByUserId: string | null;
+      revokedAt: number | null;
+    }) => ({
+      ...invitation,
+      createdAt: new Date(invitation.createdAt).toISOString(),
+      expiresAt: new Date(invitation.expiresAt).toISOString(),
+      acceptedAt: invitation.acceptedAt ? new Date(invitation.acceptedAt).toISOString() : null,
+      revokedAt: invitation.revokedAt ? new Date(invitation.revokedAt).toISOString() : null,
+    });
+
+    app.get("/api/organizations/:organizationId/members", async (context) => {
+      if (!membership) return noMembership(context);
+      const organizationId = context.req.param("organizationId");
+      const actor = context.get("actor");
+      const [members, invitations] = await Promise.all([
+        membership.listMembers(actor, organizationId),
+        membership.listInvitations(actor, organizationId),
+      ]);
+      return context.json({ members, invitations: invitations.map(asInvitationDto) });
+    });
+
+    app.post("/api/organizations/:organizationId/invitations", async (context) => {
+      if (!membership) return noMembership(context);
+      const parsed = createInvitationSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Check the address and role.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      const { invitation, token } = await membership.invite(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        parsed.data,
+        auditContext(context),
+      );
+      // The token is answered once and never stored in the clear. The console builds the
+      // acceptance link from it; a reload of the members list will not show it again.
+      return context.json({ invitation: asInvitationDto(invitation), token }, 201);
+    });
+
+    app.delete("/api/organizations/:organizationId/invitations/:invitationId", async (context) => {
+      if (!membership) return noMembership(context);
+      return context.json({
+        changed: await membership.revokeInvitation(
+          context.get("actor"),
+          context.req.param("organizationId"),
+          context.req.param("invitationId"),
+          auditContext(context),
+        ),
+      });
+    });
+
+    /**
+     * Accept an invitation, as whoever is signed in.
+     *
+     * `authentication === "session"` is required and is the whole of rule 1: the token says which
+     * invitation, the session says who, and a demo persona resolves as `demo` and never gets
+     * past this line. Not addressed by organization, because the caller does not yet belong to
+     * one — that is what they are accepting.
+     */
+    app.post("/api/invitations/accept", async (context) => {
+      if (!membership) return noMembership(context);
+      if (context.get("authentication") !== "session")
+        throw new AuthenticationRequiredError("A user session is required to accept an invitation");
+      const parsed = acceptInvitationSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "That invitation is not valid.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      return context.json(
+        await membership.accept(context.get("actor"), parsed.data.token, auditContext(context)),
+      );
+    });
+
+    app.delete("/api/organizations/:organizationId/members/:userId", async (context) => {
+      if (!membership) return noMembership(context);
+      return context.json({
+        changed: await membership.removeMember(
+          context.get("actor"),
+          context.req.param("organizationId"),
+          context.req.param("userId"),
+          auditContext(context),
+        ),
+      });
+    });
+
+    /*
+     * Event roles are addressed under the organization that owns the event, not under the event
+     * alone. The address is the authorization boundary: `requireOrganization` runs against the
+     * organization in the path, and the event is then checked to belong to it, so a grant earned
+     * in one organization cannot staff somebody in another.
+     */
+    app.put("/api/organizations/:organizationId/events/:eventId/roles/:userId", async (context) => {
+      if (!membership) return noMembership(context);
+      const parsed = eventRoleSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Choose a valid role.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        changed: await membership.setEventRole(
+          context.get("actor"),
+          context.req.param("organizationId"),
+          context.req.param("eventId"),
+          context.req.param("userId"),
+          parsed.data.role,
+          auditContext(context),
+        ),
+      });
+    });
+
+    app.delete(
+      "/api/organizations/:organizationId/events/:eventId/roles/:userId",
+      async (context) => {
+        if (!membership) return noMembership(context);
+        const parsed = eventRoleSchema.safeParse(await readJson(context.req));
+        if (!parsed.success)
+          return context.json(
+            envelope("VALIDATION_FAILED", "Choose a valid role.", context.get("correlationId")),
+            400,
+          );
+        return context.json({
+          changed: await membership.revokeEventRole(
+            context.get("actor"),
+            context.req.param("organizationId"),
+            context.req.param("eventId"),
+            context.req.param("userId"),
+            parsed.data.role,
+            auditContext(context),
+          ),
+        });
+      },
+    );
+
+    app.get("/api/organizations/:organizationId/audit-events", async (context) => {
+      if (!membership) return noMembership(context);
+      const before = Number(context.req.query("before"));
+      const limit = Number(context.req.query("limit"));
+      const events = await membership.listAuditEvents(
+        context.get("actor"),
+        context.req.param("organizationId"),
+        {
+          ...(Number.isSafeInteger(limit) ? { limit } : {}),
+          ...(Number.isSafeInteger(before) ? { before } : {}),
+        },
+      );
+      return context.json({
+        events: events.map((entry) => ({
+          ...entry,
+          occurredAt: new Date(entry.occurredAt).toISOString(),
+        })),
+      });
+    });
+
     app.post("/api/auth/code", async (context) => {
       if (auth.demoMode || !auth.sessionSecret)
         return context.json(
@@ -544,5 +758,35 @@ export const identityRoutes: RouteModule = {
         authentication: context.get("authentication"),
       });
     });
+  },
+
+  /**
+   * This domain's refusals, translated once here rather than in a central handler every domain
+   * has to edit.
+   *
+   * The invitation refusal is 404 rather than 403 or 400, and that is the interesting one: an
+   * unknown token, an expired one, a revoked one and one already spent are a single answer,
+   * because telling them apart would say whether a guessed token named a real invitation.
+   */
+  translateError(error: unknown) {
+    if (error instanceof InvitationInvalidError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That invitation is not valid.",
+        status: 404 as const,
+      };
+    if (error instanceof MembershipRefusedError)
+      return {
+        code: "FORBIDDEN" as const,
+        message: "That change is not allowed on this deployment.",
+        status: 403 as const,
+      };
+    if (error instanceof EventOutsideOrganizationError)
+      return {
+        code: "FORBIDDEN" as const,
+        message: "That event is not part of this organization.",
+        status: 403 as const,
+      };
+    return null;
   },
 };
