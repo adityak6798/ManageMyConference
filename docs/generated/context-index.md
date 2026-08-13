@@ -130,6 +130,7 @@
 - `test` / `repository-fact`: [apps/web/test/App.test.tsx](../../apps/web/test/App.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/accept-invitation.test.tsx](../../apps/web/test/accept-invitation.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/landing.test.tsx](../../apps/web/test/landing.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/members-workspace.test.tsx](../../apps/web/test/members-workspace.test.tsx)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)

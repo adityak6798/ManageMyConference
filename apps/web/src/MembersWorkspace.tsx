@@ -140,26 +140,48 @@ export function MembersWorkspace({
               onChange={(changed) => setEmail(changed.target.value)}
             />
           </label>
+          {/*
+            Scope first, because it decides what the role control may offer.
+            An organization invitation grants membership, and membership is only ever the
+            organizer role — that is what `organization_memberships` stores, and the contract
+            refuses any other combination. Offering `reviewer` beside "the whole organization"
+            would have built a request the API always answers 400 to, so the control offers what
+            can succeed instead of validating after the fact.
+          */}
+          <label>
+            Scope
+            <select
+              value={scope}
+              onChange={(changed) => {
+                const chosen = changed.target.value as "organization" | "event";
+                setScope(chosen);
+                if (chosen === "organization") setRole("organizer");
+              }}
+            >
+              <option value="event">This event only</option>
+              <option value="organization">The whole organization</option>
+            </select>
+          </label>
           <label>
             Role
-            <select value={role} onChange={(changed) => setRole(changed.target.value as Role)}>
-              {ROLES.map((name) => (
+            <select
+              value={role}
+              onChange={(changed) => setRole(changed.target.value as Role)}
+              disabled={scope === "organization"}
+            >
+              {(scope === "organization" ? (["organizer"] as Role[]) : ROLES).map((name) => (
                 <option key={name} value={name}>
                   {name.charAt(0).toUpperCase() + name.slice(1)}
                 </option>
               ))}
             </select>
           </label>
-          <label>
-            Scope
-            <select
-              value={scope}
-              onChange={(changed) => setScope(changed.target.value as "organization" | "event")}
-            >
-              <option value="event">This event only</option>
-              <option value="organization">The whole organization</option>
-            </select>
-          </label>
+          {scope === "organization" ? (
+            <p className="hint">
+              Organization membership is the organizer role. Invite somebody to this event instead
+              to make them a reviewer or a speaker.
+            </p>
+          ) : null}
           <button type="submit" disabled={busy}>
             Send invitation
           </button>

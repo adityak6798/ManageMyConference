@@ -50,8 +50,14 @@ export function memorySessionStore(): MemorySessionStore {
       if (!row || row.revokedAt !== null || row.expiresAt <= now) return null;
       return { userId: row.userId };
     },
+    // The audit row follows the change, exactly as the D1 writer's `changes() > 0` guard makes
+    // it: a revocation that matched nothing records nothing. A double that recorded anyway would
+    // let an HTTP test pass over the behaviour the production adapter refuses — which is how the
+    // same defect survived two rounds of review in the first place.
     async revoke(id, now, context) {
       const row = rows.get(id);
+      if (!row || row.revokedAt !== null || row.expiresAt <= now) return 0;
+      row.revokedAt = now;
       record(
         {
           action: "session.signed_out",
@@ -61,26 +67,25 @@ export function memorySessionStore(): MemorySessionStore {
         },
         context,
       );
-      if (!row || row.revokedAt !== null || row.expiresAt <= now) return 0;
-      row.revokedAt = now;
       return 1;
     },
     async revokeAllForUser(userId, now, context) {
-      record(
-        {
-          action: "session.revoked_all",
-          outcome: "succeeded",
-          occurredAt: now,
-          subjectUserId: userId,
-        },
-        context,
-      );
       let revoked = 0;
       for (const row of rows.values())
         if (row.userId === userId && row.revokedAt === null && row.expiresAt > now) {
           row.revokedAt = now;
           revoked += 1;
         }
+      if (revoked > 0)
+        record(
+          {
+            action: "session.revoked_all",
+            outcome: "succeeded",
+            occurredAt: now,
+            subjectUserId: userId,
+          },
+          context,
+        );
       return revoked;
     },
   };

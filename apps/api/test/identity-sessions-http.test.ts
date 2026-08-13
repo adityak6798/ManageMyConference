@@ -264,6 +264,40 @@ describe("session revocation over HTTP", () => {
     });
   });
 
+  /**
+   * The in-memory store records what the D1 writer records, and nothing more.
+   *
+   * A double that is more generous than production is worse than no double: it lets an HTTP test
+   * pass over behaviour the real adapter refuses. That is not hypothetical here — an audit row
+   * written for a revocation that changed nothing is exactly the defect two review passes found,
+   * once in the session store and once in the membership repository, and this suite would have
+   * been green through both.
+   */
+  it("records no audit row when a revocation changes nothing, as D1 does not", async () => {
+    const actor = await resolveSeededDemoActor("organizer");
+    const sessions = memorySessionStore();
+    sessions.seed({ id: "sid-1", userId: actor.id, issuedAt: NOW, expiresAt: EXPIRES });
+    const app = productionApp(sessions, { [actor.id]: actor });
+    const cookie = cookieHeader(await createUserSession("sid-1", actor.id, secret, EXPIRES));
+
+    // Sign out three times with the same cookie. The first ends the session; the rest change
+    // nothing and must record nothing.
+    for (let attempt = 0; attempt < 3; attempt += 1)
+      expect(
+        (await app.request("/api/auth/signout", { method: "POST", headers: cookie })).status,
+      ).toBe(200);
+    expect(sessions.audit.filter((entry) => entry.action === "session.signed_out")).toHaveLength(1);
+
+    // And a revoke-all with nothing left live records nothing either.
+    sessions.audit.length = 0;
+    await sessions.revokeAllForUser(actor.id, NOW, {
+      correlationId: "c",
+      actorUserId: actor.id,
+      source: "human",
+    });
+    expect(sessions.audit).toEqual([]);
+  });
+
   it("refuses revoke-all without a session, and does not offer it where nothing is recorded", async () => {
     const actor = await resolveSeededDemoActor("organizer");
     const sessions = memorySessionStore();

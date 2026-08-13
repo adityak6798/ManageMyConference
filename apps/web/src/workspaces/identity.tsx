@@ -39,7 +39,13 @@ export const membersWorkspace: WorkspaceModule = {
     title: "Members",
     subtitle: "Invite co-organizers and reviewers, manage event roles, and read the audit log.",
   }),
-  render: ({ event, session }) => (
-    <MembersWorkspace organizationId={session?.organizations[0]?.id ?? ""} eventId={event.id} />
+  /*
+   * Scoped to the organization that owns the **selected event**, not to the session's first one.
+   * For anyone belonging to two organizations those differ, and keying on the session would have
+   * read one organization while the invite form submitted the other event's id — a 403 saying
+   * "that event is not part of this organization", which is true and unactionable.
+   */
+  render: ({ event }) => (
+    <MembersWorkspace organizationId={event.organizationId} eventId={event.id} />
   ),
 };

@@ -49,7 +49,8 @@
         "apps/api/test/membership-http.test.ts",
         "apps/api/test/membership-service.test.ts",
         "apps/web/e2e/members.spec.ts",
-        "apps/web/test/accept-invitation.test.tsx"
+        "apps/web/test/accept-invitation.test.tsx",
+        "apps/web/test/members-workspace.test.tsx"
       ]
     },
     "ACC-REVIEW": {

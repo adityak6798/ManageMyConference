@@ -51,7 +51,9 @@ export function assertWorkerConfirmation(configText, confirmation) {
     throw new Error("Refusing to revoke: apps/api/wrangler.toml declares no worker name.");
   if (confirmation !== configured)
     throw new Error(
-      `Refusing to revoke. Re-run with: npm run revoke:sessions -- --confirm ${configured} <--user <id> | --all>`,
+      `Refusing to revoke. Re-run with one of:\n` +
+        `  npm run revoke:sessions -- --confirm ${configured} --user <id>\n` +
+        `  npm run revoke:sessions -- --confirm ${configured} --all`,
     );
   return configured;
 }

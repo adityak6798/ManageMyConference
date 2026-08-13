@@ -427,7 +427,8 @@
         "docs/engineering/security-operations.md",
         "apps/api/src/adapters/persistence/identity-revocation-statements.mjs",
         "apps/web/src/AcceptInvitationPage.tsx",
-        "apps/web/test/accept-invitation.test.tsx"
+        "apps/web/test/accept-invitation.test.tsx",
+        "apps/web/test/members-workspace.test.tsx"
       ]
     },
     {
