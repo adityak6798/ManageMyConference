@@ -17,6 +17,7 @@
 ## Identifier backlinks
 
 ### `ACC-AGENDA`
+- `test` / `repository-fact`: [apps/api/test/agenda-backfill-parity.test.ts](../../apps/api/test/agenda-backfill-parity.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-http.test.ts](../../apps/api/test/agenda-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-service.test.ts](../../apps/api/test/agenda-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-agenda-repository.integration.test.ts](../../apps/api/test/d1-agenda-repository.integration.test.ts)
@@ -124,6 +125,7 @@
 - `test` / `repository-fact`: [apps/web/test/landing.test.tsx](../../apps/web/test/landing.test.tsx)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-INTEGRATION`
@@ -356,6 +358,7 @@
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/agenda.ts](../../packages/contracts/src/domains/agenda.ts)
 - `code` / `repository-fact`: [packages/contracts/src/domains/publishing.ts](../../packages/contracts/src/domains/publishing.ts)
 

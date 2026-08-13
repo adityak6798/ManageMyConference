@@ -53,10 +53,11 @@ import { EventService, EventTemplateService } from "./application/events/public"
 import {
   completeGoogleAuthorization,
   type GoogleConfiguration,
+  GoogleAuthenticationError,
   startGoogleAuthorization,
   stateProof,
 } from "./application/identity/google-oauth";
-import { SignupService } from "./application/identity/signup";
+import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import { publishingTemplateSlice } from "./application/publishing/public";
 import { PublicationService } from "./application/publishing/publication-service";
@@ -478,34 +479,58 @@ export default {
                 attemptId: started.attempt.id,
               };
             },
-            async complete({ attemptId, state, code, now }) {
-              // The attempt is spent before the code is exchanged. A callback that fails
-              // verification has still consumed its one use, so a stolen `state` cannot be
-              // retried against a different code.
-              const spent = await identityDirectory.consumeOauthAttempt(
-                attemptId,
-                await stateProof(state, sessionSecret),
-                now,
-              );
-              if (!spent) {
-                logger.warn({ reason: "attempt_not_current" }, "auth.google.refused");
-                return null;
-              }
+            async complete({ attemptId, state, code, now, correlationId }) {
               try {
+                // The attempt is spent before the code is exchanged. A callback that fails
+                // verification has still consumed its one use, so a stolen `state` cannot be
+                // retried against a different code.
+                const spent = await identityDirectory.consumeOauthAttempt(
+                  attemptId,
+                  await stateProof(state, sessionSecret),
+                  now,
+                );
+                if (!spent) {
+                  logger.warn(
+                    { correlationId, reason: "attempt_not_current" },
+                    "auth.google.refused",
+                  );
+                  return null;
+                }
                 const identity = await completeGoogleAuthorization(
                   { code, attempt: spent, configuration, now },
                   { exchange: client.exchange, keys: client.keys },
                 );
                 return await signup.signInWithGoogle(identity);
               } catch (error) {
-                // ERROR-INTENT: every refusal in this flow is reported here and reduced to one
-                // indistinguishable answer for the browser — see the callback route. The reason
-                // is an operator's, not a caller's, and the log line carries no address, no
-                // token and no code.
-                logger.warn(
-                  { reason: error instanceof Error ? error.message : String(error) },
-                  "auth.google.refused",
+                /*
+                 * ERROR-INTENT: the browser is told the same thing whichever of these happened —
+                 * naming the failed check would hand an attacker an oracle — but the *log* has to
+                 * separate them, because one is somebody being refused and the other is this
+                 * deployment being broken.
+                 *
+                 * A protocol refusal (a token that does not verify, an unverified address) is
+                 * traffic: warn. Anything else reaching here is ours — D1 unavailable, Google
+                 * answering 5xx, the key fetch timing out, provisioning failing part-way — and is
+                 * logged at error with the request's correlation id, so a person reporting "I
+                 * cannot sign in" can be found in the log and an alert can fire on sign-in being
+                 * down rather than on sign-ins being refused.
+                 *
+                 * `consumeOauthAttempt` is inside this try for a second reason: it is a D1 write,
+                 * and a throw escaping here reached the transport's error boundary and answered a
+                 * JSON 500 — rendered as raw JSON in the address bar, because a callback is a
+                 * top-level navigation. The route promises every outcome lands on one destination;
+                 * this is what makes that true.
+                 */
+                const operational = !(
+                  error instanceof GoogleAuthenticationError ||
+                  error instanceof UnverifiedProviderEmailError
                 );
+                const fields = {
+                  correlationId,
+                  reason: error instanceof Error ? error.message : String(error),
+                };
+                if (operational) logger.error(fields, "auth.google.failed");
+                else logger.warn(fields, "auth.google.refused");
                 return null;
               }
             },

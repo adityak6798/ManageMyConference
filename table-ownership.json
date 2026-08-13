@@ -63,6 +63,7 @@
     "review_decisions": "review",
     "agenda_drafts": "agenda",
     "agenda_publications": "agenda",
+    "agenda_session_schedules": "agenda",
     "public_event_projections": "publishing",
     "attendee_itineraries": "publishing",
     "publication_slug_reservation_audit": "publishing",

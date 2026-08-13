@@ -1,9 +1,8 @@
 import {
   type AgendaDraft,
   conflictsFor,
-  type PlacedSessionTime,
   type Placement,
-  placedSessionTimes,
+  type SessionScheduleRevision,
 } from "../../domain/agenda/agenda";
 import {
   type AssistedPlacementPlan,
@@ -249,44 +248,16 @@ export class AgendaService implements ContentAgendaInterface {
    * No actor is required, for the same reason `published` needs none — the snapshot in force is
    * what the event has already committed to publicly. Callers still authorize their own read of
    * the sessions they are asking about.
+   *
+   * One repository read. This used to replay the whole publication history on every call, which
+   * cost O(publications x board size) on a path both the organizer content workspace and the
+   * speaker calendar-invite send take. The fold now runs once per publication, in the batch that
+   * commits it (issue #141); what is left here is the read.
    */
   async publishedSessionSchedules(
     eventId: string,
-  ): Promise<
-    ReadonlyMap<
-      string,
-      PlacedSessionTime & { readonly revision: number; readonly revisedAt: string }
-    >
-  > {
-    const publications = await this.repository.listPublished(eventId);
-    const revisions = new Map<
-      string,
-      PlacedSessionTime & { revision: number; revisedAt: string }
-    >();
-    for (const publication of publications) {
-      const schedules = placedSessionTimes(publication.agenda);
-      const sessionIds = new Set([...revisions.keys(), ...schedules.keys()]);
-      for (const sessionId of sessionIds) {
-        const next = schedules.get(sessionId);
-        const previous = revisions.get(sessionId);
-        if (!next) {
-          revisions.delete(sessionId);
-          continue;
-        }
-        const unchanged =
-          previous &&
-          previous.startsAt === next.startsAt &&
-          previous.endsAt === next.endsAt &&
-          previous.location === next.location;
-        revisions.set(
-          sessionId,
-          unchanged
-            ? previous
-            : { ...next, revision: publication.version, revisedAt: publication.publishedAt },
-        );
-      }
-    }
-    return revisions;
+  ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
+    return this.repository.sessionScheduleRevisions(eventId);
   }
 
   /**

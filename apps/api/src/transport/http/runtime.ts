@@ -60,6 +60,8 @@ export interface GoogleAuthProvider {
     state: string;
     code: string;
     now: number;
+    /** Carried so a failure inside the flow can be found from the caller's report of it. */
+    correlationId: string;
   }): Promise<{ actor: Actor; provisioned: boolean } | null>;
   /** Resolve a signed user-session cookie back to its actor. */
   resolveUserActor(userId: string): Promise<Actor | null>;

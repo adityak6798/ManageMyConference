@@ -195,6 +195,23 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return users.results?.[0] ? this.resolve(users.results[0]) : null;
   }
 
+  /**
+   * Link a provider account to an existing identity, ignoring a link that is already there.
+   *
+   * **`DO NOTHING` is safe only while one provider subject resolves to exactly one user**, and
+   * that is worth writing down because it is an assumption rather than a guarantee. Today it
+   * holds: `signInWithGoogle` looks up `(provider, subject)` first and only falls through to the
+   * address when that finds nothing, one Google account has one verified address at a time, and
+   * `identity_emails.email` is `UNIQUE` — so two callbacks racing on one subject resolve the
+   * *same* user, and the losing insert suppresses a write that was already correct.
+   *
+   * It stops holding the day there is a second provider, manual account linking, or any path by
+   * which one subject can reach two users. At that point this must return the winning row and the
+   * caller must refuse to issue a session that disagrees with it, because otherwise the durable
+   * link and the session say different things and nothing notices. Raised by the automated review
+   * on #162 and rejected on exactly the reasoning above; kept here so the next person meets the
+   * condition rather than the conclusion.
+   */
   async linkProviderAccount(input: {
     provider: "google";
     subject: string;
