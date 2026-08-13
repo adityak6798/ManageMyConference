@@ -4,6 +4,8 @@ import type {
   PublishOutcome,
 } from "../../application/agenda/agenda-repository";
 import {
+  advanceBoardOccurrences,
+  EMPTY_BOARD_OCCURRENCES,
   nextSessionScheduleRevisions,
   schedulePublishedEvent,
   type AgendaDraft,
@@ -14,6 +16,12 @@ import {
 
 export class MemoryAgendaRepository implements AgendaRepository {
   private readonly drafts = new Map<string, AgendaDraft>();
+  /**
+   * The board revision D1 keeps in its own column, kept here for the same reason the session
+   * schedules are: it is the clock the occurrences are expressed in, and a double that did not
+   * advance it would let a service suite pass against a repository that never moved them.
+   */
+  private readonly revisions = new Map<string, number>();
   private readonly publications = new Map<string, PublishedSchedule>();
   /**
    * The same materialized answer D1 stores, maintained by the same domain function.
@@ -66,7 +74,28 @@ export class MemoryAgendaRepository implements AgendaRepository {
     return structuredClone(this.drafts.get(eventId) ?? null);
   }
   async saveDraft(draft: AgendaDraft) {
-    this.drafts.set(draft.eventId, structuredClone(draft));
+    // The create path, as in D1: a board that has only just appeared has no occurrences yet.
+    this.drafts.set(draft.eventId, {
+      ...structuredClone(draft),
+      occurrences: draft.occurrences ?? EMPTY_BOARD_OCCURRENCES,
+    });
+  }
+  /**
+   * Store one edited board, advancing the revision and the occurrences with it.
+   *
+   * The single write path, so that no mutator can forget the fold — which is the arrangement D1
+   * gets from `updateDraft` and which the double has to match, or a service suite would prove a
+   * property the real repository does not have.
+   */
+  private commit(eventId: string, previous: AgendaDraft, next: AgendaDraft): AgendaDraft {
+    const revision = (this.revisions.get(eventId) ?? 0) + 1;
+    this.revisions.set(eventId, revision);
+    const stored: AgendaDraft = {
+      ...next,
+      occurrences: advanceBoardOccurrences(previous, next, revision),
+    };
+    this.drafts.set(eventId, stored);
+    return structuredClone(stored);
   }
   async saveResources(eventId: string, resources: Pick<AgendaDraft, "rooms" | "tracks" | "slots">) {
     const current = this.drafts.get(eventId);
@@ -80,23 +109,20 @@ export class MemoryAgendaRepository implements AgendaRepository {
       )
     )
       return false;
-    this.drafts.set(eventId, {
-      eventId,
-      ...resources,
-      sessions: [],
-      placements,
-    });
+    if (!current) {
+      await this.saveDraft({ eventId, ...resources, sessions: [], placements });
+      return true;
+    }
+    this.commit(eventId, current, { ...current, ...resources, sessions: [] });
     return true;
   }
   async savePlacement(eventId: string, placement: Placement) {
     const draft = this.drafts.get(eventId);
     if (!draft) return null;
-    const updated = {
+    return this.commit(eventId, draft, {
       ...draft,
       placements: [...draft.placements.filter(({ id }) => id !== placement.id), placement],
-    };
-    this.drafts.set(eventId, updated);
-    return structuredClone(updated);
+    });
   }
   async savePlacements(eventId: string, plan: (draft: AgendaDraft) => readonly Placement[]) {
     const draft = this.drafts.get(eventId);
@@ -104,17 +130,15 @@ export class MemoryAgendaRepository implements AgendaRepository {
     const placements = plan(structuredClone(draft));
     if (!placements.length) return structuredClone(draft);
     const replaced = new Set(placements.map(({ id }) => id));
-    const updated = {
+    return this.commit(eventId, draft, {
       ...draft,
       placements: [...draft.placements.filter(({ id }) => !replaced.has(id)), ...placements],
-    };
-    this.drafts.set(eventId, updated);
-    return structuredClone(updated);
+    });
   }
   async removePlacement(eventId: string, placementId: string) {
     const draft = this.drafts.get(eventId);
     if (draft)
-      this.drafts.set(eventId, {
+      this.commit(eventId, draft, {
         ...draft,
         placements: draft.placements.filter(({ id }) => id !== placementId),
       });

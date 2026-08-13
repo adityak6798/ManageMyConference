@@ -104,12 +104,27 @@ export interface AgendaSource {
       readonly roomId: string;
       readonly slotId: string;
     }[];
+    /**
+     * When each part of the board last changed, in board revisions.
+     *
+     * Required rather than optional, and that is the point of stating ports here: a session's
+     * number is what separates "still unplaced" from "placed and taken off again", and the
+     * inbox's dismissal key is built from it. If the agenda ever stopped answering it, the
+     * binding in the composition root would stop compiling instead of the inbox quietly going
+     * back to hiding a recreated condition behind an old dismissal (issue #180).
+     */
+    readonly occurrences: {
+      readonly sessions: Readonly<Record<string, number>>;
+      readonly resources: number;
+    };
     readonly conflicts?:
       | readonly {
           readonly kind: string;
           readonly placementId: string;
           readonly conflictingPlacementId: string;
           readonly message: string;
+          /** The revision at which this clash began. Same three ids, later number, new clash. */
+          readonly occurrence: number;
         }[]
       | undefined;
   }>;

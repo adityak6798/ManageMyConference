@@ -1,6 +1,7 @@
 import {
   type AgendaDraft,
   conflictsFor,
+  EMPTY_BOARD_OCCURRENCES,
   type Placement,
   type SessionScheduleRevision,
 } from "../../domain/agenda/agenda";
@@ -71,7 +72,16 @@ export class AgendaService implements ContentAgendaInterface {
       title: session.title,
       speakerIds: session.speakerProfileIds,
     }));
-    const composed = { ...draft, sessions };
+    /*
+     * `occurrences` is normalized here rather than left absent, so every consumer sees the same
+     * shape whether or not the stored board predates them. A board that has never been edited
+     * since it was created answers `0` for everything, which is the truth about it.
+     */
+    const composed = {
+      ...draft,
+      sessions,
+      occurrences: draft.occurrences ?? EMPTY_BOARD_OCCURRENCES,
+    };
     return {
       draft: { ...composed, conflicts: conflictsFor(composed) },
       trackHints: new Map(schedulable.map((session) => [session.id, session.tracks])),
@@ -210,7 +220,15 @@ export class AgendaService implements ContentAgendaInterface {
     const draft = await this.readDraft(eventId);
     const conflicts = conflictsFor(draft);
     if (conflicts.length) throw new AgendaConflictError(conflicts);
-    const { conflicts: _computedConflicts, ...agenda } = draft;
+    /*
+     * Neither the conflicts nor the occurrences belong in a snapshot. Both are statements about
+     * the *draft* — what is wrong with it now, and when each part of it last moved — while a
+     * publication is a frozen programme that will be read years later by callers that have no
+     * business knowing how it was edited — `publishedScheduleSchema` describes exactly that shape,
+     * and two publications of an identical board should be identical bytes rather than differ by
+     * the edit history behind them.
+     */
+    const { conflicts: _computedConflicts, occurrences: _draftOnly, ...agenda } = draft;
     const snapshot = structuredClone(agenda);
     for (let attempt = 0; attempt < PUBLISH_ALLOCATION_ATTEMPTS; attempt += 1) {
       const previous = await this.repository.getPublished(eventId);

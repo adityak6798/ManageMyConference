@@ -38,6 +38,7 @@ const emptyDraft = {
   slots: [] as { id: string; startsAt: string; endsAt: string }[],
   sessions: [],
   placements: [],
+  occurrences: { sessions: {}, resources: 0 },
   conflicts: [],
 };
 

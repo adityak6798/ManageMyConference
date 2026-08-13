@@ -397,8 +397,17 @@ feature-by-feature verdict.
   which is why it is preferable wherever database access is available. Either way the speakers who
   lost the entry get it back at the next Send, which is the point of repairing at all.
 - `GAP-022` **Search opens the surface a record lives on, not the record, and its cost is proven
-  bounded only against the seed.** Six limits, all deliberate, all worth naming rather than
-  discovering: two about search, two about the audit timeline, two about the inbox.
+  bounded only against the seed.** Five limits, all deliberate, all worth naming rather than
+  discovering: two about search, two about the audit timeline, one about the inbox.
+
+  It was six. The sixth — programme inbox dismissal keys carrying no occurrence, so a condition
+  resolved and exactly recreated stayed hidden behind the old dismissal — **is closed** by issue
+  #180. The agenda now maintains, in the same write that changes the board, the revision at which
+  each session's placements last changed and at which the resources last changed; a conflict
+  carries the later of the two placements' numbers, and platform's key carries it. A session
+  nobody has touched keeps its dismissal across every unrelated edit, which is why the number is
+  per session rather than the board revision. See `PRD-OPS-002` and
+  `apps/api/test/platform-inbox.test.ts`.
 
   The console has **no per-record routes**. Every workspace is addressed by its path plus
   `?event=`, and nothing anywhere reads a selection out of the URL, so the deep link a search hit
@@ -438,14 +447,9 @@ feature-by-feature verdict.
   close it at bounded cost; #99 did not take it, because it is that domain's file and another lane
   owns it this wave.
 
-  Programme inbox dismissal keys carry no occurrence. The agenda projection names the conflict
-  or unplaced session but exposes no board revision or occurrence, so resolving and then exactly
-  recreating that condition derives the same key and leaves it dismissed. Other categories carry
-  the deadline, attempt, or publication state that changes when their condition recurs.
-
   Owner: platform. Governing ID: `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `ACC-OPS`.
 
-  Six limits, six closures, each independent of the others. A record-addressable route on at
+  Five limits, five closures, each independent of the others. A record-addressable route on at
   least the surfaces search returns — a selection the workspace reads from the query string, and
   hits that carry it — closes the first, and the browser spec's assertion tightens from "the
   surface shows it" to "the record is selected". A measurement against a fixture an order of
@@ -456,6 +460,4 @@ feature-by-feature verdict.
   before it needs code: what an audit record is for, and how long that lasts, is a product question, and the
   answer may legitimately be "forever" — in which case the closure is a documented statement to
   that effect plus a fixture that is reset by rebuilding rather than by deleting. The narrow failed-delivery query on communications' public interface closes the fifth, and
-  its test is an inbox that shows a failure older than one page of history. An agenda-owned
-  monotonic board revision or occurrence on each derived programme condition, carried into the
-  platform key and covered by a resolve-then-recreate test, closes the sixth.
+  its test is an inbox that shows a failure older than one page of history.

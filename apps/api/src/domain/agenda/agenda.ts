@@ -36,7 +36,45 @@ export interface AgendaConflict {
   readonly conflictingPlacementId: string;
   readonly resourceId: string;
   readonly message: string;
+  /**
+   * The board revision at which *this* clash began.
+   *
+   * Two conflicts with the same kind and the same pair of placements are the same clash while
+   * this is unchanged, and different clashes once it moves. A consumer that stores a decision
+   * about a conflict — the operational inbox stores a dismissal — needs that distinction, because
+   * a clash resolved on Tuesday and reintroduced on Thursday is news even though it is described
+   * by the same three identifiers (issue #180). Derived from `AgendaDraft.occurrences`; `0` on a
+   * board that has not moved since it was created.
+   */
+  readonly occurrence: number;
 }
+
+/**
+ * When each part of the board last changed, by board revision.
+ *
+ * The board revision itself is monotonic and advances on every draft write, so it answers "has
+ * anything moved" — but only this answers "has *this* moved", which is what a consumer keying a
+ * stored decision on a derived condition needs. Keying on the board revision instead would drop
+ * every dismissal on the programme the moment any card was dragged.
+ *
+ * Maintained forward on each write by `advanceBoardOccurrences`, the same shape as the
+ * publication-time fold `nextSessionScheduleRevisions` and for the same reason: a value the
+ * repository maintains beside the thing it describes cannot disagree with it, while one derived
+ * on read from a history has to re-read that history on every request.
+ */
+export interface BoardOccurrences {
+  /**
+   * Session id → the revision at which that session's set of placements last changed.
+   *
+   * "Changed" means placed, unplaced, or moved to a different room, track or slot. A session that
+   * has never been placed is absent, which reads as `0`: nothing has happened to it yet.
+   */
+  readonly sessions: Readonly<Record<string, number>>;
+  /** The revision at which rooms, tracks or slots last changed. */
+  readonly resources: number;
+}
+
+export const EMPTY_BOARD_OCCURRENCES: BoardOccurrences = { sessions: {}, resources: 0 };
 
 export interface AgendaDraft {
   readonly eventId: string;
@@ -45,6 +83,11 @@ export interface AgendaDraft {
   readonly slots: readonly AgendaSlot[];
   readonly sessions: readonly SchedulableSession[];
   readonly placements: readonly Placement[];
+  /**
+   * Optional because a board stored before this existed has none, and because a snapshot must
+   * not carry one: a publication is a frozen programme, not a record of how its draft was edited.
+   */
+  readonly occurrences?: BoardOccurrences | undefined;
 }
 
 /**
@@ -205,6 +248,65 @@ export function schedulePublishedEvent(publication: {
   };
 }
 
+/** Every cell one session occupies, in a form two boards can be compared by. */
+function placedCells(draft: Pick<AgendaDraft, "placements">): ReadonlyMap<string, string> {
+  const cells = new Map<string, string[]>();
+  for (const placement of draft.placements)
+    cells.set(placement.sessionId, [
+      ...(cells.get(placement.sessionId) ?? []),
+      `${placement.roomId}|${placement.trackId}|${placement.slotId}`,
+    ]);
+  // Sorted, so two placements of one session compare equal however the array happens to be
+  // ordered — the repositories rebuild `placements` by filtering and appending, which reorders it.
+  return new Map([...cells].map(([sessionId, list]) => [sessionId, list.toSorted().join(",")]));
+}
+
+const sameResources = (left: AgendaDraft, right: AgendaDraft) =>
+  JSON.stringify([left.rooms, left.tracks, left.slots]) ===
+  JSON.stringify([right.rooms, right.tracks, right.slots]);
+
+/**
+ * The occurrences one board write produces, given the ones in force before it.
+ *
+ * Called by the repository inside the write that changes the board, so the numbers are advanced
+ * exactly once per revision and cannot drift from the board they describe.
+ *
+ * Three rules, each of which a derived condition depends on:
+ *
+ * *A session whose placements changed takes this revision.* Placed, unplaced, or moved to a
+ * different cell — all three end the condition somebody may have dismissed and begin a new one.
+ *
+ * *A session nothing happened to keeps the number it had*, including one that is not on this
+ * board at all. Carrying it forward is what makes the number an occurrence rather than a
+ * timestamp of the last edit anywhere: dismissing an unplaced session and then dragging an
+ * unrelated card must not resurrect the dismissed item.
+ *
+ * *Resources carry their own number*, because a clash can be resolved by retiming the slot rather
+ * than by moving either placement — and reintroduced the same way, with both placements'
+ * occurrences untouched.
+ *
+ * An entry survives the session that owned it: the fold sees placements, not the content domain's
+ * session list, so it cannot tell "deleted" from "not placed here". That leaves at most one small
+ * entry per session ever placed, which is bounded by the size of the programme.
+ */
+export function advanceBoardOccurrences(
+  previous: AgendaDraft,
+  next: AgendaDraft,
+  revision: number,
+): BoardOccurrences {
+  const before = placedCells(previous);
+  const after = placedCells(next);
+  const held = previous.occurrences ?? EMPTY_BOARD_OCCURRENCES;
+  const sessions: Record<string, number> = { ...held.sessions };
+  for (const [sessionId, cells] of after)
+    if (before.get(sessionId) !== cells) sessions[sessionId] = revision;
+  for (const sessionId of before.keys()) if (!after.has(sessionId)) sessions[sessionId] = revision;
+  return {
+    sessions,
+    resources: sameResources(previous, next) ? held.resources : revision,
+  };
+}
+
 const overlaps = (left: AgendaSlot, right: AgendaSlot) =>
   Date.parse(left.startsAt) < Date.parse(right.endsAt) &&
   Date.parse(right.startsAt) < Date.parse(left.endsAt);
@@ -212,6 +314,8 @@ const overlaps = (left: AgendaSlot, right: AgendaSlot) =>
 export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
   const slots = new Map(draft.slots.map((slot) => [slot.id, slot]));
   const sessions = new Map(draft.sessions.map((session) => [session.id, session]));
+  const occurrences = draft.occurrences ?? EMPTY_BOARD_OCCURRENCES;
+  const placedAt = (sessionId: string) => occurrences.sessions[sessionId] ?? 0;
   const conflicts: AgendaConflict[] = [];
   for (const placement of draft.placements)
     if (!sessions.has(placement.sessionId))
@@ -221,6 +325,10 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
         conflictingPlacementId: placement.id,
         resourceId: placement.sessionId,
         message: "This session is no longer schedulable; remove its placement.",
+        // The resources are left out: which rooms and slots exist has nothing to do with whether
+        // the session behind a placement is still schedulable, so an edit to them is not a new
+        // occurrence of this.
+        occurrence: placedAt(placement.sessionId),
       });
   for (let leftIndex = 0; leftIndex < draft.placements.length; leftIndex += 1) {
     const left = draft.placements[leftIndex];
@@ -234,6 +342,17 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
       const rightSlot = slots.get(right.slotId);
       const rightSession = sessions.get(right.sessionId);
       if (!rightSlot || !rightSession || !overlaps(leftSlot, rightSlot)) continue;
+      /*
+       * A clash between two placements begins at the latest of the three things that can start
+       * it: either placement arriving in the cell it now holds, or the resources changing under
+       * both. Taking the maximum is what makes the occurrence advance whichever of them was the
+       * edit that reintroduced the clash.
+       */
+      const occurrence = Math.max(
+        placedAt(left.sessionId),
+        placedAt(right.sessionId),
+        occurrences.resources,
+      );
       const add = (kind: ConflictKind, resourceId: string, message: string) => {
         conflicts.push({
           kind,
@@ -241,6 +360,7 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
           conflictingPlacementId: right.id,
           resourceId,
           message,
+          occurrence,
         });
       };
       if (left.roomId === right.roomId)

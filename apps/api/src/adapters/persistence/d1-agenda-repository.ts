@@ -3,6 +3,8 @@ import type {
   PublishedSchedule,
 } from "../../application/agenda/agenda-repository";
 import {
+  advanceBoardOccurrences,
+  EMPTY_BOARD_OCCURRENCES,
   nextSessionScheduleRevisions,
   schedulePublishedEvent,
   type AgendaDraft,
@@ -156,12 +158,23 @@ export class D1AgendaRepository implements AgendaRepository {
         }
       : null;
   }
+  /**
+   * Replace the whole board, occurrences included.
+   *
+   * This is the create path — a first `saveResources`, or a seed — rather than an edit, so the
+   * occurrences start empty: nothing has yet happened to any session on a board that has only
+   * just come into existence, and there is no previous board here to fold against.
+   */
   async saveDraft(draft: AgendaDraft) {
+    const stored: AgendaDraft = {
+      ...draft,
+      occurrences: draft.occurrences ?? EMPTY_BOARD_OCCURRENCES,
+    };
     const result = await this.database
       .prepare(
         "INSERT INTO agenda_drafts (event_id, draft_json, updated_at, revision) VALUES (?, ?, ?, 0) ON CONFLICT(event_id) DO UPDATE SET draft_json = excluded.draft_json, updated_at = excluded.updated_at, revision = agenda_drafts.revision + 1",
       )
-      .bind(draft.eventId, JSON.stringify(draft), this.now().toISOString())
+      .bind(stored.eventId, JSON.stringify(stored), this.now().toISOString())
       .run();
     if (!result.success)
       throw new Error(`D1 failed to save agenda draft: ${result.error ?? "unknown error"}`);
@@ -226,15 +239,27 @@ export class D1AgendaRepository implements AgendaRepository {
       if (!current) return null;
       const updated = update(current.draft);
       if (!updated) return null;
+      /*
+       * The occurrences advance in the same statement as the board and against the same revision
+       * the compare-and-set is defending, so a lost update recomputes them against the board that
+       * actually won. Deriving them anywhere else — on read, or in the service before the write —
+       * would let a concurrent placement produce numbers describing a board that was never
+       * stored (issue #180).
+       */
+      const revision = current.revision + 1;
+      const stored: AgendaDraft = {
+        ...updated,
+        occurrences: advanceBoardOccurrences(current.draft, updated, revision),
+      };
       const result = await this.database
         .prepare(
           "UPDATE agenda_drafts SET draft_json = ?, updated_at = ?, revision = revision + 1 WHERE event_id = ? AND revision = ?",
         )
-        .bind(JSON.stringify(updated), this.now().toISOString(), eventId, current.revision)
+        .bind(JSON.stringify(stored), this.now().toISOString(), eventId, current.revision)
         .run();
       if (!result.success)
         throw new Error(`D1 failed to update agenda draft: ${result.error ?? "unknown error"}`);
-      if (changedRows(result, "update agenda draft") === 1) return updated;
+      if (changedRows(result, "update agenda draft") === 1) return stored;
     }
     throw new Error("D1 failed to update agenda draft after concurrent changes");
   }

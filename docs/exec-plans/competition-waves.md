@@ -562,3 +562,59 @@ three.** The lane prompt named three candidates; building 99a–99c settled each
 
 `apps/api/src/application/publishing/public.ts` gains **one appended re-export line at the very end
 of the file**, per the collision ruling, so a lane rebasing around it moves nothing above it.
+
+### Issues #178 #179 #180 #173 rulings — the platform follow-up lane
+
+Four issues #99 left behind, taken as one pull request. Five decisions a later reader would
+otherwise re-derive from the diff.
+
+**The two attribution issues were closed structurally rather than with a test guarding folklore.**
+#178 offered either option; the structural one is available and cheap, so it was taken.
+`RouteModule` gains an optional `registerRequestScope`, and `app.ts` runs every module's before it
+registers any module's routes — so middleware a domain needs ahead of *other* domains' handlers no
+longer depends on where its module sits in an array. Platform's attribution middleware moved into
+it, the registry's comment now says the order decides route matching and nothing else, and
+`createHttpAppFrom` takes an optional module list so the regression test can build an app with
+platform registered **last**. Both mutations were verified to fail the new tests: swapping the two
+loops in `app.ts`, and removing the holder's ambiguity guard.
+
+**#179's answer is that the holder refuses to attribute rather than guessing.** `RequestIdentity`
+became `begin`/`end` — a scope the transport ends in a `finally` — and a scope opened while another
+is still open reports through a required `report` callback and answers `actor(): null` until the
+last one closes. Failing the request outright was considered and rejected: hoisting service
+construction is a mistake to report loudly, not one to turn into an outage, and `PRD-OPS-003`
+already says a record with no request behind it names nobody. A second, unlooked-for fix came with
+it: the holder is now empty *between* requests, where it used to keep the last actor indefinitely.
+The concurrency test needed a barrier — the first version passed against the very design it was
+written to refuse, because `AuditRecorder.prepare` reads the holder synchronously and a handler
+that never yields cannot observe another request's actor.
+
+**#180 took no migration, and deliberately.** The lane's assigned block is platform `1900–1999`, but
+the fact #180 needs is agenda-owned — the issue says so — and an agenda table in platform's block
+would break the per-domain rule in `apps/api/migrations/README.md`. The occurrences live in
+`agenda_drafts.draft_json`, which is agenda's own opaque JSON, advanced by a pure domain fold
+(`advanceBoardOccurrences`) inside the same optimistic `UPDATE` that changes the board. So: no
+migration number taken in any block, no `table-ownership.json` edit, no schema-drift count to bump,
+and a lost compare-and-set re-folds against the board that actually committed. This is the same
+shape as `nextSessionScheduleRevisions` (#141) one level down.
+
+**The occurrence is per session, not the board revision.** The closure condition allowed either. A
+board revision in the key is correct and useless: every dismissal on the programme would evaporate
+the moment anybody dragged a card. What is stored instead is, per session, the revision at which
+that session's placements last changed, plus one number for the resources; a conflict takes the
+later of its two placements' and the resources'. `MISSING_SESSION` deliberately excludes the
+resources, because which rooms exist has nothing to do with whether a session is still schedulable.
+
+**`occurrences` is on the wire, and eight web fixtures were updated for it.** The console does not
+read it, so hiding it from the response was the tempting alternative; it was rejected because the
+route returns the draft projection as it is, and a contract that omitted a field the response
+carries would be wrong in the direction that costs the most. The publication snapshot omits it
+along with the conflicts — both describe the draft, and two publications of one board should be
+identical bytes.
+
+**#173 also normalizes each fragment's leading blank lines, which the issue did not ask for.**
+Several fragments open with a newline to compensate for a neighbour that lacks a trailing one: a
+separator maintained by hand, in the wrong file, that stops working the moment the composer's list
+is reordered. The composer now trims both ends and joins with one blank line, so every boundary
+looks the same. `apps/api/seed/reset.sql` was also added to `tools/review-risk.mjs`'s `GENERATED`
+list, which it always belonged in and which its new header now makes checkable.

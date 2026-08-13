@@ -304,6 +304,118 @@ describe("assisted agenda placement", () => {
   });
 });
 
+describe("board occurrences", () => {
+  /*
+   * The agenda-owned half of `GAP-022` (issue #180). What is being pinned is not a number but a
+   * distinction: "this session is still unplaced" against "this session was placed and taken off
+   * again", which the board's own identifiers cannot express because they are reused exactly.
+   * Everything downstream — the operational inbox's dismissal key — is built on it.
+   */
+  const boardless: AgendaDraft = { ...draft, placements: [] };
+  const service = (repository: MemoryAgendaRepository) =>
+    new AgendaService(repository, () => new Date(), content);
+
+  it("advances a session's occurrence when it is placed, moved and unplaced, and nothing else's", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    const place = (id: string, sessionId: string, slotId: string) =>
+      agenda.place(organizer, eventId, {
+        id,
+        sessionId,
+        roomId: "room-main",
+        trackId: "track-web",
+        slotId,
+      });
+
+    const first = await place("place-a", "session-a", "slot-9");
+    expect(first.occurrences?.sessions["session-a"]).toBe(1);
+    // Session B has never been on the board: absent, which every reader takes as 0.
+    expect(first.occurrences?.sessions["session-b"]).toBeUndefined();
+
+    const moved = await place("place-a", "session-a", "slot-930");
+    expect(moved.occurrences?.sessions["session-a"]).toBe(2);
+
+    // Somebody else's placement, which must not disturb A's number — the whole reason this is
+    // per session rather than the board revision that advances on every edit.
+    const other = await place("place-b", "session-b", "slot-9");
+    expect(other.occurrences?.sessions["session-a"]).toBe(2);
+    expect(other.occurrences?.sessions["session-b"]).toBe(3);
+
+    await agenda.remove(organizer, eventId, "place-a");
+    const after = await agenda.draft(organizer, eventId);
+    // Taken off the board: strictly higher than the number the placement had, which is what makes
+    // the unplaced condition a new one rather than the one somebody dismissed before.
+    expect(after.occurrences?.sessions["session-a"]).toBe(4);
+  });
+
+  it("re-placing in the same cell is still a new occurrence, because the absence was one", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    const cell = {
+      id: "place-a",
+      sessionId: "session-a",
+      roomId: "room-main",
+      trackId: "track-web",
+      slotId: "slot-9",
+    };
+
+    await agenda.place(organizer, eventId, cell);
+    await agenda.remove(organizer, eventId, "place-a");
+    const back = await agenda.place(organizer, eventId, cell);
+
+    expect(back.occurrences?.sessions["session-a"]).toBe(3);
+  });
+
+  it("gives a conflict the later of the two placements' occurrences, and moves it with the resources", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    const clashing = { roomId: "room-main", trackId: "track-web", slotId: "slot-9" };
+    await agenda.place(organizer, eventId, { id: "place-a", sessionId: "session-a", ...clashing });
+    const clash = await agenda.place(organizer, eventId, {
+      id: "place-b",
+      sessionId: "session-b",
+      ...clashing,
+    });
+
+    // Two sessions in one room at one hour, and a shared speaker besides.
+    expect(clash.conflicts.map(({ kind, occurrence }) => ({ kind, occurrence }))).toEqual([
+      { kind: "ROOM_OVERLAP", occurrence: 2 },
+      { kind: "SPEAKER_OVERLAP", occurrence: 2 },
+    ]);
+
+    // Retiming the slot is the other way a clash of these two placements can be resolved and
+    // reintroduced, so the resources carry an occurrence of their own.
+    const retimed = await agenda.configure(organizer, eventId, {
+      rooms: draft.rooms,
+      tracks: draft.tracks,
+      slots: [
+        { id: "slot-9", startsAt: "2026-09-01T16:00:00.000Z", endsAt: "2026-09-01T16:20:00.000Z" },
+        draft.slots[1] as (typeof draft.slots)[number],
+      ],
+    });
+    expect(retimed.conflicts.every(({ occurrence }) => occurrence === 3)).toBe(true);
+  });
+
+  it("keeps them out of the publication snapshot", async () => {
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    await agenda.place(organizer, eventId, {
+      id: "place-a",
+      sessionId: "session-a",
+      roomId: "room-main",
+      trackId: "track-web",
+      slotId: "slot-9",
+    });
+
+    const published = await agenda.publish(organizer, eventId);
+
+    // A snapshot is a frozen programme, not a record of how its draft was edited — and two
+    // publications of one board should be identical bytes whatever happened in between.
+    expect(published.agenda).not.toHaveProperty("occurrences");
+    expect(published.agenda).not.toHaveProperty("conflicts");
+  });
+});
+
 describe("published session schedule revisions", () => {
   const publication = (version: number, agenda: AgendaDraft) => ({
     eventId,
