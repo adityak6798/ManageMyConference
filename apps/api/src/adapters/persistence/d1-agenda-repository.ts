@@ -88,6 +88,16 @@ interface HistoryRow {
 const SESSION_SCHEDULE_COLUMNS = "session_id, starts_at, ends_at, location, revision, revised_at";
 
 /**
+ * "The history has not been written since I read it."
+ *
+ * Appended to every statement of a rebuild, so a repair that loses its race commits nothing at
+ * all rather than a stale prefix of the history. Takes two bindings — the event and the watermark
+ * the replay was computed against — after whatever the statement itself binds.
+ */
+const WATERMARK_HELD =
+  "EXISTS (SELECT 1 FROM agenda_schedule_materializations WHERE event_id = ? AND publication_watermark = ?)";
+
+/**
  * How many publications one replay query carries.
  *
  * Every row holds a complete board, so the page size is a memory bound rather than a round-trip
@@ -188,6 +198,16 @@ export class D1AgendaRepository implements AgendaRepository {
     private readonly database: AgendaDatabase,
     private readonly now: () => Date,
     private readonly writePublicationEvent?: PublicationEventWriter,
+    /**
+     * Told about every repair, from whichever path performed it.
+     *
+     * It belongs here rather than on the sweep because the sweep is not where most repairs
+     * happen. A read repairs the moment anybody opens the workspace or presses Send, and the
+     * tick only ever sees the events nobody read — so an observer wired to the sweep alone would
+     * report exactly the events that matter least, and the design's answer to its own masking
+     * objection ("a repair is never silent") would be false for the dominant path.
+     */
+    private readonly onRepair?: (report: ScheduleReconciliation) => void,
   ) {}
   async getDraft(eventId: string): Promise<AgendaDraft | null> {
     return (await this.getDraftRow(eventId))?.draft ?? null;
@@ -364,23 +384,24 @@ export class D1AgendaRepository implements AgendaRepository {
    * **The fold is only sound over revisions that were current.** It starts from whatever the
    * previous publication left behind, so a stored answer that had already drifted would be folded
    * straight through and the new publication would inherit it — which is how one missed
-   * publication could become permanent (`GAP-024`). The read below is `sessionScheduleRevisions`
-   * rather than a raw select precisely because that method re-derives a drifted answer before
-   * returning it, so a publication landing after a deploy window heals the event on its way past
-   * (issue #169).
+   * publication could become permanent (`GAP-024`). The read below re-derives a drifted answer
+   * before returning it, so a publication landing after a deploy window heals the event on its way
+   * past (issue #169).
    *
-   * The watermark that records "these rows describe every publication ever written" is advanced in
-   * this same batch. It is an upsert rather than a conditional update, which keeps `meta.changes`
-   * out of the correctness argument here exactly as the delete-then-insert above does: the insert
-   * trigger on `agenda_publications` has already created the row a moment earlier in this same
-   * transaction, and on the branch where it somehow has not, the upsert writes the whole truth
-   * rather than silently matching nothing.
+   * **The watermark claim is conditional, and the version argument above does not cover it.** That
+   * argument defends the *fold* against a concurrent `AgendaService.publish`, because two of those
+   * collide on the primary key. It says nothing about a writer that does not allocate `max + 1` —
+   * the import or repair path `GAP-024` names — which can insert a publication in the window
+   * between this method's read and its batch without colliding with anything. The insert trigger
+   * counts that write, so binding the count this read observed, plus the one this batch is about
+   * to make, is what separates "nothing else happened" from "something did". A claim that matches
+   * nothing is not an error: the publication itself is committed and correct, and the event simply
+   * stays flagged for the reconciler, which is the honest outcome rather than a false statement of
+   * currency. Its count is therefore deliberately not consulted.
    */
   async publish(schedule: PublishedSchedule) {
-    const revisions = nextSessionScheduleRevisions(
-      await this.sessionScheduleRevisions(schedule.eventId),
-      schedule,
-    );
+    const current = await this.currentRevisions(schedule.eventId);
+    const revisions = nextSessionScheduleRevisions(current.revisions, schedule);
     const statements = [
       this.database
         .prepare(
@@ -398,7 +419,7 @@ export class D1AgendaRepository implements AgendaRepository {
         .prepare("DELETE FROM agenda_session_schedules WHERE event_id = ?")
         .bind(schedule.eventId),
       ...this.insertSessionSchedules(schedule.eventId, revisions),
-      this.markMaterialized(schedule.eventId, schedule.version, schedule.publishedAt),
+      this.claimWatermark(schedule.eventId, (current.watermark ?? 0) + 1, schedule.publishedAt),
       ...((await this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule))) ??
         []),
     ];
@@ -485,21 +506,42 @@ export class D1AgendaRepository implements AgendaRepository {
    * to serve the stale answer and wait for the sweep, and the thing being served is not a stale
    * number on a dashboard: it decides whether a speaker is mailed an invitation to a session the
    * programme does not schedule, and whether the invitation that puts a returning talk back on
-   * their calendar is suppressed. Both are irreversible in the way a wrong page render is not.
-   * The repair is idempotent, guarded by a compare-and-set on the watermark, and reachable from
-   * an anonymous read only through the `.ics` download — which is a read of derived state
-   * correcting derived state, never a write of anything a caller supplied.
+   * their calendar is suppressed. Both are irreversible in the way a wrong page render is not. The
+   * repair is idempotent and every statement of it is conditional on the watermark, so a repair
+   * that loses a race writes nothing at all.
+   *
+   * Every caller of this is authenticated. `ContentService.projectedForCalendarInvites` is the one
+   * consumer, reached from the content workspace, the organizer's Send, and the
+   * `content:read`-gated `speaker-calendar.ics`. No anonymous request reaches it — an earlier
+   * version of this comment said the `.ics` was anonymous, and it is not. Worth stating precisely
+   * rather than generously, because "a write on a read path" is the kind of claim a later reader
+   * checks.
    */
   async sessionScheduleRevisions(
     eventId: string,
   ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
+    return (await this.currentRevisions(eventId)).revisions;
+  }
+
+  /**
+   * The revisions to fold or to serve, and the watermark they were read at.
+   *
+   * The watermark is returned because `publish` needs it: its claim on the materialization row is
+   * conditional on nothing else having written the history in between, and only the value read
+   * here says what "nothing else" means.
+   */
+  private async currentRevisions(eventId: string) {
     const stored = await this.readMaterialized(eventId);
     if (
       stored.publicationWatermark === null ||
       stored.materializedWatermark === stored.publicationWatermark
     )
-      return stored.revisions;
-    return (await this.reconcile(eventId, true)).revisions;
+      return { revisions: stored.revisions, watermark: stored.publicationWatermark };
+    const repaired = await this.reconcile(eventId, true);
+    return {
+      revisions: repaired.revisions,
+      watermark: repaired.reconciliation.materializedWatermark,
+    };
   }
 
   async reconcileSessionSchedules(
@@ -513,15 +555,18 @@ export class D1AgendaRepository implements AgendaRepository {
    * Replay the history, compare it against the stored rows, and optionally make them agree.
    *
    * The order of the two reads is load-bearing. The watermark is read *before* the replay, so a
-   * publication that commits while the replay is walking pages either arrives too late to be
-   * folded — in which case the stored rows stay behind and the watermark says so — or is folded
-   * in, in which case the compare-and-set below finds the watermark moved and the attempt is
-   * retried. There is no ordering in which a publication is both folded and marked as caught up.
+   * write that lands while the replay is walking pages either arrives too late to be folded — in
+   * which case the stored rows stay behind and the watermark says so — or is folded in, in which
+   * case the guard below finds the watermark moved. Either way every statement of the rebuild is
+   * conditional on that same watermark, so a losing attempt writes **nothing**: no row deleted, no
+   * row inserted, and the event left flagged exactly as it was.
    *
-   * A losing attempt still leaves the rows it wrote. That is not a hole: they were derived from a
-   * real prefix of the history, the watermark still reports the event as drifted, and the retry
-   * replaces them. The state after a lost race is a drifted event that is flagged as drifted,
-   * which is exactly the state before it.
+   * An earlier revision wrote the rows unconditionally and guarded only the claim, and that was
+   * wrong in the one interleaving the guard exists for. A batch is one transaction, but a zero-row
+   * `UPDATE` does not abort it — so the losing attempt committed a stale prefix of the history
+   * *underneath* a watermark the winning publication had already marked current. That is the
+   * undetectable divergence this whole mechanism exists to make impossible, manufactured by the
+   * repair path itself. Review caught it with a reproduction.
    *
    * `repair: false` writes nothing at all, including the watermark. An operator asking whether an
    * event is sound must be able to ask without changing the answer, and a reconciliation that
@@ -529,49 +574,69 @@ export class D1AgendaRepository implements AgendaRepository {
    * whatever it found the first time.
    */
   private async reconcile(eventId: string, repair: boolean) {
+    let last: {
+      reconciliation: ScheduleReconciliation;
+      revisions: ReadonlyMap<string, SessionScheduleRevision>;
+    } | null = null;
     for (let attempt = 0; attempt < REPAIR_ATTEMPTS; attempt += 1) {
       const stored = await this.readMaterialized(eventId);
       const replayed = await this.replayPublicationHistory(eventId);
       const drift = compareSessionScheduleRevisions(stored.revisions, replayed.revisions);
-      const reconciliation = {
-        eventId,
-        publicationWatermark: stored.publicationWatermark,
-        materializedWatermark: stored.materializedWatermark,
-        publications: replayed.publications,
-        drift,
-      };
       /*
        * A sound event is one whose rows agree with the history *and* whose watermark says so.
        * The second half is not redundant: `1602` backfills every already-published event with no
        * materialized watermark at all, because it cannot honestly claim `1601` caught a
        * publication landing between the two migrations. Those events have correct rows and an
        * unclaimed watermark, and the first repair is what turns the correctness into a statement.
+       *
+       * `inSync` carries that whole test rather than the drift alone, so no other surface has to
+       * recompute it and reach a different answer than storage did.
        */
-      if (isScheduleInSync(drift) && stored.materializedWatermark === stored.publicationWatermark)
-        return {
-          reconciliation: { ...reconciliation, repaired: false },
-          revisions: stored.revisions,
-        };
-      if (!repair)
-        return {
-          reconciliation: { ...reconciliation, repaired: false },
-          revisions: stored.revisions,
-        };
+      const inSync =
+        isScheduleInSync(drift) && stored.materializedWatermark === stored.publicationWatermark;
+      const found: ScheduleReconciliation = {
+        eventId,
+        publicationWatermark: stored.publicationWatermark,
+        materializedWatermark: stored.materializedWatermark,
+        publications: replayed.publications,
+        drift,
+        inSync,
+        repaired: false,
+      };
+      last = { reconciliation: found, revisions: stored.revisions };
+      if (inSync || !repair) return last;
+      /*
+       * No watermark row means no publication has ever been written for this event, so there is
+       * nothing to make a write conditional on — and an unconditional rewrite is precisely the
+       * defect the guard exists to prevent. Report and decline. The state is unreachable through
+       * any supported path: the trigger creates the row for every writer, and an event with no
+       * publications derives to nothing.
+       */
+      if (stored.publicationWatermark === null) return last;
       if (
         await this.rebuildSessionSchedules(eventId, replayed.revisions, stored.publicationWatermark)
-      )
-        return {
-          reconciliation: {
-            ...reconciliation,
-            materializedWatermark: stored.publicationWatermark,
-            repaired: true,
-          },
-          revisions: replayed.revisions,
+      ) {
+        const repaired: ScheduleReconciliation = {
+          ...found,
+          materializedWatermark: stored.publicationWatermark,
+          repaired: true,
         };
+        this.onRepair?.(repaired);
+        return { reconciliation: repaired, revisions: replayed.revisions };
+      }
     }
-    throw new Error(
-      `D1 could not reconcile agenda schedules for event ${eventId}: the publication history moved during every attempt`,
-    );
+    /*
+     * Every attempt lost its race, which means the history was written during each of them. The
+     * rows on disk are untouched — every losing statement was conditional — so nothing is corrupt;
+     * what failed is recording the answer, not computing it.
+     *
+     * So serve the answer rather than an exception. The replayed revisions are derived from
+     * committed history and are at least as current as the stored ones, the event stays flagged
+     * for the sweep, and refusing instead would take the organizer workspace and the calendar send
+     * down over contention that resolves itself. The report says `repaired: false`, which is true.
+     */
+    if (!last) throw new Error(`D1 could not reconcile agenda schedules for event ${eventId}`);
+    return last;
   }
 
   /**
@@ -583,9 +648,10 @@ export class D1AgendaRepository implements AgendaRepository {
    * honest: a repair that disagreed with the write path would rewrite correct rows into wrong
    * ones, on the surface whose entire purpose is to be trusted.
    *
-   * Paged by keyset on `version`, which the primary key already orders. A publication committing
-   * mid-replay lands after the cursor and is either folded or missed depending on timing; the
-   * caller's compare-and-set is what turns "depending on timing" into a retry rather than a lie.
+   * Paged by keyset on `version`, which the primary key already orders, because a history is
+   * exactly the thing this domain refuses to assume is short. A publication committing mid-replay
+   * lands after the cursor and is either folded or missed depending on timing; the caller's
+   * watermark guard is what turns "depending on timing" into a retry rather than a lie.
    */
   private async replayPublicationHistory(eventId: string) {
     let revisions: ReadonlyMap<string, SessionScheduleRevision> = new Map();
@@ -617,46 +683,40 @@ export class D1AgendaRepository implements AgendaRepository {
   }
 
   /**
-   * Write the replayed answer back, and claim the watermark only if it has not moved.
+   * Write the replayed answer back, conditionally, and claim the watermark only if it held.
    *
-   * The claim is the one statement in this adapter whose affected-row count is load-bearing, and
-   * it is load-bearing in the direction the row-count contract exists for: zero means another
-   * publication was written while this replay was walking the history, so the rows just written
-   * describe a prefix rather than the whole of it, and marking them current would be the false
-   * statement this whole mechanism exists to prevent. `changedRows` refuses a driver that omits
-   * the count outright, because "no count" would otherwise be indistinguishable from "matched",
-   * and guessing wrong here silences the detector permanently.
+   * **Every statement carries the guard**, not only the claim. The delete and each insert test
+   * that `publication_watermark` is still the value the replay was computed against, so a batch
+   * that loses its race writes nothing rather than committing a stale prefix. The claim's
+   * affected-row count is then the report of what happened: one means the guard held throughout,
+   * zero means the history was written during the replay and the caller retries.
    *
-   * An event with no watermark row has never had a publication written, so there is nothing to
-   * claim; the rebuild still runs, because a row standing against an empty history is the phantom
-   * case and deleting it is the repair.
+   * That count is the one affected-row count in this adapter that is load-bearing, and it is
+   * load-bearing in the direction the row-count contract exists for. `changedRows` refuses a
+   * driver that omits it outright, because "no count" would otherwise be indistinguishable from
+   * "matched", and guessing wrong here silences the detector permanently.
    */
   private async rebuildSessionSchedules(
     eventId: string,
     revisions: ReadonlyMap<string, SessionScheduleRevision>,
-    watermark: number | null,
+    watermark: number,
   ): Promise<boolean> {
-    const claim =
-      watermark === null
-        ? null
-        : this.database
-            .prepare(
-              "UPDATE agenda_schedule_materializations SET materialized_watermark = ?, materialized_at = ? WHERE event_id = ? AND publication_watermark = ?",
-            )
-            .bind(watermark, this.now().toISOString(), eventId, watermark);
     const results = await this.database.batch([
       this.database
-        .prepare("DELETE FROM agenda_session_schedules WHERE event_id = ?")
-        .bind(eventId),
-      ...this.insertSessionSchedules(eventId, revisions),
-      ...(claim ? [claim] : []),
+        .prepare(`DELETE FROM agenda_session_schedules WHERE event_id = ? AND ${WATERMARK_HELD}`)
+        .bind(eventId, eventId, watermark),
+      ...this.insertSessionSchedules(eventId, revisions, watermark),
+      this.database
+        .prepare(
+          "UPDATE agenda_schedule_materializations SET materialized_watermark = ?, materialized_at = ? WHERE event_id = ? AND publication_watermark = ?",
+        )
+        .bind(watermark, this.now().toISOString(), eventId, watermark),
     ]);
     const failure = results.find((result) => !result.success);
     if (failure)
       throw new Error(
         `D1 failed to rebuild session schedule revisions: ${failure.error ?? "unknown error"}`,
       );
-    if (!claim) return true;
     const applied = results[results.length - 1];
     if (!applied)
       throw new Error("D1 returned no result for the agenda schedule materialization claim");
@@ -687,34 +747,55 @@ export class D1AgendaRepository implements AgendaRepository {
     return (result.results ?? []).map((row) => row.event_id);
   }
 
+  /**
+   * One insert per placed session, optionally conditional on the watermark.
+   *
+   * `INSERT … SELECT … WHERE EXISTS` rather than `INSERT … VALUES`, because `VALUES` admits no
+   * predicate and the guard has to be part of the statement rather than a check around it. Nine
+   * bound parameters against D1's cap of a hundred a query, which is why this stays one statement
+   * per row: seven columns would let a multi-row insert hold only eleven sessions with the guard,
+   * and D1 documents no limit on statements per batch.
+   */
   private insertSessionSchedules(
     eventId: string,
     revisions: ReadonlyMap<string, SessionScheduleRevision>,
+    watermark?: number,
   ) {
-    return [...revisions].map(([sessionId, revision]) =>
-      this.database
-        .prepare(
-          `INSERT INTO agenda_session_schedules (event_id, ${SESSION_SCHEDULE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          eventId,
-          sessionId,
-          revision.startsAt,
-          revision.endsAt,
-          revision.location,
-          revision.revision,
-          revision.revisedAt,
-        ),
-    );
+    const columns = `INSERT INTO agenda_session_schedules (event_id, ${SESSION_SCHEDULE_COLUMNS})`;
+    return [...revisions].map(([sessionId, revision]) => {
+      const values = [
+        eventId,
+        sessionId,
+        revision.startsAt,
+        revision.endsAt,
+        revision.location,
+        revision.revision,
+        revision.revisedAt,
+      ];
+      return watermark === undefined
+        ? this.database.prepare(`${columns} VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(...values)
+        : this.database
+            .prepare(`${columns} SELECT ?, ?, ?, ?, ?, ?, ? WHERE ${WATERMARK_HELD}`)
+            .bind(...values, eventId, watermark);
+    });
   }
 
-  /** "These rows describe every publication written for this event up to `watermark`." */
-  private markMaterialized(eventId: string, watermark: number, at: string) {
+  /**
+   * "These rows describe every write this event's history has taken, and there were `watermark`
+   * of them."
+   *
+   * Conditional, and the condition is the whole point: the insert trigger has just counted this
+   * batch's own publication, so `watermark` is what the caller read plus one, and a write by
+   * anybody else in between makes it something else. A claim that matches nothing leaves the
+   * event flagged for the reconciler, which is the correct outcome — the publication committed,
+   * and only the statement that it is now fully derived is withheld.
+   */
+  private claimWatermark(eventId: string, watermark: number, at: string) {
     return this.database
       .prepare(
-        "INSERT INTO agenda_schedule_materializations (event_id, publication_watermark, materialized_watermark, materialized_at) VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET materialized_watermark = excluded.materialized_watermark, materialized_at = excluded.materialized_at",
+        "UPDATE agenda_schedule_materializations SET materialized_watermark = ?, materialized_at = ? WHERE event_id = ? AND publication_watermark = ?",
       )
-      .bind(eventId, watermark, watermark, at);
+      .bind(watermark, at, eventId, watermark);
   }
 
   /**

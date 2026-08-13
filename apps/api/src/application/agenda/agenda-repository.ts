@@ -145,13 +145,28 @@ export interface AgendaRepository {
  */
 export interface ScheduleReconciliation {
   readonly eventId: string;
-  /** The version of the most recent publication written for this event; null if none ever was. */
+  /**
+   * How many writes this event's publication history has taken, as storage counts them; null if
+   * it has never taken one. A counter rather than a version, because two writes can carry the
+   * same version and the question being asked is whether *anything* happened.
+   */
   readonly publicationWatermark: number | null;
-  /** What that watermark held when the stored revisions were last derived; null means never. */
+  /** What that counter held when the stored revisions were last derived; null means never. */
   readonly materializedWatermark: number | null;
   /** How many publications the replay walked, which is the cost this call actually paid. */
   readonly publications: number;
   readonly drift: SessionScheduleDrift;
+  /**
+   * Whether the stored answer can be believed — the rows agree with the history *and* the
+   * watermark says so.
+   *
+   * Both halves, and reported by storage rather than derived by each caller, because they can
+   * disagree: an event backfilled by migration `1602` has correct rows and an unclaimed
+   * watermark, and a surface that read only `drift` would call it sound while the reconciler
+   * still queues it for repair. It describes what this call *found*, so a repairing call answers
+   * `inSync: false` with `repaired: true` and the next call answers `inSync: true`.
+   */
+  readonly inSync: boolean;
   /** Whether this call wrote the replayed answer back. False when asked not to, or when sound. */
   readonly repaired: boolean;
 }

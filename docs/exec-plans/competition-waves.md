@@ -419,8 +419,15 @@ test for this lane. A lane appending to this file should add its export below th
 edit nothing above.
 ### Issue #169 rulings
 
-`GAP-024` is closed, and the entry is deleted from [known gaps](../quality/known-gaps.md) rather
-than annotated, which is what this repository does with a closed gap.
+`GAP-024` is closed and its entry is deleted from [known gaps](../quality/known-gaps.md). The
+register does both — `GAP-009` and `GAP-011` are kept in place and annotated as closed, while
+`GAP-007`, `GAP-015` and `GAP-018` were removed — so deletion is a choice rather than the house
+style, and the reason for it here is that nothing of the entry survives as a limitation: detection,
+repair and a test that a desynchronised table is detected rather than served are all present, and
+the residuals that remain (no console surface; a directly edited table is found only when somebody
+asks; a repair cannot retract mail already sent) are carried in the `ACC-AGENDA` row where the rest
+of this surface's limits already live. An earlier draft of this paragraph asserted a convention the
+register does not follow, which is the kind of claim this ledger exists to keep honest.
 
 **The detection had to be in the database, not in the application.** The invariant #141 relied on —
 "every writer of `agenda_publications` also maintains `agenda_session_schedules`" — was convention,
@@ -454,16 +461,47 @@ corrected forever and look correct. Leaving the damage in place is not the alter
 be, because nothing surfaces the condition — an organizer pressing Send is shown a count and no
 error in either direction. So every repair logs `agenda.schedule.drift_repaired` with both
 watermarks and the three divergence counts (not the session ids: that line reaches a shared sink).
-In a healthy deployment this logs nothing, ever, so one line is a deploy that raced a publication
-and a recurring line names the writer that needs fixing.
+
+**The observer belongs to the repository, not to the sweep, and review is what settled that.** The
+first version wired it to `sweepDriftedSchedules`, which made the claim false for the path that runs
+most: a read repairs the instant anybody opens the workspace or presses Send, so the tick only ever
+reaches events *nobody read*. An importer corrupting an actively used event would have been repaired
+silently forever and logged nothing — precisely the hypothetical the logging exists to answer.
+
+**And "a healthy deployment logs nothing, ever" needed qualifying**, because this very migration
+contradicts it: `1602` leaves every already-published event unclaimed, so each one is repaired once,
+with all three drift counts zero. The counts are what separate the two, and the operator rule is
+stated in those terms rather than in terms of the line's existence.
 
 **`1602` marks every already-published event as *unverified*, not as current.** `1601` derived the
 table from the whole history one migration earlier and it almost certainly still matches — but the
 deploy window is open while the two migrations run, and a migration that asserted "already current"
 would put the first false statement into the very table whose purpose is to be believed. The cost is
-one replay per published event on the first sweep after deploy. The seed, by contrast, *does* claim
+one replay per published event, taken by whichever path reaches it first — a read, or the sweep at
+twenty events a tick, so ⌈N/20⌉ minutes for the events nobody reads rather than a single sweep. The seed, by contrast, *does* claim
 the watermark, because the seed genuinely maintains the derived table; without that the demo fixture
 would start life flagged as drifted.
+
+**What review changed, and it was not the design.** Three adversarial passes ran against the risk
+map. The mechanism, the migration, the trigger pair and both `GAP-024` failure axes survived all
+three. What did not survive was the repair's write ordering: `rebuildSessionSchedules` rewrote the
+rows unconditionally and guarded only the watermark claim, and a D1 batch does not abort on a
+zero-row `UPDATE` — so a repair that lost its race to a concurrent publication committed a stale
+prefix of the history *underneath* a watermark that publication had already marked current. That is
+verbatim the undetectable divergence this change exists to prevent, manufactured by the repair path
+itself, and it was found with a reproduction rather than by reading. Every statement of a rebuild
+now carries the guard, so a losing attempt writes nothing at all. Two test gaps went with it: no
+history exceeded one replay page, so a one-character mutation of the paging terminator silently
+truncated every long history and then claimed the watermark for it; and the lost-claim branch was
+never driven, so `=== 1` could be mutated to `>= 0` with a green suite. Both are pinned now, and all
+four mutants die.
+
+**The watermark counts writes rather than naming a version**, which is the same review's doing. A
+version-valued token cannot distinguish a publication inserted out of order — issue #169's own
+"nothing checks that a publication's version is the event's newest" — from no write at all, so the
+next ordinary publication would fold past it and mark the event caught up. A counter cannot be
+fooled that way, and `publish`'s claim is now conditional on it, so a write by anybody in that
+window leaves the event flagged instead of silently sound.
 
 **Two agenda debts closed here rather than left for a later lane.** `DEBT-008` (an empty board read
 the timezone abbreviation at `new Date()`, so a January conference announced itself as PDT in July)

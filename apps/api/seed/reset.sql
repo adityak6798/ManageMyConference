@@ -278,6 +278,8 @@ INSERT INTO agenda_session_schedules (
   1, '2026-08-10T20:00:00.000Z'
 );-- And the statement that says the row above is current.
 --
+-- `publication_watermark` counts writes to this event's history, and the seed makes exactly one.
+--
 -- The insert into `agenda_publications` already created this row through `1602`'s trigger, with
 -- `materialized_watermark` NULL — the seed is precisely one of the direct writers that motivated
 -- the trigger, and the trigger cannot tell that this one does maintain the derived table. Claiming

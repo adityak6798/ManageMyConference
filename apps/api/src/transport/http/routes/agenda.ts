@@ -17,7 +17,6 @@ import {
   AgendaNotFoundError,
   AgendaPublicationConflictError,
   AgendaResourceInUseError,
-  isScheduleInSync,
   type ScheduleReconciliation,
 } from "../../../application/agenda/public";
 import { requireEventCapability } from "../../../application/identity/actor";
@@ -41,16 +40,18 @@ const routes = [
 /**
  * The application's reconciliation, as the wire reports it.
  *
- * `inSync` is derived here rather than stored on the application type, because it is a summary of
- * the three lists a client can already see and a second stored copy of a derivable fact is how the
- * two come to disagree.
+ * `inSync` is passed through rather than recomputed from `drift`. An earlier version derived it
+ * here, and the two answers diverged for exactly the events migration `1602` backfills: correct
+ * rows, an unclaimed watermark, so the wire said "in sync" while the reconciler kept queueing the
+ * event for repair and the `POST` on the same event answered `repaired: true`. One definition,
+ * held by the storage that decides it.
  */
 const reconciliationBody = (report: ScheduleReconciliation) => ({
   eventId: report.eventId,
   publicationWatermark: report.publicationWatermark,
   materializedWatermark: report.materializedWatermark,
   publications: report.publications,
-  inSync: isScheduleInSync(report.drift),
+  inSync: report.inSync,
   repaired: report.repaired,
   drift: report.drift,
 });

@@ -32,6 +32,7 @@
 - `test` / `repository-fact`: [apps/web/test/agenda-timeslots.test.tsx](../../apps/web/test/agenda-timeslots.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-timezone.test.tsx](../../apps/web/test/agenda-timezone.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/agenda-week-board-cost.test.tsx](../../apps/web/test/agenda-week-board-cost.test.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 

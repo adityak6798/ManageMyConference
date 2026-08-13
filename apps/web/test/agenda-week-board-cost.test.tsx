@@ -7,14 +7,20 @@
  * reading, as it went. Cells are the product of the two axes, so the work grew with days × times
  * on a component that re-renders continuously during a drag.
  *
- * The experiment changes **only** the number of cells. Both boards carry twelve slots over four
- * days, three slots a day; in one the four days repeat the same three hours, in the other every
- * day uses its own three, so the rows go from three to twelve and the cells from twelve to
- * forty-eight. Slot count, day count and therefore the number of renders React performs are
- * identical, which matters: an earlier version of this test varied the day count instead, and the
- * four-day board settled its day selection with one extra render — so it measured React's
- * scheduling as much as the board's arithmetic and reported a clean 2x for code that was already
- * fixed.
+ * Two things make this measurable rather than merely plausible.
+ *
+ * **Only the cells change.** Both boards carry twelve slots over four days, three slots a day; in
+ * one the four days repeat the same three hours, in the other every day uses its own three, so the
+ * rows go from three to twelve and the cells from twelve to forty-eight. Slot count and day count
+ * are identical, so nothing else about the board moves.
+ *
+ * **The meter is per render, not per test.** `formatToParts` is reached from exactly two places in
+ * `clockFor` — `dayKey`, three calls a reading, and `abbreviation`, one call per render — and they
+ * are told apart by the formatter's own `resolvedOptions`. Dividing day-key readings by
+ * abbreviation calls gives readings *per render*, which is the quantity `DEBT-009` is about and the
+ * only one that is stable: two earlier versions of this test counted raw calls and flaked under
+ * load, because how many times React renders this component before the grid appears is not a
+ * property of the board's arithmetic.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import type { EventDto } from "@greenroom/contracts";
@@ -86,14 +92,18 @@ describe("the week board's formatting cost", () => {
     window.history.replaceState(null, "", "/agenda");
   });
 
-  /** Render one week board of the given shape and count the `formatToParts` calls it takes. */
-  async function formattingCost(sharedHours: boolean) {
+  /** Render one week board of the given shape; answer how many day keys it read per render. */
+  async function dayKeysPerRender(sharedHours: boolean) {
     const original = Intl.DateTimeFormat.prototype.formatToParts;
-    let calls = 0;
+    let dayKeyCalls = 0;
+    let renders = 0;
     const counting = vi
       .spyOn(Intl.DateTimeFormat.prototype, "formatToParts")
       .mockImplementation(function counted(this: Intl.DateTimeFormat, date) {
-        calls += 1;
+        // The zone-abbreviation formatter is read exactly once per render, which makes it the
+        // render counter; every other `formatToParts` in `clockFor` belongs to `dayKey`.
+        if (this.resolvedOptions().timeZoneName) renders += 1;
+        else dayKeyCalls += 1;
         return original.call(this, date);
       });
     vi.stubGlobal(
@@ -114,17 +124,20 @@ describe("the week board's formatting cost", () => {
     cleanup();
     vi.unstubAllGlobals();
     expect(onError).not.toHaveBeenCalled();
-    return calls;
+    expect(renders).toBeGreaterThan(0);
+    // Three `formatToParts` calls make one day key: year, month and day.
+    return dayKeyCalls / 3 / renders;
   }
 
   it("does not grow when the same slots are spread over four times as many cells", async () => {
-    const twelveCells = await formattingCost(true);
-    const fortyEightCells = await formattingCost(false);
+    const twelveCells = await dayKeysPerRender(true);
+    const fortyEightCells = await dayKeysPerRender(false);
 
-    // Identical under the fix. The old form read every slot's day in every cell, which took this
-    // pair to 547 against 1843 — so half again is a generous bound on "did not notice".
+    // Identical under the fix, which reads each slot's day once and buckets the cells from that.
+    // The old form read every slot's day in every cell, so this pair went from 12 day keys a
+    // render to 48 × 12 + 12; half again is a generous bound on "did not notice".
     expect(fortyEightCells).toBeLessThan(twelveCells * 1.5);
-    // Only meaningful if the smaller board formatted anything in the first place.
+    // Only meaningful if the smaller board read any day keys at all.
     expect(twelveCells).toBeGreaterThan(0);
   });
 });

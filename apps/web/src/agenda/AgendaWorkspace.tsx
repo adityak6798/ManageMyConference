@@ -249,9 +249,10 @@ export function AgendaWorkspace({
    * doing map lookups.
    */
   const slotDays = new Map(allSlots.map((slot) => [slot.id, clock.dayKey(slot.startsAt)]));
-  // The fallback is the same answer computed the slow way, and is reached only for a slot that is
-  // not on the board — which `slotOf` cannot return.
-  const dayOf = (slot: Slot) => slotDays.get(slot.id) ?? clock.dayKey(slot.startsAt);
+  // Every caller iterates `allSlots`, which is what the index was built from, so a miss is not
+  // reachable. `?? ""` rather than a recomputation, because a fallback that silently produced a
+  // different answer would be worse than an obviously empty bucket.
+  const dayOf = (slot: Slot) => slotDays.get(slot.id) ?? "";
   // Day buckets are the *event's* calendar days. A 21:00 local slot stays on its local
   // day even when that instant already belongs to tomorrow in UTC, so the Day, Week,
   // Room and Track views group the way the organizer's own programme reads.

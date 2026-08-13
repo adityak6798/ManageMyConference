@@ -128,6 +128,7 @@ describe("a publication written without maintaining the derived table", () => {
 
     const before = await repository.reconcileSessionSchedules(eventId, { repair: false });
     expect(before.drift.phantom).toEqual(["session-1"]);
+    expect(before.inSync).toBe(false);
     expect(before.repaired).toBe(false);
     // A read-only check changes nothing, or an operator could only ever ask once.
     expect(
@@ -138,7 +139,40 @@ describe("a publication written without maintaining the derived table", () => {
     expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
     const after = await repository.reconcileSessionSchedules(eventId, { repair: false });
     expect(isScheduleInSync(after.drift)).toBe(true);
+    expect(after.inSync).toBe(true);
+    // Two writes to this event's history — the seeded publication and the unmaintained one — so
+    // the watermark reads 2. It counts writes rather than versions, because two writes can carry
+    // the same version and the question is whether anything happened at all.
     expect(after.materializedWatermark).toBe(2);
+  });
+
+  /*
+   * Rows that already agree, under a watermark that does not say so, are **not** in sync.
+   *
+   * This is the state migration `1602` deliberately leaves behind for every already-published
+   * event: it will not claim that `1601` caught a publication landing between the two migrations.
+   * The distinction matters on the wire — an earlier version derived `inSync` from the drift lists
+   * alone and answered `true` here, while the reconciler kept queueing the event and a `POST`
+   * answered `repaired: true` for it.
+   */
+  it("treats correct rows under an unclaimed watermark as needing a repair, not as sound", async () => {
+    const repository = new MemoryAgendaRepository([board(true)], [publication(1, true)]);
+    repository.unclaimWatermark(eventId);
+
+    const found = await repository.reconcileSessionSchedules(eventId, { repair: false });
+    expect(found.drift).toEqual({ missing: [], phantom: [], divergent: [] });
+    expect(found.inSync).toBe(false);
+    expect(found.materializedWatermark).toBeNull();
+    expect(await repository.driftedEvents(10)).toEqual([eventId]);
+
+    const repaired = await repository.reconcileSessionSchedules(eventId, { repair: true });
+    // The settling repair is the one an operator must be able to tell from a real divergence, and
+    // all three counts being zero is what says so.
+    expect(repaired.repaired).toBe(true);
+    expect(repaired.drift).toEqual({ missing: [], phantom: [], divergent: [] });
+    expect((await repository.reconcileSessionSchedules(eventId, { repair: false })).inSync).toBe(
+      true,
+    );
   });
 
   /*
@@ -171,6 +205,7 @@ describe("a publication written without maintaining the derived table", () => {
     const report = await repository.reconcileSessionSchedules(eventId, { repair: true });
     expect(report.publications).toBe(2);
     expect(report.publicationWatermark).toBe(2);
+    expect(report.inSync).toBe(false);
     expect(report.repaired).toBe(true);
   });
 });
@@ -182,24 +217,20 @@ describe("the sweep", () => {
     return repository;
   };
 
-  it("repairs every drifted event it takes and reports each one", async () => {
+  it("repairs every drifted event it takes, and finds nothing on the next tick", async () => {
     const repository = await drifted();
-    const onRepair = vi.fn();
-    expect(await sweepDriftedSchedules({ schedules: repository, onRepair })).toEqual({
+    expect(await sweepDriftedSchedules({ schedules: repository })).toEqual({
       scanned: 1,
       repaired: 1,
       failed: 0,
     });
-    expect(onRepair).toHaveBeenCalledTimes(1);
-    expect(onRepair.mock.calls[0]?.[0]?.drift.phantom).toEqual(["session-1"]);
-    // A repair is not routine: a healthy deployment sweeps nothing, forever, which is what makes
-    // one reported repair a signal rather than noise.
-    expect(await sweepDriftedSchedules({ schedules: repository, onRepair })).toEqual({
+    // Once repaired the event leaves the index, so a settled deployment sweeps nothing — which is
+    // what makes a reported repair a signal rather than noise.
+    expect(await sweepDriftedSchedules({ schedules: repository })).toEqual({
       scanned: 0,
       repaired: 0,
       failed: 0,
     });
-    expect(onRepair).toHaveBeenCalledTimes(1);
   });
 
   it("takes no more events than it is allowed to", async () => {
@@ -231,6 +262,7 @@ describe("the sweep", () => {
             materializedWatermark: 2,
             publications: 2,
             drift: { missing: [], phantom: [], divergent: [] },
+            inSync: false,
             repaired: true,
           };
         },

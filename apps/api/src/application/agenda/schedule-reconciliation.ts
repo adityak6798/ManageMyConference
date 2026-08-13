@@ -16,12 +16,17 @@
  *
  * The price of that decision is worth stating plainly rather than discovering later: **an
  * automatic repair can hide a write path that is producing drift.** If some future importer wrote
- * publications directly every hour, this sweep would quietly correct after it forever and the
+ * publications directly every hour, the repair would quietly correct after it forever and the
  * importer would look correct. The answer is not to leave the damage in place, it is to make the
- * repair loud: every repair is reported to the observer this takes, with the event, both
- * watermarks, and what actually differed. A repair is not a routine event — in a healthy
- * deployment this sweep does nothing at all, forever — so any occurrence at all is a signal, and
- * a *recurring* one names the writer that needs fixing.
+ * repair loud — and the observer that does that belongs to the *repository*, not to this sweep.
+ * Reads repair first for every event anybody opens, so this sweep only ever reaches the events
+ * nobody read; an observer wired here would report exactly the events that matter least. See
+ * `D1AgendaRepository`'s `onRepair`.
+ *
+ * What a reported repair means, once `1602` has settled: a repair whose drift counts are all zero
+ * is the migration's backfill claiming a watermark it deliberately left unclaimed, one per
+ * published event and never again. A repair with a non-zero count is a real divergence, and a
+ * *recurring* one names the writer that needs fixing.
  *
  * @spec PRD-AGD-001 PRD-SPK-002
  */
@@ -49,14 +54,6 @@ export interface ScheduleSweepResult {
 
 export interface ScheduleSweepDependencies {
   readonly schedules: Pick<AgendaRepository, "driftedEvents" | "reconcileSessionSchedules">;
-  /**
-   * Told about every repair, because a repair nobody hears about is how a broken writer survives.
-   *
-   * Carries the whole reconciliation rather than a count: which sessions were phantom, which were
-   * missing and which merely disagreed is the difference between "a publication was missed" and
-   * "something is writing this table directly", and only the first is explained by a deploy.
-   */
-  readonly onRepair?: (report: ScheduleReconciliation) => void;
   /** Told about every failure, with the event that caused it. */
   readonly onFailure?: (fields: { readonly eventId: string; readonly error: string }) => void;
 }
@@ -70,6 +67,13 @@ export interface ScheduleSweepDependencies {
  * being fixed. The failure is reported rather than swallowed and the event stays flagged, so the
  * next tick tries it again and the observer sees it happen every minute, which is the correct
  * amount of noise for something genuinely broken.
+ *
+ * What that does *not* buy: a permanently failing event keeps its place in `driftedEvents`, which
+ * is ordered rather than rotated, so enough of them at the head of that order would crowd the
+ * bound and starve the events behind. Twenty simultaneously unrepairable events is not a state
+ * this system can reach on its own, and the failure log names every one of them every minute, so
+ * the answer is to fix what is broken rather than to rotate around it — but the limitation is
+ * real and is not what "each repaired event leaves the index" implies on its own.
  */
 export async function sweepDriftedSchedules(
   dependencies: ScheduleSweepDependencies,
@@ -83,10 +87,9 @@ export async function sweepDriftedSchedules(
       const report = await dependencies.schedules.reconcileSessionSchedules(eventId, {
         repair: true,
       });
-      if (report.repaired) {
-        repaired += 1;
-        dependencies.onRepair?.(report);
-      }
+      // Reported by the repository's own observer, which sees repairs from every path. Counted
+      // here so the tick can say what it did without a second log line for the same event.
+      if (report.repaired) repaired += 1;
     } catch (error) {
       // ERROR-INTENT: one unrepairable event must not protect every other event's drift from
       // being fixed. A tick that abandoned the rest because the first threw would let a single

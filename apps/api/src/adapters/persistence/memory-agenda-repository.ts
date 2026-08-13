@@ -50,9 +50,10 @@ export class MemoryAgendaRepository implements AgendaRepository {
   /**
    * The two watermarks `agenda_schedule_materializations` holds, doubled (issue #169).
    *
-   * `publication` moves whenever a publication is written by anyone — in D1 that is a trigger, so
-   * it holds for writers this class never sees; here it is every method that appends to `history`.
-   * `materialized` moves only when the fold runs, and `null` means it never has.
+   * `publication` counts every write to the history by anyone — in D1 that is a trigger, so it
+   * holds for writers this class never sees; here it is every method that appends to `history`.
+   * `materialized` moves only when the fold runs, and `null` means it never has. A counter rather
+   * than a version, for the reason `1602` gives: two writes can carry the same version.
    */
   private readonly watermarks = new Map<
     string,
@@ -108,7 +109,7 @@ export class MemoryAgendaRepository implements AgendaRepository {
           schedule,
         ),
       );
-      this.mark(schedule.eventId, schedule.version);
+      this.claim(schedule.eventId);
     }
   }
   /** Append to the history and move the watermark every writer of the history moves. */
@@ -119,14 +120,14 @@ export class MemoryAgendaRepository implements AgendaRepository {
     this.history.set(schedule.eventId, history);
     const watermark = this.watermarks.get(schedule.eventId);
     this.watermarks.set(schedule.eventId, {
-      publication: schedule.version,
+      publication: (watermark?.publication ?? 0) + 1,
       materialized: watermark?.materialized ?? null,
     });
   }
-  /** Claim that the stored revisions now describe the history up to `watermark`. */
-  private mark(eventId: string, watermark: number | null) {
+  /** Claim that the stored revisions describe every write the history has taken. */
+  private claim(eventId: string) {
     const held = this.watermarks.get(eventId);
-    if (held) this.watermarks.set(eventId, { ...held, materialized: watermark });
+    if (held) this.watermarks.set(eventId, { ...held, materialized: held.publication });
   }
   async getDraft(eventId: string) {
     const draft = this.drafts.get(eventId);
@@ -232,7 +233,7 @@ export class MemoryAgendaRepository implements AgendaRepository {
     this.record(schedule);
     // Advanced with the publication, exactly as D1 advances it inside the publication's batch.
     this.sessionSchedules.set(schedule.eventId, nextSessionScheduleRevisions(current, schedule));
-    this.mark(schedule.eventId, schedule.version);
+    this.claim(schedule.eventId);
     if (schedule.commandKey)
       this.byCommandKey.set(
         `${schedule.eventId}~${schedule.commandKey}`,
@@ -279,13 +280,15 @@ export class MemoryAgendaRepository implements AgendaRepository {
     const watermark = this.watermarks.get(eventId);
     const stored = this.sessionSchedules.get(eventId) ?? new Map();
     const drift = compareSessionScheduleRevisions(stored, replayed);
-    const sound =
+    const inSync =
       isScheduleInSync(drift) &&
       (watermark?.materialized ?? null) === (watermark?.publication ?? null);
-    const repaired = options.repair && !sound;
+    // Declines for the same reason D1 does: with no watermark there is nothing to make the write
+    // conditional on, and an unconditional rewrite is the defect the guard exists to prevent.
+    const repaired = options.repair && !inSync && watermark !== undefined;
     if (repaired) {
       this.sessionSchedules.set(eventId, replayed);
-      this.mark(eventId, watermark?.publication ?? null);
+      this.claim(eventId);
     }
     return {
       eventId,
@@ -295,6 +298,7 @@ export class MemoryAgendaRepository implements AgendaRepository {
         : (watermark?.materialized ?? null),
       publications: history.length,
       drift,
+      inSync,
       repaired,
     };
   }
@@ -314,6 +318,17 @@ export class MemoryAgendaRepository implements AgendaRepository {
    * whole point of `GAP-024` is a state no supported code path produces — a state that can only be
    * reached by writing history behind the fold's back.
    */
+  /**
+   * The state migration `1602` leaves behind: correct rows, an unclaimed watermark.
+   *
+   * A test seam for the same reason `recordUnmaintainedPublication` is one — the state is produced
+   * by a migration rather than by any code path this class models, and asserting on it matters
+   * because "rows that agree" and "rows that can be believed" are different questions.
+   */
+  unclaimWatermark(eventId: string): void {
+    const held = this.watermarks.get(eventId);
+    if (held) this.watermarks.set(eventId, { ...held, materialized: null });
+  }
   async recordUnmaintainedPublication(schedule: PublishedSchedule): Promise<void> {
     const versions = this.versions.get(schedule.eventId) ?? new Set<number>();
     versions.add(schedule.version);

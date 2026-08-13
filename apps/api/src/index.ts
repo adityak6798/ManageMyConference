@@ -40,6 +40,7 @@ import { AgendaService } from "./application/agenda/agenda-service";
 import {
   agendaTemplateSlice,
   sweepDriftedSchedules,
+  type ScheduleReconciliation,
   type ScheduleSweepResult,
 } from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
@@ -410,6 +411,45 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
 }
 
 /**
+ * Told about every repair of `agenda_session_schedules`, from whichever path performed it.
+ *
+ * This line is the whole answer to the objection the design invites: repairing automatically can
+ * hide the writer producing the drift, because a future importer writing publications directly
+ * would be corrected forever and look correct. Leaving the damage in place is not the alternative
+ * it appears to be — the failure it causes is mail, in both directions, and nothing surfaces the
+ * condition to a human. So the repair is loud instead.
+ *
+ * It is bound to the *repository* rather than to the sweep, and that placement is load-bearing: a
+ * read repairs the moment anybody opens the workspace or presses Send, so the tick only ever
+ * reaches events nobody read. An observer on the sweep alone would report exactly the events that
+ * matter least, and "a repair is never silent" would be false for the path that runs most.
+ *
+ * How to read one. A repair whose three drift counts are all zero is migration `1602`'s backfill
+ * claiming a watermark it deliberately left unclaimed — one per already-published event, once, and
+ * never again. Any repair with a non-zero count is a real divergence: one is a deploy that raced a
+ * publication, and a recurring one names a writer that needs fixing.
+ */
+const logScheduleRepair = (report: ScheduleReconciliation) => {
+  // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      message: "agenda.schedule.drift_repaired",
+      eventId: report.eventId,
+      publicationWatermark: report.publicationWatermark,
+      materializedWatermark: report.materializedWatermark,
+      publications: report.publications,
+      // Counts rather than session ids: this line reaches a shared log sink, and which sessions
+      // moved is organizer data. The three counts are what distinguishes a settling backfill from
+      // a missed publication from a table somebody wrote directly, which is what the line is for.
+      missing: report.drift.missing.length,
+      phantom: report.drift.phantom.length,
+      divergent: report.drift.divergent.length,
+    }),
+  );
+};
+
+/**
  * Repair the events whose stored schedule revisions have fallen behind their history (issue #169).
  *
  * The composition is deliberately the repository alone. `AgendaService` needs the content domain's
@@ -417,38 +457,19 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
  * about a board: it replays immutable snapshots the agenda already owns. Building a service here
  * to reach one method would make the tick depend on a domain it has no business in.
  *
- * Every repair is logged, and that line is the whole answer to the objection this design invites.
- * Repairing on a schedule can hide the writer producing the drift — a future importer writing
- * publications directly would be silently corrected forever and look correct. In a healthy
- * deployment this logs nothing, ever, so one line is a deploy that raced a publication and a
- * recurring line is a writer that needs fixing. The alternative, leaving the drift in place until
- * a human notices, has nothing to notice *with*: the failure it causes is mail, and it is silent
- * in both directions.
+ * The repair itself is reported by `logScheduleRepair` below, which is bound to the repository
+ * rather than to this sweep — see the note there for why that placement is load-bearing.
  */
 export async function reconcileScheduleMaterializations(
   environment: Environment,
 ): Promise<ScheduleSweepResult> {
   return sweepDriftedSchedules({
-    schedules: new D1AgendaRepository(environment.DB, () => new Date()),
-    onRepair(report) {
-      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
-      console.warn(
-        JSON.stringify({
-          level: "warn",
-          message: "agenda.schedule.drift_repaired",
-          eventId: report.eventId,
-          publicationWatermark: report.publicationWatermark,
-          materializedWatermark: report.materializedWatermark,
-          publications: report.publications,
-          // Counts rather than session ids: this line reaches a shared log sink, and which
-          // sessions moved is organizer data. The three counts are what distinguishes a missed
-          // publication from a table somebody wrote directly, which is what the line is for.
-          missing: report.drift.missing.length,
-          phantom: report.drift.phantom.length,
-          divergent: report.drift.divergent.length,
-        }),
-      );
-    },
+    schedules: new D1AgendaRepository(
+      environment.DB,
+      () => new Date(),
+      undefined,
+      logScheduleRepair,
+    ),
     onFailure(fields) {
       // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
       console.warn(

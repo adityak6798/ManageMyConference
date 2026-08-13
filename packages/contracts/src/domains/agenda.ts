@@ -151,8 +151,10 @@ export const scheduleRevisionSchema = z.object({
  * The two watermarks answer a different question from the drift: the drift says what is wrong now,
  * the watermarks say whether anything had noticed. A divergence with equal watermarks means the
  * derived table was written behind the fold's back, which is a different fault from a publication
- * the fold never saw. `materializedWatermark` is null when the table has never been derived, which
- * is what migration `1602` leaves behind for every event that had already published.
+ * the fold never saw. They count *writes to the history*, not versions — two writes can carry the
+ * same version, and the question is whether anything happened. `materializedWatermark` is null when
+ * the table has never been derived, which is what migration `1602` leaves behind for every event
+ * that had already published.
  */
 export const scheduleReconciliationSchema = z.object({
   eventId: z.string().uuid(),
@@ -161,9 +163,13 @@ export const scheduleReconciliationSchema = z.object({
   /** How many publications the replay walked, which is the cost this answer actually paid. */
   publications: z.number().int().nonnegative(),
   /**
-   * Whether the comparison found agreement — a statement about what was *found*, not about what
-   * was left behind. A `POST` that repaired something therefore answers `inSync: false` with
-   * `repaired: true`, and the proof it worked is that the next `GET` answers `inSync: true`.
+   * Whether the stored answer could be believed: the rows agree with the history *and* the
+   * watermark says so. Both halves — an event whose rows are right but whose watermark migration
+   * `1602` deliberately left unclaimed is **not** in sync, and is repaired to make it so.
+   *
+   * A statement about what was *found*, not about what was left behind. A `POST` that repaired
+   * anything therefore answers `inSync: false` with `repaired: true`, and the proof it worked is
+   * that the next `GET` answers `inSync: true`.
    */
   inSync: z.boolean(),
   /** Whether this call wrote the replayed answer back. Always false for the `GET`. */

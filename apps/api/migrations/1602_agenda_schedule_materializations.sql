@@ -24,9 +24,11 @@
 -- What this migration adds is the thing that was missing: a fact, maintained by the database
 -- itself, that says whether the derived table is still current.
 --
---   `publication_watermark`  advanced by a trigger on *every* insert into `agenda_publications`,
+--   `publication_watermark`  advanced by a trigger on *every* write to `agenda_publications`,
 --                            whoever performs it.
---   `materialized_watermark` written only by the code that (re)derives `agenda_session_schedules`.
+--   `materialized_watermark` written only by the code that (re)derives `agenda_session_schedules`,
+--                            and only when it can prove the first column has not moved underneath
+--                            it.
 --
 -- They are equal exactly when the derived table reflects every publication ever written for the
 -- event. Detection is therefore one indexed row rather than a replay, which is what makes it
@@ -40,17 +42,20 @@
 -- for the old Worker in the deploy window, because the trigger belongs to the database the
 -- migration has already reached, not to the code that is still being uploaded.
 --
--- **Why the watermark is a token rather than a claim about the newest version.** It is the version
--- of the most recent publication *write*, which is normally `MAX(version)` and need not remain so:
--- a publication that is deleted leaves the number behind. That is deliberate. Its only job is to
--- differ from `materialized_watermark` whenever the history has moved since the fold last ran, and
--- an equality token does that job without pretending the row it names still exists. The delete
--- trigger below clears `materialized_watermark` for the same reason, rather than trying to recompute
--- a new head.
+-- **Why a counter rather than the newest version.** An earlier draft stored `NEW.version`, which
+-- reads better and is weaker in a way that matters: two different writes can carry the same
+-- version token. A publication inserted out of order — issue #169's "nothing checks that a
+-- publication's version is the event's newest", unreachable through `AgendaService.publish` but
+-- not through a direct writer — would then leave the watermark unchanged, and the next ordinary
+-- publication would fold past it and mark the event caught up. A counter cannot do that: every
+-- write moves it, so a fold can only claim the table by naming the exact count it observed, and a
+-- write it did not see makes that claim fail. The number means "how many times this event's
+-- history has been written", and nothing reads it as a version.
 
 CREATE TABLE agenda_schedule_materializations (
   event_id TEXT PRIMARY KEY NOT NULL REFERENCES events(id),
-  -- The version of the most recent write to `agenda_publications` for this event.
+  -- How many writes `agenda_publications` has taken for this event. Advanced by the triggers
+  -- below, never by application code.
   publication_watermark INTEGER NOT NULL CHECK (publication_watermark > 0),
   -- The value `publication_watermark` held when `agenda_session_schedules` was last derived.
   -- NULL means never derived, which is what the backfill below leaves behind and what a deleted
@@ -77,33 +82,50 @@ CREATE TRIGGER agenda_publication_insert_advances_watermark
 AFTER INSERT ON agenda_publications
 BEGIN
   INSERT INTO agenda_schedule_materializations (event_id, publication_watermark)
-  VALUES (NEW.event_id, NEW.version)
-  ON CONFLICT(event_id) DO UPDATE SET publication_watermark = NEW.version;
+  VALUES (NEW.event_id, 1)
+  ON CONFLICT(event_id) DO UPDATE
+    SET publication_watermark = agenda_schedule_materializations.publication_watermark + 1;
 END;
 
 -- A deleted publication changes the fold's input as surely as an inserted one.
 --
 -- Not a path this system takes — publications are immutable and only the seed reset removes them,
 -- which removes this table's rows in the same breath — but the invariant is "the derived table
--- reflects the history", and a history that shrank no longer satisfies it. Clearing the
--- materialized side is enough: NULL is unequal to every watermark, so the event is swept, replayed
--- against whatever publications remain, and re-marked.
+-- reflects the history", and a history that shrank no longer satisfies it.
+--
+-- It advances the counter as well as clearing the materialized side, and the first half is the
+-- one that is easy to leave out. Clearing alone would let a repair that read the watermark
+-- *before* the delete still match its claim afterwards, writing rows that include the deleted
+-- snapshot and erasing the invalidation in the same statement. Moving the counter makes that
+-- claim fail, which is the whole mechanism working as stated rather than working for inserts only.
 CREATE TRIGGER agenda_publication_delete_invalidates_watermark
 AFTER DELETE ON agenda_publications
 BEGIN
   UPDATE agenda_schedule_materializations
-  SET materialized_watermark = NULL, materialized_at = NULL
+  SET publication_watermark = publication_watermark + 1,
+      materialized_watermark = NULL,
+      materialized_at = NULL
   WHERE event_id = OLD.event_id;
 END;
 
 -- Backfill: every event that has ever published, marked as never derived.
 --
 -- Not marked as current, though `1601` derived the table from the whole history one migration
--- ago and it almost certainly is. Two publications can land between `1601` and `1602` — the
--- deploy window is exactly the hazard this pair of migrations exists for, and it is open while
--- they run — and a migration that asserted "already current" would put the first false statement
--- into the very table whose purpose is to be believed. Leaving `materialized_watermark` NULL costs
--- one replay per published event on the first sweep after deploy and buys a table whose every
--- claim was computed rather than assumed.
+-- ago and it almost certainly is. A publication can land between `1601` and `1602` — the deploy
+-- window is exactly the hazard this pair of migrations exists for, and it is open while they run —
+-- and a migration that asserted "already current" would put the first false statement into the
+-- very table whose purpose is to be believed. Leaving `materialized_watermark` NULL costs one
+-- replay per published event, spread over the first ticks after deploy at twenty events a tick,
+-- and buys a table whose every claim was computed rather than assumed.
+--
+-- `COUNT(*)` because the column counts writes: an event whose history this migration finds `n`
+-- publications long has taken `n` of them.
+--
+-- `ON CONFLICT DO NOTHING` for the same window. The trigger above already exists by the time this
+-- statement runs, so a publication committing in between has created the row, and a bare INSERT
+-- would fail on the primary key — leaving `migrate:remote` half-applied, with the table and both
+-- triggers created and the migration unrecorded, so the re-run fails on `CREATE TABLE … already
+-- exists`. The row the trigger made is the better one anyway: it counts that write.
 INSERT INTO agenda_schedule_materializations (event_id, publication_watermark)
-SELECT event_id, MAX(version) FROM agenda_publications GROUP BY event_id;
+SELECT event_id, COUNT(*) FROM agenda_publications GROUP BY event_id
+ON CONFLICT(event_id) DO NOTHING;
