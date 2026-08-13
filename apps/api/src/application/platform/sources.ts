@@ -115,7 +115,7 @@ export interface AgendaSource {
      */
     readonly occurrences: {
       readonly sessions: Readonly<Record<string, number>>;
-      readonly resources: number;
+      readonly slots: number;
     };
     readonly conflicts?:
       | readonly {

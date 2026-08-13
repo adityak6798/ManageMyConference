@@ -70,11 +70,22 @@ export interface BoardOccurrences {
    * has never been placed is absent, which reads as `0`: nothing has happened to it yet.
    */
   readonly sessions: Readonly<Record<string, number>>;
-  /** The revision at which rooms, tracks or slots last changed. */
-  readonly resources: number;
+  /**
+   * The revision at which the time slots last changed.
+   *
+   * The slots and nothing else, because they are the only resource a derived condition depends
+   * on: `conflictsFor` decides an overlap from slot *times* and from ids that live on the
+   * placements themselves, and reads neither the room list nor the tracks. Counting every
+   * resource edit here would have been the safer-looking choice and a worse one — adding a
+   * second room would have resurfaced every dismissed conflict on the event, which is exactly
+   * the "a dismissal survives an edit to a different part of the programme" promise this pair of
+   * numbers exists to keep. A slot removed or retimed can genuinely end a clash and bring it
+   * back with both placements untouched, and that is what this covers.
+   */
+  readonly slots: number;
 }
 
-export const EMPTY_BOARD_OCCURRENCES: BoardOccurrences = { sessions: {}, resources: 0 };
+export const EMPTY_BOARD_OCCURRENCES: BoardOccurrences = { sessions: {}, slots: 0 };
 
 export interface AgendaDraft {
   readonly eventId: string;
@@ -261,9 +272,8 @@ function placedCells(draft: Pick<AgendaDraft, "placements">): ReadonlyMap<string
   return new Map([...cells].map(([sessionId, list]) => [sessionId, list.toSorted().join(",")]));
 }
 
-const sameResources = (left: AgendaDraft, right: AgendaDraft) =>
-  JSON.stringify([left.rooms, left.tracks, left.slots]) ===
-  JSON.stringify([right.rooms, right.tracks, right.slots]);
+const sameSlots = (left: AgendaDraft, right: AgendaDraft) =>
+  JSON.stringify(left.slots) === JSON.stringify(right.slots);
 
 /**
  * The occurrences one board write produces, given the ones in force before it.
@@ -281,9 +291,10 @@ const sameResources = (left: AgendaDraft, right: AgendaDraft) =>
  * timestamp of the last edit anywhere: dismissing an unplaced session and then dragging an
  * unrelated card must not resurrect the dismissed item.
  *
- * *Resources carry their own number*, because a clash can be resolved by retiming the slot rather
+ * *The slots carry their own number*, because a clash can be resolved by retiming a slot rather
  * than by moving either placement — and reintroduced the same way, with both placements'
- * occurrences untouched.
+ * occurrences untouched. Rooms and tracks are deliberately not counted: no derived condition
+ * reads them, so an edit to either would resurface dismissals about conditions it cannot affect.
  *
  * An entry survives the session that owned it: the fold sees placements, not the content domain's
  * session list, so it cannot tell "deleted" from "not placed here". That leaves at most one small
@@ -303,7 +314,7 @@ export function advanceBoardOccurrences(
   for (const sessionId of before.keys()) if (!after.has(sessionId)) sessions[sessionId] = revision;
   return {
     sessions,
-    resources: sameResources(previous, next) ? held.resources : revision,
+    slots: sameSlots(previous, next) ? held.slots : revision,
   };
 }
 
@@ -325,9 +336,15 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
         conflictingPlacementId: placement.id,
         resourceId: placement.sessionId,
         message: "This session is no longer schedulable; remove its placement.",
-        // The resources are left out: which rooms and slots exist has nothing to do with whether
-        // the session behind a placement is still schedulable, so an edit to them is not a new
-        // occurrence of this.
+        /*
+         * The slots are left out: which times exist has nothing to do with whether the session
+         * behind a placement is still schedulable, so retiming one is not a new occurrence of
+         * this. What this number also does not follow is the transition that creates and clears
+         * the condition — a session leaving and returning to the content domain — because that
+         * happens outside the board entirely. It is unreachable in practice: withdrawing a
+         * session unschedules its placements first, and a session recreated afterwards carries a
+         * new id, so no key survives to be reused.
+         */
         occurrence: placedAt(placement.sessionId),
       });
   for (let leftIndex = 0; leftIndex < draft.placements.length; leftIndex += 1) {
@@ -344,14 +361,14 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
       if (!rightSlot || !rightSession || !overlaps(leftSlot, rightSlot)) continue;
       /*
        * A clash between two placements begins at the latest of the three things that can start
-       * it: either placement arriving in the cell it now holds, or the resources changing under
+       * it: either placement arriving in the cell it now holds, or a slot being retimed under
        * both. Taking the maximum is what makes the occurrence advance whichever of them was the
        * edit that reintroduced the clash.
        */
       const occurrence = Math.max(
         placedAt(left.sessionId),
         placedAt(right.sessionId),
-        occurrences.resources,
+        occurrences.slots,
       );
       const add = (kind: ConflictKind, resourceId: string, message: string) => {
         conflicts.push({

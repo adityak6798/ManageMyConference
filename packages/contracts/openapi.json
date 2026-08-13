@@ -10687,14 +10687,14 @@
                                 "minimum": 0
                               }
                             },
-                            "resources": {
+                            "slots": {
                               "type": "integer",
                               "minimum": 0
                             }
                           },
                           "required": [
                             "sessions",
-                            "resources"
+                            "slots"
                           ]
                         },
                         "conflicts": {
@@ -11221,14 +11221,14 @@
                                 "minimum": 0
                               }
                             },
-                            "resources": {
+                            "slots": {
                               "type": "integer",
                               "minimum": 0
                             }
                           },
                           "required": [
                             "sessions",
-                            "resources"
+                            "slots"
                           ]
                         },
                         "conflicts": {
@@ -11812,14 +11812,14 @@
                                 "minimum": 0
                               }
                             },
-                            "resources": {
+                            "slots": {
                               "type": "integer",
                               "minimum": 0
                             }
                           },
                           "required": [
                             "sessions",
-                            "resources"
+                            "slots"
                           ]
                         },
                         "conflicts": {
@@ -13262,14 +13262,14 @@
                                 "minimum": 0
                               }
                             },
-                            "resources": {
+                            "slots": {
                               "type": "integer",
                               "minimum": 0
                             }
                           },
                           "required": [
                             "sessions",
-                            "resources"
+                            "slots"
                           ]
                         },
                         "conflicts": {
@@ -21390,14 +21390,14 @@
                                         "minimum": 0
                                       }
                                     },
-                                    "resources": {
+                                    "slots": {
                                       "type": "integer",
                                       "minimum": 0
                                     }
                                   },
                                   "required": [
                                     "sessions",
-                                    "resources"
+                                    "slots"
                                   ]
                                 },
                                 "conflicts": {

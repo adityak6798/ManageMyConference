@@ -97,6 +97,13 @@ describe("D1AgendaRepository", () => {
     const eventId = "00000000-0000-4000-8000-000000000001";
     const seeded = await repository.getDraft(eventId);
     if (!seeded) throw new Error("Agenda fixture is required");
+    /*
+     * The seeded row was written before the occurrences existed and no migration backfilled it,
+     * which is the shape every board in a deployed database has on the day this lands. The read
+     * normalizes rather than leaving the field absent, because the response contract now requires
+     * it and `savePlacements` answers with the board it read when a plan seats nothing.
+     */
+    expect(seeded.occurrences).toEqual({ sessions: {}, slots: 0 });
     const cell = { roomId: "room-lab", trackId: "track-practice", slotId: "slot-1000" };
 
     await Promise.all([

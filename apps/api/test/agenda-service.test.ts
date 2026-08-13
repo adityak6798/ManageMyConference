@@ -1,4 +1,5 @@
 // @acceptance ACC-AGENDA
+import { agendaAssistedDraftSchema, agendaDraftSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
@@ -366,7 +367,7 @@ describe("board occurrences", () => {
     expect(back.occurrences?.sessions["session-a"]).toBe(3);
   });
 
-  it("gives a conflict the later of the two placements' occurrences, and moves it with the resources", async () => {
+  it("gives a conflict the later of the two placements' occurrences, and moves it with the slots", async () => {
     const repository = new MemoryAgendaRepository([boardless]);
     const agenda = service(repository);
     const clashing = { roomId: "room-main", trackId: "track-web", slotId: "slot-9" };
@@ -383,17 +384,68 @@ describe("board occurrences", () => {
       { kind: "SPEAKER_OVERLAP", occurrence: 2 },
     ]);
 
+    // Adding a room is an edit to a different part of the programme. No derived condition reads
+    // the room list — an overlap is decided by the room *ids* the placements already carry — so
+    // counting it would resurface every dismissed conflict on the event for nothing.
+    const roomed = await agenda.configure(organizer, eventId, {
+      rooms: [...draft.rooms, { id: "room-annex", name: "Annex" }],
+      tracks: draft.tracks,
+      slots: draft.slots,
+    });
+    expect(roomed.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
     // Retiming the slot is the other way a clash of these two placements can be resolved and
-    // reintroduced, so the resources carry an occurrence of their own.
+    // reintroduced, so the slots carry an occurrence of their own.
     const retimed = await agenda.configure(organizer, eventId, {
-      rooms: draft.rooms,
+      rooms: roomed.rooms,
       tracks: draft.tracks,
       slots: [
         { id: "slot-9", startsAt: "2026-09-01T16:00:00.000Z", endsAt: "2026-09-01T16:20:00.000Z" },
         draft.slots[1] as (typeof draft.slots)[number],
       ],
     });
-    expect(retimed.conflicts.every(({ occurrence }) => occurrence === 3)).toBe(true);
+    expect(retimed.conflicts.every(({ occurrence }) => occurrence === 4)).toBe(true);
+  });
+
+  it("answers a board stored before occurrences existed with them, on every path", async () => {
+    /*
+     * No migration backfilled them, so every board written before this commit — the seeded one
+     * included — carries none, and the contract this change made required is not optional about
+     * it. `savePlacements` is the one path that answers with a board it did not write: a plan
+     * that seats nothing returns the board as read, which is the ordinary answer once every cell
+     * is taken. That path served a draft with no `occurrences` and the console refused the
+     * response rather than showing the explanation it was carrying.
+     */
+    const legacy: AgendaDraft = {
+      ...draft,
+      placements: [
+        {
+          id: "place-a",
+          sessionId: "session-a",
+          roomId: "room-main",
+          trackId: "track-web",
+          slotId: "slot-9",
+        },
+        {
+          id: "place-b",
+          sessionId: "session-b",
+          roomId: "room-main",
+          trackId: "track-web",
+          slotId: "slot-930",
+        },
+      ],
+    };
+    expect(legacy).not.toHaveProperty("occurrences");
+    const repository = new MemoryAgendaRepository([legacy]);
+    const agenda = service(repository);
+
+    // Every cell this board has is taken, so the assisted pass seats nothing and answers with
+    // what it read. A third session with nowhere to go is the state that reaches it.
+    const seated = await agenda.autoPlace(organizer, eventId);
+
+    expect(seated.occurrences).toEqual({ sessions: {}, slots: 0 });
+    expect(agendaAssistedDraftSchema.safeParse(seated).success).toBe(true);
+    expect(agendaDraftSchema.safeParse(await agenda.draft(organizer, eventId)).success).toBe(true);
   });
 
   it("keeps them out of the publication snapshot", async () => {

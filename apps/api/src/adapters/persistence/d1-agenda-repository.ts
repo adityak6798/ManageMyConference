@@ -151,12 +151,20 @@ export class D1AgendaRepository implements AgendaRepository {
     if (!result.success)
       throw new Error(`D1 failed to read agenda draft: ${result.error ?? "unknown error"}`);
     const row = result.results?.[0];
-    return row
-      ? {
-          draft: JSON.parse(row.draft_json) as AgendaDraft,
-          revision: row.revision,
-        }
-      : null;
+    if (!row) return null;
+    const stored = JSON.parse(row.draft_json) as AgendaDraft;
+    return {
+      /*
+       * Normalized here rather than at each caller, because every row written before the
+       * occurrences existed — the seeded board included — lacks the field, and no migration
+       * backfilled them. A board this repository hands out without one reaches a caller that
+       * has been told every draft carries it: `savePlacements` returns the board it read
+       * unchanged when a plan seats nothing, which is an ordinary answer on a full board and
+       * was the one path that could serve a draft the response contract then refused.
+       */
+      draft: { ...stored, occurrences: stored.occurrences ?? EMPTY_BOARD_OCCURRENCES },
+      revision: row.revision,
+    };
   }
   /**
    * Replace the whole board, occurrences included.

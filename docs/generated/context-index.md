@@ -612,6 +612,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/platform/inbox-service.ts](../../apps/api/src/application/platform/inbox-service.ts)
 - `code` / `repository-fact`: [apps/web/src/platform/InboxWorkspace.tsx](../../apps/web/src/platform/InboxWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/platform.tsx](../../apps/web/src/workspaces/platform.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)

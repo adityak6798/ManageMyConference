@@ -46,7 +46,22 @@ export class MemoryAgendaRepository implements AgendaRepository {
     /** Snapshots already in force, so a board can start out published. */
     publications: readonly PublishedSchedule[] = [],
   ) {
-    for (const draft of drafts) this.drafts.set(draft.eventId, structuredClone(draft));
+    for (const draft of drafts) {
+      this.drafts.set(draft.eventId, structuredClone(draft));
+      /*
+       * A seeded board's occurrences are already expressed in revisions, so the counter starts
+       * above the highest of them. Starting at zero would let the first edit write a number
+       * lower than one the fixture already holds, which D1 cannot do — the revision lives in its
+       * own column there and is read back before every fold — and a double that can go backwards
+       * is a double that proves less than the thing it stands for.
+       */
+      const seeded = draft.occurrences;
+      if (seeded)
+        this.revisions.set(
+          draft.eventId,
+          Math.max(seeded.slots, ...Object.values(seeded.sessions), 0),
+        );
+    }
     for (const schedule of publications) {
       this.publications.set(schedule.eventId, structuredClone(schedule));
       // A seeded snapshot has taken its version too, so the next publication allocates past it.
@@ -71,7 +86,12 @@ export class MemoryAgendaRepository implements AgendaRepository {
       );
   }
   async getDraft(eventId: string) {
-    return structuredClone(this.drafts.get(eventId) ?? null);
+    const draft = this.drafts.get(eventId);
+    // Normalized on the way out, exactly as D1 does: a fixture — like a row written before the
+    // occurrences existed — may carry none, and no caller should have to know that.
+    return draft
+      ? structuredClone({ ...draft, occurrences: draft.occurrences ?? EMPTY_BOARD_OCCURRENCES })
+      : null;
   }
   async saveDraft(draft: AgendaDraft) {
     // The create path, as in D1: a board that has only just appeared has no occurrences yet.
@@ -128,7 +148,9 @@ export class MemoryAgendaRepository implements AgendaRepository {
     const draft = this.drafts.get(eventId);
     if (!draft) return null;
     const placements = plan(structuredClone(draft));
-    if (!placements.length) return structuredClone(draft);
+    // The board as a caller must see it, occurrences included — a plan that seats nothing is an
+    // ordinary answer on a full board, and the one path that returns a board it did not write.
+    if (!placements.length) return this.getDraft(eventId);
     const replaced = new Set(placements.map(({ id }) => id));
     return this.commit(eventId, draft, {
       ...draft,
