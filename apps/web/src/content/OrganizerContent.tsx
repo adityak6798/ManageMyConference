@@ -31,7 +31,6 @@ import { Card, EmptyState, Notice, Pill, Stat, Tabs, useActionFeedback } from ".
 
 import { SessionEditor } from "./SessionEditor";
 import { SpeakerOutreach } from "./SpeakerOutreach";
-import { ResourceEditor } from "./ResourceEditor";
 import { ContentOperations } from "./ContentOperations";
 import {
   daysUntil,
@@ -240,8 +239,11 @@ export function OrganizerView({
 
   return (
     <div className="content-workspace">
-      <ResourceEditor eventId={eventId} workspace={workspace} busy={busy} run={run} />
-      <ContentOperations eventId={eventId} workspace={workspace} busy={busy} run={run} />
+      {/* Order is the point of this layout (#144): an organizer opens this page to see accepted
+          content and who owes work, so the stat tiles, the sessions table and the speaker roster
+          come first. Authoring, imports and history follow as disclosures below the dashboard —
+          they are settings-shaped tasks performed rarely, and they used to occupy the first 1420px
+          of the page while the dashboard started 32% down it. */}
       <dl className="grid-auto">
         <Stat
           label="Accepted sessions"
@@ -582,6 +584,8 @@ export function OrganizerView({
 
         <SpeakerOutreach workspace={workspace} busy={busy} run={run} />
       </div>
+
+      <ContentOperations eventId={eventId} workspace={workspace} busy={busy} run={run} />
     </div>
   );
 }

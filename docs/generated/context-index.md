@@ -180,6 +180,7 @@
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/speaker-portal.spec.ts](../../apps/web/e2e/speaker-portal.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/calendar-links.test.ts](../../apps/web/test/calendar-links.test.ts)
+- `test` / `repository-fact`: [apps/web/test/content-operations.test.tsx](../../apps/web/test/content-operations.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/proposal-acceptance.test.tsx](../../apps/web/test/proposal-acceptance.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/session-withdrawal.test.tsx](../../apps/web/test/session-withdrawal.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-photo.test.tsx](../../apps/web/test/speaker-photo.test.tsx)

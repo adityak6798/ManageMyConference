@@ -54,7 +54,8 @@
     "apps/api/test/speaker-calendar-invites.test.ts",
     "apps/web/test/calendar-links.test.ts",
     "apps/web/src/content/AccelEventsSync.tsx",
-    "apps/web/test/accelevents-sync-panel.test.tsx"
+    "apps/web/test/accelevents-sync-panel.test.tsx",
+    "apps/web/test/content-operations.test.tsx"
   ],
   "symbols": {
     "ContentService": "apps/api/src/application/content/content-service.ts",
