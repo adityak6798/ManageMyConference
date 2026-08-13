@@ -497,8 +497,12 @@ feature-by-feature verdict.
   platform key and covered by a resolve-then-recreate test, closes the sixth.
 
 - `GAP-025` **Three unguarded content writers still report a save for a write that matched no row.**
-  `d1-content-repository.ts` reads the affected-row count on every unguarded `UPDATE` a caller reads
-  a row for first *except* three: `updateProfilePhoto`, `updateProfileWorkflow` and `updateAsset`.
+  `d1-content-repository.ts` reads the affected-row count on the unguarded `UPDATE`s a caller reads
+  a row for first, except four: `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and
+  `completeSpeakerImport`. (Two others — `updateProfile` and `updateSession` — also drop the count,
+  and are outside this entry because the port documents both as fixture-only with no production
+  caller. The batch writes and the two `ON CONFLICT DO UPDATE` upserts are conditional or
+  converging by design, where matching nothing is the correct answer rather than a lost one.)
   Each has the same read-then-write gap the others closed, and the same consequence — a successful
   statement that matched nothing is indistinguishable from one that landed, so the response is a
   200 describing a change to a row that is not there. Concretely: unpublishing an asset another
@@ -506,14 +510,20 @@ feature-by-feature verdict.
   profile deleted mid-edit reports the headshot set, because the service falls back to the object
   it constructed rather than to what the store did.
 
-  The three were left rather than swept up with the others because one of them cannot be closed
-  without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
+  `completeSpeakerImport` is the mildest of the four and is named rather than excused: nothing
+  deletes a `content_speaker_import_rows` row today, so its write cannot currently match nothing —
+  but neither does anything delete a `speaker_profiles` row, and two of the other three are profile
+  writers, so "the row cannot vanish" is not the criterion that separates them. What separates them
+  is that the other three have a caller who reports success to a person.
+
+  They were left rather than swept up with the writers that were fixed because one of them cannot be
+  closed without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
   writer, and what an import should do with a row that vanished mid-run — skip it, refuse the row,
   fail the batch — is a product question about imports rather than a repair to the write rule. The
   other two want the same answer as their siblings and are held with it so that the three are
   decided together, since a file applying one rule to four writers and another to three is how the
   first divergence happened.
 
-  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all three read
+  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all four read
   the count; the import's behaviour on a vanished row is decided and stated where the import is
   documented; and a test per writer drives a row deleted between the read and the write.

@@ -1305,7 +1305,7 @@ describe("speaker checklist authoring", () => {
    * nothing", so before the affected-row count was read these answered 200 and reported a save
    * over a projection that no longer contains the thing.
    *
-   * Three *other* unguarded writers in the same adapter still have the gap. `GAP-025` names them
+   * Four *other* unguarded writers in the same adapter still have the gap. `GAP-025` names them
    * and says why one of them cannot be closed without a decision about import semantics.
    */
   it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
@@ -1417,14 +1417,17 @@ describe("speaker checklist authoring", () => {
   });
 
   /**
-   * Existence is resolved before the title rule, which is the order D1 resolves them in.
+   * The **store** resolves existence before the title rule, which is the order D1 resolves them in.
    *
-   * Discriminating on purpose: this renames a *vanished* line onto a title a **sibling** still
-   * holds. A store that checked the title first would answer "that title is taken" about a row
-   * that is not there, and a service test written against that more permissive double would pass
-   * through the wrong refusal entirely.
+   * Driven straight at the repository, and that is the whole point: the service reads the row
+   * first, so a vanished line never reaches the write at all and a test that went through
+   * `updateTaskTemplate` would assert the service's read order while claiming to assert the
+   * store's. This renames a *vanished* line onto a title a **sibling** still holds — the one
+   * shape the two orderings disagree about. A double that checked the title first throws "that
+   * title is taken" about a row that is not there; D1 matches nothing and answers `false`, and a
+   * service test written against the permissive double would pass through the wrong refusal.
    */
-  it("refuses a vanished line as gone rather than as a duplicate title", async () => {
+  it("answers a vanished line as gone rather than as a duplicate title", async () => {
     const { repository, service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
     const survivor = await service.createTaskTemplate(organizer, { eventId, ...line });
@@ -1436,6 +1439,10 @@ describe("speaker checklist authoring", () => {
     });
     await repository.deleteTaskTemplate(doomed.id);
 
+    await expect(repository.updateTaskTemplate({ ...doomed, title: survivor.title })).resolves.toBe(
+      false,
+    );
+    // And through the service, where the read refuses before the write is reached at all.
     await expect(
       service.updateTaskTemplate(organizer, doomed.id, { ...line, title: survivor.title }),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
