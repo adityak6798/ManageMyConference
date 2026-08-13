@@ -303,3 +303,38 @@ still says feature 6 has "no test on its rows", which is one of the staleness it
 - **`acceptance-evidence.json` conflicts.** Seven lanes each edit one row. Assessed as small and
   mechanical — rows sit 8–14 lines apart and git merges them cleanly. Revisit only if it actually
   hurts; the fix would be the same shape as #105.
+
+### Issue #141 rulings
+
+**One shared file the wave plan did not assign: `tools/tests/check-schema-drift.test.mjs`.** It
+asserts a literal census of domain-owned tables ("the registry and public aggregate expose all *N*
+domain-owned tables", and the same `N` again in the body), so **any lane that adds a table must
+bump it**, and this wave's migration assignments give several lanes a new table. That makes a
+conflict likely, and no "take both sides" rule can resolve it, because the two sides are different
+numbers and neither is right on its own. **Resolution: take neither; set the count to the number of
+tables actually declared after the merge, and re-run `npm run schema:check`, which prints the true
+count.** #141 raised it from 55 to 56. (Which other lanes actually add a table is a prediction from
+the wave plan, not something #141 can observe — the branches do not exist yet. The resolution rule
+holds regardless of how many of them land.)
+
+**The backfill was written rather than deferred, so the fallback in the lane brief is unused.** The
+CTE in `1601` is asserted equal to folding `nextSessionScheduleRevisions` over the same rows, both
+on a hand-built history covering every branch (`d1-agenda-repository.integration.test.ts`) and on
+2,000 generated histories per run — 1,000 seeds carrying two events each — in
+`apps/api/test/agenda-backfill-parity.test.ts`, which is in the unit suite and therefore
+re-runnable and CI-enforced rather than a one-off. That test also asserts its generator still
+reaches the cases that *discriminate* the two implementations: empty boards, dangling slot
+references, returns after absence, double placements whose copies resolve differently, and
+sessions still in force whose room the final snapshot dropped. Counting shapes rather than
+discriminating cases is what let two mutations of `1601` survive the suite in the first place.
+
+The self-healing watermark read described as the honest second choice was therefore
+not needed and is not present; what replaces it as the residual risk is recorded in
+[known gaps](../quality/known-gaps.md) as `GAP-024`.
+
+**`agenda/public.ts` is now edited as predicted.** `ContentAgendaInterface.publishedSessionSchedules`
+is expressed as `ReadonlyMap<string, SessionScheduleRevision>`, which is structurally identical to
+the `PlacedSessionTime & { revision; revisedAt }` it replaces — no file under
+`application/content/` or `application/communications/` needed a change, which was the contract
+test for this lane. A lane appending to this file should add its export below the interface and
+edit nothing above.
