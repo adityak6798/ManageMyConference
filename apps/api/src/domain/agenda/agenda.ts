@@ -71,26 +71,28 @@ export interface BoardOccurrences {
    */
   readonly sessions: Readonly<Record<string, number>>;
   /**
-   * The revision at which an existing time slot was last **retimed**.
+   * Slot id → the revision at which that slot was last **retimed**.
    *
-   * Narrowed twice, and both narrowings are the same argument. `conflictsFor` decides an overlap
-   * from slot *times* and from ids that live on the placements themselves, and reads neither the
-   * room list nor the tracks — so counting every resource edit, which is what this first did,
-   * meant adding a second room resurfaced every dismissed conflict on the event. Adding a time
-   * slot is the same mistake one size down: a slot no placement references cannot change any
-   * pair's overlap, and adding one is a routine act while an organizer is building a board.
+   * Narrowed three times, and every narrowing is one argument: a number that advances for an
+   * edit no derived condition can read resurfaces dismissals about conditions that edit cannot
+   * affect. `conflictsFor` decides an overlap from slot *times* and from ids that live on the
+   * placements themselves, and reads neither the room list nor the tracks — so counting every
+   * resource edit (the first version) meant adding a room reopened every dismissed conflict on
+   * the event; comparing the whole slot list (the second) did the same for adding a slot; and one
+   * number for all slots (the third) did it for retiming any one of them, however far from the
+   * clash. Per slot, a conflict takes the numbers of the two slots its placements are actually in.
    *
-   * What remains is the case that is real: a slot that keeps its id and moves in time can end a
+   * What is left is the case that is real: a slot that keeps its id and moves in time can end a
    * clash and bring it back with both placements untouched. Removing a referenced slot is not a
-   * third case — storage refuses it while a placement holds it.
+   * second case — storage refuses it while a placement holds it.
    */
-  readonly slots: number;
+  readonly slots: Readonly<Record<string, number>>;
 }
 
 /** Frozen because it is handed out by reference on the read path, to every legacy board at once. */
 export const EMPTY_BOARD_OCCURRENCES: BoardOccurrences = Object.freeze({
   sessions: Object.freeze({}),
-  slots: 0,
+  slots: Object.freeze({}),
 });
 
 export interface AgendaDraft {
@@ -279,19 +281,30 @@ function placedCells(draft: Pick<AgendaDraft, "placements">): ReadonlyMap<string
 }
 
 /**
- * Whether every slot the two boards have in common still says the same hour.
+ * Which slots moved in time between two boards, by id.
  *
- * By id and pairwise, rather than by comparing the two lists: a slot that only one board has is
- * either one being added — which no existing placement references, so it can change no pair's
- * overlap — or one being removed, which storage refuses while a placement holds it. Comparing
- * the arrays instead made both of those, and a mere reordering, look like a retiming.
+ * Pairwise by id rather than list against list: a slot only one board has is either being added
+ * — which no existing placement references, so it can change no pair's overlap — or being
+ * removed, which storage refuses while a placement holds it. Comparing the arrays made both of
+ * those, and a mere reordering, look like a retiming.
+ *
+ * Compared as **instants**, not as strings. `2026-09-01T16:00:00.000Z` and `2026-09-01T16:00:00Z`
+ * are one hour spelled two ways, the schema accepts both, and `conflictsFor` reads them through
+ * `Date.parse` — so a client that re-spells a slot must not look like an organizer who moved it.
+ * `template-slice.ts` compares slots the same way and says so for the same reason.
  */
-function sameSlotTimes(left: AgendaDraft, right: AgendaDraft): boolean {
-  const before = new Map(left.slots.map((slot) => [slot.id, slot]));
-  return right.slots.every((slot) => {
-    const held = before.get(slot.id);
-    return !held || (held.startsAt === slot.startsAt && held.endsAt === slot.endsAt);
-  });
+function retimedSlots(previous: AgendaDraft, next: AgendaDraft): readonly string[] {
+  const before = new Map(previous.slots.map((slot) => [slot.id, slot]));
+  return next.slots
+    .filter((slot) => {
+      const held = before.get(slot.id);
+      return (
+        held &&
+        (Date.parse(held.startsAt) !== Date.parse(slot.startsAt) ||
+          Date.parse(held.endsAt) !== Date.parse(slot.endsAt))
+      );
+    })
+    .map(({ id }) => id);
 }
 
 /**
@@ -310,15 +323,17 @@ function sameSlotTimes(left: AgendaDraft, right: AgendaDraft): boolean {
  * timestamp of the last edit anywhere: dismissing an unplaced session and then dragging an
  * unrelated card must not resurrect the dismissed item.
  *
- * *The slots carry their own number*, because a clash can be resolved by retiming a slot rather
- * than by moving either placement — and reintroduced the same way, with both placements'
- * occurrences untouched. Only a retiming counts: rooms, tracks, and slots being added or removed
- * are all edits no derived condition reads, so counting them would resurface dismissals about
- * conditions they cannot affect.
+ * *A retimed slot takes this revision, and only the slot that moved*, because a clash can be
+ * resolved by retiming the hour rather than by moving either placement — and reintroduced the
+ * same way, with both placements' occurrences untouched. Rooms, tracks, and slots being added or
+ * removed are edits no derived condition reads, so counting them would resurface dismissals about
+ * conditions they cannot affect; and one number covering every slot did the same to a clash three
+ * rooms away from the hour that moved.
  *
- * An entry survives the session that owned it: the fold sees placements, not the content domain's
- * session list, so it cannot tell "deleted" from "not placed here". That leaves at most one small
- * entry per session ever placed, which is bounded by the size of the programme.
+ * An entry survives the thing that owned it — a session content has deleted, a slot the board no
+ * longer has — because the fold sees the board, not the content domain's session list, and cannot
+ * tell "deleted" from "not here". That leaves at most one small entry per session ever placed and
+ * per slot ever retimed, both bounded by the size of the programme.
  */
 export function advanceBoardOccurrences(
   previous: AgendaDraft,
@@ -332,10 +347,9 @@ export function advanceBoardOccurrences(
   for (const [sessionId, cells] of after)
     if (before.get(sessionId) !== cells) sessions[sessionId] = revision;
   for (const sessionId of before.keys()) if (!after.has(sessionId)) sessions[sessionId] = revision;
-  return {
-    sessions,
-    slots: sameSlotTimes(previous, next) ? held.slots : revision,
-  };
+  const slots: Record<string, number> = { ...held.slots };
+  for (const slotId of retimedSlots(previous, next)) slots[slotId] = revision;
+  return { sessions, slots };
 }
 
 const overlaps = (left: AgendaSlot, right: AgendaSlot) =>
@@ -347,6 +361,7 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
   const sessions = new Map(draft.sessions.map((session) => [session.id, session]));
   const occurrences = draft.occurrences ?? EMPTY_BOARD_OCCURRENCES;
   const placedAt = (sessionId: string) => occurrences.sessions[sessionId] ?? 0;
+  const retimedAt = (slotId: string) => occurrences.slots[slotId] ?? 0;
   const conflicts: AgendaConflict[] = [];
   for (const placement of draft.placements)
     if (!sessions.has(placement.sessionId))
@@ -380,15 +395,17 @@ export function conflictsFor(draft: AgendaDraft): readonly AgendaConflict[] {
       const rightSession = sessions.get(right.sessionId);
       if (!rightSlot || !rightSession || !overlaps(leftSlot, rightSlot)) continue;
       /*
-       * A clash between two placements begins at the latest of the three things that can start
-       * it: either placement arriving in the cell it now holds, or a slot being retimed under
-       * both. Taking the maximum is what makes the occurrence advance whichever of them was the
-       * edit that reintroduced the clash.
+       * A clash between two placements begins at the latest of the four things that can start
+       * it: either placement arriving in the cell it now holds, or either of the two hours they
+       * sit in moving. Taking the maximum is what makes the occurrence advance whichever of them
+       * was the edit that reintroduced the clash — and taking only *these* four is what keeps an
+       * edit elsewhere on the board from advancing it at all.
        */
       const occurrence = Math.max(
         placedAt(left.sessionId),
         placedAt(right.sessionId),
-        occurrences.slots,
+        retimedAt(left.slotId),
+        retimedAt(right.slotId),
       );
       const add = (kind: ConflictKind, resourceId: string, message: string) => {
         conflicts.push({

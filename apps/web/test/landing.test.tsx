@@ -278,7 +278,7 @@ describe("the first thing a provisioned workspace says", () => {
             slots: [],
             sessions: [],
             placements: [],
-            occurrences: { sessions: {}, slots: 0 },
+            occurrences: { sessions: {}, slots: {} },
             conflicts: [],
           }),
           publication: {

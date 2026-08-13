@@ -384,10 +384,17 @@ describe("board occurrences", () => {
       { kind: "SPEAKER_OVERLAP", occurrence: 2 },
     ]);
 
-    // Adding a room, and adding a time slot nothing is placed in, are edits to a different part
-    // of the programme. No derived condition reads the room list — an overlap is decided by the
-    // room *ids* the placements already carry — and an unreferenced slot cannot change any pair's
-    // overlap either, so counting either would resurface every dismissed conflict for nothing.
+    /*
+     * The negatives, and each asserts the list is still there before asserting about it: `every`
+     * is true of an empty array, so a `configure` that quietly dropped the whole board would have
+     * satisfied the earlier form of these three lines — and the whole suite besides. A review pass
+     * proved exactly that by mutation.
+     *
+     * Adding a room, adding a time slot nothing is placed in, and retiming a slot neither
+     * placement is in are all edits to a different part of the programme. No derived condition
+     * reads the room list — an overlap is decided by the room *ids* the placements already carry
+     * — and a slot no placement references cannot change any pair's overlap however it moves.
+     */
     const widened = await agenda.configure(organizer, eventId, {
       rooms: [...draft.rooms, { id: "room-annex", name: "Annex" }],
       tracks: draft.tracks,
@@ -396,18 +403,66 @@ describe("board occurrences", () => {
         { id: "slot-11", startsAt: "2026-09-01T18:00:00.000Z", endsAt: "2026-09-01T19:00:00.000Z" },
       ],
     });
+    expect(widened.conflicts).toHaveLength(2);
     expect(widened.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
 
-    // Retiming a slot the placements are actually in is the other way this clash can be resolved
-    // and reintroduced, so that — and only that — advances the slots' own number.
-    const retimed = await agenda.configure(organizer, eventId, {
+    const elsewhere = await agenda.configure(organizer, eventId, {
       rooms: widened.rooms,
       tracks: draft.tracks,
       slots: widened.slots.map((slot) =>
+        slot.id === "slot-11" ? { ...slot, endsAt: "2026-09-01T20:00:00.000Z" } : slot,
+      ),
+    });
+    expect(elsewhere.conflicts).toHaveLength(2);
+    expect(elsewhere.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
+    // Re-spelling the same instant is not a retiming either: the schema accepts both spellings and
+    // `conflictsFor` reads them through `Date.parse`, so a client that normalizes its own payload
+    // must not look like an organizer who moved the hour.
+    const respelled = await agenda.configure(organizer, eventId, {
+      rooms: widened.rooms,
+      tracks: draft.tracks,
+      slots: elsewhere.slots.map((slot) =>
+        slot.id === "slot-9" ? { ...slot, startsAt: "2026-09-01T16:00:00Z" } : slot,
+      ),
+    });
+    expect(respelled.conflicts).toHaveLength(2);
+    expect(respelled.conflicts.every(({ occurrence }) => occurrence === 2)).toBe(true);
+
+    // Retiming the slot the placements are actually in is the other way this clash can be
+    // resolved and reintroduced, so that — and only that — advances a slot's own number.
+    const retimed = await agenda.configure(organizer, eventId, {
+      rooms: widened.rooms,
+      tracks: draft.tracks,
+      slots: respelled.slots.map((slot) =>
         slot.id === "slot-9" ? { ...slot, endsAt: "2026-09-01T16:20:00.000Z" } : slot,
       ),
     });
-    expect(retimed.conflicts.every(({ occurrence }) => occurrence === 4)).toBe(true);
+    expect(retimed.conflicts).toHaveLength(2);
+    expect(retimed.conflicts.every(({ occurrence }) => occurrence === 6)).toBe(true);
+  });
+
+  it("keeps a slot's number where it is when the board sends the same slots in another order", async () => {
+    // The console sorts slots by start before sending them, so a payload whose order differs from
+    // storage is an ordinary request rather than a contrived one. Reordering is not a retiming.
+    const repository = new MemoryAgendaRepository([boardless]);
+    const agenda = service(repository);
+    await agenda.place(organizer, eventId, {
+      id: "place-a",
+      sessionId: "session-a",
+      roomId: "room-main",
+      trackId: "track-web",
+      slotId: "slot-9",
+    });
+
+    const reordered = await agenda.configure(organizer, eventId, {
+      rooms: draft.rooms,
+      tracks: draft.tracks,
+      slots: [...draft.slots].toReversed(),
+    });
+
+    expect(reordered.slots.map(({ id }) => id)).toEqual(["slot-930", "slot-9"]);
+    expect(reordered.occurrences?.slots).toEqual({});
   });
 
   it("answers a board stored before occurrences existed with them, including from the repository", async () => {
@@ -448,11 +503,11 @@ describe("board occurrences", () => {
     const seated = await agenda.autoPlace(organizer, eventId);
 
     expect(seated.placed).toEqual([]);
-    expect(seated.occurrences).toEqual({ sessions: {}, slots: 0 });
+    expect(seated.occurrences).toEqual({ sessions: {}, slots: {} });
     expect(agendaAssistedDraftSchema.safeParse(seated).success).toBe(true);
     // Asserted against the repository rather than against `draft()`, which normalizes on its own
     // account: reading it through the service would pass with the repository's guarantee removed.
-    expect((await repository.getDraft(eventId))?.occurrences).toEqual({ sessions: {}, slots: 0 });
+    expect((await repository.getDraft(eventId))?.occurrences).toEqual({ sessions: {}, slots: {} });
   });
 
   it("keeps them out of the publication snapshot", async () => {

@@ -105,17 +105,20 @@ export interface AgendaSource {
       readonly slotId: string;
     }[];
     /**
-     * When each part of the board last changed, in board revisions.
+     * When each session's placements last changed, in board revisions.
      *
-     * Required rather than optional, and that is the point of stating ports here: a session's
-     * number is what separates "still unplaced" from "placed and taken off again", and the
-     * inbox's dismissal key is built from it. If the agenda ever stopped answering it, the
-     * binding in the composition root would stop compiling instead of the inbox quietly going
-     * back to hiding a recreated condition behind an old dismissal (issue #180).
+     * Required rather than optional, and that is the point of stating ports here: this number is
+     * what separates "still unplaced" from "placed and taken off again", and the inbox's
+     * dismissal key is built from it. If the agenda ever stopped answering it, the binding in the
+     * composition root would stop compiling instead of the inbox quietly going back to hiding a
+     * recreated condition behind an old dismissal (issue #180).
+     *
+     * The board also carries a number per retimed slot, which is deliberately not declared here:
+     * a conflict's own `occurrence` already folds in the slots its placements sit in, and platform
+     * has no use for the raw map. A port states the narrowest shape its holder actually reads.
      */
     readonly occurrences: {
       readonly sessions: Readonly<Record<string, number>>;
-      readonly slots: number;
     };
     readonly conflicts?:
       | readonly {

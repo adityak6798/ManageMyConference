@@ -27,6 +27,15 @@ export interface AgendaRepository {
    * method that returns a draft it did not write.
    */
   getDraft(eventId: string): Promise<AgendaDraft | null>;
+  /**
+   * Create a board, or replace one wholesale.
+   *
+   * The create path — a first `saveResources`, or a seed — and not an edit: it folds nothing,
+   * because there is no previous board to fold against, so the occurrences it stores are empty.
+   * An implementation must not route an edit through it, or that edit's occurrences are lost.
+   * Stated here for the same reason `getDraft`'s guarantee is: two implementations agreeing by
+   * habit is not a contract, and this one has a wrong answer available to it.
+   */
   saveDraft(draft: AgendaDraft): Promise<void>;
   saveResources(
     eventId: string,

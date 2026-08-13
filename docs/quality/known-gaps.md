@@ -152,8 +152,8 @@ feature-by-feature verdict.
 - `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Three
   times observed: once locally on 2026-08-11 after roughly 45 minutes of uptime, once in the
   `browser` job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with
-  no message and exited 38 seconds into the suite, and once more on 2026-08-13 (below). In the
-  hosted case every subsequent request failed with
+  no message and exited 38 seconds into the suite, and once more on 2026-08-13 (below). In that
+  second case every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
   commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
@@ -220,10 +220,10 @@ feature-by-feature verdict.
   Ports were one way to provoke that; they were not the only one, and neither the browser-job
   crash of hosted run `31498844956` nor the one above had any port pressure behind it. Owner:
   platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a
-  diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between spec
-  files, or a Playwright global setup that fails fast when the API stops answering — and the
-  wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`
-  and the `kj` message above.
+  diagnosis rather than the 22 and 31 misleading assertion errors the two hosted crashes produced
+  — a `webServer` health probe between spec files, or a Playwright global setup that fails fast
+  when the API stops answering — and the wrangler crash itself is reported upstream with the log
+  from `apps/api/.wrangler/wrangler.log` and the `kj` message above.
 - `GAP-019` **The demo reset would delete real self-serve accounts, and its guard cannot tell that
   it is about to.** `apps/api/seed/reset.sql` is a full teardown: it `DELETE`s *every* row of
   `users`, `organizations` and `events` — not the seeded ones, all of them — before inserting the
@@ -423,13 +423,14 @@ feature-by-feature verdict.
   It was six. The sixth — programme inbox dismissal keys carrying no occurrence, so a condition
   resolved and exactly recreated stayed hidden behind the old dismissal — **is closed** by issue
   #180. The agenda now maintains, in the same write that changes the board, the revision at which
-  each session's placements last changed and the one at which an existing time slot was last
-  retimed; a conflict carries the later of those, and platform's key carries it. A session nobody has touched
-  keeps its dismissal across every unrelated edit, which is why the number is per session rather
-  than the board revision. Two consequences worth stating rather than discovering: the numbers are
-  **not backfilled**, so every programme dismissal recorded before them reads as occurrence zero
-  and its item returns open once — the conservative direction, and the reason no migration was
-  needed; and rooms, tracks and added slots carry no number at all, because no derived condition
+  each session's placements last changed and the one at which each time slot was last retimed; a
+  conflict carries the later of the two placements' and the two hours', and platform's key carries
+  it. A session nobody has touched keeps its dismissal across every unrelated edit, which is why
+  the numbers are per session and per slot rather than one revision for the board. Two
+  consequences worth stating rather than discovering: the numbers are **not backfilled**, so every
+  programme dismissal recorded before them reads as occurrence zero and its item returns open once
+  — the conservative direction, and the reason no migration was needed; and rooms, tracks, added
+  slots and slots elsewhere on the board carry no number at all, because no derived condition
   reads any of them.
   See `PRD-OPS-002` and `apps/api/test/platform-inbox.test.ts`.
 

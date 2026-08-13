@@ -59,7 +59,7 @@ export class MemoryAgendaRepository implements AgendaRepository {
       if (seeded)
         this.revisions.set(
           draft.eventId,
-          Math.max(seeded.slots, ...Object.values(seeded.sessions), 0),
+          Math.max(0, ...Object.values(seeded.sessions), ...Object.values(seeded.slots)),
         );
     }
     for (const schedule of publications) {

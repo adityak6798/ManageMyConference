@@ -81,7 +81,7 @@ function newAgenda(eventId: string): Draft {
     placements: [],
     // A board being composed in the browser has no history yet; the server allocates these on the
     // first write and every later read carries the server's numbers.
-    occurrences: { sessions: {}, slots: 0 },
+    occurrences: { sessions: {}, slots: {} },
     conflicts: [],
   };
 }

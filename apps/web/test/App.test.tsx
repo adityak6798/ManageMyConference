@@ -47,7 +47,7 @@ const emptyWorkspaces: Record<string, unknown> = {
     slots: [],
     sessions: [],
     placements: [],
-    occurrences: { sessions: {}, slots: 0 },
+    occurrences: { sessions: {}, slots: {} },
     conflicts: [],
   },
 };

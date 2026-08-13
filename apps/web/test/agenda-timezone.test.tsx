@@ -57,7 +57,7 @@ const draft = {
       slotId: "slot-morning",
     },
   ],
-  occurrences: { sessions: {}, slots: 0 },
+  occurrences: { sessions: {}, slots: {} },
   conflicts: [],
 };
 

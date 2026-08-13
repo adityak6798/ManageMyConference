@@ -103,7 +103,7 @@ describe("D1AgendaRepository", () => {
      * normalizes rather than leaving the field absent, because the response contract now requires
      * it and `savePlacements` answers with the board it read when a plan seats nothing.
      */
-    expect(seeded.occurrences).toEqual({ sessions: {}, slots: 0 });
+    expect(seeded.occurrences).toEqual({ sessions: {}, slots: {} });
     const cell = { roomId: "room-lab", trackId: "track-practice", slotId: "slot-1000" };
 
     await Promise.all([

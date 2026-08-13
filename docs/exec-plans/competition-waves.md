@@ -601,15 +601,19 @@ shape as `nextSessionScheduleRevisions` (#141) one level down.
 **The occurrence is per session, not the board revision.** The closure condition allowed either. A
 board revision in the key is correct and useless: every dismissal on the programme would evaporate
 the moment anybody dragged a card. What is stored instead is, per session, the revision at which
-that session's placements last changed, plus one number for a **retimed slot**; a conflict takes
-the later of its two placements' and the slots'. That second number was narrowed twice under
-review and both narrowings are one argument: `conflictsFor` reads slot *times* and ids that
-already live on the placements, and reads neither the room list nor the tracks — so the first
-version, which counted every resource edit, resurfaced every dismissed conflict on the event when
-somebody added a room, and the second, which compared the whole slot list, did the same when
-somebody added a time slot nothing was placed in. Both are the exact promise the pair of numbers
-exists to keep, failed in the small. What is left is the case that is real: a slot that keeps its
-id and moves in time. `MISSING_SESSION` excludes the slots for the same kind of reason.
+that session's placements last changed, plus one **per slot** for when that hour was last
+retimed; a conflict takes the later of its two placements' and its two slots'. That second number
+was narrowed three times across three review passes, and every narrowing is one argument:
+`conflictsFor` reads slot *times* and ids that already live on the placements, and reads neither
+the room list nor the tracks. So the first version, which counted every resource edit, reopened
+every dismissed conflict on the event when somebody added a room; the second, which compared the
+whole slot list, did it when somebody added a slot nothing was placed in; and the third, one
+number for all slots, did it when somebody retimed an hour three rooms away from the clash. Each
+is the same promise failed one size smaller, which is worth naming as a pattern: a number that
+advances for an edit no derived condition can read will always resurface decisions about
+conditions that edit cannot affect. What is left is the case that is real — a slot that keeps its
+id and moves in time, compared as an *instant* so that re-spelling `16:00:00.000Z` as `16:00:00Z`
+is not a retiming. `MISSING_SESSION` excludes the slots for the same kind of reason.
 
 **Nothing is backfilled, and that is the visible cost of taking no migration.** Every programme
 dismissal recorded before this reads as occurrence zero, so its item returns open once on deploy

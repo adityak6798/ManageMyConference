@@ -63,16 +63,17 @@ export const agendaDraftSchema = z.object({
    * When each part of the board last changed, counted in board revisions.
    *
    * A session's number advances when it is placed, unplaced or moved, and nothing else moves it;
-   * `slots` advances when the time slots change. Rooms and tracks are deliberately absent: no
-   * derived condition depends on them, and counting them would resurface dismissals about
-   * conditions an added room cannot affect. It is on the wire because a consumer storing a
-   * decision about a *derived* condition — the operational inbox's dismissals — needs to tell one
-   * occurrence of that condition from the next, and the identifiers a condition is made of are
-   * reused exactly when it is resolved and recreated (`PRD-OPS-002`, issue #180).
+   * a slot's advances when that slot is retimed, and nothing else moves it. Rooms, tracks, and
+   * slots being added or removed are deliberately absent: no derived condition depends on any of
+   * them, and counting them would resurface decisions about conditions an added room cannot
+   * affect. It is on the wire because a consumer storing a decision about a *derived* condition —
+   * the operational inbox's dismissals — needs to tell one occurrence of that condition from the
+   * next, and the identifiers a condition is made of are reused exactly when it is resolved and
+   * recreated (`PRD-OPS-002`, issue #180).
    */
   occurrences: z.object({
     sessions: z.record(z.string(), z.number().int().nonnegative()),
-    slots: z.number().int().nonnegative(),
+    slots: z.record(z.string(), z.number().int().nonnegative()),
   }),
   conflicts: z.array(
     z.object({

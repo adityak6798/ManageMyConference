@@ -153,7 +153,7 @@ function sources(overrides: Partial<PlatformSources> = {}): PlatformSources {
         ],
         // Session one was placed at revision 1; session two has never been on the board, which is
         // what an absent entry means.
-        occurrences: { sessions: { "session-1": 1 }, slots: 1 },
+        occurrences: { sessions: { "session-1": 1 } },
         conflicts: [],
       }),
     },
@@ -488,7 +488,7 @@ describe("the operational inbox", () => {
           placements: [
             { id: "placement-1", sessionId: "session-1", roomId: "room-main", slotId: "slot-0900" },
           ],
-          occurrences: { sessions: { "session-1": 1 }, slots: 1 },
+          occurrences: { sessions: { "session-1": 1 } },
           conflicts: [
             {
               kind: "ROOM_OVERLAP",
@@ -583,7 +583,7 @@ describe("the operational inbox", () => {
     // The other half of the same rule, and the reason the key carries the *session's* occurrence
     // rather than the board's: a dismissal that evaporated whenever any card moved would be
     // useless on a board anybody is actually working on.
-    const withTwo = (occurrences: { sessions: Record<string, number>; slots: number }) => ({
+    const withTwo = (occurrences: { sessions: Record<string, number> }) => ({
       agenda: {
         draft: async () => ({
           rooms: [{ id: "room-main", name: "Main stage" }],
@@ -605,7 +605,7 @@ describe("the operational inbox", () => {
       },
     });
     const dismissals = new MemoryInboxDismissalStore();
-    const inboxWith = (occurrences: { sessions: Record<string, number>; slots: number }) =>
+    const inboxWith = (occurrences: { sessions: Record<string, number> }) =>
       new PlatformInboxService({
         sources: sources(withTwo(occurrences)),
         dismissals,
@@ -613,15 +613,15 @@ describe("the operational inbox", () => {
       });
 
     const before = itemsOf(
-      await inboxWith({ sessions: {}, slots: 0 }).inbox(organizer, EVENT_ONE),
+      await inboxWith({ sessions: {} }).inbox(organizer, EVENT_ONE),
       "programme",
     );
     const dismissed = before.find(({ title }) => title === "Accessible by default")?.key ?? "";
-    await inboxWith({ sessions: {}, slots: 0 }).dismiss(organizer, EVENT_ONE, dismissed);
+    await inboxWith({ sessions: {} }).dismiss(organizer, EVENT_ONE, dismissed);
 
     // The organizer places and unplaces the *other* session, twice, and edits the resources.
     const after = itemsOf(
-      await inboxWith({ sessions: { "session-1": 7 }, slots: 9 }).inbox(organizer, EVENT_ONE),
+      await inboxWith({ sessions: { "session-1": 7 } }).inbox(organizer, EVENT_ONE),
       "programme",
     );
 
@@ -648,7 +648,7 @@ describe("the operational inbox", () => {
           placements: [
             { id: "placement-1", sessionId: "session-1", roomId: "room-main", slotId: "slot-0900" },
           ],
-          occurrences: { sessions: { "session-1": occurrence }, slots: 1 },
+          occurrences: { sessions: { "session-1": occurrence } },
           conflicts: [
             {
               kind: "ROOM_OVERLAP",
