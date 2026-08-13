@@ -90,19 +90,34 @@ feature-by-feature verdict.
   [`ADR-004`](../decisions/adr-004-google-oauth-provider.md), and `POST /api/auth/signout` exists.
   Demo impersonation remains development-only.
 
-  **Sign-out is cookie clearing and not durable revocation, and the distinction is the gap.** The
-  route deletes this browser's session cookie and answers the same way whether or not one was
-  present. The cookie is a signed bearer carrying its own expiry, and nothing server-side tracks
-  issued sessions, so a copy taken from another device — or an event bearer token minted from that
-  session — keeps working until it expires on its own. A logout button that implied otherwise would
-  be the more dangerous product, which is why the contract schema names it `signedOut` rather than
-  `revoked`.
+  **Durable revocation is closed.** An issued session is a row in `identity_sessions`, the cookie
+  names it, and every authenticated request refuses a credential whose row is missing, revoked or
+  expired. `POST /api/auth/signout` marks the row revoked before clearing the cookie and
+  `POST /api/auth/sessions/revoke-all` ends every live session of one user, so a copy taken from
+  another device — and an event bearer token minted from that session, which carries its parent's
+  `sid` — stop being accepted on the next request. A token minted before this change names no row
+  and is refused, which signs everybody out once at that deploy.
+  [`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md) records the design.
 
-  What issue #12 still owns: durable revocation of an issued session, rotation and recovery
-  operations, membership administration, and audit events. Owner: identity-access. Governing IDs:
-  `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`. Closure: a server-side session record a sign-out
-  invalidates, plus the administration and audit surfaces, each with a test that proves a
-  previously valid credential stops being accepted.
+  **The identity audit spine exists and is deliberately narrow.** `identity_audit_events` is
+  append-only, carries no credential, and every writer batches its row with the state change it
+  describes. Today only the three `session.*` actions are written. The Google callback's refusals
+  are *not* audited and stay in the structured log `auth.google.refused`, for the reason `ADR-005`
+  gives: a refusal has no state change to batch a row with. Issue #99 owns the cross-domain audit
+  timeline; this lane builds none, and the columns are shaped so #99 can project them without a
+  migration.
+
+  What issue #12 still owns: **credential rotation and recovery operations** — no
+  `SESSION_SECRET` rotation path exists, so rotating today invalidates every session instantly,
+  and there is no documented procedure for it, for `GOOGLE_CLIENT_SECRET`, or for incident
+  revocation — and **organization invitation and membership administration**: there is still no
+  route in the repository that writes `organization_memberships` or `event_roles`, so a self-serve
+  organizer cannot add a reviewer or a co-organizer to their event, and the `membership.*` and
+  `event_role.*` half of the audit vocabulary is declared but unwritten. Owner: identity-access.
+  Governing IDs: `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`, `ADR-005`. Closure: the membership
+  administration surfaces with the three demo-safety rules in
+  [authorization](../architecture/authorization.md) proved by test, plus a rotation and recovery
+  runbook.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). The target is now provisioned and a hosted URL **is** evidenced:

@@ -16,6 +16,7 @@ import {
   getSession,
   IdentityApiError,
   requestLoginCode,
+  revokeAllSessions,
   signOut,
   startDemoSession,
   verifyLoginCode,
@@ -322,6 +323,25 @@ export function App({
     setError(null);
     try {
       await signOut();
+      window.location.assign("/");
+    } catch (reason: unknown) {
+      setError(readableError(reason));
+      setBusy(false);
+    }
+  }
+
+  /**
+   * End every session this account holds, this browser's included, and go back to "/".
+   *
+   * Same full document load as `endSession`, for the same reason. The count the API answers is
+   * deliberately not shown afterwards: the surface that could show it is the one being torn
+   * down, and a number on the landing page would outlive the action it describes.
+   */
+  async function endEverySession() {
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeAllSessions();
       window.location.assign("/");
     } catch (reason: unknown) {
       setError(readableError(reason));
@@ -683,6 +703,10 @@ export function App({
             onSignOut: () => {
               // ERROR-INTENT: handlers cannot await; endSession renders its own failure.
               void endSession();
+            },
+            onSignOutEverywhere: () => {
+              // ERROR-INTENT: handlers cannot await; endEverySession renders its own failure.
+              void endEverySession();
             },
           }
         : {})}

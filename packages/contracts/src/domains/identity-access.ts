@@ -26,12 +26,29 @@ export const authConfigResponseSchema = z.object({
   google: z.boolean(),
 });
 /**
- * Sign-out clears the session cookie. It is deliberately not called "revoke": the cookie is a
- * signed bearer with its own expiry and nothing server-side tracks it, so signing out ends this
- * browser's session and does not invalidate a copy taken elsewhere. Durable revocation is issue
- * #12; naming this honestly is what keeps that distinction visible.
+ * Sign-out revokes the session and clears the cookie.
+ *
+ * It *is* revocation now: the cookie names a row in `identity_sessions`, the row is marked
+ * revoked before the cookie is cleared, and every credential that named it — a copy of the
+ * cookie taken from another device, an event bearer token minted from that session — stops
+ * being accepted on its next request.
+ *
+ * The field is still `signedOut` rather than `revoked`, and deliberately so. It is a shape
+ * every deployed client already reads, and renaming it would break them to say something the
+ * body does not actually claim: the value is `true` whether or not the caller held a session,
+ * because reporting *that* would tell an unauthenticated caller whether a cookie it presented
+ * was real. What was revoked is not in this response for the same reason. The count of sessions
+ * ended lives on `POST /api/auth/sessions/revoke-all`, which requires a session first, so its
+ * number is the caller's own data.
  */
 export const signOutResponseSchema = z.object({ signedOut: z.literal(true) });
+/**
+ * "Sign out on every device": how many live sessions this caller had, all of them now revoked.
+ *
+ * Safe to report, unlike sign-out's, because the route refuses anybody who has not already
+ * proved the identity being counted.
+ */
+export const revokeAllSessionsResponseSchema = z.object({ revoked: z.number().int().min(0) });
 /**
  * What Google appends to the redirect. Declared because a caller reading the document otherwise
  * sees a parameterless endpoint, and the route answers a missing parameter with the same refusal

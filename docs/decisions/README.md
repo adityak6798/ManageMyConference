@@ -8,5 +8,6 @@ Accepted decisions:
 - [`ADR-002`: Canonical SQL and provider projections](adr-002-sql-projections.md)
 - [`ADR-003`: Harness-first delivery](adr-003-harness-first.md)
 - [`ADR-004`: Google OIDC as an additional sign-in provider](adr-004-google-oauth-provider.md)
+- [`ADR-005`: Durable session records and revocation](adr-005-durable-sessions-and-revocation.md)
 
 New ADRs record context, decision, consequences, alternatives, and supersession. They decide durable tradeoffs, not routine implementation detail.

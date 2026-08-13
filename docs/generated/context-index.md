@@ -98,9 +98,11 @@
 ### `ACC-IDENTITY-EVENTS`
 - `test` / `repository-fact`: [apps/api/test/actor.test.ts](../../apps/api/test/actor.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-identity-directory.integration.test.ts](../../apps/api/test/d1-identity-directory.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-identity-sessions.integration.test.ts](../../apps/api/test/d1-identity-sessions.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-identity-signup.integration.test.ts](../../apps/api/test/d1-identity-signup.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/google-oauth-client.test.ts](../../apps/api/test/google-oauth-client.test.ts)
 - `test` / `repository-fact`: [apps/api/test/google-oauth.test.ts](../../apps/api/test/google-oauth.test.ts)
+- `test` / `repository-fact`: [apps/api/test/identity-sessions-http.test.ts](../../apps/api/test/identity-sessions-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/real-auth.test.ts](../../apps/api/test/real-auth.test.ts)
 - `test` / `repository-fact`: [apps/api/test/signup-service.test.ts](../../apps/api/test/signup-service.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/reference-slice.spec.ts](../../apps/web/e2e/reference-slice.spec.ts)
@@ -432,10 +434,14 @@
 
 ### `PRD-IAM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/identity/google-oauth-client.ts](../../apps/api/src/adapters/identity/google-oauth-client.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-audit.ts](../../apps/api/src/adapters/persistence/d1-identity-audit.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-sessions.ts](../../apps/api/src/adapters/persistence/d1-identity-sessions.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/identity-access.ts](../../apps/api/src/adapters/persistence/schema/identity-access.ts)
+- `code` / `repository-fact`: [apps/api/src/application/identity/audit.ts](../../apps/api/src/application/identity/audit.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/google-oauth.ts](../../apps/api/src/application/identity/google-oauth.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/identity-directory.ts](../../apps/api/src/application/identity/identity-directory.ts)
+- `code` / `repository-fact`: [apps/api/src/application/identity/session-store.ts](../../apps/api/src/application/identity/session-store.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/signup.ts](../../apps/api/src/application/identity/signup.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/identity.ts](../../apps/api/src/transport/http/routes/identity.ts)

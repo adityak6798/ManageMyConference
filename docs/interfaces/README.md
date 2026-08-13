@@ -38,8 +38,18 @@ this sign-in created the account. Every refusal it can make lands on `/signin?au
 reason in the log: an unknown attempt, a mismatched `state`, an expired attempt, a signature that
 does not verify and an unverified address are one indistinguishable outcome, because naming which
 check refused is the oracle the flow exists to deny. Both redirect targets are string literals.
-POST /api/auth/signout clears the session cookie and answers `{ "signedOut": true }` whether or not
-a session was present; it is cookie clearing, not revocation, and the schema is named for that.
+POST /api/auth/signout revokes this browser's session and then clears its cookie, answering
+`{ "signedOut": true }` whether or not a session was present. It is revocation now: the cookie
+carries the id of a row in `identity_sessions`, every authenticated request refuses a credential
+whose row is missing, revoked or expired, and an event-scoped bearer token carries its parent
+session's id and dies with it. The response still names the field `signedOut` — a shape deployed
+clients already read — and still reports no count, because a count would tell an unauthenticated
+caller whether the cookie it presented was real. POST /api/auth/sessions/revoke-all ends every live
+session of the authenticated user and answers `{ "revoked": <count> }`, which is safe to report
+because the route requires `authentication === "session"` first: a demo persona cookie resolves as
+`demo` and is refused, and a deployment that records no sessions answers 404. A session token
+minted before session records existed carries no session id and is refused outright, so the change
+signs everybody out once.
 GET /api/session returns the freshly resolved actor, memberships, event roles,
 and capabilities. /api/demo-session remains an internal harness route available only with
 DEMO_MODE=true and exact ENVIRONMENT=development. Errors follow

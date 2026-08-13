@@ -21,6 +21,10 @@ single run and hands the fixture back. What remains before this plan can close:
   (lifecycle-triggered communications and calendar delivery),
   `GAP-011` (multi-round and AI-assisted review), and `GAP-012` (Accelevents). Portal resource
   and wiki pages shipped with issue #54.
+- the rest of issue #12. Durable session records and revocation have landed
+  ([`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md)); organization invitation
+  and membership administration, and credential rotation and recovery, are the two landings that
+  remain, and `GAP-007` names them.
 
 ## `PLAN-003` Evaluation artifact
 

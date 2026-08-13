@@ -16,6 +16,7 @@ import { D1ContentRepository } from "./adapters/persistence/d1-content-repositor
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -340,6 +341,9 @@ export default {
   fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
     const identityDirectory = new D1IdentityDirectory(environment.DB);
+    // Behaviour, not credentials: the transport is handed this object and never the signing
+    // secret, the same rule `GoogleAuthProvider` follows.
+    const sessions = new D1SessionStore(environment.DB);
     const service = new EventService({
       repository: new D1EventRepository(environment.DB),
       newId: () => crypto.randomUUID(),
@@ -843,12 +847,15 @@ export default {
             resolveActor: (persona: "organizer" | "reviewer" | "speaker" | "public") =>
               identityDirectory.findByPersona(persona),
             // `auth.google` is the *configuration*; the transport is handed the *provider*, so
-            // no credential is reachable from a route module.
-            ...(googleAuth ? { google: googleAuth } : {}),
+            // no credential is reachable from a route module. The session store travels with
+            // it: a demo deployment issues no session of its own, and the one case where it can
+            // hold a real one is the case where Google is configured beside the personas.
+            ...(googleAuth ? { google: googleAuth, sessions } : {}),
           }
         : {
             demoMode: false as const,
             sessionSecret: auth.sessionSecret,
+            sessions,
             ...(googleAuth ? { google: googleAuth } : {}),
             resolveActor: (userId: string) => identityDirectory.findByUserId(userId),
             resolveEmail: async (email: string) => {

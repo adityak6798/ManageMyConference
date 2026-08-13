@@ -105,40 +105,115 @@ export async function exchangeLoginChallenge(
   );
 }
 
-export const createUserSession = (userId: string, secret: string, expiresAt: number) =>
-  token({ kind: "session", userId, expiresAt }, secret);
+/**
+ * Look up the session a credential names, and say whether it is still live.
+ *
+ * Narrower than `SessionStore` on purpose: this layer may ask whether a session exists and it
+ * may not revoke one, and the returned `userId` is compared against the signed payload rather
+ * than used to resolve anybody.
+ */
+export type FindSession = (id: string, now: number) => Promise<{ userId: string } | null>;
 
+/**
+ * Sign a session cookie for one issued session record.
+ *
+ * `sid` names the row in `identity_sessions`. The token still has exactly **two**
+ * dot-separated parts, which is load-bearing: the demo grammar is three parts and the two are
+ * mutually unparseable, which is what lets one cookie name carry either
+ * (`docs/architecture/authorization.md`). Adding a payload field does not change the part count,
+ * and `real-auth.test.ts` asserts that it has not.
+ */
+export const createUserSession = (sid: string, userId: string, secret: string, expiresAt: number) =>
+  token({ kind: "session", sid, userId, expiresAt }, secret);
+
+/**
+ * Resolve a session cookie to its actor, refusing one whose record is gone, revoked or expired.
+ *
+ * **The signature is verified before D1 is read**, and the order is the point: a resolver that
+ * looked the session up first would let an unauthenticated flood of forged cookies become a
+ * stream of database reads. Every refusal above the `findSession` call costs no query at all.
+ *
+ * A token minted before durable sessions existed carries no `sid` and is refused here. That
+ * signs everybody out once, which is the intended effect: honouring a legacy token until it
+ * expired would reintroduce, for the length of a session lifetime, exactly the property this
+ * exists to close.
+ */
 export async function resolveUserSession(
   value: string | undefined,
   secret: string,
   now: number,
   resolveActor: (userId: string) => Promise<Actor | null>,
+  findSession: FindSession,
 ) {
-  const payload = await verify<{ kind: string; userId: string; expiresAt: number }>(value, secret);
-  if (payload?.kind !== "session" || payload.expiresAt <= now) return null;
+  const payload = await verify<{
+    kind: string;
+    sid?: string;
+    userId: string;
+    expiresAt: number;
+  }>(value, secret);
+  if (payload?.kind !== "session" || payload.expiresAt <= now || !payload.sid) return null;
+  const session = await findSession(payload.sid, now);
+  // The record's `user_id` is compared, never followed: the actor comes from the signed payload
+  // through `resolveActor`. A mismatch cannot happen without the signing key, and refusing it
+  // costs one comparison.
+  if (!session || session.userId !== payload.userId) return null;
   return resolveActor(payload.userId);
 }
 
+/**
+ * The session id a cookie names, once its signature has been verified — and nothing else.
+ *
+ * Sign-out needs the `sid` of a credential whose *actor* may not have resolved: an already
+ * revoked session, or one whose user has since been removed, still names a row somebody may be
+ * asking us to revoke. Reading it from the signed payload is what lets the route act on the
+ * cookie it was given without a second way to resolve an actor from it.
+ *
+ * Expiry is not checked. Revoking an expired session is a no-op the `WHERE` clause absorbs, and
+ * refusing here would only mean the caller's cookie outlived their ability to end it.
+ *
+ * A demo persona cookie has three parts and never verifies here, so it yields null and takes no
+ * store lookup.
+ */
+export async function sessionIdFrom(
+  value: string | undefined,
+  secret: string,
+): Promise<string | null> {
+  const payload = await verify<{ kind: string; sid?: string }>(value, secret);
+  return payload?.kind === "session" && payload.sid ? payload.sid : null;
+}
+
+/**
+ * An event-scoped bearer token, carrying the `sid` of the session it was minted from.
+ *
+ * Signing out therefore kills API access minted from that browser. That is a deliberate
+ * decision rather than a side effect — see `ADR-005`. A client credential that outlives a
+ * browser session belongs to issue #100 ("Productize the REST API with scoped clients").
+ */
 export const createEventToken = (
+  sid: string,
   userId: string,
   eventId: string,
   secret: string,
   expiresAt: number,
-) => token({ kind: "event", userId, eventId, expiresAt }, secret);
+) => token({ kind: "event", sid, userId, eventId, expiresAt }, secret);
 
 export async function resolveEventToken(
   value: string | undefined,
   secret: string,
   now: number,
   resolveActor: (userId: string) => Promise<Actor | null>,
+  findSession: FindSession,
 ) {
   const payload = await verify<{
     kind: string;
+    sid?: string;
     userId: string;
     eventId: string;
     expiresAt: number;
   }>(value, secret);
-  if (payload?.kind !== "event" || payload.expiresAt <= now) return null;
+  if (payload?.kind !== "event" || payload.expiresAt <= now || !payload.sid) return null;
+  const session = await findSession(payload.sid, now);
+  if (!session || session.userId !== payload.userId) return null;
   const actor = await resolveActor(payload.userId);
   if (!actor) return null;
   const eventAccess = actor.eventAccess.filter(({ eventId }) => eventId === payload.eventId);

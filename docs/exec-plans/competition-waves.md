@@ -120,9 +120,15 @@ integration work that has nothing to do with it.
 | 4 | integration | **#10** alone — connects cross-domain events, reconciles prototype/docs/traceability/scorecard/known-gaps against what shipped, produces evaluator artifacts. Must be last: its job is describing the finished state. **Close #30 here** — by then ~16 PRs will have run the risk-scoped Ralph loop, which is the multi-PR trial it is waiting on. |
 | 5 | productization | #99; #100 then #101 as one lane (MCP rides on the API's auth surface); #102; ~~#110 (AI suggestion port)~~ — **in flight, see below** |
 
-Also open and externally blocked, not lane work: **#12** (production-auth ADR and full session
-lifecycle) and **#61** (stays open until Cloudflare credentials exist and a deployed URL is
-recorded).
+**#12** (production authentication) is lane work and is in flight, not externally blocked. The
+provider ADR it once owed is [`ADR-004`](../decisions/adr-004-google-oauth-provider.md); durable
+sessions and revocation landed with [`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md).
+It closes in three landings — durable sessions and the audit spine, then invitation and membership
+administration, then credential rotation and recovery with a security-operations runbook — and
+`GAP-007` names what each one leaves open.
+
+Also open and externally blocked, not lane work: **#61** (stays open until Cloudflare credentials
+exist and a deployed URL is recorded).
 
 ## Wave 5 — #110 in flight (AI suggestion port)
 

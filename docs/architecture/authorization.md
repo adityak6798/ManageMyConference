@@ -70,11 +70,77 @@ route module can log or echo a credential.
 [`ADR-004`](../decisions/adr-004-google-oauth-provider.md) records why Google is an additional
 provider rather than a replacement, and why the protocol is spoken with raw `fetch`.
 
-Sign-out is `POST /api/auth/signout`, and it clears the session cookie. It answers 200 whether or
-not a session was present, so it does not report whether the caller had one. It is deliberately not
-revocation: the cookie is a signed bearer carrying its own expiry and nothing server-side tracks
-it, so a copy taken elsewhere — or an event bearer token already minted from that session —
-survives until it expires on its own. Durable revocation is issue #12 and `GAP-007`.
+## Sessions are records, and sign-out revokes them
+
+An issued session is a row in `identity_sessions` — `id`, `user_id`, `issued_at`, `expires_at`, a
+nullable `revoked_at` — and the session cookie carries that row's id as a `sid` claim.
+`resolveUserSession` verifies the HMAC **first** and reads the row **second**, in that order, so an
+unauthenticated flood of forged cookies cannot be turned into a stream of database reads. A
+credential whose row is missing, revoked, or past its expiry is refused. A token minted before
+session records existed carries no `sid` and is refused outright; there is no compatibility
+window, because accepting one would leave the pre-revocation property in place for a further
+session lifetime.
+
+Sign-out is `POST /api/auth/signout`. It marks the row revoked and *then* clears the cookie, so a
+copy of the same cookie taken from another device stops working on its next request, as does any
+event-scoped bearer token minted from that session — the bearer carries its parent session's `sid`
+and is refused with it. It still answers 200 whether or not a session was present, and still
+reports no count, because either would tell an unauthenticated caller whether the cookie it
+presented was real.
+
+`POST /api/auth/sessions/revoke-all` is "sign out on every device". It requires
+`authentication === "session"` — a demo persona cookie resolves as `demo` and is refused — and
+answers `{ revoked: <count> }`, which is safe to report precisely because the caller had to prove
+the identity being counted first.
+
+The `user_id` column on a session row scopes revocation and does nothing else. It is never a second
+way to resolve an actor; see the third demo-safety rule below.
+
+[`ADR-005`](../decisions/adr-005-durable-sessions-and-revocation.md) records why a server-side
+record rather than short-lived tokens plus refresh, why legacy tokens are refused, why bearer
+tokens inherit their parent's revocation, and the seam with issue #99.
+
+Every identity state change is written to `identity_audit_events` in the same D1 batch as the
+change itself, so an audit row cannot claim something that did not happen and a change cannot
+happen unaudited. The table is append-only and carries no credential — no `id_token`, no
+`code_verifier`, no `state_proof`, no session token, no cookie value. **The Google callback's
+refusals are the one identity refusal that is not audited**, deliberately: they have no state
+change to batch a row with, and a best-effort write would either turn a refused sign-in into a 500
+or be dropped silently. They stay in the structured log as `auth.google.refused`, which is where an
+operator investigating a failed sign-in should look.
+
+## Three rules that keep the demo population and the real one apart
+
+The deployed demo runs `DEMO_MODE=true` against one D1 database, and `GAP-019` records that the
+same database would hold real self-serve organizations if Google were configured there. The
+authorization model already isolates the two structurally — `findByPersona` pins
+`id = 'seed-' + persona`, the two cookie grammars are mutually unparseable, and every event-owned
+read goes through `requireEventCapability` against a grant on that exact event. Membership
+administration is the first feature that can break that, because `seed/reset.sql` gives the seeded
+personas real addresses (`organizer@greenroom.test` and the rest). These three rules exist so it
+cannot, and each is proved by breaking the guard and watching a named test fail.
+
+Rules 1 and 2 bind the membership administration this lane has yet to land; there is no route in
+the repository that writes `organization_memberships` or `event_roles` today, and they are stated
+here first so that the work is written against them rather than audited afterwards. Rule 3 is in
+force now.
+
+1. **An invitation is accepted by the accepting session's own identity, never by address lookup.**
+   Acceptance requires `authentication === "session"` and grants membership to *that actor's* user
+   id. Were acceptance a match against a stored address, a real organizer could invite
+   `organizer@greenroom.test`, and pressing **Continue as organizer** on the demo landing page
+   would afterwards open a real organization.
+2. **A demo persona id is never a valid grant target.** The predicate is derived from the
+   `personas` object's own keys in `application/identity/demo-session.ts`, so it cannot drift from
+   the four seeded rows, and every membership, invitation and event-role write whose subject is
+   one is refused. The seeded demo grants come from seed SQL, so refusing them at the route costs
+   nothing and removes the crossing entirely. The refusal is audited.
+3. **No code path resolves an actor from anything but `findByPersona` (demo) or `findByUserId`
+   (real).** In particular the `user_id` column on a session record is used only to scope
+   revocation and to be compared against the id the signed cookie already carries — it is never
+   followed to produce an actor. A demo persona cookie takes no session lookup at all, which
+   `identity-sessions-http.test.ts` asserts by counting the store's reads across a persona's whole
+   request.
 
 ## Two credential grammars, one cookie name
 

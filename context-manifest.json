@@ -44,6 +44,11 @@
         "reason": "Production session and event-token issue and verification. The platform transport resolves credentials through this identity application boundary."
       },
       {
+        "path": "apps/api/src/application/identity/session-store.ts",
+        "governing": "PRD-IAM-001",
+        "reason": "The record of an issued session \u2014 the same boundary as real-auth.ts, for the same reason. The platform transport holds this behaviour object in its auth configuration and checks every session cookie against it, while the D1 implementation and the signing secret stay behind it. It is a port of four methods with no storage detail on it, which is what makes it an interface rather than a reach into identity's internals."
+      },
+      {
         "path": "apps/api/src/application/identity/identity-directory.ts",
         "governing": "PRD-IAM-002",
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
@@ -388,10 +393,17 @@
         "apps/api/migrations/0023_identity_emails.sql",
         "apps/api/migrations/0024_identity_login_challenges.sql",
         "apps/api/migrations/1000_identity_google_oauth.sql",
+        "apps/api/migrations/1001_identity_sessions.sql",
+        "apps/api/migrations/1002_identity_audit_events.sql",
         "apps/api/src/transport/http/routes/identity.ts",
         "apps/api/src/adapters/persistence/d1-identity-directory.ts",
+        "apps/api/src/adapters/persistence/d1-identity-sessions.ts",
+        "apps/api/src/adapters/persistence/d1-identity-audit.ts",
         "apps/api/test/d1-identity-directory.integration.test.ts",
         "apps/api/test/d1-identity-signup.integration.test.ts",
+        "apps/api/test/d1-identity-sessions.integration.test.ts",
+        "apps/api/test/identity-sessions-http.test.ts",
+        "apps/api/test/support/memory-session-store.ts",
         "apps/api/test/demo-session.test.ts",
         "apps/api/test/actor.test.ts",
         "apps/api/test/google-oauth.test.ts",

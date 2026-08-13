@@ -8,6 +8,8 @@
     "identity_login_challenges": "identity-access",
     "identity_oauth_attempts": "identity-access",
     "identity_provider_accounts": "identity-access",
+    "identity_sessions": "identity-access",
+    "identity_audit_events": "identity-access",
     "organization_memberships": "identity-access",
     "event_roles": "identity-access",
     "message_templates": "communications-integrations",

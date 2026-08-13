@@ -104,20 +104,33 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
           auth.sessionSecret,
           at,
           auth.google.resolveUserActor,
+          (id, now) => auth.sessions.find(id, now),
         );
       if (resolved) kind = "session";
       else {
+        // A persona cookie names no session record, so this path takes no session lookup at
+        // all. That is worth being explicit about: the demo population is seeded rows, not
+        // issued sessions, and giving it a store read would be the first crossing between the
+        // two populations rather than a performance detail.
         resolved = await resolveDemoSession(cookie, auth.sessionSecret, at, auth.resolveActor);
         kind = "demo";
       }
     } else if (auth.sessionSecret) {
       if (authorization) {
         resolved = bearer
-          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor)
+          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor, (id, now) =>
+              auth.sessions.find(id, now),
+            )
           : null;
         kind = "bearer";
       } else {
-        resolved = await resolveUserSession(cookie, auth.sessionSecret, at, auth.resolveActor);
+        resolved = await resolveUserSession(
+          cookie,
+          auth.sessionSecret,
+          at,
+          auth.resolveActor,
+          (id, now) => auth.sessions.find(id, now),
+        );
         kind = "session";
       }
     }

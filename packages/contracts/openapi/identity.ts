@@ -15,6 +15,7 @@ import {
   loginCodeRequestSchema,
   loginCodeVerifyResponseSchema,
   loginCodeVerifySchema,
+  revokeAllSessionsResponseSchema,
   sessionResponseSchema,
   signOutResponseSchema,
 } from "../src/index";
@@ -107,10 +108,33 @@ export const identityPaths: OpenApiFragment = {
       method: "post",
       path: "/api/auth/signout",
       description:
-        "Clear this browser's session cookie. Not revocation: the session token is a signed " +
-        "bearer with its own expiry and nothing server-side tracks it (issue #12).",
+        "Revoke this browser's session and clear its cookie. The session record is marked " +
+        "revoked first, so a copy of the cookie taken elsewhere — and any event bearer token " +
+        "minted from that session — stops being accepted. Answers 200 whether or not a session " +
+        "was present, and reports no count, so it cannot report whether the caller held one.",
       responses: {
-        200: { description: "Session cookie cleared", content: json(signOutResponseSchema) },
+        200: {
+          description: "Session revoked and cookie cleared",
+          content: json(signOutResponseSchema),
+        },
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/auth/sessions/revoke-all",
+      security: [{ sessionCookie: [] }],
+      description:
+        "End every session belonging to the authenticated user, including this one. Requires a " +
+        "real user session: a demo persona cookie is refused. 404 where the deployment records " +
+        "no sessions.",
+      responses: {
+        200: {
+          description: "Live sessions revoked",
+          content: json(revokeAllSessionsResponseSchema),
+        },
+        401: errorResponse,
+        404: errorResponse,
         500: errorResponse,
       },
     });

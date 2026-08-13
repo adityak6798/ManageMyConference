@@ -111,6 +111,61 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
+  /**
+   * One issued session. The row is what makes sign-out revocation rather than cookie clearing:
+   * the cookie carries this row's id, and a missing, revoked or expired row refuses it.
+   *
+   * `userId` scopes revocation and nothing else. It is never a second way to resolve an actor —
+   * see `docs/architecture/authorization.md`.
+   */
+  const identitySessions = sqliteTable(
+    "identity_sessions",
+    {
+      id: text("id").primaryKey().notNull(),
+      userId: text("user_id")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+      issuedAt: integer("issued_at").notNull(),
+      expiresAt: integer("expires_at").notNull(),
+      revokedAt: integer("revoked_at"),
+    },
+    (table) => [
+      index("identity_sessions_user_idx").on(table.userId),
+      index("identity_sessions_expiry_idx").on(table.expiresAt),
+    ],
+  );
+
+  /**
+   * The append-only identity audit spine. No foreign keys, deliberately: a row has to outlive
+   * the user it describes, which a cascade would delete and a plain reference would refuse.
+   */
+  const identityAuditEvents = sqliteTable(
+    "identity_audit_events",
+    {
+      id: text("id").primaryKey().notNull(),
+      occurredAt: integer("occurred_at").notNull(),
+      action: text("action").notNull(),
+      outcome: text("outcome").notNull(),
+      source: text("source").notNull(),
+      actorUserId: text("actor_user_id"),
+      subjectUserId: text("subject_user_id"),
+      organizationId: text("organization_id"),
+      eventId: text("event_id"),
+      correlationId: text("correlation_id").notNull(),
+      detail: text("detail"),
+    },
+    (table) => [
+      check(
+        "identity_audit_events_action",
+        sql`${table.action} IN ('session.issued', 'session.signed_out', 'session.revoked_all', 'membership.invited', 'membership.invitation_revoked', 'membership.accepted', 'membership.removed', 'membership.role_changed', 'event_role.granted', 'event_role.revoked')`,
+      ),
+      check("identity_audit_events_outcome", sql`${table.outcome} IN ('succeeded', 'refused')`),
+      check("identity_audit_events_source", sql`${table.source} IN ('human', 'api', 'system')`),
+      index("identity_audit_events_org_idx").on(table.organizationId, table.occurredAt),
+      index("identity_audit_events_actor_idx").on(table.actorUserId, table.occurredAt),
+    ],
+  );
+
   const eventRoles = sqliteTable(
     "event_roles",
     {
@@ -138,6 +193,8 @@ export function defineIdentityAccessSchema(references: {
     identityLoginChallenges,
     identityOauthAttempts,
     identityProviderAccounts,
+    identitySessions,
+    identityAuditEvents,
     organizationMemberships,
     eventRoles,
   };

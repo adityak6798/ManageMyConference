@@ -17,14 +17,16 @@ import {
   requireEventCapability,
 } from "../../../application/identity/actor";
 import { createDemoSession } from "../../../application/identity/demo-session";
+import type { AuditContext } from "../../../application/identity/audit";
 import {
   createEventToken,
   createLoginChallenge,
   createUserSession,
   exchangeLoginChallenge,
+  sessionIdFrom,
 } from "../../../application/identity/real-auth";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { envelope, readJson } from "../runtime";
+import { envelope, type HttpContext, readJson } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -36,6 +38,7 @@ const routes = [
   "GET /api/auth/google/start",
   "GET /api/auth/google/callback",
   "POST /api/auth/signout",
+  "POST /api/auth/sessions/revoke-all",
   "POST /api/demo-session",
   "GET /api/session",
 ] as const;
@@ -68,6 +71,20 @@ const oauthCookieOptions = (secure: boolean) => ({
   secure,
   path: "/",
   maxAge: 600,
+});
+
+/**
+ * The request half of an audit row.
+ *
+ * `source` is `human` for every audited action in this module, and that is a fact about the
+ * module rather than a default: each of them is somebody pressing something in a browser. An
+ * `api` source belongs to a bearer-authenticated caller, and the one bearer-minting route here
+ * writes no audit row.
+ */
+const auditContext = (context: HttpContext): AuditContext => ({
+  correlationId: context.get("correlationId"),
+  actorUserId: context.get("actor")?.id ?? null,
+  source: "human",
 });
 
 export const identityRoutes: RouteModule = {
@@ -176,13 +193,47 @@ export const identityRoutes: RouteModule = {
         correlationId: context.get("correlationId"),
       });
       if (!outcome) return failed();
+      const expiresAt = now + SESSION_LIFETIME_MS;
+      const sessionId = crypto.randomUUID();
+      // The record comes before the cookie, and its failure is a failed sign-in rather than a
+      // 500: this is a top-level navigation, so the transport's JSON error envelope would be
+      // rendered as raw text in the address bar. A cookie issued without its record would
+      // resolve to nothing on the very next request anyway, which is a sign-in that silently
+      // did not happen.
+      try {
+        await auth.sessions.issue(
+          {
+            id: sessionId,
+            userId: outcome.actor.id,
+            issuedAt: now,
+            expiresAt,
+          },
+          {
+            correlationId: context.get("correlationId"),
+            actorUserId: outcome.actor.id,
+            source: "human",
+          },
+        );
+      } catch (error) {
+        // ERROR-INTENT: reported at error level, because a sign-in that verified and then could
+        // not be recorded is this deployment failing rather than a caller being refused.
+        dependencies.logger.error(
+          {
+            correlationId: context.get("correlationId"),
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          "auth.session.issue_failed",
+        );
+        return failed();
+      }
       setCookie(
         context,
         "greenroom_session",
         await createUserSession(
+          sessionId,
           outcome.actor.id,
           auth.sessionSecret as string,
-          now + SESSION_LIFETIME_MS,
+          expiresAt,
         ),
         {
           httpOnly: true,
@@ -198,12 +249,29 @@ export const identityRoutes: RouteModule = {
     });
 
     /**
-     * End this browser's session.
+     * End this browser's session — and the session itself.
      *
-     * Clearing the cookie, and nothing more — see `signOutResponseSchema`. Answering 200 whether
-     * or not a session was present keeps this from reporting whether the caller had one.
+     * Revocation first, cookie second. The record named by the cookie's `sid` is marked revoked,
+     * which is what stops a copy of the same cookie taken from another device, and what stops an
+     * event bearer token minted from that session; then the cookie is cleared.
+     *
+     * Still 200 whether or not a session was present, and still `{ signedOut: true }` rather than
+     * a count: the response must not report whether the caller held a session, and the number of
+     * rows revoked would. `POST /api/auth/sessions/revoke-all` reports a count because it
+     * requires a session first, so the count is the caller's own data.
+     *
+     * A demo persona cookie carries no `sid`, so it takes no lookup at all.
+     *
+     * A store failure is deliberately *not* swallowed. `{ signedOut: true }` on a session that is
+     * still live is the pre-#12 behaviour with a more reassuring label, which is the more
+     * dangerous product; the caller gets a 500 and the correlation id instead.
      */
-    app.post("/api/auth/signout", (context) => {
+    app.post("/api/auth/signout", async (context) => {
+      const sessionId = auth.sessionSecret
+        ? await sessionIdFrom(getCookie(context, "greenroom_session"), auth.sessionSecret)
+        : null;
+      if (sessionId && auth.sessions)
+        await auth.sessions.revoke(sessionId, (auth.now ?? Date.now)(), auditContext(context));
       deleteCookie(context, "greenroom_session", {
         path: "/",
         secure: isSecure(context),
@@ -211,6 +279,38 @@ export const identityRoutes: RouteModule = {
         sameSite: "Strict",
       });
       return context.json({ signedOut: true as const });
+    });
+
+    /**
+     * Sign out on every device.
+     *
+     * Requires a real session — a persona cookie resolves as `demo` and is refused here, so no
+     * demo caller can end anything. The count is safe to report because the caller had to prove
+     * the identity it counts: these are their own sessions and nobody else's.
+     *
+     * 404 where the deployment records no sessions at all, matching every other door this
+     * module offers conditionally.
+     */
+    app.post("/api/auth/sessions/revoke-all", async (context) => {
+      if (!auth.sessions)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      const actor = context.get("actor");
+      if (context.get("authentication") !== "session" || !actor)
+        throw new AuthenticationRequiredError("A user session is required to end every session");
+      return context.json({
+        revoked: await auth.sessions.revokeAllForUser(
+          actor.id,
+          (auth.now ?? Date.now)(),
+          auditContext(context),
+        ),
+      });
     });
     app.post("/api/auth/code", async (context) => {
       if (auth.demoMode || !auth.sessionSecret)
@@ -289,16 +389,25 @@ export const identityRoutes: RouteModule = {
           ),
           401,
         );
+      const expiresAt = now + SESSION_LIFETIME_MS;
+      const sessionId = crypto.randomUUID();
+      // Recorded before it is signed, so a cookie can never name a row that does not exist. A
+      // store failure reaches the transport's error boundary as a 500, which is the right answer
+      // to a fetch: this route is called by script, not by a top-level navigation.
+      await auth.sessions.issue(
+        { id: sessionId, userId: actor.id, issuedAt: now, expiresAt },
+        { correlationId: context.get("correlationId"), actorUserId: actor.id, source: "human" },
+      );
       setCookie(
         context,
         "greenroom_session",
-        await createUserSession(actor.id, auth.sessionSecret, now + 28_800_000),
+        await createUserSession(sessionId, actor.id, auth.sessionSecret, expiresAt),
         {
           httpOnly: true,
           sameSite: "Strict",
           secure: new URL(context.req.url).protocol === "https:",
           path: "/",
-          maxAge: 28_800,
+          maxAge: SESSION_LIFETIME_MS / 1000,
         },
       );
       return context.json({ authenticated: true as const });
@@ -326,11 +435,21 @@ export const identityRoutes: RouteModule = {
         parsed.data.eventId,
         "events:read",
       );
+      // The token inherits the session it was minted from, so signing out ends it too. The
+      // guard above already established that this cookie is a real session, which is what makes
+      // a missing `sid` here impossible rather than merely unlikely.
+      const sessionId = await sessionIdFrom(
+        getCookie(context, "greenroom_session"),
+        auth.sessionSecret,
+      );
+      if (!sessionId)
+        throw new AuthenticationRequiredError("A user session is required to create a token");
       const now = (auth.now ?? Date.now)();
       const expiresAt = now + 3_600_000;
       return context.json(
         {
           token: await createEventToken(
+            sessionId,
             actor.id,
             parsed.data.eventId,
             auth.sessionSecret,
