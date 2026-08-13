@@ -293,8 +293,8 @@ feature-by-feature verdict.
   re-derives every one of them from the new publication's board alone, so no stale hour survives a
   later publication. The **revision** does not. It is folded forward from whatever row was there,
   so a missed publication leaves it either lower or higher than the replay would have produced —
-  in simulation roughly as often each way — until some later publication changes that session's
-  triple and resynchronises it.
+  both directions occur — until some later publication changes that session's triple and
+  resynchronises it.
 
   Both directions are calendar-visible, and the two failures are not equally bad. A **higher**
   stale revision sends a speaker a duplicate invitation, which is a nuisance. A **lower** one
@@ -304,8 +304,18 @@ feature-by-feature verdict.
   while the stale one keeps `revision 1`; v3 places it back at the identical time. The replay
   would say `revision 3` — absence resets — and send the REQUEST that puts the talk back on the
   speaker's calendar. The desynchronised table computes "unchanged", keeps `revision 1`, matches
-  the ref already stored in `calendar_invite_states`, and sends nothing. The speaker's calendar
-  silently does not contain their talk, and the organizer is told everything was fine.
+  the ref already stored in `calendar_invite_states`, and sends nothing. The `legacyMatch` branch
+  does not rescue it: that arm requires a stored ref with no `<digits>|` prefix, and this one has
+  one, so the `scheduleRevisedAt` comparison behind it is never reached.
+
+  Be equally precise about the harm, which is narrower than "the talk vanishes". Nothing here
+  emits an iTIP `CANCEL` — `buildSpeakerInvite` only ever produces `REQUEST` — so the v1 entry is
+  still on the speaker's calendar, at the right hour, because a suppressed resend requires the
+  time to be identical. What is lost is the re-affirming REQUEST. That matters for exactly the
+  speakers who no longer hold the entry: one who declined or deleted it while the session was
+  unplaced, which is the very scenario the absence-resets rule exists for, and one whose original
+  invitation never arrived. For them the talk is missing and no later action puts it back, and the
+  organizer is told everything was fine.
 
   Second, the invariant that every writer of
   `agenda_publications` also maintains `agenda_session_schedules` is convention, not a constraint —
@@ -321,8 +331,11 @@ feature-by-feature verdict.
   impossible; plus a test that proves a desynchronised table is detected rather than served.
 
   Until then, the operational mitigation is to avoid the window rather than to repair it: do not
-  deploy while an organizer may be publishing. Republishing afterwards is **not** a repair, for
-  the reason above — an identical board compares equal and folds the stale `revision` straight
-  through, so the one number that matters is exactly the one republishing does not restore. The
-  only reliable manual repair today is to correct the row in `agenda_session_schedules` directly
-  against a replay of `agenda_publications`.
+  deploy while an organizer may be publishing. Republishing the same board afterwards is **not** a
+  repair — an identical board compares equal and folds the stale `revision` straight through, so
+  the one number that matters is the one it does not restore. Two things do work, and they differ
+  in what they cost. Publishing the session to a different hour and back resynchronises it, since
+  both the stale and the correct fold then derive the revision from the publication that moved it;
+  that needs no database access but sends the affected speakers real invitations. Correcting the
+  row in `agenda_session_schedules` against a replay of `agenda_publications` restores the
+  replay's exact number and sends nothing, which is why it is preferable where it is available.

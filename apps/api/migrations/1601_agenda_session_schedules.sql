@@ -64,9 +64,10 @@ CREATE TABLE agenda_session_schedules (
 -- the scalar subquery below, which stops at the first match, while a duplicate *slot* id fans the
 -- row out through the join and lets the `last_wins` ranking pick the winner. Both happen to land
 -- on the first duplicate where TypeScript's `Map` would take the last. No write path reaching
--- this statement can produce one: the only writer of `agenda_publications` that bypasses the
+-- this statement can produce one: the only writer of *production* data that bypasses the
 -- validator is the seed, which composes its `schedule_json` by hand, and that snapshot's ids are
--- distinct.
+-- distinct. (Test fixtures insert publications directly too, and none of them emits a duplicate
+-- id either, but they are not what this argument rests on.)
 WITH pubs AS (
   SELECT
     event_id,

@@ -314,13 +314,15 @@ holds regardless of how many of them land.)
 **The backfill was written rather than deferred, so the fallback in the lane brief is unused.** The
 CTE in `1601` is asserted equal to folding `nextSessionScheduleRevisions` over the same rows, both
 on a hand-built history covering every branch (`d1-agenda-repository.integration.test.ts`) and on
-1,000 generated histories per run in `apps/api/test/agenda-backfill-parity.test.ts`, which is in
-the unit suite and therefore re-runnable and CI-enforced rather than a one-off. That test also
-asserts its generator still reaches the cases that *discriminate* the two implementations — empty
-boards, dangling slot references, returns after absence, double placements whose copies resolve
-differently, and sessions still in force whose room the final snapshot dropped — so it cannot decay
-into a thousand repetitions of the easy path. Counting shapes rather than discriminating cases is
-what let two mutations of `1601` survive the suite in the first place. The self-healing watermark read described as the honest second choice was therefore
+2,000 generated histories per run — 1,000 seeds carrying two events each — in
+`apps/api/test/agenda-backfill-parity.test.ts`, which is in the unit suite and therefore
+re-runnable and CI-enforced rather than a one-off. That test also asserts its generator still
+reaches the cases that *discriminate* the two implementations: empty boards, dangling slot
+references, returns after absence, double placements whose copies resolve differently, and
+sessions still in force whose room the final snapshot dropped. Counting shapes rather than
+discriminating cases is what let two mutations of `1601` survive the suite in the first place.
+
+The self-healing watermark read described as the honest second choice was therefore
 not needed and is not present; what replaces it as the residual risk is recorded in
 [known gaps](../quality/known-gaps.md) as `GAP-024`.
 
