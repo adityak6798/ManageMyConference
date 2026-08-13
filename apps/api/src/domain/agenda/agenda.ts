@@ -67,8 +67,11 @@ export interface PlacedSessionTime {
  * A placement whose slot the agenda no longer holds yields nothing at all rather than a
  * half-time: a session with an unusable start is unscheduled, not scheduled at an unknown hour.
  * A room that has since been removed leaves the location empty and keeps the time, because the
- * hour is still true. Two placements of one session is a `SESSION_OVERLAP` conflict that blocks
- * publication, so the last one wins here and no published snapshot can reach that branch.
+ * hour is still true. Where one session holds two placements the last in array order wins, and
+ * that branch *is* reachable in published history: `conflictsFor` raises `SESSION_OVERLAP` only
+ * once the two placements' slots overlap in time, so a session placed twice at two separate
+ * hours publishes without conflict. An earlier version of this comment claimed publication
+ * blocked it; migration `1601` reproduces the ordering precisely because it does not.
  */
 export function placedSessionTimes(agenda: AgendaDraft): ReadonlyMap<string, PlacedSessionTime> {
   const slots = new Map(agenda.slots.map((slot) => [slot.id, slot]));

@@ -41,17 +41,27 @@ CREATE TABLE agenda_session_schedules (
 --   * A room the snapshot no longer holds leaves the location empty and keeps the hour, hence
 --     `COALESCE(..., '')` around the room lookup.
 --   * Two placements of one session: the last one in array order wins, hence the ranking on
---     `placement_index DESC`. A `SESSION_OVERLAP` conflict blocks publication so no committed
---     snapshot can reach that branch, but the two implementations must not be able to disagree
---     about it either.
+--     `placement_index DESC`. This is load-bearing, not defensive. `conflictsFor` only reaches
+--     its `SESSION_OVERLAP` branch once two placements' slots actually overlap in time, so a
+--     session placed twice in two *non-overlapping* slots raises no conflict and publishes
+--     normally. Committed history can therefore contain one, and the two implementations have
+--     to agree about which placement wins.
 --   * `ordinal` is ranked over *all* publications, not only over those that placed something. A
 --     published empty board makes every session absent, and a rank computed over `placed` would
 --     skip it and read the absence as continuity.
 --   * A gap in a session's own run of publications is an absence, and an absence resets: the
 --     returning publication's version is the revision even when the hour is unchanged.
 --
--- `IS NOT` rather than `<>` throughout, because a NULL on either side of `<>` yields NULL and
--- the row would be silently dropped from `meaningful` instead of counted as a change.
+-- `IS NOT` rather than `<>` throughout. Belt and braces rather than load-bearing: `prev_*` is
+-- NULL only on a partition's first row, which `prev_ordinal IS NULL` already catches, and
+-- `location` cannot be NULL because of the COALESCE. Kept because the null-safe form stays
+-- correct if a later reader adds a nullable column to the comparison.
+--
+-- The equivalence with the TypeScript fold is exact for every snapshot this system can store,
+-- and conditional on `agendaResourcesSchema`, which has enforced unique room, track and slot
+-- ids and non-empty names since the agenda's first commit. Where a snapshot to violate that,
+-- the two would break the tie differently: SQLite's scalar subquery takes the first duplicate
+-- id and TypeScript's `Map` takes the last. No write path can produce one.
 WITH pubs AS (
   SELECT
     event_id,
@@ -133,14 +143,27 @@ in_force AS (
   WHERE lw.version = (
     SELECT MAX(q.version) FROM agenda_publications q WHERE q.event_id = lw.event_id
   )
+),
+-- The most recent meaningful change per session is the revision in force.
+--
+-- Ranked with a window rather than selected with `WHERE version = (SELECT MAX(...) FROM
+-- meaningful ...)`. Both are near-linear in practice — measured under `node:sqlite` at 50
+-- sessions a board, 100 to 1600 publications, the correlated form ran 454ms to 7081ms and this
+-- one 387ms to 6845ms — so this is a choice of shape rather than a rescue. The window form is
+-- linear because it makes one ranking pass; the correlated form is linear only while the
+-- planner keeps flattening a subquery that re-derives the whole `meaningful` chain per
+-- surviving row. This migration is the one statement here that runs against precisely the
+-- unbounded history the change exists to stop replaying, so it should not depend on that.
+latest AS (
+  SELECT
+    m.*,
+    row_number() OVER (PARTITION BY m.event_id, m.session_id ORDER BY m.version DESC) AS recency
+  FROM meaningful m
 )
 INSERT INTO agenda_session_schedules (
   event_id, session_id, starts_at, ends_at, location, revision, revised_at
 )
-SELECT m.event_id, m.session_id, m.starts_at, m.ends_at, m.location, m.version, m.published_at
-FROM meaningful m
-JOIN in_force f ON f.event_id = m.event_id AND f.session_id = m.session_id
-WHERE m.version = (
-  SELECT MAX(x.version) FROM meaningful x
-  WHERE x.event_id = m.event_id AND x.session_id = m.session_id
-);
+SELECT l.event_id, l.session_id, l.starts_at, l.ends_at, l.location, l.version, l.published_at
+FROM latest l
+JOIN in_force f ON f.event_id = l.event_id AND f.session_id = l.session_id
+WHERE l.recency = 1;

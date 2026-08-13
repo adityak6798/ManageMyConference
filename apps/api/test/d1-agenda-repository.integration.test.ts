@@ -312,7 +312,13 @@ describe("D1AgendaRepository publication transaction", () => {
  */
 describe("D1AgendaRepository session schedule revisions", () => {
   let runtime: Miniflare | undefined;
-  afterEach(async () => runtime?.dispose());
+  // Cleared as well as disposed, so a case that starts no runtime does not dispose the previous
+  // case's a second time — which reports as "Server is not running" against the wrong test.
+  afterEach(async () => {
+    const started = runtime;
+    runtime = undefined;
+    await started?.dispose();
+  });
 
   const eventId = "00000000-0000-4000-8000-000000000001";
   const sessionA = "20000000-0000-4000-8000-000000000001";
@@ -436,10 +442,19 @@ describe("D1AgendaRepository session schedule revisions", () => {
    * The backfill reproduces the replay it replaces, over a history that exercises every branch.
    *
    * The seed has already published version 1 (session A on the main stage at 09:00). Versions 2
-   * to 10 add, in order: an unchanged republication, a published empty board, an identical
+   * to 12 add, in order: an unchanged republication, a published empty board, an identical
    * return after that absence, a second session appearing, a snapshot whose placement names a
    * slot it no longer holds, that session's return, a move to a different slot at the same
-   * hour, a snapshot with the room removed, and the room's restoration.
+   * hour, a snapshot with the room removed, the room's restoration, a session placed twice, and
+   * a final snapshot that drops a room.
+   *
+   * The last two are deliberately last. A history that only ever *recovers* from a removed room
+   * computes the empty location without ever materializing it, and a `COALESCE` dropped from
+   * the room lookup then survives the whole suite; ending on the removal is what makes the
+   * location column carry it. Likewise the double placement at 11 is in two **non-overlapping**
+   * slots, which `conflictsFor` does not treat as a `SESSION_OVERLAP` — so it is a board that
+   * really can be published, and the last-in-array-wins ordering really is load-bearing rather
+   * than defensive.
    *
    * Dropping the table first reconstructs exactly the state a deployed database is in when
    * `1601` runs: the history is populated and the table does not exist yet.
@@ -466,6 +481,28 @@ describe("D1AgendaRepository session schedule revisions", () => {
         }),
       ),
       publication(10, board([at("place-a2", sessionA, mainStage.id, slot0900Twin.id), bAt1000])),
+      // B twice, in slots that do not overlap in time and rooms that do not clash: a board with
+      // no conflicts at all, so publication would accept it. The later placement wins.
+      publication(
+        11,
+        board([
+          at("place-a2", sessionA, mainStage.id, slot0900Twin.id),
+          bAt1000,
+          at("place-b-dup", sessionB, workshopLab.id, slot0900.id),
+        ]),
+      ),
+      // Ends on a removed room, so the empty location is what the table actually holds.
+      publication(
+        12,
+        board(
+          [
+            at("place-a2", sessionA, mainStage.id, slot0900Twin.id),
+            bAt1000,
+            at("place-b-dup", sessionB, workshopLab.id, slot0900.id),
+          ],
+          { rooms: [mainStage] },
+        ),
+      ),
     ]);
 
     await database.prepare("DROP TABLE agenda_session_schedules").run();
@@ -473,8 +510,9 @@ describe("D1AgendaRepository session schedule revisions", () => {
 
     const backfilled = await storedRevisions(database);
     expect(backfilled).toEqual(await foldStoredHistory(database));
-    // Spelled out as well, so a fold that silently agreed on nothing could not pass: A last
-    // changed when it returned at 7 and has not moved since, and B's room came back at 10.
+    // Spelled out as well, so a fold that silently agreed on nothing could not pass. A last
+    // changed when it returned at 7 and has not moved since. B took its *second* placement's
+    // 09:00 slot at 11, then lost its room at 12.
     expect(backfilled.get(sessionA)).toEqual({
       startsAt: slot0900.startsAt,
       endsAt: slot0900.endsAt,
@@ -483,12 +521,40 @@ describe("D1AgendaRepository session schedule revisions", () => {
       revisedAt: "2026-08-12T00:00:07.000Z",
     });
     expect(backfilled.get(sessionB)).toEqual({
-      startsAt: slot1000.startsAt,
-      endsAt: slot1000.endsAt,
-      location: workshopLab.name,
-      revision: 10,
-      revisedAt: "2026-08-12T00:00:10.000Z",
+      startsAt: slot0900.startsAt,
+      endsAt: slot0900.endsAt,
+      location: "",
+      revision: 12,
+      revisedAt: "2026-08-12T00:00:12.000Z",
     });
+  });
+
+  /**
+   * The board at version 11 above is one publication would really accept.
+   *
+   * Asserted rather than assumed, because the whole reason `placement_index DESC` is load-bearing
+   * is that `conflictsFor` reaches its `SESSION_OVERLAP` branch only for placements whose slots
+   * overlap in time. If that ever stopped being true, the double-placement case above would
+   * become unreachable history and the ordering it pins would be untested rather than wrong.
+   */
+  it("treats a session placed twice in non-overlapping slots as publishable", () => {
+    const twiceInNonOverlappingSlots = board([
+      at("place-a2", sessionA, mainStage.id, slot0900Twin.id),
+      at("place-b", sessionB, workshopLab.id, slot1000.id),
+      at("place-b-dup", sessionB, workshopLab.id, slot0900.id),
+    ]);
+
+    expect(
+      conflictsFor({
+        ...twiceInNonOverlappingSlots,
+        // Both schedulable and sharing no speaker, so the only conflict that could arise is the
+        // `SESSION_OVERLAP` this case exists to show does not arise.
+        sessions: [
+          { id: sessionA, title: "Opening", speakerIds: [] },
+          { id: sessionB, title: "Deep dive", speakerIds: [] },
+        ],
+      }),
+    ).toEqual([]);
   });
 
   it("advances only the sessions a publication actually moved", async () => {

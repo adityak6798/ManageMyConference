@@ -272,3 +272,32 @@ feature-by-feature verdict.
   not name, unless an explicit flag says to destroy them — or the demo and self-serve deployments
   become separate databases. Either one, plus a test that proves the refusal, closes this and makes
   it safe to configure Google on the deployed demo.
+
+- `GAP-024` **A materialized per-session schedule revision has no drift detection and no repair
+  path.** Issue #141 replaced an unbounded replay of `agenda_publications` with a stored answer in
+  `agenda_session_schedules`, maintained inside the batch that commits each publication. The replay
+  was self-correcting by construction: it recomputed from the immutable snapshots on every read, so
+  a wrong answer was not representable. The stored form gives that up in exchange for the read cost,
+  and the failure it admits is silent. `AgendaService.publishedSessionSchedules` returns whatever
+  the table holds, and every consumer reads an absent row as "not scheduled yet" — including
+  `speaker-calendar-invites.ts`, which skips such a session **without** adding it to `unreachable`,
+  so an organizer pressing Send would be shown zero invitations sent and zero problems found.
+
+  Two ways the table could diverge, neither observed and neither currently detected. First, the
+  deploy window: `npm run deploy` runs `migrate:remote` before it uploads the Worker, so for the
+  length of a web build the old Worker is still serving and still commits publications without
+  maintaining the new table; a publication landing in that window desynchronises that event until
+  something else happens to move the session. Second, the invariant that every writer of
+  `agenda_publications` also maintains `agenda_session_schedules` is convention, not a constraint —
+  today the only writers are `D1AgendaRepository.publish` and the seed, and both do, but a future
+  import, fixture or repair path that inserts a publication directly would desynchronise silently.
+  Related: nothing checks that a publication's version is the event's newest before rewriting the
+  table, which is unreachable through `AgendaService.publish` (it allocates `max + 1`) but not
+  through such a path.
+
+  Owner: agenda. Governing IDs: `PRD-AGD-001`, `PRD-SPK-002`. Closure: either a reconciliation that
+  can detect and repair divergence — a per-event watermark compared against `MAX(version)`, replayed
+  once when it lags — or a trigger on `agenda_publications` that makes an unmaintained insert
+  impossible; plus a test that proves a desynchronised table is detected rather than served. Until
+  then, a deploy that lands during an active publication window should be followed by republishing
+  the affected event, which restores the row by the ordinary path.

@@ -2,8 +2,9 @@
  * The agenda domain's public application interface.
  *
  * Everything another domain is allowed to know about the programme's shape in time. Nothing
- * outside `apps/api/src/application/agenda` and the agenda repositories reads `agenda_drafts`
- * or `agenda_publications`.
+ * outside `apps/api/src/application/agenda` and the agenda repositories reads `agenda_drafts`,
+ * `agenda_publications` or `agenda_session_schedules`. `table-ownership.json` is the enforced
+ * statement of that set; this sentence is the readable one and has to be kept level with it.
  */
 import type { SessionScheduleRevision } from "../../domain/agenda/agenda";
 import type { Actor } from "../identity/actor";
