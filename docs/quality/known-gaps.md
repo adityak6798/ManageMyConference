@@ -149,10 +149,11 @@ feature-by-feature verdict.
   documentation page. Impact: the public-API bonus is unclaimable as shipped. Owner: platform.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable
   route with a rendered docs page, covered by a route test.
-- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Twice
-  observed: once locally on 2026-08-11 after roughly 45 minutes of uptime, and once in the `browser`
-  job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with no message
-  and exited 38 seconds into the suite. Every subsequent request failed with
+- `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Three
+  times observed: once locally on 2026-08-11 after roughly 45 minutes of uptime, once in the
+  `browser` job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with
+  no message and exited 38 seconds into the suite, and once more on 2026-08-13 (below). In the
+  hosted case every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
   commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
@@ -196,14 +197,33 @@ feature-by-feature verdict.
   unrelated reason, its telemetry dispatcher, which `WRANGLER_SEND_METRICS=false` fixes and which
   has nothing to do with the exhaustion above.
 
+  **A third occurrence, on 2026-08-13, finally names the error.** The `browser` job of hosted run
+  `31747167652` died 14 minutes in, and this time `workerd` printed a message rather than a bare
+  `✘ [ERROR]`:
+
+  ```
+  ✘ [ERROR] kj::getCaughtExceptionAsKj() = kj/async-io-unix.c++:186:
+            disconnected: ::write(fd, buffer.begin(), buffer.size()): Broken pipe
+  ```
+
+  followed by ten frames of stripped `workerd` addresses, `npm error Lifecycle script 'dev'
+  failed`, and `ECONNREFUSED` on the derived API port for every later request. So the runtime did
+  not fault on our code: it died writing to its own stdout, which is the pipe Playwright's
+  `webServer` capture holds — and it had been writing a `request.denied` line per unauthenticated
+  poll for fourteen minutes. That is a lead the previous two occurrences did not give, and it is
+  what the upstream report in the closure condition needs. 31 of 68 specs then failed as 30-second
+  timeouts and missing elements; the whole log contains **no** `request.exception`, which is the
+  cheapest way to tell this apart from a real regression. The rerun at the same commit was green.
+
   **What remains open is the original entry:** the runtime still dies rather than degrading, and
   a suite that loses it still fails with misleading assertion errors instead of a diagnosis.
-  Ports were one way to provoke that; they were not the only one, and the browser-job crash of
-  hosted run `31498844956` had no port pressure behind it. Owner: platform. Governing ID:
-  `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a diagnosis rather than 22
-  misleading assertion errors — a `webServer` health probe between spec files, or a Playwright
-  global setup that fails fast when the API stops answering — and the wrangler crash itself is
-  reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
+  Ports were one way to provoke that; they were not the only one, and neither the browser-job
+  crash of hosted run `31498844956` nor the one above had any port pressure behind it. Owner:
+  platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a
+  diagnosis rather than 22 misleading assertion errors — a `webServer` health probe between spec
+  files, or a Playwright global setup that fails fast when the API stops answering — and the
+  wrangler crash itself is reported upstream with the log from `apps/api/.wrangler/wrangler.log`
+  and the `kj` message above.
 - `GAP-019` **The demo reset would delete real self-serve accounts, and its guard cannot tell that
   it is about to.** `apps/api/seed/reset.sql` is a full teardown: it `DELETE`s *every* row of
   `users`, `organizations` and `events` — not the seeded ones, all of them — before inserting the
