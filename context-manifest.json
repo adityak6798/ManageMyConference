@@ -24,6 +24,11 @@
         "reason": "The events domain's declared export surface, and the slice port a template is assembled from. Five domains import EventConfigurationSlice from it \u2014 review, cfp, agenda, publishing and content, whose two slices bring the file count to six \u2014 each targeting the surface instead of deep-importing the service, which is what it was declared for."
       },
       {
+        "path": "apps/api/src/application/platform/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The platform domain's declared export surface: the operational service the transport composes and the vocabulary its cross-domain answers are written in. No cross-domain import reaches it today \u2014 platform composes other domains rather than being composed \u2014 and it stays declared for the same reason events/public.ts does, so a later consumer has a surface to target instead of deep-importing the service."
+      },
+      {
         "path": "apps/api/src/application/cfp/public.ts",
         "governing": "ARC-DOM-001",
         "reason": "CFP's declared export surface: the service type and the three errors the transport translates into 400 and 404 responses."
@@ -302,12 +307,14 @@
       "specs": [
         "ARC-001",
         "ARC-DOM-001",
-        "ENG-CI-001"
+        "ENG-CI-001",
+        "PRD-OPS-001"
       ],
       "journeys": [],
       "acceptance": [
         "ACC-HARNESS",
-        "ACC-DEMO-SMOKE"
+        "ACC-DEMO-SMOKE",
+        "ACC-OPS"
       ],
       "plans": [
         "PLAN-001",
@@ -372,7 +379,17 @@
         "apps/web/src/workspaces/registry.tsx",
         "apps/api/test/d1-harness.integration.test.ts",
         "apps/api/test/d1-write-result.test.ts",
-        "apps/api/test/support/seeded-d1.ts"
+        "apps/api/test/support/seeded-d1.ts",
+        "apps/api/src/application/platform",
+        "apps/api/test/platform-search.test.ts",
+        "apps/api/test/platform-http.test.ts",
+        "apps/web/src/CommandPalette.tsx",
+        "apps/web/src/platform",
+        "apps/web/src/api/platform.ts",
+        "apps/web/src/workspaces/platform.tsx",
+        "apps/web/test/command-palette.test.tsx",
+        "apps/web/test/platform-search.test.tsx",
+        "apps/web/e2e/platform-operations.spec.ts"
       ]
     },
     {

@@ -1,4 +1,4 @@
-// @acceptance ACC-DEMO-SMOKE
+// @acceptance ACC-DEMO-SMOKE ACC-OPS
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 
@@ -272,6 +272,55 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   await expect(
     page.getByRole("button", { name: "Designing for the hallway track", exact: true }),
   ).toBeVisible();
+});
+
+/**
+ * The command palette, which the sweep above cannot reach.
+ *
+ * Every workspace joins that sweep by being a link in the navigation landmark. The palette is
+ * not a destination — it is a dialog over whichever destination the operator is already on — so
+ * nothing enumerates it, and without this test it would be the one console surface with no axe
+ * coverage at all. Focus return and Escape are asserted here too, because they are exactly what
+ * an automated rule set cannot see: axe reports that the dialog is labelled and modal, and says
+ * nothing about where a keyboard user ends up when it closes.
+ */
+test("audits the command palette, its focus return, and its 390px layout", async ({ page }) => {
+  await openOrganizer(page);
+
+  // Scoped to the banner: `/search` has a submit control with the same name, and the palette is
+  // the topbar's.
+  const opener = page.getByRole("banner").getByRole("button", { name: /^Search/ });
+  await opener.click();
+  const palette = page.getByRole("dialog", { name: "Search this event" });
+  await expect(palette).toBeVisible();
+  await expect(palette.getByRole("combobox")).toBeFocused();
+
+  // A term the deterministic seed actually holds, so an empty listbox is a defect rather than an
+  // accurate answer about a word nobody wrote.
+  await palette.getByRole("combobox").fill("accessible");
+  await expect(palette.getByRole("option").first()).toBeVisible();
+  await expectNoAxeViolations(page, "command palette");
+
+  // Closing must put the operator back on the control they used, not at the top of a document
+  // that changed underneath them.
+  await page.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
+  await expect(opener).toBeFocused();
+
+  // The chord is the other way in, and it is the one a keyboard-only operator will use.
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByRole("dialog", { name: "Search this event" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await opener.click();
+  await expect(palette).toBeVisible();
+  // Scoped to the palette throughout: the shell's two `<select>` controls contribute `option`
+  // roles of their own, and an unscoped query resolves to one of those instead — a passing
+  // locator that is not this widget.
+  await palette.getByRole("combobox").fill("accessible");
+  await expect(palette.getByRole("option").first()).toBeVisible();
+  await expectNoHorizontalOverflow(page, "command palette at 390px");
 });
 
 test("audits reviewer and speaker shells including evaluator-grade content", async ({ page }) => {

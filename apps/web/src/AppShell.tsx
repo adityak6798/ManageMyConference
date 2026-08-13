@@ -9,7 +9,7 @@ import type { EventDto, SessionDto } from "@greenroom/contracts";
 import type { ReactNode } from "react";
 import { InstanceMarker } from "./InstanceMarker";
 import { useLinkProps } from "./router";
-import { IconGlobe } from "./ui/icons";
+import { IconGlobe, IconSearch } from "./ui/icons";
 
 export type NavItem = {
   href: string;
@@ -37,12 +37,14 @@ export function AppShell({
   selectedEventId,
   onSelectEvent,
   onSwitchPersona,
+  onOpenSearch,
   onSignOut,
   onSignOutEverywhere,
   busy,
   groups,
   activePath,
   publicHref,
+  overlay,
   children,
 }: {
   session: SessionDto;
@@ -50,6 +52,11 @@ export function AppShell({
   selectedEventId: string;
   onSelectEvent: (eventId: string) => void;
   onSwitchPersona: (persona: Persona) => void;
+  /**
+   * Opens the command palette. Absent when no event is selected, because there is nothing to
+   * search — the control is then not rendered at all rather than rendered and refusing.
+   */
+  onOpenSearch?: () => void;
   /**
    * Absent for a demo persona, which is switched rather than signed out — the switcher below
    * is that deployment's way to change identity, and offering both would imply the personas
@@ -65,6 +72,13 @@ export function AppShell({
   groups: NavGroup[];
   activePath: string;
   publicHref: string | null;
+  /**
+   * Chrome that sits above the whole console rather than inside a page — the command palette.
+   *
+   * Rendered as a sibling of `main` and not within it, because a modal dialog nested inside the
+   * landmark it is covering makes the landmark contain the thing that renders it inert.
+   */
+  overlay?: ReactNode;
   children: ReactNode;
 }) {
   const linkProps = useLinkProps();
@@ -136,6 +150,27 @@ export function AppShell({
           <InstanceMarker />
           <span className="spacer" />
 
+          {onOpenSearch ? (
+            <button
+              type="button"
+              className="secondary topbar-search"
+              onClick={onOpenSearch}
+              // The chord is declared rather than only drawn, so it is discoverable to a screen
+              // reader too. The button is what makes the palette reachable at all; the hint is
+              // how somebody learns the faster way.
+              aria-keyshortcuts="Meta+K Control+K"
+            >
+              <IconSearch size={15} />
+              {/*
+                The label and the hint collapse away on a narrow topbar, leaving the icon and the
+                same accessible name. The bar is one sticky row by design, and it was already at
+                the edge of a 390px viewport before this control joined it.
+              */}
+              <span className="topbar-search-label">Search</span>
+              <kbd>⌘K</kbd>
+            </button>
+          ) : null}
+
           {publicHref ? (
             <a className="btn secondary" href={publicHref} target="_blank" rel="noreferrer">
               <IconGlobe size={15} />
@@ -190,6 +225,8 @@ export function AppShell({
         <main className="page-body" id="main" tabIndex={-1}>
           {children}
         </main>
+
+        {overlay}
       </div>
     </div>
   );

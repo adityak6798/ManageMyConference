@@ -173,6 +173,15 @@ export const IconLink = (p: IconProps) =>
 
 export const IconPlus = (p: IconProps) => svg(<path d="M12 5v14M5 12h14" />, p);
 
+export const IconSearch = (p: IconProps) =>
+  svg(
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4.5 4.5" />
+    </>,
+    p,
+  );
+
 export const IconGrip = (p: IconProps) =>
   svg(
     <>

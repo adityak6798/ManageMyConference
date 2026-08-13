@@ -1,15 +1,26 @@
-/** Public API discovery routes owned by the platform domain. @spec ARC-001 ENG-CI-001 */
-import { eventIdParamsSchema } from "@greenroom/contracts";
+/** Public API discovery routes owned by the platform domain. @spec ARC-001 ENG-CI-001 PRD-OPS-001 */
+import { eventIdParamsSchema, searchQuerySchema } from "@greenroom/contracts";
 import { AgendaNotFoundError } from "../../../application/agenda/public";
 import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
 } from "../../../application/identity/actor";
+import {
+  SEARCH_SECTION_KEYS,
+  SearchQueryTooShortError,
+  type SearchSection,
+  type SearchSectionKey,
+} from "../../../application/platform/public";
 import openApiDocument from "../../../../../../packages/contracts/openapi.json";
-import { envelope } from "../runtime";
+import { envelope, type ErrorTranslation, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
-const routes = ["GET /openapi.json", "GET /docs", "GET /api/events/:eventId/overview"] as const;
+const routes = [
+  "GET /openapi.json",
+  "GET /docs",
+  "GET /api/events/:eventId/overview",
+  "GET /api/events/:eventId/search",
+] as const;
 
 const docsPage = `<!doctype html>
 <html lang="en">
@@ -150,8 +161,7 @@ export const platformRoutes: RouteModule = {
               operation: `overview.${names[index]}`,
               actorId: actor?.id,
               errorName: error.name,
-              errorMessage: error.message,
-              ...(auth.demoMode ? { errorStack: error.stack } : {}),
+              ...(auth.demoMode ? { errorMessage: error.message, errorStack: error.stack } : {}),
             },
             "request.exception",
           );
@@ -171,5 +181,81 @@ export const platformRoutes: RouteModule = {
         publication: panel(settled[3], 3),
       });
     });
+    app.get("/api/events/:eventId/search", async (context) => {
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      const query = searchQuerySchema.safeParse(context.req.query());
+      if (!params.success || !query.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The search request is malformed.",
+            context.get("correlationId"),
+            validationFields([
+              ...(params.success ? [] : params.error.issues),
+              ...(query.success ? [] : query.error.issues),
+            ]),
+          ),
+          400,
+        );
+      const { platformOps, logger, auth } = dependencies;
+      if (!platformOps) throw new Error("Platform operations service is not configured");
+      const answer = await platformOps.search(
+        context.get("actor"),
+        params.data.eventId,
+        query.data.q,
+        query.data.limit,
+      );
+      /*
+       * A refused source is reported as `unauthorized` and is not logged: it is the ordinary
+       * answer to a reviewer searching an event, and logging it would fill the telemetry with
+       * the authorization model working. Only a genuine rejection is logged, once, here — the
+       * application layer deliberately hands the rejection over rather than a message, so the
+       * correlation id and the demo-only stack stay the transport's to decide.
+       */
+      const wire = (key: SearchSectionKey, section: SearchSection) => {
+        if (section.state !== "failed") return section;
+        const error =
+          section.reason instanceof Error ? section.reason : new Error(String(section.reason));
+        logger.error(
+          {
+            correlationId: context.get("correlationId"),
+            operation: `search.${key}`,
+            actorId: context.get("actor")?.id,
+            errorName: error.name,
+            ...(auth.demoMode ? { errorMessage: error.message, errorStack: error.stack } : {}),
+          },
+          "request.exception",
+        );
+        return {
+          state: "failed" as const,
+          error: envelope("INTERNAL_ERROR", "Something went wrong.", context.get("correlationId"))
+            .error,
+        };
+      };
+      return context.json({
+        query: answer.query,
+        limit: answer.limit,
+        sections: Object.fromEntries(
+          SEARCH_SECTION_KEYS.map((key) => [key, wire(key, answer.sections[key])]),
+        ),
+      });
+    });
+  },
+  /**
+   * The one platform error a caller can act on.
+   *
+   * The route's own Zod check refuses a short query first, so this is the defence behind it
+   * rather than the usual path: the service enforces its own minimum, and a caller reaching it
+   * some other way is told the same thing on the same field instead of seeing a 500.
+   */
+  translateError(error: unknown): ErrorTranslation | null {
+    if (error instanceof SearchQueryTooShortError)
+      return {
+        code: "VALIDATION_FAILED",
+        message: "Search for at least two characters.",
+        status: 400,
+        fields: { q: [error.message] },
+      };
+    return null;
   },
 };

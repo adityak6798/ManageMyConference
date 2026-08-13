@@ -5,8 +5,10 @@
  *           public event pages.
  * shell   — app chrome and the primitives in ui/.
  * workspaces — domain-specific surfaces.
+ * platform  — the console-wide command palette.
  */
 
 @import "./styles/tokens.css";
 @import "./styles/shell.css";
 @import "./styles/workspaces.css";
+@import "./styles/platform.css";
