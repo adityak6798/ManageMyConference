@@ -143,16 +143,64 @@ describe("identity sessions against D1", () => {
     await expect(sessions.find("sid-reviewer", LATER)).resolves.toEqual({ userId: REVIEWER });
   });
 
-  it("keeps every audit row, including the ones about sessions that no longer resolve", async () => {
+  /**
+   * A write that changed nothing writes no audit row.
+   *
+   * Two properties in one. The record has to be true — an audit row saying a session was signed
+   * out when the `UPDATE` matched nothing is a claim about something that did not happen, and it
+   * is the operator reading this table afterwards who is misled by it. And the table has to be
+   * hard to grow: `/api/auth/signout` has no throttle, `identity_audit_events` is append-only and
+   * nothing prunes it, so a row per attempt would let anybody holding a validly-signed dead
+   * cookie write to it at will.
+   *
+   * The guard is `changes() > 0` in the audit INSERT, which only means anything against a real
+   * driver — it depends on D1 running a batch as one sequential transaction, so `changes()` in
+   * the second statement reports the first statement's row count. That is why this case is here
+   * and not in the in-memory suite.
+   */
+  it("writes no audit row for a revocation that changed nothing", async () => {
     const { sessions, audit } = await store();
     await sessions.issue(
       { id: "sid-1", userId: ORGANIZER, issuedAt: NOW, expiresAt: EXPIRES },
       context(ORGANIZER),
     );
-    await sessions.revoke("sid-1", LATER, context(ORGANIZER));
-    await sessions.revokeAllForUser(ORGANIZER, LATER, context(ORGANIZER));
+    expect(await audit()).toHaveLength(1);
 
+    // A session that never existed, five times over — the replay an expired-cookie holder would
+    // otherwise have.
+    for (let attempt = 0; attempt < 5; attempt += 1)
+      await expect(sessions.revoke("sid-never-existed", LATER, context(ORGANIZER))).resolves.toBe(
+        0,
+      );
+    // And a real revocation repeated: the first changes a row, the rest do not.
+    await expect(sessions.revoke("sid-1", LATER, context(ORGANIZER))).resolves.toBe(1);
+    await expect(sessions.revoke("sid-1", LATER, context(ORGANIZER))).resolves.toBe(0);
+    await expect(sessions.revokeAllForUser(ORGANIZER, LATER, context(ORGANIZER))).resolves.toBe(0);
+
+    // Exactly two rows: the issue, and the one revocation that happened.
     expect((await audit()).map((entry) => entry.action)).toEqual([
+      "session.issued",
+      "session.signed_out",
+    ]);
+  });
+
+  it("keeps every audit row, including the ones about sessions that no longer resolve", async () => {
+    const { sessions, audit } = await store();
+    for (const id of ["sid-laptop", "sid-phone"])
+      await sessions.issue(
+        { id, userId: ORGANIZER, issuedAt: NOW, expiresAt: EXPIRES },
+        context(ORGANIZER),
+      );
+    // Sign out of one device, then out of everywhere — so the sweep still has a live session to
+    // find and both actions genuinely happen.
+    await sessions.revoke("sid-laptop", LATER, context(ORGANIZER));
+    await expect(sessions.revokeAllForUser(ORGANIZER, LATER, context(ORGANIZER))).resolves.toBe(1);
+
+    // Two issues, one sign-out, one sweep. Ordered by time then action, so the two issues share a
+    // timestamp and sort by name. The revoked session's own rows survive its revocation, which is
+    // the append-only property: history outlives the thing it describes.
+    expect((await audit()).map((entry) => entry.action)).toEqual([
+      "session.issued",
       "session.issued",
       "session.revoked_all",
       "session.signed_out",

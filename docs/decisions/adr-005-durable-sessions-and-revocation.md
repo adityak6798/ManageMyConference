@@ -67,9 +67,27 @@ client credential that is genuinely independent of a browser session is a differ
 different lifecycle, rotation and audit needs; issue #100 ("Productize the REST API with scoped
 clients") is where it belongs, and this decision deliberately does not pre-build it.
 
-**Every state change is batched with its audit row.** `identity_audit_events` is append-only, and
-each writer in this domain sends the change and its record to D1 as one batch. An audit row
-therefore cannot claim something that did not happen, and a state change cannot happen unaudited.
+**Every state change is batched with its audit row, and a write that changed nothing writes no
+row.** `identity_audit_events` is append-only, and each writer in this domain sends the change and
+its record to D1 as one batch. An audit row therefore cannot claim something that did not happen,
+and a state change cannot happen unaudited. Because the affected-row count is not known when the
+batch is built, the guard is in SQL: the audit insert for a conditional write carries
+`WHERE changes() > 0`, and D1 runs a batch as one sequential transaction, so that is the preceding
+statement's count. A sign-out that matched no live session is a no-op rather than a refusal — the
+caller was denied nothing — so it is not recorded. That distinction is also what keeps the table
+hard to grow: `/api/auth/signout` has no throttle, so a row per attempt would let anyone holding a
+validly-signed dead cookie append to it at will. For the same reason `sessionIdFrom` refuses a
+payload past its expiry, which costs an expired credential nothing it still had.
+
+**A seeded demo persona is never the subject of a real session.** Account linking resolves an
+identity by verified address, and `seed/reset.sql` gives the demo personas real addresses — so on
+the one deployment that can hold both populations, `DEMO_MODE=true` with Google configured, a real
+sign-in as `organizer@greenroom.test` would otherwise mint a real session for `seed-organizer`,
+the identity the landing page hands to the next visitor who presses **Continue as organizer**.
+Both issuing routes refuse a subject for which `isDemoPersonaId` holds, and that predicate is
+derived from the `personas` object's own keys so it cannot drift from the four seeded rows. The
+alternative — trusting `GAP-019` to keep Google unconfigured on the demo — is a deployment
+convention standing in for an authorization rule.
 
 **The Google callback's refusals are recorded as structured logs, not audit rows.** A refused
 sign-in has no state change to batch a row with. Writing one best-effort would give two bad
@@ -91,6 +109,12 @@ authorized it.
 - The deployment signs everybody out once, at the deploy that lands this.
 - `identity_sessions` accumulates rows. Nothing prunes them yet; the expiry index exists so a
   sweep can be added when the table's size is a real number rather than an anticipated one.
+- `identity_audit_events` accumulates too, and it is the one with no expiry to sweep on, because
+  an audit record's whole value is that it outlives what it describes. What bounds it is that
+  only a real state change writes a row: every row costs somebody an authenticated action. That
+  is a property of the writers rather than of the table, so it is worth restating whenever a new
+  writer is added — a writer that records attempts rather than changes would hand an unbounded
+  append to whoever can reach it.
 - A session row's `user_id` is now the only user column that is not an actor-resolution route, and
   it must stay that way. The three demo-safety rules in `docs/architecture/authorization.md` state
   it, and `resolveUserSession` compares that column against the signed payload rather than

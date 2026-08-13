@@ -168,8 +168,11 @@ export async function resolveUserSession(
  * asking us to revoke. Reading it from the signed payload is what lets the route act on the
  * cookie it was given without a second way to resolve an actor from it.
  *
- * Expiry is not checked. Revoking an expired session is a no-op the `WHERE` clause absorbs, and
- * refusing here would only mean the caller's cookie outlived their ability to end it.
+ * **Expiry is checked**, and it is the one bound that keeps this from being a free write. A
+ * signature stays valid for as long as the secret does, so without this an expired cookie could
+ * be replayed at `/api/auth/signout` indefinitely; the route has no throttle, and each replay
+ * would reach D1. Refusing here costs the caller nothing real — a session that has expired is
+ * already over — and it means a dead credential stops being an instrument.
  *
  * A demo persona cookie has three parts and never verifies here, so it yields null and takes no
  * store lookup.
@@ -177,9 +180,11 @@ export async function resolveUserSession(
 export async function sessionIdFrom(
   value: string | undefined,
   secret: string,
+  now: number,
 ): Promise<string | null> {
-  const payload = await verify<{ kind: string; sid?: string }>(value, secret);
-  return payload?.kind === "session" && payload.sid ? payload.sid : null;
+  const payload = await verify<{ kind: string; sid?: string; expiresAt: number }>(value, secret);
+  if (payload?.kind !== "session" || payload.expiresAt <= now || !payload.sid) return null;
+  return payload.sid;
 }
 
 /**

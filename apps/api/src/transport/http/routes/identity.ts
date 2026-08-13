@@ -16,7 +16,7 @@ import {
   AuthenticationRequiredError,
   requireEventCapability,
 } from "../../../application/identity/actor";
-import { createDemoSession } from "../../../application/identity/demo-session";
+import { createDemoSession, isDemoPersonaId } from "../../../application/identity/demo-session";
 import type { AuditContext } from "../../../application/identity/audit";
 import {
   createEventToken,
@@ -193,6 +193,23 @@ export const identityRoutes: RouteModule = {
         correlationId: context.get("correlationId"),
       });
       if (!outcome) return failed();
+      // A verified Google identity that resolved *to a seeded demo persona* is refused here, and
+      // this is the crossing the guard exists for. On a demo deployment with Google configured,
+      // account linking matches a verified address, and `seed/reset.sql` gives the personas real
+      // addresses — so signing in as `organizer@greenroom.test` would otherwise link the provider
+      // account to `seed-organizer` and mint a real session for the identity the landing page
+      // hands to the next visitor who presses "Continue as organizer".
+      if (isDemoPersonaId(outcome.actor.id)) {
+        // ERROR-INTENT: reported rather than swallowed, and as a refusal rather than a failure —
+        // the deployment is misconfigured (a seeded address is claimable by a real provider
+        // account), not broken. The caller gets the same indistinguishable redirect as every
+        // other callback refusal, for the reason this route's own docstring gives.
+        dependencies.logger.warn(
+          { correlationId: context.get("correlationId"), reason: "demo-persona-subject" },
+          "auth.google.refused",
+        );
+        return failed();
+      }
       const expiresAt = now + SESSION_LIFETIME_MS;
       const sessionId = crypto.randomUUID();
       // The record comes before the cookie, and its failure is a failed sign-in rather than a
@@ -260,18 +277,25 @@ export const identityRoutes: RouteModule = {
      * rows revoked would. `POST /api/auth/sessions/revoke-all` reports a count because it
      * requires a session first, so the count is the caller's own data.
      *
-     * A demo persona cookie carries no `sid`, so it takes no lookup at all.
+     * A demo persona cookie carries no `sid`, so it takes no lookup at all. Nor does an expired
+     * one: `sessionIdFrom` refuses a payload past its expiry, which is what stops a dead but
+     * validly-signed cookie being replayed here as an unlimited supply of database writes.
      *
      * A store failure is deliberately *not* swallowed. `{ signedOut: true }` on a session that is
      * still live is the pre-#12 behaviour with a more reassuring label, which is the more
      * dangerous product; the caller gets a 500 and the correlation id instead.
      */
     app.post("/api/auth/signout", async (context) => {
+      const now = (auth.now ?? Date.now)();
       const sessionId = auth.sessionSecret
-        ? await sessionIdFrom(getCookie(context, "greenroom_session"), auth.sessionSecret)
+        ? await sessionIdFrom(getCookie(context, "greenroom_session"), auth.sessionSecret, now)
         : null;
+      // `auth.sessions` is absent only on a deployment that records no sessions — demo without
+      // Google, or no signing secret at all — and on those no cookie can resolve as a real
+      // session in the first place, so there is nothing here to revoke. Cookie clearing below
+      // still runs, which is the whole of what sign-out meant on such a deployment before.
       if (sessionId && auth.sessions)
-        await auth.sessions.revoke(sessionId, (auth.now ?? Date.now)(), auditContext(context));
+        await auth.sessions.revoke(sessionId, now, auditContext(context));
       deleteCookie(context, "greenroom_session", {
         path: "/",
         secure: isSecure(context),
@@ -379,8 +403,12 @@ export const identityRoutes: RouteModule = {
         now,
         auth.consumeLoginChallenge,
       );
+      // A seeded demo persona is never a valid session subject, even when the address resolves.
+      // `resolveEmail` is an address lookup, and `seed/reset.sql` gives the personas real
+      // addresses; the same indistinguishable 401 as an unknown address, because which of the two
+      // it was is not the caller's business.
       const actor = email ? await auth.resolveEmail(email) : null;
-      if (!actor)
+      if (!actor || isDemoPersonaId(actor.id))
         return context.json(
           envelope(
             "UNAUTHORIZED",
@@ -438,13 +466,14 @@ export const identityRoutes: RouteModule = {
       // The token inherits the session it was minted from, so signing out ends it too. The
       // guard above already established that this cookie is a real session, which is what makes
       // a missing `sid` here impossible rather than merely unlikely.
+      const now = (auth.now ?? Date.now)();
       const sessionId = await sessionIdFrom(
         getCookie(context, "greenroom_session"),
         auth.sessionSecret,
+        now,
       );
       if (!sessionId)
         throw new AuthenticationRequiredError("A user session is required to create a token");
-      const now = (auth.now ?? Date.now)();
       const expiresAt = now + 3_600_000;
       return context.json(
         {

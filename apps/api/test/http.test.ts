@@ -80,6 +80,21 @@ const cookieFor = async (persona: "organizer" | "reviewer" | "speaker" | "public
   cookie: `greenroom_session=${await createDemoSession(persona, secret, 2_000)}`,
 });
 
+/**
+ * A real signed-in organizer: the seeded persona's shape, under an id that is not a seeded one.
+ *
+ * The id is the whole point. Both issuing routes refuse a subject for which `isDemoPersonaId`
+ * holds, because `seed/reset.sql` gives the personas real addresses and a real sign-in must never
+ * land on one (`docs/architecture/authorization.md`, rule 3). A fixture that signs in *as*
+ * `seed-organizer` is exercising a path the product deliberately refuses, which is not what these
+ * cases are about.
+ */
+const realOrganizer = async () => ({
+  ...(await resolveSeededDemoActor("organizer")),
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Odele Organizer",
+});
+
 describe("events HTTP transport", () => {
   it("returns health that matches the SQL/R2 runtime contract", async () => {
     const { app } = createTestApp();
@@ -149,7 +164,7 @@ describe("events HTTP transport", () => {
 
     // A real user session on the same demo-mode deployment, which is the configuration the
     // middleware exists to support and the one where the distinction is load-bearing.
-    const actor = await resolveSeededDemoActor("organizer");
+    const actor = await realOrganizer();
     const googleSessions = memorySessionStore();
     const withGoogle = createHttpApp(
       new EventService({
@@ -598,7 +613,7 @@ describe("events HTTP transport", () => {
       now: () => new Date(),
     });
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const actor = await resolveSeededDemoActor("organizer");
+    const actor = await realOrganizer();
     let deliveredCode = "";
     let savedChallenge: { id: string; email: string; codeProof: string; expiresAt: number } | null =
       null;
@@ -929,7 +944,7 @@ describe("events HTTP transport", () => {
    * not.
    */
   it("issues a real session on a successful Google callback, and welcomes only a new account", async () => {
-    const actor = await resolveSeededDemoActor("organizer");
+    const actor = await realOrganizer();
     const google = (provisioned: boolean): GoogleAuthProvider => ({
       start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a1" }),
       complete: async () => ({ actor, provisioned }),

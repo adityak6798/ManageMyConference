@@ -42,12 +42,14 @@ export class D1SessionStore implements SessionStore {
   constructor(private readonly database: SessionDatabasePort) {}
 
   async issue(record: SessionRecord, context: AuditContext): Promise<void> {
-    const [inserted] = await this.database.batch([
+    const results = await this.database.batch([
       this.database
         .prepare(
           "INSERT INTO identity_sessions (id, user_id, issued_at, expires_at) VALUES (?,?,?,?)",
         )
         .bind(record.id, record.userId, record.issuedAt, record.expiresAt),
+      // Unconditional: the statement above is an unconditional insert, so it either affected one
+      // row or the whole batch rolled back.
       auditEventStatement(
         this.database,
         {
@@ -60,8 +62,11 @@ export class D1SessionStore implements SessionStore {
         context,
       ),
     ]);
-    if (!inserted?.success)
-      throw new Error(`D1 failed to record a session: ${inserted?.error ?? "unknown error"}`);
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(`D1 failed to record a session: ${failed.error ?? "unknown error"}`);
+    const [inserted] = results;
+    if (!inserted) throw new Error("D1 returned no result while issuing a session");
     // A session id is a fresh UUID, so the only way this is not 1 is that the insert did not
     // happen — which would leave a cookie naming a row that never existed.
     if (changedRows(inserted, "record an issued session") !== 1)
@@ -118,10 +123,12 @@ export class D1SessionStore implements SessionStore {
   /**
    * One conditional write and its audit row, as one batch, answering the affected-row count.
    *
-   * The row records that the action was taken; the count is the caller's answer and not part of
-   * the claim. Putting the count *in* the row would mean writing it after the update, which is
-   * the second round trip this batch exists to avoid — and an audit row that can outlive a
-   * rolled-back change is the thing that makes an audit trail worthless.
+   * The audit row is written **only if the write changed something** — `onlyWhenChanged` puts
+   * that condition in SQL, because the count is not known when the batch is built and the two
+   * statements have to travel together. A sign-out that matched no live session is a no-op
+   * rather than a refusal, and a row claiming otherwise would be a record of something that did
+   * not happen. It would also be writable on demand: a validly-signed but already-revoked cookie
+   * can be replayed at `/api/auth/signout` without limit.
    */
   private async write(
     statement: D1Statement,
@@ -129,12 +136,19 @@ export class D1SessionStore implements SessionStore {
     context: AuditContext,
     operation: string,
   ): Promise<number> {
-    const [changed] = await this.database.batch([
+    const results = await this.database.batch([
       statement,
-      auditEventStatement(this.database, { ...entry, outcome: "succeeded" }, context),
+      auditEventStatement(this.database, { ...entry, outcome: "succeeded" }, context, {
+        onlyWhenChanged: true,
+      }),
     ]);
-    if (!changed?.success)
-      throw new Error(`D1 failed to ${operation}: ${changed?.error ?? "unknown error"}`);
+    // Every result, not only the first. A failing statement anywhere in a D1 batch rolls the
+    // whole batch back, so today the first is enough; checking all of them is what keeps that
+    // true if a statement is ever added ahead of this one.
+    const failed = results.find((result) => !result.success);
+    if (failed) throw new Error(`D1 failed to ${operation}: ${failed.error ?? "unknown error"}`);
+    const [changed] = results;
+    if (!changed) throw new Error(`D1 returned no result while attempting to ${operation}`);
     return changedRows(changed, operation);
   }
 }

@@ -76,6 +76,32 @@ const personas = {
 
 export type DemoPersona = keyof typeof personas;
 
+/**
+ * The four seeded user ids, derived from the `personas` object rather than listed beside it.
+ *
+ * Deriving is the point: a list would be a second place to edit, and the failure of forgetting
+ * is silent — a persona whose id nobody guards becomes a valid target for real state. Every
+ * seeded id is `seed-` + the persona key, and `findByPersona` pins exactly that
+ * (`d1-identity-directory.ts`), so this set is the same four rows the demo door can reach.
+ */
+const demoPersonaIds = new Set(Object.keys(personas).map((persona) => `seed-${persona}`));
+
+/**
+ * Is this user id one of the seeded demo personas?
+ *
+ * The deployed demo runs `DEMO_MODE=true` against the same D1 database that would hold real
+ * self-serve organizations if Google were configured there (`GAP-019`). The seeded personas have
+ * real addresses in `seed/reset.sql`, so a real sign-in on such a deployment can resolve *to* a
+ * seeded row by address — `findByEmail` and `findByProviderAccount` both return a full actor.
+ * Nothing about that resolution is wrong on its own; what must never follow is a real session or
+ * a real grant landing on a persona, because the demo landing page hands that persona to the
+ * next visitor who presses **Continue as organizer**.
+ *
+ * So this is the predicate that refuses it, at issuance and at every membership write. See the
+ * three rules in `docs/architecture/authorization.md`.
+ */
+export const isDemoPersonaId = (userId: string): boolean => demoPersonaIds.has(userId);
+
 export const resolveSeededDemoActor = async (persona: DemoPersona): Promise<Actor> => {
   const seed = personas[persona];
   return {

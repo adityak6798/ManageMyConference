@@ -26,14 +26,14 @@ const liveSession = async (id: string) => (id === sid ? { userId: "seed-organize
  * Built here rather than kept as a fixture string, so it stays signed with this suite's secret
  * and cannot rot into "a token that fails for the wrong reason".
  */
-async function legacySessionToken(userId: string, expiresAt: number): Promise<string> {
+async function signLegacy(claims: object): Promise<string> {
   const encoder = new TextEncoder();
   const base64url = (bytes: Uint8Array) =>
     btoa(String.fromCharCode(...bytes))
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replace(/=+$/, "");
-  const payload = base64url(encoder.encode(JSON.stringify({ kind: "session", userId, expiresAt })));
+  const payload = base64url(encoder.encode(JSON.stringify(claims)));
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
@@ -44,6 +44,12 @@ async function legacySessionToken(userId: string, expiresAt: number): Promise<st
   const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload)));
   return `${payload}.${base64url(signature)}`;
 }
+
+const legacySessionToken = (userId: string, expiresAt: number) =>
+  signLegacy({ kind: "session", userId, expiresAt });
+
+const legacyEventToken = (userId: string, eventId: string, expiresAt: number) =>
+  signLegacy({ kind: "event", userId, eventId, expiresAt });
 
 describe("production authentication tokens", () => {
   it("exchanges an emailed code without exposing the code in the challenge", async () => {
@@ -103,7 +109,37 @@ describe("production authentication tokens", () => {
     const session = await createUserSession(sid, "seed-organizer", secret, 2_000);
     expect(session.split(".")).toHaveLength(2);
     // And the id is a claim inside the signed payload rather than a third segment.
-    await expect(sessionIdFrom(session, secret)).resolves.toBe(sid);
+    await expect(sessionIdFrom(session, secret, 1_000)).resolves.toBe(sid);
+  });
+
+  /**
+   * A dead credential is not an instrument.
+   *
+   * `sessionIdFrom` is what `/api/auth/signout` reads, and that route has no throttle. An HMAC
+   * stays valid for as long as the secret does, so without the expiry check an expired cookie
+   * could be replayed there indefinitely and each replay would reach D1 — writing nothing, but
+   * costing a query every time. Refusing here takes nothing from the caller: a session past its
+   * expiry is already over.
+   */
+  it("will not name a session id from an expired cookie", async () => {
+    const session = await createUserSession(sid, "seed-organizer", secret, 2_000);
+    await expect(sessionIdFrom(session, secret, 1_999)).resolves.toBe(sid);
+    await expect(sessionIdFrom(session, secret, 2_000)).resolves.toBeNull();
+    // A demo persona cookie is three parts and never verifies here at all.
+    await expect(sessionIdFrom("organizer.2000.abc", secret, 1_000)).resolves.toBeNull();
+  });
+
+  /**
+   * The bearer token's `sid` guard is asserted in its own right, not only through a store that
+   * happens to answer null for `undefined`.
+   */
+  it("refuses an event bearer token that names no session", async () => {
+    const legacy = await legacyEventToken("seed-organizer", eventId, 2_000);
+    await expect(
+      resolveEventToken(legacy, secret, 1_000, resolveActor, async () => ({
+        userId: "seed-organizer",
+      })),
+    ).resolves.toBeNull();
   });
 
   /**

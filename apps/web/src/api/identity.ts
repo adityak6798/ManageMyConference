@@ -135,9 +135,11 @@ export async function signOut(fetcher: typeof fetch = fetch): Promise<void> {
 /**
  * End every session this account holds, on every device, including this one.
  *
- * Answers how many were live, which is this caller's own data: the route refuses anybody who
- * has not already proved the identity being counted. The number is worth showing — "signed out
- * of 3 sessions" is the difference between believing a stolen cookie is dead and hoping so.
+ * Answers how many were live, which is this caller's own data: the route refuses anybody who has
+ * not already proved the identity being counted. It is returned rather than dropped because it
+ * is the honest answer to "did that do anything", and a caller that can use it should have it —
+ * the console cannot, because the surface that would show the number is the one this action tears
+ * down, so it navigates to the landing page instead.
  */
 export async function revokeAllSessions(fetcher: typeof fetch = fetch): Promise<number> {
   const { revoked } = await decode(

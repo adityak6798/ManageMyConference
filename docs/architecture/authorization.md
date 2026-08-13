@@ -135,10 +135,19 @@ force now.
    the four seeded rows, and every membership, invitation and event-role write whose subject is
    one is refused. The seeded demo grants come from seed SQL, so refusing them at the route costs
    nothing and removes the crossing entirely. The refusal is audited.
-3. **No code path resolves an actor from anything but `findByPersona` (demo) or `findByUserId`
-   (real).** In particular the `user_id` column on a session record is used only to scope
-   revocation and to be compared against the id the signed cookie already carries — it is never
-   followed to produce an actor. A demo persona cookie takes no session lookup at all, which
+3. **A seeded persona id is never the subject of a real session, and a session record is never a
+   route to an actor.** Four functions resolve an actor, and being exact about them matters more
+   than a slogan: `findByPersona` for a demo persona cookie, `findByUserId` for a session or
+   bearer token, and — on the sign-in paths only — `findByProviderAccount` and `findByEmail`,
+   which are how account linking finds the identity that already holds a verified address. The
+   last of those is what makes this rule necessary rather than obvious. `seed/reset.sql` gives
+   the personas real addresses, so on a demo deployment with Google configured a real sign-in as
+   `organizer@greenroom.test` *would* resolve to `seed-organizer`. Both issuing routes therefore
+   refuse a subject for which `isDemoPersonaId` holds: the emailed-code route with the same 401 it
+   gives an unknown address, and the Google callback with the same indistinguishable redirect it
+   gives every other refusal. Separately, the `user_id` column on a session record is used only to
+   scope revocation and to be compared against the id the signed cookie already carries; it is
+   never followed to produce an actor. A demo persona cookie takes no session lookup at all, which
    `identity-sessions-http.test.ts` asserts by counting the store's reads across a persona's whole
    request.
 
@@ -157,12 +166,17 @@ introduces no ambiguity about which credential the caller presented.
 The `authentication` kind follows what actually resolved rather than what the deployment mode is, so
 a real Google session on a demo deployment is reported as a `session` and a persona cookie as
 `demo`. That is a description of the credential rather than a grant, and it is worth being exact
-about the difference. Two routes read that value. `GET /api/session` reports it, so the console can
-tell a persona it should offer to *switch* from a session it should offer to *sign out* of — the two
-arrive in the same cookie and are otherwise indistinguishable to the client. `POST /api/auth/tokens` is
-the only route that lets it decide anything, and it
-answers 404 to every caller while `demoMode` is set, before it reads it. So event-scoped bearer
-tokens remain a non-demo feature, and no demo configuration mints one. Nothing about the persona
+about the difference. Three routes read that value, and two of them let it decide something.
+`GET /api/session` only reports it, so the console can tell a persona it should offer to *switch*
+from a session it should offer to *sign out* of — the two arrive in the same cookie and are
+otherwise indistinguishable to the client. `POST /api/auth/tokens` refuses every caller while
+`demoMode` is set, with a 404, *before* it reads the value at all; so event-scoped bearer tokens
+remain a non-demo feature and no demo configuration mints one. `POST /api/auth/sessions/revoke-all`
+is the one that genuinely rests on it: it does **not** 404 on a demo deployment where Google is
+configured, because that deployment really can hold revocable sessions, so the
+`authentication !== "session"` test is the whole of what keeps a persona out. A persona resolves
+as `demo` and gets 401 having cost the session store no read, which
+`identity-sessions-http.test.ts` asserts directly. Nothing about the persona
 path changes — `findByPersona` still pins
 `id = seed-<persona>`, so a persona cookie resolves to one of four seeded rows and can never
 resolve to a self-serve user. That is authorization isolation between the two populations, and it

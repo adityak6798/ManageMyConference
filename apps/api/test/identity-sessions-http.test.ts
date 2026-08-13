@@ -94,13 +94,92 @@ describe("session revocation over HTTP", () => {
       answers.push({
         status: response.status,
         body: await response.json(),
-        // Normalized because `Expires`/`Max-Age` are the same in all three but the header order
-        // is not worth asserting; what matters is that all three clear the cookie.
-        clears: (response.headers.get("set-cookie") ?? "").includes("greenroom_session=;"),
+        // Every header, not a substring test on `set-cookie`. The claim in the scorecard is that
+        // the three answers are indistinguishable, and a response that grew, say,
+        // `x-session-revoked: 1` on the hit path would satisfy a narrower assertion while
+        // breaking exactly the property this test exists for. `x-correlation-id` is per-request
+        // by construction and is the one field that must differ.
+        headers: [...response.headers.entries()]
+          .filter(([name]) => name !== "x-correlation-id")
+          .sort(),
       });
     }
+    expect(answers[0]?.headers.map(([name]) => name)).toContain("set-cookie");
     expect(answers[1]).toEqual(answers[0]);
     expect(answers[2]).toEqual(answers[0]);
+  });
+
+  /**
+   * A seeded demo persona can never be handed a real session, even when a real sign-in resolves
+   * to one.
+   *
+   * This is the crossing `docs/architecture/authorization.md` rule 3 exists for, and it is not
+   * hypothetical: `seed/reset.sql` gives the personas real addresses, account linking matches a
+   * **verified** address, and the demo deployment is exactly the one that can have Google
+   * configured beside its personas. Without the guard, signing in as `organizer@greenroom.test`
+   * mints a real `identity_sessions` row for `seed-organizer` — the identity the landing page
+   * hands to the next visitor who presses "Continue as organizer".
+   *
+   * Both doors are asserted, because they resolve the address by different functions.
+   */
+  it("refuses to issue a real session to a seeded demo persona, by either door", async () => {
+    const persona = await resolveSeededDemoActor("organizer");
+    const sessions = memorySessionStore();
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    // The emailed-code door, on a production deployment whose directory answers with a seeded id.
+    const emailed = createHttpApp(events(), logger, {
+      demoMode: false,
+      sessionSecret: secret,
+      now: () => NOW,
+      sessions,
+      resolveActor: async () => persona,
+      resolveEmail: async () => persona,
+      sendLoginCode: async () => undefined,
+      saveLoginChallenge: async () => undefined,
+      consumeLoginChallenge: async () => "organizer@greenroom.test",
+      // A challenge this suite can complete: the route only needs `exchangeLoginChallenge` to
+      // yield an address, and `consumeLoginChallenge` above is what decides that.
+    });
+    const requested = await emailed.request("/api/auth/code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "organizer@greenroom.test" }),
+    });
+    const { challenge } = (await requested.json()) as { challenge: string };
+    const verified = await emailed.request("/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challenge, code: "000000" }),
+    });
+    // The same 401 an unknown address gets: which of the two it was is not the caller's business.
+    expect(verified.status).toBe(401);
+    expect(verified.headers.get("set-cookie")).toBeNull();
+
+    // The Google door, on the demo deployment that is the actual risk.
+    const google: GoogleAuthProvider = {
+      start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a" }),
+      complete: async () => ({ actor: persona, provisioned: false }),
+      resolveUserActor: async () => persona,
+    };
+    const withGoogle = createHttpApp(events(), logger, {
+      demoMode: true,
+      sessionSecret: secret,
+      now: () => NOW,
+      resolveActor: resolveSeededDemoActor,
+      google,
+      sessions,
+    });
+    const callback = await withGoogle.request("/api/auth/google/callback?code=c&state=s", {
+      headers: { cookie: "greenroom_oauth=a" },
+    });
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get("location")).toBe("/signin?auth=failed");
+    expect(callback.headers.get("set-cookie") ?? "").not.toContain("greenroom_session=");
+
+    // Neither door recorded anything, which is the point: no session row, no audit row.
+    expect(sessions.rows.size).toBe(0);
+    expect(sessions.audit).toEqual([]);
   });
 
   /**
