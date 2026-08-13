@@ -33,14 +33,48 @@ export const seedFragments = [
   "publishing/data.sql",
 ];
 
+/**
+ * What the composed file says about itself, before any SQL.
+ *
+ * Every other generated artifact in this repository names its generator in its first line, and
+ * "do not edit generated files" is only enforceable against a reader who can tell that this is
+ * one. `--` is SQLite's line comment, so this survives `wrangler d1 execute --file` and the
+ * statement splitter in `apps/api/test/support/seeded-d1.ts` alike.
+ */
+export const SEED_HEADER = [
+  "-- GENERATED: do not edit; run `npm run seed:generate`.",
+  "-- Composed by tools/compose-seed.mjs from the fragments under apps/api/seed/domains/.",
+  "-- Edit the owning domain's fragment instead; the order of the list in the composer is the",
+  "-- order the statements run in, and it is a foreign-key ordering rather than an alphabetical one.",
+  "",
+  "",
+].join("\n");
+
+/**
+ * One fragment, ending in exactly one newline and starting with its own first line.
+ *
+ * A fragment saved without a trailing newline used to run into the next fragment's first line:
+ * the CFP forms cleanup came out with the identity fragment's opening `--` comment welded onto
+ * the end of its own statement. SQLite and the splitter in `apps/api/test/support/seeded-d1.ts`
+ * both cope — the statement is terminated and the comment runs to the newline — but the file is
+ * read by people when a reset misbehaves, and a comment that has swallowed the statement above it
+ * is exactly the wrong thing to be reading at that moment.
+ *
+ * Leading blank lines go too, and the boundary is then supplied here by joining with one. Several
+ * fragments open with a newline to compensate for a neighbour that lacks one, which is a
+ * separator maintained by hand in the wrong file and in the wrong direction: it stops working the
+ * moment the list is reordered. Composing the separation makes every boundary look the same
+ * whatever a fragment happens to end with, and it costs the domains nothing to keep true.
+ */
+const normalize = (fragment) => `${fragment.replace(/^\s+/, "").replace(/\s+$/, "")}\n`;
+
 export async function composeSeed() {
-  return (
-    await Promise.all(
-      seedFragments.map((fragment) =>
-        readFile(new URL(`apps/api/seed/domains/${fragment}`, root), "utf8"),
-      ),
-    )
-  ).join("");
+  const fragments = await Promise.all(
+    seedFragments.map((fragment) =>
+      readFile(new URL(`apps/api/seed/domains/${fragment}`, root), "utf8"),
+    ),
+  );
+  return SEED_HEADER + fragments.map(normalize).join("\n");
 }
 
 async function main() {
