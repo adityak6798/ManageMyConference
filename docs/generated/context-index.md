@@ -167,6 +167,7 @@
 - `test` / `repository-fact`: [apps/api/test/platform-http.test.ts](../../apps/api/test/platform-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-inbox.test.ts](../../apps/api/test/platform-inbox.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-search.test.ts](../../apps/api/test/platform-search.test.ts)
+- `test` / `repository-fact`: [apps/api/test/publication-notifications.test.ts](../../apps/api/test/publication-notifications.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/platform-operations.spec.ts](../../apps/web/e2e/platform-operations.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/command-palette.test.tsx](../../apps/web/test/command-palette.test.tsx)

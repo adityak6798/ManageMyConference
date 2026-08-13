@@ -1043,29 +1043,58 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
-    const publishing = new PublicationService(publicationRepository, {
-      event: async (actor, eventId) => {
-        const event = await service.get(actor, eventId);
-        return event ? { name: event.name, timezone: event.timezone } : null;
+    const publishing = new PublicationService(
+      publicationRepository,
+      {
+        event: async (actor, eventId) => {
+          const event = await service.get(actor, eventId);
+          return event ? { name: event.name, timezone: event.timezone } : null;
+        },
+        cfp: async (eventId) => {
+          let form: Awaited<ReturnType<CfpService["getPublished"]>>;
+          try {
+            form = await cfpService.getPublished(eventId);
+          } catch (error) {
+            if (error instanceof CfpUnavailableError) return null;
+            throw error;
+          }
+          return {
+            title: form.title,
+            description: form.description,
+            status: form.status === "closed" ? "closed" : "open",
+            publishedAt: form.publishedAt,
+          };
+        },
+        content: contentRepository,
+        schedule: (eventId) => agenda.published(eventId),
       },
-      cfp: async (eventId) => {
-        let form: Awaited<ReturnType<CfpService["getPublished"]>>;
-        try {
-          form = await cfpService.getPublished(eventId);
-        } catch (error) {
-          if (error instanceof CfpUnavailableError) return null;
-          throw error;
-        }
-        return {
-          title: form.title,
-          description: form.description,
-          status: form.status === "closed" ? "closed" : "open",
-          publishedAt: form.publishedAt,
-        };
+      () => new Date(),
+      /*
+       * The last of the five domains on the audit timeline (#99).
+       *
+       * Publishing had no seam to observe, which is why a site going live was the one change the
+       * log could not account for. The port it now declares states the fact; deciding that the
+       * fact belongs on a timeline is this file's decision, exactly as it is for content's and
+       * review's lifecycle ports. Recording never throws, so a page that is live stays live even
+       * if its record cannot be written.
+       */
+      {
+        eventPublished: (fact) =>
+          recordLifecycle(fact.eventId, {
+            action: "publishing.event_published",
+            targetType: "public-page",
+            // The instant is in the target, because publishing the same page twice is two things
+            // that happened rather than one retried command.
+            targetId: `${fact.slug}@${fact.publishedAt}`,
+          }),
+        eventUnpublished: (fact) =>
+          recordLifecycle(fact.eventId, {
+            action: "publishing.event_unpublished",
+            targetType: "public-page",
+            targetId: `${fact.slug}@${fact.unpublishedAt}`,
+          }),
       },
-      content: contentRepository,
-      schedule: (eventId) => agenda.published(eventId),
-    });
+    );
     const itineraries = new ItineraryService(
       new D1ItineraryRepository(environment.DB),
       publicationRepository,

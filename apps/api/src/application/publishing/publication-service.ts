@@ -22,6 +22,42 @@ export class PublicationSettingsError extends Error {}
 /** The requested public address already belongs to another event. */
 export class PublicationSlugTakenError extends Error {}
 
+/**
+ * Publishing's two lifecycle facts, for whoever wants to observe them.
+ *
+ * **Who asks, and why the shape is what it is.** The platform domain's unified audit timeline
+ * (`PRD-OPS-003`) records every mutation worth remembering on an event, and every other domain
+ * already had a seam it could be observed through — content's `SpeakerNotificationPort`, review's
+ * `ReviewNotificationPort`, the agenda's publication batch. Publishing had none, so a site going
+ * live or being taken down was the one change nothing could account for. This is that seam, and
+ * it is the same inversion the other two use: publishing states what happened and holds no idea
+ * of auditing, notification, or anything else the composition root chooses to bind.
+ *
+ * The facts carry only what an observer cannot look up for itself — which event, which public
+ * address, and when — because the address is publishing's own answer and the instant is the one
+ * this service committed rather than the one an observer's clock reads afterwards. Nothing about
+ * the projection's contents crosses: what is on a public page is publishing's business, and an
+ * observer that needed it would be reading the page rather than the fact that it moved.
+ *
+ * **Implementations must not throw.** Both are called after the change is already durable, so
+ * failing here would report a failure for work that succeeded and undo nothing — the same
+ * obligation `SpeakerNotificationPort` documents, and for the same reason.
+ */
+export interface PublicationNotificationPort {
+  /** The public page went live under this address, replacing whatever was served before. */
+  eventPublished(fact: {
+    readonly eventId: string;
+    readonly slug: string;
+    readonly publishedAt: string;
+  }): Promise<void>;
+  /** The public page was withdrawn. Its address serves the not-published answer from now on. */
+  eventUnpublished(fact: {
+    readonly eventId: string;
+    readonly slug: string;
+    readonly unpublishedAt: string;
+  }): Promise<void>;
+}
+
 export interface PublicationSources {
   event(actor: Actor, eventId: string): Promise<{ name: string; timezone: string } | null>;
   cfp(eventId: string): Promise<{
@@ -43,6 +79,11 @@ export class PublicationService {
     private readonly repository: PublicationRepository,
     sourcesOrNow?: PublicationSources | (() => Date),
     now: () => Date = () => new Date(),
+    /**
+     * Optional, so a composition exercising only the projection has nobody to tell and behaves
+     * exactly as it did before this port existed.
+     */
+    private readonly notifications?: PublicationNotificationPort,
   ) {
     this.sources = typeof sourcesOrNow === "function" ? undefined : sourcesOrNow;
     this.now = typeof sourcesOrNow === "function" ? sourcesOrNow : now;
@@ -270,15 +311,33 @@ export class PublicationService {
     if (!this.requireOrganizer(actor, eventId, "events:settings:update")) return null;
     const publication = await this.preview(actor, eventId);
     if (!publication) return null;
-    return this.repository.publish(
+    const publishedAt = this.now().toISOString();
+    const published = await this.repository.publish(
       eventId,
-      this.now().toISOString(),
+      publishedAt,
       allowlistPublicProjection(publication.draft),
     );
+    // Reported after the write, never before: the fact is that a page *is* live, and announcing
+    // one that then failed to commit would put a change on an audit timeline that never happened.
+    if (published)
+      await this.notifications?.eventPublished({
+        eventId,
+        slug: published.slug,
+        publishedAt,
+      });
+    return published;
   }
 
-  unpublish(actor: Actor | null, eventId: string) {
+  async unpublish(actor: Actor | null, eventId: string) {
     if (!this.requireOrganizer(actor, eventId, "events:settings:update")) return null;
-    return this.repository.unpublish(eventId);
+    const unpublishedAt = this.now().toISOString();
+    const unpublished = await this.repository.unpublish(eventId);
+    if (unpublished)
+      await this.notifications?.eventUnpublished({
+        eventId,
+        slug: unpublished.slug,
+        unpublishedAt,
+      });
+    return unpublished;
   }
 }

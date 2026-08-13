@@ -251,6 +251,25 @@ test("the activity timeline records a real mutation with the organizer who made 
   // The organizer who pressed Publish, named, and marked as a person rather than a program.
   await expect(published).toContainText("Olivia Organizer");
   await expect(published).toContainText("human");
+
+  /*
+   * The fifth domain. Publishing the *site* is a different act from publishing the schedule, and
+   * until #99's last phase it was the one change the timeline could not account for — publishing
+   * had no seam to observe. Driving it here is what turns "five domains" from a claim into an
+   * observation.
+   */
+  await page.getByRole("link", { name: /Publishing/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
+
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Activity", exact: true })
+    .click();
+  const site = page.getByRole("row", { name: /publishing\.event_published/ });
+  await expect(site).toBeVisible();
+  await expect(site).toContainText("Olivia Organizer");
 });
 
 test("a role without events:settings:read is not offered the activity timeline", async ({

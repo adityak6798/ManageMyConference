@@ -502,10 +502,11 @@ accumulate across runs of the local fixture. That is what an append-only log doe
 the browser spec creates its own event instead of asserting against the shared demo one. It is
 also why the DELETE trigger cannot fight the reset: nothing cascades into this table.
 
-**Four domains, not five.** Review, content, agenda and communications are hooked through ports
-that already existed, with no edit to any other domain's application code. Publishing has no port
-on `PublicationService.publish` to record through, and adding one is an edit to publishing — which
-this lane's own prompt assigns to PR 99d. The scorecard says four rather than implying five.
+**Four domains at 99c, five at 99d.** Review, content, agenda and communications are hooked
+through ports that already existed, with no edit to any other domain's application code.
+Publishing had no port on `PublicationService.publish` to record through, and adding one is an
+edit to publishing — which this lane's own prompt assigns to PR 99d, where it lands. Each PR's
+scorecard row states the count that is true of it.
 
 **`tools/tests/check-schema-drift.test.mjs` moved from 64 to 65 tables**, and the two append-only
 triggers are declared in `UNMODELLED_OBJECTS` in `tools/check-schema-drift.mjs`, because Drizzle
@@ -529,3 +530,27 @@ change to make, not platform's. So `PRD-OPS-003`'s stated priority decides it �
 produces exactly one record — and the reinstatement is the loss. `GAP-022` names it with the
 closure condition, and `lifecycleAuditKey`'s `occurrence` parameter is the extension point that
 takes it the day review can number a decision.
+
+#### 99d — the one edit that leaves platform's files
+
+**Announced before starting, as the coordination rules require, and it is one domain rather than
+three.** The lane prompt named three candidates; building 99a–99c settled each of them:
+
+- **CFP — not needed.** The prompt guessed CFP might owe an organizer-wide proposal list. It does
+  not: review's `organizerWorkspace` already carries the proposals that both search and the inbox
+  read, so nothing was added to `cfp/public.ts`.
+- **Communications — not taken, deliberately.** `history(actor, organizationId, eventId, {limit})`
+  answers both the delivery search section and the failed-deliveries inbox category. The real
+  limitation is that failures beyond the first page of history are invisible to the inbox, and
+  that is a bounded-cost decision rather than a missing projection — the existing surface *can*
+  answer it by paging. It is also the file `#100-PR2` owns this wave. Recorded in `GAP-022`
+  instead of edited around.
+- **Publishing — taken.** `PublicationService.publish` had no seam to observe, which is why the
+  audit timeline covered four domains and not five. Publishing now declares its own
+  `PublicationNotificationPort` — the same inversion `SpeakerNotificationPort` and
+  `ReviewNotificationPort` already use — and the composition root binds it. Publishing gains no
+  knowledge of auditing and no import of the platform domain; the port is optional, so every
+  existing composition behaves exactly as it did.
+
+`apps/api/src/application/publishing/public.ts` gains **one appended re-export line at the very end
+of the file**, per the collision ruling, so a lane rebasing around it moves nothing above it.
