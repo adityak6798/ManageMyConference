@@ -73,6 +73,9 @@ function boardOf(sharedHours: boolean) {
         slotId: "slot-0-0",
       },
     ],
+    // Required on every draft response since issue #180. Empty is the honest value here: this
+    // fixture is a board as first read, and nothing has happened to any session on it yet.
+    occurrences: { sessions: {}, slots: {} },
     conflicts: [],
   };
 }

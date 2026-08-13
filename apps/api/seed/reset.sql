@@ -276,7 +276,9 @@ INSERT INTO agenda_session_schedules (
   '00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
   '2026-09-01T16:00:00.000Z', '2026-09-01T17:00:00.000Z', 'Main stage',
   1, '2026-08-10T20:00:00.000Z'
-);-- And the statement that says the row above is current.
+);
+
+-- And the statement that says the row above is current.
 --
 -- `publication_watermark` counts writes to this event's history, and the seed makes exactly one.
 --
