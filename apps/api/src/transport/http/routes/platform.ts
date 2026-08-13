@@ -1,5 +1,6 @@
 /** Public API discovery routes owned by the platform domain. @spec ARC-001 ENG-CI-001 PRD-OPS-001 */
 import {
+  auditQuerySchema,
   eventIdParamsSchema,
   inboxDismissalInputSchema,
   inboxDismissalParamsSchema,
@@ -35,6 +36,7 @@ const routes = [
   "GET /api/events/:eventId/inbox",
   "POST /api/events/:eventId/inbox/dismissals",
   "DELETE /api/events/:eventId/inbox/dismissals/:itemKey",
+  "GET /api/events/:eventId/audit",
 ] as const;
 
 const docsPage = `<!doctype html>
@@ -174,6 +176,19 @@ export const platformRoutes: RouteModule = {
   domain: "platform",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
+    /*
+     * Whose request this is, told to platform once, before any route runs.
+     *
+     * `platformRoutes` is first in the route registry and the transport's own auth middleware is
+     * mounted before every module, so this sees a resolved actor. Everything that records an
+     * audit row afterwards sits deep inside a domain that has no business being handed one, and
+     * this is what lets those writers attribute a record without nine domains learning about
+     * auditing. `/api/*` only: the public namespace has no session and nothing to attribute.
+     */
+    app.use("/api/*", async (context, next) => {
+      dependencies.platformOps?.observeRequest(context.get("actor"), context.get("correlationId"));
+      await next();
+    });
     app.get("/openapi.json", (context) => context.json(openApiDocument));
     app.get("/docs", (context) =>
       context.html(docsPage, 200, {
@@ -254,7 +269,7 @@ export const platformRoutes: RouteModule = {
           ),
           400,
         );
-      const { platformOps, logger, auth } = dependencies;
+      const { platformOps } = dependencies;
       if (!platformOps) throw new Error("Platform operations service is not configured");
       const answer = await platformOps.search(
         context.get("actor"),
@@ -352,6 +367,48 @@ export const platformRoutes: RouteModule = {
         params.data.itemKey,
       );
       return context.body(null, 204);
+    });
+    app.get("/api/events/:eventId/audit", async (context) => {
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      const query = auditQuerySchema.safeParse(context.req.query());
+      if (!params.success || !query.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The audit request is malformed.",
+            context.get("correlationId"),
+            validationFields([
+              ...(params.success ? [] : params.error.issues),
+              ...(query.success ? [] : query.error.issues),
+            ]),
+          ),
+          400,
+        );
+      const { platformOps } = dependencies;
+      if (!platformOps) throw new Error("Platform operations service is not configured");
+      const page = await platformOps.auditTimeline(context.get("actor"), params.data.eventId, {
+        limit: query.data.limit,
+        ...(query.data.cursor ? { cursor: query.data.cursor } : {}),
+      });
+      /*
+       * The idempotency key never leaves the server. It is derived from the fact and is the one
+       * field a caller could use to guess at records they were not shown; the timeline's job is
+       * to say what happened, not to expose how the writer deduplicates.
+       */
+      return context.json({
+        records: page.records.map((record) => ({
+          id: record.id,
+          occurredAt: record.occurredAt,
+          actorId: record.actorId,
+          actorName: record.actorName,
+          source: record.source,
+          action: record.action,
+          targetType: record.targetType,
+          targetId: record.targetId,
+          correlationId: record.correlationId,
+        })),
+        nextCursor: page.nextCursor,
+      });
     });
   },
   /**

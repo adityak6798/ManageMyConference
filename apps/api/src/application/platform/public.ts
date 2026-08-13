@@ -13,6 +13,23 @@
  * @spec PRD-OPS-001 ARC-DOM-001
  */
 export type {
+  AuditPage,
+  AuditRecord,
+  AuditRecordInput,
+  AuditRecorderDependencies,
+  AuditRecordStore,
+  AuditSource,
+  PreparedAuditRecord,
+  PreparedAuditWriter,
+  RequestIdentity,
+} from "./audit-service";
+export {
+  AUDIT_PAGE_LIMIT_MAX,
+  AuditRecorder,
+  createRequestIdentity,
+  lifecycleAuditKey,
+} from "./audit-service";
+export type {
   InboxCategoryKey,
   InboxDismissal,
   InboxDismissalStore,

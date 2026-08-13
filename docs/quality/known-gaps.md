@@ -397,8 +397,8 @@ feature-by-feature verdict.
   which is why it is preferable wherever database access is available. Either way the speakers who
   lost the entry get it back at the next Send, which is the point of repairing at all.
 - `GAP-022` **Search opens the surface a record lives on, not the record, and its cost is proven
-  bounded only against the seed.** Three limits, all deliberate, all worth naming rather than
-  discovering.
+  bounded only against the seed.** Six limits, all deliberate, all worth naming rather than
+  discovering: two about search, three about the audit timeline, one about the inbox.
 
   The console has **no per-record routes**. Every workspace is addressed by its path plus
   `?event=`, and nothing anywhere reads a selection out of the URL, so the deep link a search hit
@@ -416,18 +416,47 @@ feature-by-feature verdict.
   proven. On a conference with a few thousand proposals it is unmeasured, and the honest
   expectation is that the read cost, not the filtering, is what would show first.
 
+  The audit timeline carries the other three, all consequences of choices made on purpose.
+  **A decision reinstated after being reversed is not recorded a second time.** Accept, decline,
+  accept again is three decisions, and the outcome carried in the action separates only the first
+  two. Telling the third from the first needs something that a real decision advances and a retry
+  does not — and a stored `ProposalDecision` has no such field, while `ReviewService.decide`
+  recomputes `decidedAt` on every call including the retry it documents as a heal. With no way to
+  tell them apart, `PRD-OPS-003`'s own priority settles it: a replayed command produces exactly one
+  record, so the reinstatement is what is lost rather than the retry being duplicated.
+  **Nothing scheduled is recorded.** The whole audit wiring is constructed inside
+  `fetch`; the `scheduled()` entrypoint builds its own narrow composition and no recorder, so the
+  outbox drain and the task reminders leave no trace, and `source: "system"` — which the spec
+  describes and a unit test proves — is reachable in production only through the agenda's
+  publication batch. **Records are unprunable and outlive their subjects.** The table has no
+  foreign keys so a record survives what it describes, and the append-only trigger refuses a
+  DELETE, so nothing removes a record: not the seed reset, not a retention migration short of a
+  copy-and-rebuild, not an operator. In the local fixture it grows by one row per audited mutation
+  across every browser run. Because keys are deterministic and the seed's ids are fixed, an audit
+  key also survives a reset while the fact it describes does not, so re-publishing the demo
+  event's schedule after a reset converges on the pre-reset record rather than writing a new one.
+  The browser spec creates its own event for exactly this reason.
+
   Programme inbox dismissal keys carry no occurrence. The agenda projection names the conflict
   or unplaced session but exposes no board revision or occurrence, so resolving and then exactly
   recreating that condition derives the same key and leaves it dismissed. Other categories carry
   the deadline, attempt, or publication state that changes when their condition recurs.
 
-  Owner: platform. Governing ID: `PRD-OPS-001`, `PRD-OPS-002`, `ACC-OPS`. Closure: three
-  independent halves. A
-  record-addressable route on at least the surfaces search returns — a selection the workspace
-  reads from the query string, and hits that carry it — closes the first, and the browser spec's
-  assertion tightens from "the surface shows it" to "the record is selected". A measurement
-  against a fixture an order of magnitude larger than the seed, with a stated ceiling that the
-  suite enforces, closes the second; if it fails, the projection reads are where to look before
-  the filter is. An agenda-owned monotonic board revision or occurrence on each derived programme
-  condition, carried into the platform key and covered by a resolve-then-recreate test, closes the
-  third.
+  Owner: platform. Governing ID: `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `ACC-OPS`.
+
+  Six limits, six closures, each independent of the others. A record-addressable route on at
+  least the surfaces search returns — a selection the workspace reads from the query string, and
+  hits that carry it — closes the first, and the browser spec's assertion tightens from "the
+  surface shows it" to "the record is selected". A measurement against a fixture an order of
+  magnitude larger than the seed, with a stated ceiling that the suite enforces, closes the
+  second; if it fails, the projection reads are where to look before the filter is.
+  A monotonic revision on a stored decision — review's change to make, not platform's — closes the
+  third, and `lifecycleAuditKey`'s `occurrence` parameter is already the extension point that would
+  take it; its test is a reinstated decision appearing on the timeline beside the two before it.
+  Constructing the recorder in the `scheduled()` entrypoint closes the fourth, and its test is a
+  drained delivery appearing on the timeline as `system`. The fifth needs a retention decision
+  before it needs code: what an audit record is for, and how long that lasts, is a product question, and the
+  answer may legitimately be "forever" — in which case the closure is a documented statement to
+  that effect plus a fixture that is reset by rebuilding rather than by deleting. An agenda-owned
+  monotonic board revision or occurrence on each derived programme condition, carried into the
+  platform key and covered by a resolve-then-recreate test, closes the sixth.

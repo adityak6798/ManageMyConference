@@ -15,7 +15,7 @@
  * The item itself is never removed from the list, because "dismissed" is a state of the item and
  * an operator has to be able to undo it.
  *
- * @spec PRD-OPS-001
+ * @spec PRD-OPS-002
  */
 import type { InboxItemDto, InboxResponseDto } from "@greenroom/contracts";
 import { useCallback, useEffect, useState } from "react";

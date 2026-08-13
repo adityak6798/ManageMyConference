@@ -12,6 +12,8 @@
 import {
   type ApiErrorEnvelope,
   apiErrorEnvelopeSchema,
+  type AuditResponseDto,
+  auditResponseSchema,
   type InboxDismissalDto,
   inboxDismissalResponseSchema,
   type InboxResponseDto,
@@ -121,6 +123,26 @@ export async function restoreInboxItem(
     await fetcher(
       `/api/events/${encodeURIComponent(eventId)}/inbox/dismissals/${encodeURIComponent(itemKey)}`,
       { method: "DELETE" },
+    ),
+  );
+}
+
+export function getAuditTimeline(
+  eventId: string,
+  options: { cursor?: string; limit?: number; fetcher?: typeof fetch } = {},
+): Promise<AuditResponseDto> {
+  const fetcher = options.fetcher ?? fetch;
+  const parameters = new URLSearchParams();
+  if (options.cursor) parameters.set("cursor", options.cursor);
+  if (options.limit !== undefined) parameters.set("limit", String(options.limit));
+  const query = parameters.toString();
+  return fetcher(
+    `/api/events/${encodeURIComponent(eventId)}/audit${query ? `?${query}` : ""}`,
+  ).then((response) =>
+    decodeResponse(
+      response,
+      auditResponseSchema,
+      (envelope: ApiErrorEnvelope) => new PlatformApiError(envelope),
     ),
   );
 }

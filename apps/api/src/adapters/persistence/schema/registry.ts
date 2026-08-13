@@ -116,6 +116,7 @@ export const {
   organizationMemberships,
   organizations,
   outboundProjectionState,
+  platformAuditRecords,
   platformInboxDismissals,
   publicEventProjections,
   reviewAssignments,

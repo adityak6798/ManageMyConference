@@ -19,7 +19,7 @@
  * `events:read`, each category is composed under its owning domain's capability, and a category
  * the caller may not read is omitted and named rather than refused.
  *
- * @spec PRD-OPS-001 ARC-DOM-001
+ * @spec PRD-OPS-002 ARC-DOM-001
  */
 import { AgendaNotFoundError } from "../agenda/public";
 import {

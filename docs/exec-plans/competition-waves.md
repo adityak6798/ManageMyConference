@@ -411,7 +411,7 @@ therefore the single service the transport takes, composing search now and the i
 timeline in the later phases, with each capability in its own module.
 
 **Sources are declared as ports here, not imported as services.** `application/platform/` states the
-narrowest shape it needs from each domain — `ContentSearchSource`, `ReviewSearchSource`, and so on —
+narrowest shape it needs from each domain — `ContentSource`, `ReviewSource`, and so on —
 and the real services satisfy them structurally where the composition root binds them. This is the
 same inversion `ContentAgendaInterface` and `OutreachDispatchPort` already use. Two consequences
 worth naming: platform holds no import of another domain's concrete projection types, so the
@@ -481,3 +481,51 @@ and watching it fail.
 three-state classification and `transport/http/routes/platform.ts` holds one `wireSection` helper,
 both shared by search and the inbox. Two copies of that rule is how one surface ends up refusing
 where the other omits, or logging what the other does not.
+
+#### 99c — the audit timeline
+
+**Attribution needed a per-request holder, and here is why.** The lifecycle ports the composition
+root binds — `speakerNotifications`, `reviewNotifications`, the agenda's publication batch — carry
+no actor, because they report facts rather than commands. Recording every audit row as `system`
+would have made "correct actor and source" false, so platform's own route module mounts one
+`app.use("/api/*", …)` that hands the resolved actor and correlation id to `platformOps` before any
+route runs, and the writers read it. That is safe because the Worker constructs every service
+inside `fetch`: one holder per invocation, and two concurrent requests cannot see each other's. It
+is also the one middleware this lane adds, mounted inside `routes/platform.ts`, which is the
+pattern the coordination document already blesses for #100-PR3's version header.
+
+**No foreign keys on `platform_audit_records`, deliberately.** An audit record has to outlive the
+thing it describes; one that vanished when its event was deleted would be missing exactly when
+somebody needs it. The consequence is that the seed reset — a full teardown of `users`,
+`organizations` and `events` — neither removes audit rows nor is blocked by them, so records
+accumulate across runs of the local fixture. That is what an append-only log does, and it is why
+the browser spec creates its own event instead of asserting against the shared demo one. It is
+also why the DELETE trigger cannot fight the reset: nothing cascades into this table.
+
+**Four domains, not five.** Review, content, agenda and communications are hooked through ports
+that already existed, with no edit to any other domain's application code. Publishing has no port
+on `PublicationService.publish` to record through, and adding one is an edit to publishing — which
+this lane's own prompt assigns to PR 99d. The scorecard says four rather than implying five.
+
+**`tools/tests/check-schema-drift.test.mjs` moved from 64 to 65 tables**, and the two append-only
+triggers are declared in `UNMODELLED_OBJECTS` in `tools/check-schema-drift.mjs`, because Drizzle
+cannot express a trigger and the gate refuses one that is not acknowledged.
+
+**A reinstated decision is not recorded twice, and that is a limitation this lane could not fix
+from where it stands.** Two attempts were made and both were wrong.
+
+The audit key for a decision wants an occurrence component: accept, decline, accept again is three
+decisions, and the outcome carried in the action separates only the first two. The first attempt
+used the recorder's own clock, which the spec forbids outright — `ReviewService.decide` documents
+re-deciding as how a half-finished decision heals, so a retry would have written a second permanent
+row for one decision. The second attempt added `decidedAt` to `ReviewNotificationPort` and took the
+instant from the fact instead. That changed nothing: `decide` recomputes `decidedAt` on every call,
+including the retry, so the "fact-derived" instant was the attempt's clock one layer down. The port
+change was backed out rather than left in place looking like a fix.
+
+Distinguishing a retry from a reinstatement needs something monotonic that a real decision advances
+and a retry does not, and a stored `ProposalDecision` has no such field. Giving it one is review's
+change to make, not platform's. So `PRD-OPS-003`'s stated priority decides it — a replayed command
+produces exactly one record — and the reinstatement is the loss. `GAP-022` names it with the
+closure condition, and `lifecycleAuditKey`'s `occurrence` parameter is the extension point that
+takes it the day review can number a decision.
