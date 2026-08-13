@@ -226,10 +226,11 @@ export class D1ContentRepository
    * **Four unguarded writers still use `run` and do not read the count**, and it is worth naming
    * them rather than claiming this is already the whole file's rule: `updateProfilePhoto`,
    * `updateProfileWorkflow`, `updateAsset` and `completeSpeakerImport`. Each has the same
-   * read-then-write gap. Two of them want the same answer as the writers here; the one that keeps
-   * them waiting is `updateProfileWorkflow`, the CSV import's writer, because what an import
-   * should do with a row that vanished mid-run is a product decision about imports rather than a
-   * repair to this rule. Recorded in `docs/quality/known-gaps.md` as `GAP-025` rather than
+   * read-then-write gap. `updateProfilePhoto` and `updateAsset` want the same answer as the
+   * writers here; `completeSpeakerImport` is the mildest, because nothing deletes the row it
+   * writes; and the one that keeps all four waiting is `updateProfileWorkflow`, the CSV import's
+   * writer, because what an import should do with a row that vanished mid-run is a product
+   * decision about imports rather than a repair to this rule. Recorded in `docs/quality/known-gaps.md` as `GAP-025` rather than
    * half-done — with the two whole-row writers `content-repository.ts` documents as fixture-only
    * explicitly outside it, since they have no production caller to mislead.
    */

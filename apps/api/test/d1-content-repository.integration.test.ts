@@ -707,7 +707,10 @@ describe("D1ContentRepository template imports", () => {
     // A row another writer removed first matches nothing, and says so rather than reporting a
     // save. `success` alone cannot tell those apart; the affected-row count is what does.
     await store.deleteTaskTemplate(line.id);
-    await expect(store.updateTaskTemplate({ ...line, title: "Gone" })).resolves.toBe(false);
+    // Renamed onto a title the *sibling* still holds, which is the one shape the two possible
+    // orderings disagree about: `WHERE id=?` matching nothing never reaches the unique index, so
+    // D1 answers `false` where a store that checked the title first would raise a constraint.
+    await expect(store.updateTaskTemplate({ ...line, title: other.title })).resolves.toBe(false);
     expect(await mine()).toEqual([other]);
     await expect(store.findTaskTemplate(line.id)).resolves.toBeNull();
   });

@@ -496,7 +496,7 @@ feature-by-feature verdict.
   monotonic board revision or occurrence on each derived programme condition, carried into the
   platform key and covered by a resolve-then-recreate test, closes the sixth.
 
-- `GAP-025` **Three unguarded content writers still report a save for a write that matched no row.**
+- `GAP-025` **Four unguarded content writers do not read the affected-row count, and three of them report a save for a write that matched no row.**
   `d1-content-repository.ts` reads the affected-row count on the unguarded `UPDATE`s a caller reads
   a row for first, except four: `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and
   `completeSpeakerImport`. (Two others — `updateProfile` and `updateSession` — also drop the count,
@@ -516,13 +516,14 @@ feature-by-feature verdict.
   writers, so "the row cannot vanish" is not the criterion that separates them. What separates them
   is that the other three have a caller who reports success to a person.
 
-  They were left rather than swept up with the writers that were fixed because one of them cannot be
-  closed without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
+  The four were left rather than swept up with the writers that were fixed because one of them
+  cannot be closed without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
   writer, and what an import should do with a row that vanished mid-run — skip it, refuse the row,
   fail the batch — is a product question about imports rather than a repair to the write rule. The
-  other two want the same answer as their siblings and are held with it so that the three are
-  decided together, since a file applying one rule to four writers and another to three is how the
-  first divergence happened.
+  other two want the same answer as the writers that were fixed, and are held with the import so
+  that all four are decided together: a file that applies one rule to some of its writers and a
+  different rule to the rest is exactly the divergence this entry exists to end, and closing two of
+  four would recreate it in miniature.
 
   Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all four read
   the count; the import's behaviour on a vanished row is decided and stated where the import is

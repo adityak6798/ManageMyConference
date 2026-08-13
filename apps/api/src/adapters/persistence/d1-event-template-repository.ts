@@ -113,6 +113,10 @@ function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
     typeof parsed !== "object" ||
     parsed === null ||
     !("outcome" in parsed) ||
+    // The envelope word, against the set the contract publishes rather than "is a string": an
+    // unknown word here reaches the DTO intact and fails the *client's* decode, turning a row
+    // this adapter could have refused into a 200 the browser cannot read.
+    !APPLICATION_OUTCOMES.has((parsed as { outcome: unknown }).outcome as string) ||
     !("slices" in parsed) ||
     !Array.isArray((parsed as { slices: unknown }).slices) ||
     !("destination" in parsed)
@@ -153,7 +157,8 @@ function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
       slice === null ||
       typeof slice.key !== "string" ||
       typeof slice.label !== "string" ||
-      typeof slice.outcome !== "string" ||
+      // Same closed set, per category, for the same reason.
+      !SLICE_OUTCOMES.has(slice.outcome as string) ||
       typeof slice.reason !== "string" ||
       !Array.isArray(slice.applied) ||
       !Array.isArray(slice.incompatible) ||
@@ -170,6 +175,17 @@ function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
       refuse();
   return outcome;
 }
+
+/**
+ * The two closed sets a stored outcome is written from, checked rather than assumed.
+ *
+ * The contract pins both (`templateApplicationResultSchema`, `sliceResultSchema`), and the client
+ * decodes against it — so a word outside them is a 200 whose body the browser refuses, which is a
+ * worse failure than the refusal this adapter exists to raise. Kept next to the reader that uses
+ * them so a widened vocabulary is a compile-adjacent edit rather than a silent divergence.
+ */
+const APPLICATION_OUTCOMES = new Set(["applied", "partial", "failed", "skipped"]);
+const SLICE_OUTCOMES = new Set(["applied", "skipped", "incompatible", "unauthorized", "failed"]);
 
 const TEMPLATE_COLUMNS = "id, organization_id, name, state, created_at, updated_at";
 const VERSION_COLUMNS =

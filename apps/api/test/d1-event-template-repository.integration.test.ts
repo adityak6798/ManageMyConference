@@ -476,6 +476,56 @@ describe("D1EventTemplateRepository", () => {
     ).resolves.toMatchObject({ template: { name: "Regional summit starter" }, version: {} });
   });
 
+  /**
+   * A stored outcome this adapter cannot read is a fault here, not three layers away.
+   *
+   * `outcome_json` carries a `json_valid` CHECK and nothing else, so shape is unconstrained by
+   * storage. The words are the part worth pinning: both the envelope's and each category's are
+   * closed sets in the contract, and the client decodes against it — so a word outside them that
+   * this reader waves through is not a tolerated oddity, it is a 200 whose body the browser
+   * refuses. Each mutation below is written straight into the row, which is the only way a shape
+   * nothing in this system writes can be produced.
+   */
+  it("refuses a stored outcome whose words are not the ones the contract publishes", async () => {
+    const { actor, database, destinationId, repository, templates } = await seeded();
+    const { template } = await templates.saveFromEvent(actor, {
+      organizationId: ORGANIZATION,
+      name: "Regional summit starter",
+      sourceEventId: SOURCE,
+    });
+    await templates.apply(actor, destinationId, {
+      templateId: template.id,
+      version: 1,
+      destination: DESTINATION_RANGE,
+    });
+    const stored = (await repository.listApplications(destinationId))[0];
+    expect(stored).toBeDefined();
+    const rewrite = async (outcome: unknown) => {
+      await database
+        .prepare("UPDATE event_template_applications SET outcome_json = ? WHERE event_id = ?")
+        .bind(JSON.stringify(outcome), destinationId)
+        .run();
+      return repository.listApplications(destinationId);
+    };
+    const readable = {
+      outcome: stored?.outcome,
+      destination: stored?.destination,
+      slices: stored?.slices,
+    };
+
+    // The row as written reads back, so the refusals below are about the mutation and not about
+    // the check being unsatisfiable.
+    await expect(rewrite(readable)).resolves.toHaveLength(1);
+
+    for (const broken of [
+      { ...readable, outcome: "mostly" },
+      { ...readable, slices: [{ ...readable.slices?.[0], outcome: "sort of" }] },
+      { ...readable, destination: { startsOn: "2027-05-10" } },
+      { ...readable, slices: [{ ...readable.slices?.[0], applied: [null] }] },
+    ])
+      await expect(rewrite(broken)).rejects.toThrow(/unreadable outcome/);
+  });
+
   it("lets the database, not a read-then-write race, decide that a name is taken", async () => {
     const { actor, repository, templates } = await seeded();
     const save = (name: string) =>
