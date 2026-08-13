@@ -501,6 +501,6 @@ describe("choosing which sessions an assisted pass seats", () => {
     render(<AgendaWorkspace event={event} onError={onError} />);
 
     await waitFor(() => expect(action().disabled).toBe(true));
-    expect(rail().queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("region", { name: /Unscheduled/i })).toBeNull();
   });
 });

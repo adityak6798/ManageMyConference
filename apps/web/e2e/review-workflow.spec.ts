@@ -166,6 +166,23 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toBeVisible();
   await expect(table.getByRole("row", { name: /Designing for the hallway track/ })).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  const statusTabs = page.getByRole("tablist", { name: "Filter abstracts by status" });
+  for (const tab of await statusTabs.getByRole("tab").all()) {
+    const bounds = await tab.boundingBox();
+    expect(bounds?.x).toBeGreaterThanOrEqual(0);
+    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  }
+  const mobileRow = table.getByRole("row", { name: /Typed boundaries at scale/ });
+  for (const action of ["Accept", "Decline"]) {
+    const bounds = await mobileRow
+      .getByRole("button", { name: new RegExp(`^${action}`) })
+      .boundingBox();
+    expect(bounds?.x).toBeGreaterThanOrEqual(0);
+    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   // A status tab shows only that status; the counts stay visible for the others.
   await submittedTab.click();
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toBeVisible();
@@ -224,7 +241,10 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   ).toContainText("Submitted → Under review");
   await expect(
     history.getByRole("row", { name: /Typed boundaries at scale/ }).first(),
-  ).toContainText("seed-organizer");
+  ).toContainText("Olivia Organizer");
+  await expect(
+    history.getByRole("row", { name: /Typed boundaries at scale/ }).first(),
+  ).not.toContainText("seed-organizer");
 
   // The reload that followed the transition used to wipe the configuration form.
   await expect(statusLabel).toHaveValue("Submitted (unsaved edit)");
@@ -432,7 +452,48 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   // Exercise every supported field type. Only numeric criteria contribute to the aggregate.
   await evaluation.getByLabel("Relevance").selectOption("4");
   await evaluation.getByLabel("Recommended format").selectOption("Workshop");
-  await evaluation.getByLabel("Reviewer feedback").fill("Strong audience fit.");
+  const longFeedback = "Strong audience fit. ".repeat(25);
+  await evaluation.getByLabel("Reviewer feedback").fill(longFeedback);
+  const reviewGeometry = await page.evaluate(() => {
+    const label = [...document.querySelectorAll("label")].find(
+      (candidate) => candidate.textContent?.trim() === "Reviewer feedback",
+    );
+    const textarea = label?.htmlFor ? document.getElementById(label.htmlFor) : null;
+    const evaluationCard = textarea?.closest(".card");
+    const queueHeading = [...document.querySelectorAll("h2")].find(
+      (heading) => heading.textContent?.trim() === "Your queue",
+    );
+    const queueCard = queueHeading?.closest(".card");
+    if (!textarea || !evaluationCard || !queueCard) return null;
+    const input = textarea.getBoundingClientRect();
+    const evaluation = evaluationCard.getBoundingClientRect();
+    const queue = queueCard.getBoundingClientRect();
+    return {
+      inputWidth: input.width,
+      overlapsQueue:
+        evaluation.right > queue.left &&
+        evaluation.left < queue.right &&
+        evaluation.bottom > queue.top &&
+        evaluation.top < queue.bottom,
+    };
+  });
+  expect(reviewGeometry).not.toBeNull();
+  expect(reviewGeometry?.inputWidth).toBeGreaterThanOrEqual(240);
+  expect(reviewGeometry?.overlapsQueue).toBe(false);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileInput = await evaluation.getByLabel("Reviewer feedback").boundingBox();
+  const mobileEvaluation = await evaluation.boundingBox();
+  const mobileQueue = await queue.boundingBox();
+  expect(mobileInput?.width).toBeGreaterThanOrEqual(240);
+  expect(
+    mobileEvaluation &&
+      mobileQueue &&
+      mobileEvaluation.x < mobileQueue.x + mobileQueue.width &&
+      mobileEvaluation.x + mobileEvaluation.width > mobileQueue.x &&
+      mobileEvaluation.y < mobileQueue.y + mobileQueue.height &&
+      mobileEvaluation.y + mobileEvaluation.height > mobileQueue.y,
+  ).toBe(false);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await evaluation.getByLabel("Private notes").fill("Clear and relevant.");
   await evaluation.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
@@ -445,7 +506,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await queue.getByRole("button", { name: new RegExp(scored) }).click();
   await expect(evaluation.getByLabel("Relevance")).toHaveValue("4");
   await expect(evaluation.getByLabel("Recommended format")).toHaveValue("Workshop");
-  await expect(evaluation.getByLabel("Reviewer feedback")).toHaveValue("Strong audience fit.");
+  await expect(evaluation.getByLabel("Reviewer feedback")).toHaveValue(longFeedback);
   await expect(evaluation.getByLabel("Private notes")).toHaveValue("Clear and relevant.");
 
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
@@ -454,6 +515,22 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await expect(evaluation.getByRole("button", { name: "Complete evaluation" })).toHaveCount(0);
   await expect(evaluation.getByRole("button", { name: "Declare a conflict" })).toHaveCount(0);
   await expect(evaluation).toContainText("Scores and conflicts are now locked");
+  const completedGeometry = await evaluation.locator(".review-scores").evaluate((scores) => ({
+    labelsHaveWidth: [...scores.querySelectorAll("dt")].every(
+      (label) => label.getBoundingClientRect().width > 0,
+    ),
+    feedbackStyle: (() => {
+      const value = [...scores.querySelectorAll("dd")].find((entry) =>
+        entry.textContent?.includes("Strong audience fit"),
+      );
+      if (!value) return null;
+      const style = getComputedStyle(value);
+      return { textAlign: style.textAlign, fontVariantNumeric: style.fontVariantNumeric };
+    })(),
+  }));
+  expect(completedGeometry.labelsHaveWidth).toBe(true);
+  expect(completedGeometry.feedbackStyle?.textAlign).not.toBe("right");
+  expect(completedGeometry.feedbackStyle?.fontVariantNumeric).not.toContain("tabular-nums");
   await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText("Completed");
 
   // ---- and declines the one they cannot judge ------------------------------

@@ -23,6 +23,55 @@
   min-width: 0;
 }
 
+@media (max-width: 780px) {
+  .triage-status-filters .tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .triage-table,
+  .triage-table tbody,
+  .triage-table tr,
+  .triage-table td {
+    display: block;
+    width: 100%;
+  }
+  .triage-table thead {
+    display: none;
+  }
+  .triage-table tbody {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .triage-table tr {
+    padding: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .triage-table td,
+  .triage-table td.decision-cell {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+    gap: var(--s-2);
+    padding: var(--s-2) 0;
+    border: 0;
+    white-space: normal;
+    text-align: left;
+  }
+  .triage-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+  .triage-table .decision-buttons {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
 .triage-toolbar {
   align-items: flex-end;
   padding: var(--s-4) var(--s-5);
@@ -474,7 +523,7 @@
    and an explicit badge so "not scored" is a state a reviewer can see. */
 .criterion {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s-4);
   flex-wrap: wrap;
@@ -485,6 +534,16 @@
   flex: 1 1 220px;
   min-width: 0;
 }
+.criterion-text .field,
+.criterion-text .criterion-input {
+  flex-basis: 100%;
+}
+.criterion-text .criterion-input {
+  flex-wrap: wrap;
+}
+.criterion-text .criterion-input textarea {
+  flex-basis: 100%;
+}
 .criterion .hint {
   max-width: var(--measure);
 }
@@ -492,10 +551,16 @@
   display: flex;
   align-items: center;
   gap: var(--s-3);
+  flex: 1 1 260px;
+  min-width: 0;
 }
 .criterion-input select {
   width: auto;
   min-width: 130px;
+}
+.criterion-input textarea {
+  flex: 1 1 260px;
+  min-width: 0;
 }
 
 .review-notes-field {
@@ -523,7 +588,7 @@
 
 .review-scores {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
   gap: var(--s-2) var(--s-4);
   margin: var(--s-4) 0 0;
   font-size: var(--text-sm);
@@ -534,9 +599,7 @@
 }
 .review-scores dd {
   margin: 0;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .review-queue {

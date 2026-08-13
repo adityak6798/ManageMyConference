@@ -136,12 +136,6 @@
   min-width: 0;
 }
 
-.cfp-grip {
-  display: grid;
-  place-items: center;
-  color: var(--ink-4);
-}
-
 .cfp-question-index {
   display: grid;
   place-items: center;

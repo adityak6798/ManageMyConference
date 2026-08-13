@@ -26,15 +26,7 @@ import {
   saveCfp,
 } from "../api/cfp";
 import "../styles/cfp.css";
-import {
-  IconCheck,
-  IconForm,
-  IconGlobe,
-  IconGrip,
-  IconLink,
-  IconPlus,
-  IconWarning,
-} from "../ui/icons";
+import { IconCheck, IconForm, IconGlobe, IconLink, IconPlus, IconWarning } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
 import { ApplicantCfpForm } from "./ApplicantCfpForm";
 import { PublicFormPreview } from "./controls";
@@ -229,6 +221,28 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
 
   const persist = useCallback(async () => {
     setErrors({});
+    const conditionErrors: Record<string, string[]> = {};
+    fields.forEach((field, index) => {
+      if (
+        field.visibleWhen &&
+        field.visibleWhen.operator !== "notEmpty" &&
+        !field.visibleWhen.values.some((value) => value.trim())
+      )
+        conditionErrors[`fields.${index}.visibleWhen.values`] = [
+          `Choose the answer that shows ${field.label || `question ${index + 1}`}.`,
+        ];
+    });
+    routing.forEach((rule, index) => {
+      if (rule.when.operator !== "notEmpty" && !rule.when.values.some((value) => value.trim()))
+        conditionErrors[`routing.${index}.when.values`] = [
+          `Choose the answer for routing rule ${index + 1}.`,
+        ];
+    });
+    if (Object.keys(conditionErrors).length) {
+      setErrors(conditionErrors);
+      announce("error", "Finish each conditional rule before saving the draft.");
+      return null;
+    }
     setBusy("save");
     try {
       const saved = await saveCfp(eventId, {
@@ -645,9 +659,6 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                   return (
                     <li className="cfp-question" key={field.id}>
                       <div className="cfp-question-head">
-                        <span className="cfp-grip" aria-hidden="true">
-                          <IconGrip size={14} />
-                        </span>
                         <span className="cfp-question-index">{index + 1}</span>
                         <span className="cfp-question-name">{name}</span>
                         <Pill tone="info">{typeLabel(field.type)}</Pill>
@@ -740,8 +751,8 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                                     visibleWhen: event.target.checked
                                       ? {
                                           fieldId: fields[index - 1]?.id ?? "",
-                                          operator: "equals",
-                                          values: [""],
+                                          operator: "notEmpty",
+                                          values: [],
                                         }
                                       : undefined,
                                   })
@@ -903,7 +914,7 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                     ...routing,
                     {
                       id: `route-${crypto.randomUUID()}`,
-                      when: { fieldId: fields[0]?.id ?? "", operator: "equals", values: [""] },
+                      when: { fieldId: fields[0]?.id ?? "", operator: "in", values: [] },
                       routeTo: { status: routingStatuses[0]?.key ?? "" },
                     },
                   ])
@@ -953,9 +964,9 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                         </select>
                       </label>
                       <label>
-                        Answer values
-                        <input
-                          value={rule.when.values.join(", ")}
+                        Match
+                        <select
+                          value={rule.when.operator}
                           onChange={(event) =>
                             setRouting((current) =>
                               current.map((item) =>
@@ -964,17 +975,61 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                                       ...item,
                                       when: {
                                         ...item.when,
-                                        values: event.target.value
-                                          .split(",")
-                                          .map((value) => value.trim()),
+                                        operator: event.target.value as
+                                          | "equals"
+                                          | "in"
+                                          | "notEmpty",
+                                        values:
+                                          event.target.value === "notEmpty"
+                                            ? []
+                                            : event.target.value === "equals"
+                                              ? item.when.values.slice(0, 1)
+                                              : item.when.values,
                                       },
                                     }
                                   : item,
                               ),
                             )
                           }
-                        />
+                        >
+                          <option value="equals">equals</option>
+                          <option value="in">is one of</option>
+                          <option value="notEmpty">is answered</option>
+                        </select>
                       </label>
+                      {rule.when.operator !== "notEmpty" ? (
+                        <label>
+                          Answer value{rule.when.operator === "in" ? "s" : ""}
+                          <input
+                            value={rule.when.values.join(", ")}
+                            placeholder={
+                              rule.when.operator === "in"
+                                ? "Option, or comma-separated options"
+                                : "Answer"
+                            }
+                            onChange={(event) =>
+                              setRouting((current) =>
+                                current.map((item) =>
+                                  item.id === rule.id
+                                    ? {
+                                        ...item,
+                                        when: {
+                                          ...item.when,
+                                          values:
+                                            item.when.operator === "in"
+                                              ? event.target.value
+                                                  .split(",")
+                                                  .map((value) => value.trim())
+                                              : [event.target.value.trim()],
+                                        },
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                      ) : null}
                       <label>
                         Triage status
                         <select
@@ -997,6 +1052,14 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                         </select>
                       </label>
                     </div>
+                    {Object.entries(errors)
+                      .filter(([key]) => key.startsWith(`routing.${index}.`))
+                      .flatMap(([, messages]) => messages)
+                      .map((error) => (
+                        <p className="error-text cfp-question-error" key={error}>
+                          {error}
+                        </p>
+                      ))}
                     <button
                       type="button"
                       className="ghost small cfp-remove"

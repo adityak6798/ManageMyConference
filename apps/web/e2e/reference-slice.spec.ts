@@ -62,7 +62,7 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
       name: /Place .* in Main stage at 09:00–10:00\. Already holds 1 session/,
     })
     .press("Enter");
-  await expect(page.getByText("room overlap")).toBeVisible();
+  await expect(page.getByText("Room double-booked", { exact: false }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeDisabled();
 
   // Publication is immutable: the draft conflict must not reach the public projection.

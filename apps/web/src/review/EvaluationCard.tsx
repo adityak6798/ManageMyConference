@@ -215,7 +215,10 @@ export function EvaluationCard({
             const value = scores[criterion.id];
             const missing = attempted && value === undefined;
             return (
-              <div className="criterion" key={criterion.id}>
+              <div
+                className={`criterion${criterion.type === "text" ? " criterion-text" : ""}`}
+                key={criterion.id}
+              >
                 <div className="field">
                   <label htmlFor={`score-${criterion.id}`}>{criterion.name}</label>
                   <p className="hint" id={`hint-${criterion.id}`}>
@@ -277,7 +280,11 @@ export function EvaluationCard({
                     </select>
                   )}
                   {value === undefined ? (
-                    <Pill tone={missing ? "danger" : "neutral"}>Not scored</Pill>
+                    <Pill tone={missing ? "danger" : "neutral"}>
+                      {criterion.type === "text" ? "Not answered" : "Not scored"}
+                    </Pill>
+                  ) : criterion.type === "text" ? (
+                    <Pill tone="ok">Answered</Pill>
                   ) : (
                     <Pill tone="ok">{value}</Pill>
                   )}

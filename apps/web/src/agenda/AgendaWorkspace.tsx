@@ -48,6 +48,7 @@ import {
   type Carry,
   type Cell,
   CONFLICT_LABELS,
+  conflictPublicationSummary,
   type Conflict,
   cellKey,
   clockFor,
@@ -794,7 +795,7 @@ export function AgendaWorkspace({
           {placementConflicts.length ? (
             <Pill tone="danger">
               <IconWarning size={11} />
-              Conflict
+              {[...new Set(placementConflicts.map(({ kind }) => CONFLICT_LABELS[kind]))].join(", ")}
             </Pill>
           ) : null}
         </span>
@@ -855,7 +856,7 @@ export function AgendaWorkspace({
       >
         <div className="board-cell" data-over={overCell === key ? "true" : undefined}>
           {inCell.map((placement) => renderCard(placement))}
-          {carry ? (
+          {carry?.viaKeyboard ? (
             <button
               id={`agenda-cell-${key}`}
               type="button"
@@ -1467,7 +1468,7 @@ export function AgendaWorkspace({
 
       {feedback.node}
 
-      {carry ? (
+      {carry?.viaKeyboard ? (
         <div className="agenda-carry">
           <IconGrip size={15} />
           <span>
@@ -1501,16 +1502,13 @@ export function AgendaWorkspace({
           className="notice warn agenda-conflict-summary"
           role="alert"
         >
-          <strong>
-            {draft.conflicts.length} conflict
-            {draft.conflicts.length === 1 ? "" : "s"} block publication
-          </strong>
+          <strong>{conflictPublicationSummary(draft.conflicts.length)}</strong>
           <ul>
             {draft.conflicts.map((conflict) => (
               <li
                 key={`${conflict.kind}-${conflict.placementId}-${conflict.conflictingPlacementId}-${conflict.resourceId}`}
               >
-                {conflict.kind.replaceAll("_", " ").toLowerCase()} — {explain(conflict)}
+                {CONFLICT_LABELS[conflict.kind]} — {explain(conflict)}
               </li>
             ))}
           </ul>
@@ -1519,9 +1517,12 @@ export function AgendaWorkspace({
         <Notice tone="success">No conflicts. This draft is ready to publish.</Notice>
       )}
 
-      {/* The conflict table needs the whole column; the rail is a drop target for the
-          board views, where it earns its space. */}
-      <div className="agenda-layout" data-rail={view === "conflicts" ? "false" : "true"}>
+      {/* The rail earns a side column only while it holds sessions beside a board view.
+          List view keeps the full width for its table and stacks a non-empty rail below. */}
+      <div
+        className="agenda-layout"
+        data-rail={unscheduledCount > 0 && view !== "conflicts" && view !== "list"}
+      >
         <div
           className="agenda-panel"
           id={`panel-${view}`}
@@ -1534,7 +1535,7 @@ export function AgendaWorkspace({
           </Card>
         </div>
 
-        {view === "conflicts" ? null : (
+        {view === "conflicts" || !unscheduledCount ? null : (
           <UnscheduledRail
             sessions={unscheduled}
             selection={selection}

@@ -36,12 +36,26 @@ const RECENT_CHANGES = 12;
 // focus, dialog state, and background reloads must remain one lifecycle. Its remaining table and
 // detail branches are single-use renderers, which issue #70 says not to extract for size alone;
 // configuration, decision, assignment, and reviewer forms already own separate modules.
-export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
+export function memberName(
+  id: string,
+  directory: readonly { id: string; name: string }[],
+  currentActor?: { id: string; name: string },
+): string {
+  if (currentActor?.id === id) return currentActor.name;
+  return directory.find((member) => member.id === id)?.name ?? id;
+}
+
+export function OrganizerReviewWorkspace({
+  eventId,
+  currentActor,
+}: {
+  eventId: string;
+  currentActor?: { id: string; name: string };
+}) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [sortByScore, setSortByScore] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [selectedReviewers, setSelectedReviewers] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Which abstracts have their accept/decline confirmation open, and what it would record. A
@@ -278,8 +292,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
    * looked up in; the fallback covers a server that predates the field.
    */
   const directory = data.reviewerDirectory ?? data.reviewers;
-  const reviewerName = (reviewerId: string) =>
-    directory.find(({ id }) => id === reviewerId)?.name ?? reviewerId;
+  const reviewerName = (reviewerId: string) => memberName(reviewerId, directory, currentActor);
   const assignmentsFor = (proposalId: string) =>
     data.assignments.filter((assignment) => assignment.proposalId === proposalId);
 
@@ -492,7 +505,14 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
   return (
     <>
       {loading ? <p role="status">Updating abstract triage…</p> : null}
-      <Tabs items={tabs} active={activeTab} onSelect={setTab} label="Filter abstracts by status" />
+      <div className="triage-status-filters">
+        <Tabs
+          items={tabs}
+          active={activeTab}
+          onSelect={setTab}
+          label="Filter abstracts by status"
+        />
+      </div>
 
       <div
         className="triage-panel"
@@ -647,7 +667,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                     const decided = decisionFor(proposal.id);
                     return (
                       <tr key={proposal.id} className={proposal.id === openId ? "is-open" : ""}>
-                        <td className="select-cell">
+                        <td className="select-cell" data-label="Select">
                           <input
                             type="checkbox"
                             aria-label={`Select ${proposal.title}`}
@@ -661,7 +681,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             }
                           />
                         </td>
-                        <td className="primary-cell">
+                        <td className="primary-cell" data-label="Abstract">
                           <button
                             type="button"
                             className="cell-link"
@@ -678,13 +698,13 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             {proposal.submitter ? ` · ${proposal.submitter.email}` : ""}
                           </span>
                         </td>
-                        <td>
+                        <td data-label="Status">
                           <Pill tone={statusTone(proposal.status)}>
                             {labelFor(proposal.status)}
                           </Pill>
                         </td>
-                        <td>{assignedReviewers(proposal)}</td>
-                        <td className="num">
+                        <td data-label="Reviewers">{assignedReviewers(proposal)}</td>
+                        <td className="num" data-label="Score">
                           {outcome ? (
                             <>
                               {outcome.averageScore.toFixed(1)}
@@ -696,7 +716,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                             <span className="empty-text">Not scored</span>
                           )}
                         </td>
-                        <td className="decision-cell">
+                        <td className="decision-cell" data-label="Decision">
                           {decided ? (
                             <Pill tone={decided.outcome === "accepted" ? "ok" : "danger"}>
                               {OUTCOME_LABEL[decided.outcome]}
@@ -907,45 +927,19 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
         <Card
           labelledBy="review-progress"
           title="Reviewer progress"
-          hint="Select reviewers who still have outstanding evaluations."
-          tight
+          hint="Assigned, completed, and outstanding evaluations by reviewer."
         >
           {(data.progress ?? []).some(({ outstanding }) => outstanding > 0) ? (
             <>
               <ul className="assigned-reviewers">
                 {(data.progress ?? []).map((item) => (
                   <li key={item.reviewerId}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        disabled={item.outstanding === 0}
-                        checked={selectedReviewers.includes(item.reviewerId)}
-                        onChange={(event) =>
-                          setSelectedReviewers((current) =>
-                            event.target.checked
-                              ? [...current, item.reviewerId]
-                              : current.filter((id) => id !== item.reviewerId),
-                          )
-                        }
-                      />
-                      {reviewerName(item.reviewerId)} — {item.completed} of {item.assigned} complete
-                      {item.outstanding ? ` · ${item.outstanding} outstanding` : ""}
-                    </label>
+                    {reviewerName(item.reviewerId)} — {item.assigned} assigned · {item.completed}{" "}
+                    completed · {item.outstanding} outstanding
                   </li>
                 ))}
               </ul>
-              <button
-                type="button"
-                disabled
-                title="Waiting for issue #66's reviewer-reminder trigger"
-              >
-                Queue reminders for {selectedReviewers.length} reviewers
-              </button>
-              <p className="hint">
-                Delivery is waiting for communications issue #66 to add a reviewer-reminder trigger.
-                Review will enqueue through its public interface when that vocabulary exists; it
-                does not write delivery tables.
-              </p>
+              <p className="hint">Reminder emails to reviewers aren’t available yet.</p>
             </>
           ) : (
             <EmptyState title="No outstanding reviews" icon={<IconReview size={20} />}>
@@ -987,7 +981,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
                       <td>
                         {labelFor(entry.fromStatus)} → {labelFor(entry.toStatus)}
                       </td>
-                      <td>{entry.actorId}</td>
+                      <td>{reviewerName(entry.actorId)}</td>
                       <td>{new Date(entry.occurredAt).toLocaleString()}</td>
                     </tr>
                   ))}

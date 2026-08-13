@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContentWorkspace } from "../src/ContentWorkspace";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "../src/ReviewWorkspace";
+import { memberName } from "../src/review/OrganizerReviewWorkspace";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
 const proposalId = "11111111-1111-4111-8111-111111111111";
@@ -16,6 +17,16 @@ const otherProposalId = "22222222-2222-4222-8222-222222222222";
 const profileId = "33333333-3333-4333-8333-333333333333";
 const sessionId = "44444444-4444-4444-8444-444444444444";
 const assignmentId = "55555555-5555-4555-8555-555555555555";
+
+it("resolves an organizer who is not in the reviewer directory", () => {
+  expect(
+    memberName("organizer-only", [{ id: "reviewer", name: "Ravi Reviewer" }], {
+      id: "organizer-only",
+      name: "Omar Organizer",
+    }),
+  ).toBe("Omar Organizer");
+  expect(memberName("former-member", [], undefined)).toBe("former-member");
+});
 
 // Held in constants because a literal `role=` prop reads as an ARIA role to the linter.
 const ORGANIZER = "organizer" as const;
