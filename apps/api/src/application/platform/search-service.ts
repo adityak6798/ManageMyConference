@@ -19,11 +19,12 @@
 import { AgendaNotFoundError } from "../agenda/public";
 import {
   type Actor,
-  AuthenticationRequiredError,
   CapabilityDeniedError,
   hasEventRoleCapability,
   requireEventCapability,
 } from "../identity/actor";
+import { readSource, requireSource } from "./section";
+import type { PlatformSources } from "./sources";
 
 export type SearchResultKind =
   | "session"
@@ -49,15 +50,7 @@ export interface SearchResult {
   readonly href: string;
 }
 
-/**
- * One source's contribution, in three states.
- *
- * `unauthorized` is a fact about the caller and never an outage: a reviewer cannot read the
- * CRM, and reporting that as a failure would describe a working system as broken. `failed`
- * carries the rejection itself rather than a rendered message, because turning a rejection
- * into caller-facing words — with a correlation id, and with a log line — belongs to the
- * transport and not to this layer.
- */
+/** One source's contribution. The three states, and the rule behind them, live in `section.ts`. */
 export type SearchSection =
   | { readonly state: "ok"; readonly results: readonly SearchResult[] }
   | { readonly state: "unauthorized" }
@@ -82,170 +75,8 @@ export interface PlatformSearchAnswer {
 /** The query was shorter than the shortest query worth running. A caller mistake, never a fault. */
 export class SearchQueryTooShortError extends Error {}
 
-/**
- * A source this deployment did not wire.
- *
- * Distinct from `unauthorized`: the caller may well be allowed to read it, and the reason they
- * cannot is a composition bug. It degrades the one section rather than the request, and the
- * transport logs it, so a partially wired test harness stays usable while still reporting that
- * something is missing.
- */
-export class SearchSourceUnavailableError extends Error {}
-
 /** The shortest query worth running; one character matches most of a conference. */
 export const SEARCH_QUERY_MIN_LENGTH = 2;
-
-/*
- * The sources, declared as the narrowest shape each contributes rather than as the services
- * that satisfy them.
- *
- * This is the same inversion `ContentAgendaInterface` and `OutreachDispatchPort` already use,
- * for the same two reasons. It states exactly which fields platform depends on, so widening
- * that dependency is a visible edit here instead of a quiet extra read; and it keeps this
- * module free of another domain's concrete projection types, so a test supplies six small
- * objects rather than six constructed domains. The real services satisfy these structurally,
- * which is checked where they are bound — the composition root.
- */
-
-export interface EventOrganizationSource {
-  organizationOf(eventId: string): Promise<string | null>;
-}
-
-export interface ContentSearchSource {
-  workspace(
-    actor: Actor | null,
-    eventId: string,
-  ): Promise<{
-    readonly sessions: readonly {
-      readonly id: string;
-      readonly title: string;
-      readonly abstract: string;
-      readonly format: string;
-      readonly tracks: readonly string[];
-    }[];
-    readonly speakers: readonly {
-      readonly id: string;
-      readonly name: string;
-      readonly email: string;
-      readonly bio: string;
-      readonly organization: string;
-    }[];
-    readonly tasks: readonly {
-      readonly id: string;
-      readonly title: string;
-      readonly status: string;
-      readonly speakerProfileId: string;
-      readonly instructions?: string | undefined;
-    }[];
-  }>;
-}
-
-export interface ReviewSearchSource {
-  organizerWorkspace(
-    actor: Actor | null,
-    eventId: string,
-  ): Promise<{
-    readonly proposals: readonly {
-      readonly id: string;
-      readonly title: string;
-      readonly abstract: string;
-      readonly submitterName: string;
-      readonly status: string;
-    }[];
-  }>;
-  /** The masked projection. Nothing here has a field for the submitter's contact details. */
-  reviewerQueue(
-    actor: Actor | null,
-    eventId: string,
-  ): Promise<
-    readonly {
-      readonly proposal: { readonly id: string; readonly title: string; readonly abstract: string };
-      readonly evaluation?: { readonly state: string } | null | undefined;
-    }[]
-  >;
-}
-
-export interface AgendaSearchSource {
-  draft(
-    actor: Actor | null,
-    eventId: string,
-  ): Promise<{
-    readonly rooms: readonly { readonly id: string; readonly name: string }[];
-    readonly slots: readonly {
-      readonly id: string;
-      readonly startsAt: string;
-      readonly endsAt: string;
-    }[];
-    readonly sessions: readonly { readonly id: string; readonly title: string }[];
-    readonly placements: readonly {
-      readonly id: string;
-      readonly sessionId: string;
-      readonly roomId: string;
-      readonly slotId: string;
-    }[];
-  }>;
-}
-
-export interface CommunicationsSearchSource {
-  history(
-    actor: Actor | null,
-    organizationId: string,
-    eventId: string,
-    page: { limit: number },
-  ): Promise<{
-    readonly history: readonly {
-      readonly delivery: {
-        readonly id: string;
-        readonly recipientRef: string;
-        readonly renderedSubject: string | null;
-        readonly triggerType: string;
-        readonly state: string;
-      };
-    }[];
-  }>;
-}
-
-export interface CrmSearchSource {
-  list(
-    actor: Actor | null,
-    eventId: string,
-    filters: Record<string, never>,
-  ): Promise<
-    readonly {
-      readonly id: string;
-      readonly name: string;
-      readonly stage: string;
-      readonly contacts: readonly { readonly email: string }[];
-    }[]
-  >;
-  listContacts(
-    actor: Actor | null,
-    organizationId: string,
-    query: { search?: string | undefined; eventId?: string | undefined },
-  ): Promise<{
-    readonly contacts: readonly {
-      readonly id: string;
-      readonly name: string;
-      readonly company: string | null;
-    }[];
-  }>;
-}
-
-/**
- * Every source composed here, by name.
- *
- * All but `events` are optional because a deployment or a test may compose only some of them;
- * a source that is absent degrades its own section and reports why, rather than being silently
- * empty — an empty section and a missing one look identical to the person searching.
- */
-export interface PlatformSearchDependencies {
-  readonly events: EventOrganizationSource;
-  readonly content?: ContentSearchSource | undefined;
-  readonly review?: ReviewSearchSource | undefined;
-  readonly agenda?: AgendaSearchSource | undefined;
-  readonly communications?: CommunicationsSearchSource | undefined;
-  readonly crm?: CrmSearchSource | undefined;
-}
 
 const consoleHref = (path: string, eventId: string) =>
   `${path}?event=${encodeURIComponent(eventId)}`;
@@ -275,7 +106,7 @@ function interleave(groups: readonly (readonly SearchResult[])[], limit: number)
 }
 
 export class PlatformSearchService {
-  constructor(private readonly dependencies: PlatformSearchDependencies) {}
+  constructor(private readonly dependencies: PlatformSources) {}
 
   /**
    * Search one event as this actor.
@@ -312,23 +143,10 @@ export class PlatformSearchService {
     };
   }
 
-  /**
-   * Run one source and classify whatever it does.
-   *
-   * The two identity refusals mean "not yours to see" and become `unauthorized`; anything else
-   * is a real rejection and degrades exactly this section. Nothing rethrows, so one broken
-   * source can never take the other four with it.
-   */
+  /** One source, classified by the rule every platform composition shares. */
   private async section(read: () => Promise<readonly SearchResult[]>): Promise<SearchSection> {
-    try {
-      return { state: "ok", results: await read() };
-    } catch (error) {
-      // ERROR-INTENT: classified, never dropped — a refusal becomes `unauthorized`, and every
-      // other rejection leaves here in `reason` for the transport to log and render.
-      if (error instanceof AuthenticationRequiredError || error instanceof CapabilityDeniedError)
-        return { state: "unauthorized" };
-      return { state: "failed", reason: error };
-    }
+    const outcome = await readSource(read);
+    return outcome.state === "ok" ? { state: "ok", results: outcome.value } : outcome;
   }
 
   private async contentSection(
@@ -337,7 +155,7 @@ export class PlatformSearchService {
     needle: string,
     limit: number,
   ): Promise<readonly SearchResult[]> {
-    const content = this.require(this.dependencies.content, "Content");
+    const content = requireSource(this.dependencies.content, "Content");
     const workspace = await content.workspace(actor, eventId);
     // An organizer manages the programme; a speaker sees the same records through their own
     // portal, and the projection they were handed is already scoped to them.
@@ -399,7 +217,7 @@ export class PlatformSearchService {
     needle: string,
     limit: number,
   ): Promise<readonly SearchResult[]> {
-    const review = this.require(this.dependencies.review, "Review");
+    const review = requireSource(this.dependencies.review, "Review");
     if (hasEventRoleCapability(actor, eventId, "organizer", "review:manage")) {
       const workspace = await review.organizerWorkspace(actor, eventId);
       const href = consoleHref("/abstracts", eventId);
@@ -440,7 +258,7 @@ export class PlatformSearchService {
     needle: string,
     limit: number,
   ): Promise<readonly SearchResult[]> {
-    const agenda = this.require(this.dependencies.agenda, "Agenda");
+    const agenda = requireSource(this.dependencies.agenda, "Agenda");
     // An event with no board yet has nothing to match, which is an empty answer rather than a
     // degraded section: nobody has failed to do anything.
     const draft = await agenda.draft(actor, eventId).catch((error: unknown) => {
@@ -478,7 +296,7 @@ export class PlatformSearchService {
     needle: string,
     limit: number,
   ): Promise<readonly SearchResult[]> {
-    const communications = this.require(this.dependencies.communications, "Communications");
+    const communications = requireSource(this.dependencies.communications, "Communications");
     const organizationId = await this.dependencies.events.organizationOf(eventId);
     if (!organizationId) return [];
     // One bounded page. Search reads what the history surface itself shows first rather than
@@ -521,7 +339,7 @@ export class PlatformSearchService {
     needle: string,
     limit: number,
   ): Promise<readonly SearchResult[]> {
-    const crm = this.require(this.dependencies.crm, "CRM");
+    const crm = requireSource(this.dependencies.crm, "CRM");
     const organizationId = await this.dependencies.events.organizationOf(eventId);
     const prospects = await crm.list(actor, eventId, {});
     const directory = organizationId
@@ -557,10 +375,5 @@ export class PlatformSearchService {
       ],
       limit,
     );
-  }
-
-  private require<T>(source: T | undefined, name: string): T {
-    if (!source) throw new SearchSourceUnavailableError(`${name} is not configured`);
-    return source;
   }
 }

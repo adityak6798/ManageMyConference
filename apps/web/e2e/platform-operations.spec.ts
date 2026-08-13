@@ -108,3 +108,100 @@ test("a reviewer is answered from their own queue and told what their role omits
     page.getByRole("heading", { name: "Designing for the hallway track" }),
   ).toBeVisible();
 });
+
+test("the inbox states what is waiting on the seeded event, and a dismissal round-trips", async ({
+  page,
+}) => {
+  await openConsoleAs(page, "organizer");
+
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Inbox", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+
+  /*
+   * Four of the five categories are populated by the deterministic seed, and each is asserted
+   * on its own content rather than on a count: the seeded reviewer assignment with no
+   * evaluation, the two open speaker tasks, the accepted session nobody has placed, and the two
+   * deliveries the fixture provider genuinely refused.
+   */
+  const programme = page.getByRole("region", { name: "Programme" });
+  await expect(programme.getByRole("link", { name: "Accessible by default" })).toBeVisible();
+
+  const speakerWork = page.getByRole("region", { name: "Speaker work" });
+  await expect(speakerWork.getByRole("link", { name: "Confirm profile details" })).toBeVisible();
+  await expect(speakerWork.getByText("Sam Speaker").first()).toBeVisible();
+
+  const reviews = page.getByRole("region", { name: "Reviews outstanding" });
+  await expect(
+    reviews.getByRole("link", { name: "Designing for the hallway track" }),
+  ).toBeVisible();
+  await expect(reviews.getByText("Ravi Reviewer").first()).toBeVisible();
+
+  const deliveries = page.getByRole("region", { name: "Deliveries that failed" });
+  await expect(
+    deliveries.getByRole("link", { name: "Abstracts are waiting for your review" }),
+  ).toBeVisible();
+
+  // A dismissal is visible, marked, and undone — never a way of deleting the row.
+  const dismiss = speakerWork.getByRole("button", { name: "Dismiss Confirm profile details" });
+  await dismiss.click();
+  const restore = speakerWork.getByRole("button", { name: "Restore Confirm profile details" });
+  await expect(restore).toBeVisible();
+  await expect(speakerWork.getByRole("link", { name: "Confirm profile details" })).toBeVisible();
+
+  // Handed back the way it was found: the shared fixture carries no dismissal out of this spec.
+  await restore.click();
+  await expect(dismiss).toBeVisible();
+});
+
+test("a brand-new event's inbox says its public page is not live", async ({ page }) => {
+  /*
+   * The fifth category cannot be shown from the seed, and that is correct rather than a gap: the
+   * demo event is published and its draft matches its snapshot, so there is genuinely nothing
+   * awaiting publication. Driving it needs an event in that state, so this creates one — the
+   * same thing `publishing.spec.ts` does, and for the same reason.
+   */
+  const name = `Greenroom Inbox Trial ${Date.now()}`;
+  await openConsoleAs(page, "organizer");
+  await page.getByRole("link", { name: /Event settings/ }).click();
+  await page.getByLabel("Event name", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "Create event" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
+
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Inbox", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+
+  const publication = page.getByRole("region", { name: "Publication" });
+  await expect(
+    publication.getByRole("link", { name: "The public page is not live" }),
+  ).toBeVisible();
+  // And the categories with nothing in them say why they are empty rather than showing a
+  // heading over nothing.
+  await expect(
+    page.getByRole("region", { name: "Speaker work" }).getByText("No speaker has outstanding work"),
+  ).toBeVisible();
+});
+
+test("a reviewer's inbox carries their own work and names what their role omits", async ({
+  page,
+}) => {
+  await openConsoleAs(page, "reviewer");
+
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Inbox", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+
+  await expect(
+    page
+      .getByRole("region", { name: "Reviews outstanding" })
+      .getByRole("link", { name: "Designing for the hallway track" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Not available to your role/)).toBeVisible();
+});

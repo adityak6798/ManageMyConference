@@ -9,8 +9,8 @@ import {
   CapabilityDeniedError,
 } from "../src/application/identity/actor";
 import {
-  type PlatformSearchDependencies,
   PlatformSearchService,
+  type PlatformSources,
   SearchQueryTooShortError,
 } from "../src/application/platform/public";
 
@@ -75,13 +75,11 @@ const sessionsByEvent: Record<string, { id: string; title: string }[]> = {
 const refuse = (capability: string) => () =>
   Promise.reject(new CapabilityDeniedError(`Actor lacks ${capability} for event`));
 
-function dependencies(
-  overrides: Partial<PlatformSearchDependencies> = {},
-): PlatformSearchDependencies {
+function dependencies(overrides: Partial<PlatformSources> = {}): PlatformSources {
   return {
     events: { organizationOf: async () => ORGANIZATION },
     content: {
-      workspace: async (_actor, eventId) => ({
+      workspace: async (_actor: unknown, eventId: string) => ({
         sessions: (sessionsByEvent[eventId] ?? []).map((session) => ({
           ...session,
           abstract: "",
@@ -102,6 +100,7 @@ function dependencies(
             id: "task-1",
             title: "Upload keynote slides",
             status: "open",
+            dueAt: "2026-08-20T23:59:00.000Z",
             speakerProfileId: "speaker-1",
           },
         ],
@@ -118,6 +117,9 @@ function dependencies(
             status: "submitted",
           },
         ],
+        assignments: [],
+        evaluations: [],
+        reviewerDirectory: [],
       }),
       reviewerQueue: async () => [
         {
@@ -152,6 +154,8 @@ function dependencies(
               renderedSubject: "Your keynote is confirmed",
               triggerType: "schedule.published",
               state: "succeeded",
+              attemptCount: 1,
+              updatedAt: "2026-08-11T12:00:00.000Z",
             },
           },
         ],
@@ -183,7 +187,7 @@ function dependencies(
   };
 }
 
-const service = (overrides: Partial<PlatformSearchDependencies> = {}) =>
+const service = (overrides: Partial<PlatformSources> = {}) =>
   new PlatformSearchService(dependencies(overrides));
 
 describe("permission-aware search", () => {
@@ -243,7 +247,7 @@ describe("permission-aware search", () => {
     const organizerWorkspace = vi.fn();
     const answer = await service({
       review: {
-        organizerWorkspace,
+        organizerWorkspace: organizerWorkspace as never,
         reviewerQueue: async () => [
           {
             proposal: { id: "proposal-1", title: "A keynote proposal", abstract: "" },

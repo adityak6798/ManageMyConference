@@ -1,0 +1,199 @@
+/**
+ * The domain reads platform composes, declared as the narrowest shape each contributes.
+ *
+ * This is the same inversion `ContentAgendaInterface` and `OutreachDispatchPort` already use,
+ * for the same two reasons. It states exactly which fields platform depends on, so widening
+ * that dependency is a visible edit in this file instead of a quiet extra read somewhere; and it
+ * keeps platform free of another domain's concrete projection types, so a test supplies six
+ * small objects rather than six constructed domains. The real services satisfy these
+ * structurally, and that is checked where they are bound — the composition root.
+ *
+ * One declaration per source, shared by every capability that reads it. Search and the inbox ask
+ * different questions of the same six calls, and giving each its own copy of the port would let
+ * the two drift into disagreeing about what a session is.
+ *
+ * @spec PRD-OPS-001 ARC-DOM-001
+ */
+import type { Actor } from "../identity/actor";
+
+export interface EventOrganizationSource {
+  organizationOf(eventId: string): Promise<string | null>;
+}
+
+export interface ContentSource {
+  workspace(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<{
+    readonly sessions: readonly {
+      readonly id: string;
+      readonly title: string;
+      readonly abstract: string;
+      readonly format: string;
+      readonly tracks: readonly string[];
+    }[];
+    readonly speakers: readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly email: string;
+      readonly bio: string;
+      readonly organization: string;
+    }[];
+    readonly tasks: readonly {
+      readonly id: string;
+      readonly title: string;
+      readonly status: string;
+      readonly dueAt: string;
+      readonly speakerProfileId: string;
+      readonly instructions?: string | undefined;
+    }[];
+  }>;
+}
+
+export interface ReviewSource {
+  organizerWorkspace(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<{
+    readonly proposals: readonly {
+      readonly id: string;
+      readonly title: string;
+      readonly abstract: string;
+      readonly submitterName: string;
+      readonly status: string;
+    }[];
+    readonly assignments: readonly {
+      readonly id: string;
+      readonly proposalId: string;
+      readonly reviewerId: string;
+      readonly createdAt: string;
+    }[];
+    readonly evaluations: readonly {
+      readonly assignmentId: string;
+      readonly state: string;
+    }[];
+    readonly reviewerDirectory: readonly { readonly id: string; readonly name: string }[];
+  }>;
+  /** The masked projection. Nothing here has a field for the submitter's contact details. */
+  reviewerQueue(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<
+    readonly {
+      readonly proposal: { readonly id: string; readonly title: string; readonly abstract: string };
+      readonly evaluation?: { readonly state: string } | null | undefined;
+    }[]
+  >;
+}
+
+export interface AgendaSource {
+  draft(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<{
+    readonly rooms: readonly { readonly id: string; readonly name: string }[];
+    readonly slots: readonly {
+      readonly id: string;
+      readonly startsAt: string;
+      readonly endsAt: string;
+    }[];
+    readonly sessions: readonly { readonly id: string; readonly title: string }[];
+    readonly placements: readonly {
+      readonly id: string;
+      readonly sessionId: string;
+      readonly roomId: string;
+      readonly slotId: string;
+    }[];
+    readonly conflicts?:
+      | readonly {
+          readonly kind: string;
+          readonly placementId: string;
+          readonly conflictingPlacementId: string;
+          readonly message: string;
+        }[]
+      | undefined;
+  }>;
+}
+
+export interface PublishingSource {
+  /**
+   * The publication as the organizer's own preview shows it.
+   *
+   * Both projections are carried because the inbox's question is whether they differ, and only
+   * the two together can answer it. They are opaque here on purpose: what a public page contains
+   * is publishing's business, and platform only needs to know that this copy is not that one.
+   */
+  preview(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<{
+    readonly state: string;
+    readonly slug: string;
+    readonly draft: unknown;
+    readonly published: unknown;
+  } | null>;
+}
+
+export interface CommunicationsSource {
+  history(
+    actor: Actor | null,
+    organizationId: string,
+    eventId: string,
+    page: { limit: number },
+  ): Promise<{
+    readonly history: readonly {
+      readonly delivery: {
+        readonly id: string;
+        readonly recipientRef: string;
+        readonly renderedSubject: string | null;
+        readonly triggerType: string;
+        readonly state: string;
+        readonly attemptCount: number;
+        readonly updatedAt: string;
+      };
+    }[];
+  }>;
+}
+
+export interface CrmSource {
+  list(
+    actor: Actor | null,
+    eventId: string,
+    filters: Record<string, never>,
+  ): Promise<
+    readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly stage: string;
+      readonly contacts: readonly { readonly email: string }[];
+    }[]
+  >;
+  listContacts(
+    actor: Actor | null,
+    organizationId: string,
+    query: { search?: string | undefined; eventId?: string | undefined },
+  ): Promise<{
+    readonly contacts: readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly company: string | null;
+    }[];
+  }>;
+}
+
+/**
+ * Every source platform composes, by name.
+ *
+ * All but `events` are optional because a deployment or a test may compose only some of them; a
+ * source that is absent degrades its own section and says so, rather than answering empty — an
+ * empty section and a missing one look identical to the person reading it.
+ */
+export interface PlatformSources {
+  readonly events: EventOrganizationSource;
+  readonly content?: ContentSource | undefined;
+  readonly review?: ReviewSource | undefined;
+  readonly agenda?: AgendaSource | undefined;
+  readonly publishing?: PublishingSource | undefined;
+  readonly communications?: CommunicationsSource | undefined;
+  readonly crm?: CrmSource | undefined;
+}

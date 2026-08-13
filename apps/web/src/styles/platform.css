@@ -126,6 +126,26 @@
   margin: 0;
 }
 
+.inbox-item {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.inbox-item .sub {
+  color: var(--muted);
+  flex: 1 1 12rem;
+  font-size: var(--text-xs);
+}
+
+/* Dismissed rows stay on the list rather than disappearing: the operator has to be able to see
+   what they set aside, and to undo it. Muted, never hidden. */
+.inbox-item.is-dismissed > a,
+.inbox-item.is-dismissed .sub {
+  opacity: 0.62;
+}
+
 .palette-note.is-error {
   color: #a3312a;
 }

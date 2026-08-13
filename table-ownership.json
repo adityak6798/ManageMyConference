@@ -71,6 +71,7 @@
     "attendee_itineraries": "publishing",
     "publication_slug_reservation_audit": "publishing",
     "accelevents_sync_runs": "communications-integrations",
-    "review_suggestions": "review"
+    "review_suggestions": "review",
+    "platform_inbox_dismissals": "platform"
   }
 }

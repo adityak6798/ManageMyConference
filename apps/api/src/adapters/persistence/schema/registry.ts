@@ -7,6 +7,7 @@ import { defineContentSchema } from "./content.ts";
 import { defineCrmSchema } from "./crm.ts";
 import { defineEventsSchema } from "./events.ts";
 import { defineIdentityAccessSchema } from "./identity-access.ts";
+import { definePlatformSchema } from "./platform.ts";
 import { definePublishingSchema } from "./publishing.ts";
 import { defineReviewSchema } from "./review.ts";
 
@@ -40,6 +41,10 @@ const communicationsIntegrationsSchema = defineCommunicationsIntegrationsSchema(
   organizationsId: eventsSchema.organizations.id,
 });
 const publishingSchema = definePublishingSchema({ eventsId: eventsSchema.events.id });
+const platformSchema = definePlatformSchema({
+  eventsId: eventsSchema.events.id,
+  usersId: identityAccessSchema.users.id,
+});
 
 export const schemaFragments = [
   agendaSchema,
@@ -51,6 +56,7 @@ export const schemaFragments = [
   identityAccessSchema,
   publishingSchema,
   reviewSchema,
+  platformSchema,
 ];
 
 export const schema = {
@@ -63,6 +69,7 @@ export const schema = {
   ...identityAccessSchema,
   ...publishingSchema,
   ...reviewSchema,
+  ...platformSchema,
 };
 
 export const {
@@ -109,6 +116,7 @@ export const {
   organizationMemberships,
   organizations,
   outboundProjectionState,
+  platformInboxDismissals,
   publicEventProjections,
   reviewAssignments,
   reviewAssignmentCaps,

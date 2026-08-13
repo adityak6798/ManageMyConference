@@ -1,7 +1,8 @@
 // @acceptance ACC-OPS
 
-import { searchResponseSchema } from "@greenroom/contracts";
+import { inboxResponseSchema, searchResponseSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { MemoryInboxDismissalStore } from "../src/adapters/persistence/d1-platform-repository";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
 import { EventService } from "../src/application/events/event-service";
 import { CapabilityDeniedError } from "../src/application/identity/actor";
@@ -10,8 +11,8 @@ import {
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
 import {
-  type PlatformSearchDependencies,
   PlatformOperationsService,
+  type PlatformSources,
 } from "../src/application/platform/public";
 import { createHttpAppFrom, type StructuredLogger } from "../src/transport/http/app";
 
@@ -22,7 +23,7 @@ const ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 const refuse = () => Promise.reject(new CapabilityDeniedError("Actor lacks the capability"));
 
 /** Only what each route case needs; the service's own suite covers composition. */
-function sources(overrides: Partial<PlatformSearchDependencies> = {}): PlatformSearchDependencies {
+function sources(overrides: Partial<PlatformSources> = {}): PlatformSources {
   return {
     events: { organizationOf: async () => ORGANIZATION },
     content: {
@@ -41,7 +42,12 @@ function sources(overrides: Partial<PlatformSearchDependencies> = {}): PlatformS
       }),
     },
     review: {
-      organizerWorkspace: async () => ({ proposals: [] }),
+      organizerWorkspace: async () => ({
+        proposals: [],
+        assignments: [],
+        evaluations: [],
+        reviewerDirectory: [],
+      }),
       reviewerQueue: async () => [
         {
           proposal: { id: "proposal-1", title: "Keynote proposal", abstract: "" },
@@ -50,13 +56,43 @@ function sources(overrides: Partial<PlatformSearchDependencies> = {}): PlatformS
       ],
     },
     agenda: { draft: refuse },
+    publishing: { preview: refuse },
     communications: { history: refuse },
     crm: { list: refuse, listContacts: refuse },
     ...overrides,
   };
 }
 
-function createTestApp(overrides: Partial<PlatformSearchDependencies> = {}) {
+/** One derivable inbox item, so the dismissal routes have something real to name. */
+const oneOpenTask = {
+  content: {
+    workspace: async () => ({
+      sessions: [],
+      speakers: [
+        {
+          id: "speaker-1",
+          name: "Sam Speaker",
+          email: "sam@example.test",
+          bio: "",
+          organization: "",
+        },
+      ],
+      tasks: [
+        {
+          id: "task-1",
+          title: "Confirm profile details",
+          status: "open",
+          dueAt: "2026-08-20T23:59:00.000Z",
+          speakerProfileId: "speaker-1",
+        },
+      ],
+    }),
+  },
+} satisfies Partial<PlatformSources>;
+
+const TASK_KEY = "speaker-task:task-1:2026-08-20T23:59:00.000Z";
+
+function createTestApp(overrides: Partial<PlatformSources> = {}) {
   const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const app = createHttpAppFrom({
     events: new EventService({
@@ -71,7 +107,11 @@ function createTestApp(overrides: Partial<PlatformSearchDependencies> = {}) {
       now: () => 1_000,
       resolveActor: resolveSeededDemoActor,
     },
-    platformOps: new PlatformOperationsService(sources(overrides)),
+    platformOps: new PlatformOperationsService({
+      sources: sources(overrides),
+      dismissals: new MemoryInboxDismissalStore(),
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    }),
   });
   return { app, logger };
 }
@@ -191,5 +231,155 @@ describe("search HTTP transport", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "VALIDATION_FAILED", fieldErrors: { limit: expect.any(Array) } },
     });
+  });
+});
+
+describe("inbox HTTP transport", () => {
+  it("refuses an anonymous caller and one without events:read on this event", async () => {
+    const { app } = createTestApp(oneOpenTask);
+
+    expect((await app.request(`/api/events/${EVENT_ONE}/inbox`)).status).toBe(401);
+    expect(
+      (
+        await app.request(`/api/events/${EVENT_ONE}/inbox`, {
+          headers: await cookieFor("public"),
+        })
+      ).status,
+    ).toBe(403);
+  });
+
+  it("answers every category, marking the ones this role cannot read", async () => {
+    const { app, logger } = createTestApp(oneOpenTask);
+    const response = await app.request(`/api/events/${EVENT_ONE}/inbox`, {
+      headers: await cookieFor("organizer"),
+    });
+
+    expect(response.status).toBe(200);
+    const body = inboxResponseSchema.parse(await response.json());
+    expect(body.categories.speakerWork).toMatchObject({
+      state: "ok",
+      items: [expect.objectContaining({ key: TASK_KEY, status: "open" })],
+    });
+    expect(body.categories.deliveries.state).toBe("unauthorized");
+    expect(body.categories.publication.state).toBe("unauthorized");
+    // An omitted category is the authorization model working, so nothing is logged for it.
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("records a dismissal, shows it on the next read, and undoes it", async () => {
+    const { app } = createTestApp(oneOpenTask);
+    const headers = { ...(await cookieFor("organizer")), "content-type": "application/json" };
+
+    const created = await app.request(`/api/events/${EVENT_ONE}/inbox/dismissals`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ itemKey: TASK_KEY }),
+    });
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({
+      dismissal: { itemKey: TASK_KEY, actorId: "seed-organizer" },
+    });
+
+    const dismissed = inboxResponseSchema.parse(
+      await (
+        await app.request(`/api/events/${EVENT_ONE}/inbox`, {
+          headers: await cookieFor("organizer"),
+        })
+      ).json(),
+    );
+    expect(dismissed.categories.speakerWork).toMatchObject({
+      state: "ok",
+      items: [expect.objectContaining({ status: "dismissed" })],
+    });
+
+    const removed = await app.request(
+      `/api/events/${EVENT_ONE}/inbox/dismissals/${encodeURIComponent(TASK_KEY)}`,
+      { method: "DELETE", headers: await cookieFor("organizer") },
+    );
+    expect(removed.status).toBe(204);
+    const restored = inboxResponseSchema.parse(
+      await (
+        await app.request(`/api/events/${EVENT_ONE}/inbox`, {
+          headers: await cookieFor("organizer"),
+        })
+      ).json(),
+    );
+    expect(restored.categories.speakerWork).toMatchObject({
+      state: "ok",
+      items: [expect.objectContaining({ status: "open" })],
+    });
+  });
+
+  it("answers 404 for a key this event is not showing, and 400 for a malformed body", async () => {
+    const { app } = createTestApp(oneOpenTask);
+    const headers = { ...(await cookieFor("organizer")), "content-type": "application/json" };
+
+    const unknown = await app.request(`/api/events/${EVENT_ONE}/inbox/dismissals`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ itemKey: "speaker-task:invented:2026-01-01T00:00:00.000Z" }),
+    });
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+
+    const malformed = await app.request(`/api/events/${EVENT_ONE}/inbox/dismissals`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ itemKey: "" }),
+    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { itemKey: expect.any(Array) } },
+    });
+  });
+
+  it("treats undoing a dismissal that is not there as done", async () => {
+    const { app } = createTestApp(oneOpenTask);
+
+    const response = await app.request(
+      `/api/events/${EVENT_ONE}/inbox/dismissals/${encodeURIComponent("nothing-here")}`,
+      { method: "DELETE", headers: await cookieFor("organizer") },
+    );
+
+    expect(response.status).toBe(204);
+  });
+
+  it("validates the dismissal key carried by the DELETE path", async () => {
+    const { app } = createTestApp(oneOpenTask);
+    const response = await app.request(
+      `/api/events/${EVENT_ONE}/inbox/dismissals/${"x".repeat(401)}`,
+      { method: "DELETE", headers: await cookieFor("organizer") },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "VALIDATION_FAILED", fieldErrors: { itemKey: expect.any(Array) } },
+    });
+  });
+
+  it("degrades one category to a correlated error and logs it once", async () => {
+    const { app, logger } = createTestApp({
+      ...oneOpenTask,
+      agenda: { draft: () => Promise.reject(new Error("the board is unreachable")) },
+    });
+    const response = await app.request(`/api/events/${EVENT_ONE}/inbox`, {
+      headers: { ...(await cookieFor("organizer")), "x-correlation-id": "inbox-degraded" },
+    });
+
+    const body = inboxResponseSchema.parse(await response.json());
+    expect(body.categories.programme).toEqual({
+      state: "failed",
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Something went wrong.",
+        correlationId: "inbox-degraded",
+      },
+    });
+    expect(body.categories.speakerWork.state).toBe("ok");
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "inbox.programme" }),
+      "request.exception",
+    );
   });
 });

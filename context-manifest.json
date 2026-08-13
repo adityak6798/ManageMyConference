@@ -308,7 +308,8 @@
         "ARC-001",
         "ARC-DOM-001",
         "ENG-CI-001",
-        "PRD-OPS-001"
+        "PRD-OPS-001",
+        "PRD-OPS-002"
       ],
       "journeys": [],
       "acceptance": [
@@ -389,7 +390,13 @@
         "apps/web/src/workspaces/platform.tsx",
         "apps/web/test/command-palette.test.tsx",
         "apps/web/test/platform-search.test.tsx",
-        "apps/web/e2e/platform-operations.spec.ts"
+        "apps/web/e2e/platform-operations.spec.ts",
+        "apps/api/src/adapters/persistence/schema/platform.ts",
+        "apps/api/src/adapters/persistence/d1-platform-repository.ts",
+        "apps/api/migrations/1900_platform_inbox_dismissals.sql",
+        "apps/api/test/platform-inbox.test.ts",
+        "apps/api/test/d1-platform-repository.integration.test.ts",
+        "apps/web/test/platform-inbox.test.tsx"
       ]
     },
     {
