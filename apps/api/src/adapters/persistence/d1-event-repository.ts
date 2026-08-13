@@ -1,5 +1,5 @@
 import type { EventRepository } from "../../application/events/event-repository";
-import type { Event } from "../../domain/events/event";
+import type { Event, Organization } from "../../domain/events/event";
 import { type EventRow, eventToRow, rowToEvent } from "./event-mappers";
 import type { D1WriteResult } from "./d1-write-result";
 
@@ -36,6 +36,15 @@ export class D1EventRepository implements EventRepository {
     if (!result.success) {
       throw new Error(`D1 failed to create event: ${result.error ?? "unknown error"}`);
     }
+  }
+
+  async createOrganization(organization: Organization & { createdAt: string }): Promise<void> {
+    const result = await this.database
+      .prepare("INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)")
+      .bind(organization.id, organization.name, organization.createdAt)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to create organization: ${result.error ?? "unknown error"}`);
   }
 
   async update(eventId: string, name: string, timezone: string): Promise<Event | null> {

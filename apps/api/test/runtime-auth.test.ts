@@ -1,6 +1,6 @@
 // @acceptance ACC-HARNESS
 import { describe, expect, it } from "vitest";
-import { runtimeAuth } from "../src/index";
+import { resolveGoogleConfiguration, runtimeAuth } from "../src/index";
 import { clientAddress, FixedWindowThrottle } from "../src/transport/http/throttle";
 
 describe("runtimeAuth", () => {
@@ -59,6 +59,74 @@ describe("runtimeAuth", () => {
         ENVIRONMENT: "development",
       }),
     ).toEqual({ demoMode: true, sessionSecret: "safe-unique-key" });
+  });
+});
+
+describe("resolveGoogleConfiguration", () => {
+  const bindings = {
+    GOOGLE_CLIENT_ID: "greenroom-test.apps.googleusercontent.com",
+    GOOGLE_CLIENT_SECRET: "a-client-secret-that-belongs-in-a-worker-secret",
+    GOOGLE_REDIRECT_URI: "https://greenroom.test/api/auth/google/callback",
+  } as const;
+  type Binding = keyof typeof bindings;
+  const names = Object.keys(bindings) as Binding[];
+  const only = (present: readonly Binding[]) =>
+    Object.fromEntries(present.map((name) => [name, bindings[name]])) as Parameters<
+      typeof resolveGoogleConfiguration
+    >[0];
+
+  it("is all three bindings or none, and names the ones it is missing", () => {
+    // Not configured is a supported deployment: the door is simply not offered.
+    expect(resolveGoogleConfiguration({})).toBeNull();
+    expect(resolveGoogleConfiguration(only([]))).toBeNull();
+
+    // Every partial combination, because each one is a deployment that would otherwise fail
+    // after the user had already been sent to Google and back.
+    for (const missing of names)
+      expect(() =>
+        resolveGoogleConfiguration(only(names.filter((name) => name !== missing))),
+      ).toThrow(missing);
+    for (const supplied of names)
+      expect(() => resolveGoogleConfiguration(only([supplied]))).toThrow(
+        names.filter((name) => name !== supplied).join(", "),
+      );
+    // A message that names a binding it is not missing sends an operator to the wrong file.
+    expect(() => resolveGoogleConfiguration(only(["GOOGLE_CLIENT_ID"]))).not.toThrow(
+      /GOOGLE_CLIENT_ID,/,
+    );
+    // And it names bindings, never values: this message reaches a deployment log.
+    expect(() => resolveGoogleConfiguration(only(["GOOGLE_CLIENT_SECRET"]))).not.toThrow(
+      bindings.GOOGLE_CLIENT_SECRET,
+    );
+
+    // A relative redirect cannot be what Google has registered, and failing here names the
+    // binding rather than producing an authorization request Google refuses. Each of these is
+    // non-empty on purpose: an empty string is *falsy*, so it is caught earlier as a missing
+    // binding and would pass this assertion without the absolute-URL guard ever running.
+    for (const GOOGLE_REDIRECT_URI of [
+      "/api/auth/google/callback",
+      "greenroom.test/callback",
+      "ftp://greenroom.test/callback",
+    ])
+      expect(() => resolveGoogleConfiguration({ ...bindings, GOOGLE_REDIRECT_URI })).toThrow(
+        "GOOGLE_REDIRECT_URI must be an absolute http(s) URL",
+      );
+    // The empty case belongs with the missing bindings, and is asserted as that.
+    expect(() => resolveGoogleConfiguration({ ...bindings, GOOGLE_REDIRECT_URI: "" })).toThrow(
+      "missing GOOGLE_REDIRECT_URI",
+    );
+
+    expect(resolveGoogleConfiguration(bindings)).toEqual({
+      clientId: bindings.GOOGLE_CLIENT_ID,
+      clientSecret: bindings.GOOGLE_CLIENT_SECRET,
+      redirectUri: bindings.GOOGLE_REDIRECT_URI,
+    });
+    expect(
+      resolveGoogleConfiguration({
+        ...bindings,
+        GOOGLE_REDIRECT_URI: "http://localhost:8787/api/auth/google/callback",
+      }),
+    ).toMatchObject({ redirectUri: "http://localhost:8787/api/auth/google/callback" });
   });
 });
 

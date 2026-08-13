@@ -1,11 +1,16 @@
 import type { EventRepository } from "../../application/events/event-repository";
-import type { Event } from "../../domain/events/event";
+import type { Event, Organization } from "../../domain/events/event";
 
 export class MemoryEventRepository implements EventRepository {
   private readonly events = new Map<string, Event>();
+  readonly organizations = new Map<string, Organization>();
 
   async create(event: Event): Promise<void> {
     this.events.set(event.id, event);
+  }
+
+  async createOrganization(organization: Organization): Promise<void> {
+    this.organizations.set(organization.id, { id: organization.id, name: organization.name });
   }
 
   async update(eventId: string, name: string, timezone: string): Promise<Event | null> {
@@ -49,5 +54,6 @@ export class MemoryEventRepository implements EventRepository {
 
   reset(): void {
     this.events.clear();
+    this.organizations.clear();
   }
 }

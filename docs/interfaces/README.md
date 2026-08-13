@@ -1,6 +1,6 @@
 # Interface catalog
 
-Status: canonical | Owner: architecture | Last verified: 2026-08-11
+Status: canonical | Owner: architecture | Last verified: 2026-08-12
 
 Shared Zod schemas own every current request and response shape: event mutations/lists/basic metadata, agenda draft/placement/publication/public projection, current session/capabilities, demo session, health, and the standard error envelope. They generate [`packages/contracts/openapi.json`](../../packages/contracts/openapi.json), and CI rejects drift. The OpenAPI document covers health, the internal demo-cookie route, session, event, agenda, and public-schedule routes, cookie security, and implemented success/error statuses. Domain types own business semantics. Drizzle declares intended storage, immutable SQL migrations own deployed history, and the D1 adapter owns persistence behavior. Explicit tested mappers connect transport, domain, and storage models.
 
@@ -26,7 +26,21 @@ CRM routes come in two scopes, and the addressing is the boundary rather than a 
 POST /api/auth/code returns the same response and sends the same fixed-content mail whether or not
 an address is registered; POST /api/auth/verify establishes a production signed cookie only for a
 linked identity. POST /api/auth/tokens mints a bearer identity reduced to
-one authorized event. GET /api/session returns the freshly resolved actor, memberships, event roles,
+one authorized event. GET /api/auth/config reports which doors this deployment actually offers —
+`demoMode` and `google` — so a sign-in surface renders what can complete rather than what exists in
+the codebase. GET /api/auth/google/start is a plain 302 to Google rather than a JSON endpoint the
+client follows, so the button is an ordinary link with no script and no preflight; it sets a
+short-lived `Lax` cookie carrying the attempt id, is throttled per client address alone, and
+answers 404 where Google is unconfigured. GET /api/auth/google/callback spends that attempt exactly
+once, verifies the `id_token` before reading any claim, links or provisions the identity, sets the
+same signed session cookie the emailed-code path sets, and redirects to `/` — or `/?welcome=1` when
+this sign-in created the account. Every refusal it can make lands on `/signin?auth=failed` with the
+reason in the log: an unknown attempt, a mismatched `state`, an expired attempt, a signature that
+does not verify and an unverified address are one indistinguishable outcome, because naming which
+check refused is the oracle the flow exists to deny. Both redirect targets are string literals.
+POST /api/auth/signout clears the session cookie and answers `{ "signedOut": true }` whether or not
+a session was present; it is cookie clearing, not revocation, and the schema is named for that.
+GET /api/session returns the freshly resolved actor, memberships, event roles,
 and capabilities. /api/demo-session remains an internal harness route available only with
 DEMO_MODE=true and exact ENVIRONMENT=development. Errors follow
 [`ARC-ERR-001`](../architecture/error-observability.md).

@@ -6,6 +6,8 @@
     "users": "identity-access",
     "identity_emails": "identity-access",
     "identity_login_challenges": "identity-access",
+    "identity_oauth_attempts": "identity-access",
+    "identity_provider_accounts": "identity-access",
     "organization_memberships": "identity-access",
     "event_roles": "identity-access",
     "message_templates": "communications-integrations",

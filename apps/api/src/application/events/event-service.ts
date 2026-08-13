@@ -1,4 +1,4 @@
-import type { Event } from "../../domain/events/event";
+import type { Event, Organization } from "../../domain/events/event";
 import {
   type Actor,
   AuthenticationRequiredError,
@@ -54,6 +54,29 @@ export class EventService {
     await this.dependencies.repository.create(event);
     await this.dependencies.grantOrganizer?.(event.id, authorized.id);
     return event;
+  }
+
+  /**
+   * Create the organization a first-time signup will own. **No actor, deliberately.**
+   *
+   * This is the one write in this domain that cannot be authorized against an actor's
+   * memberships, because at the moment it runs the caller has no memberships at all — the
+   * organization being created is what they are about to become a member of. The system-trust
+   * sibling of `organizationOf`, and it carries the same obligation: the *caller* has already
+   * established who is asking. Identity-access reaches it exactly once, immediately after
+   * verifying a Google `id_token`, and nothing else in the repository calls it.
+   *
+   * The `organizations` table is the events domain's (`table-ownership.json`), which is why this
+   * lives here rather than in identity-access even though the signup workflow it serves is
+   * identity's. The workflow crosses the boundary as this call.
+   */
+  async provisionOrganization(command: { readonly name: string }): Promise<Organization> {
+    const organization: Organization = { id: this.dependencies.newId(), name: command.name };
+    await this.dependencies.repository.createOrganization({
+      ...organization,
+      createdAt: this.dependencies.now().toISOString(),
+    });
+    return organization;
   }
 
   async update(

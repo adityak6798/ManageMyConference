@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-12 (working tree: commit `bb637d4`)
+Status: canonical | Owner: quality | Last verified: 2026-08-12
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -82,11 +82,27 @@ feature-by-feature verdict.
 
 ## Missing product capability
 
-- `GAP-007` **Partially closed by issue #60.** Production now has emailed-code sign-in and
-  event-scoped bearer tokens; demo impersonation remains development-only. Issue #12 still owns
-  durable logout/revocation, rotation/recovery operations, membership administration, audit
-  events, and the approved provider ADR. Owner: identity-access. Governing IDs:
-  `PRD-IAM-001`, `ARC-AUTH-001`.
+- `GAP-007` **Partially closed by issue #60, and further by Google sign-in.** Production has
+  emailed-code sign-in, event-scoped bearer tokens, and now Google OIDC beside them — an additional
+  provider, never a replacement — with provider linking on the stable provider subject and, failing
+  that, on a **verified** address only. Two of the items this entry used to list are closed: the
+  approved provider ADR exists at
+  [`ADR-004`](../decisions/adr-004-google-oauth-provider.md), and `POST /api/auth/signout` exists.
+  Demo impersonation remains development-only.
+
+  **Sign-out is cookie clearing and not durable revocation, and the distinction is the gap.** The
+  route deletes this browser's session cookie and answers the same way whether or not one was
+  present. The cookie is a signed bearer carrying its own expiry, and nothing server-side tracks
+  issued sessions, so a copy taken from another device — or an event bearer token minted from that
+  session — keeps working until it expires on its own. A logout button that implied otherwise would
+  be the more dangerous product, which is why the contract schema names it `signedOut` rather than
+  `revoked`.
+
+  What issue #12 still owns: durable revocation of an issued session, rotation and recovery
+  operations, membership administration, and audit events. Owner: identity-access. Governing IDs:
+  `PRD-IAM-001`, `ARC-AUTH-001`, `ADR-004`. Closure: a server-side session record a sign-out
+  invalidates, plus the administration and audit surfaces, each with a test that proves a
+  previously valid credential stops being accepted.
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
   by default). The target is now provisioned and a hosted URL **is** evidenced:
@@ -214,3 +230,45 @@ feature-by-feature verdict.
   misleading assertion errors — a `webServer` health probe between spec files, or a Playwright
   global setup that fails fast when the API stops answering — and the wrangler crash itself is
   reported upstream with the log from `apps/api/.wrangler/wrangler.log`.
+- `GAP-019` **The demo reset would delete real self-serve accounts, and its guard cannot tell that
+  it is about to.** `apps/api/seed/reset.sql` is a full teardown: it `DELETE`s *every* row of
+  `users`, `organizations` and `events` — not the seeded ones, all of them — before inserting the
+  fixture back, and `tools/remote-demo-reset.mjs` runs that file against the **deployed** database
+  with `wrangler d1 execute DB --remote`. That is exactly right for a database holding nothing but
+  seed data, and it is what `npm run reset:demo` is for.
+
+  The guard in front of it reads the repository, not the database. `assertDemoConfig` checks that
+  `apps/api/wrangler.toml` still says `name = "project-greenroom-api"`, `ENVIRONMENT =
+  "development"` and `DEMO_MODE = "true"`, that the D1 binding names the demo database id and the
+  R2 binding the demo bucket, and the CLI additionally requires `--confirm project-greenroom-api`.
+  Every one of those is a statement about *configuration*. None of them asks the question that now
+  matters: does this database contain an organization nobody seeded?
+
+  Impact: the moment a deployment carries both the demo seed and real self-serve organizations,
+  the next reset destroys the real ones — silently, with a successful exit and the message
+  `Remote demo restored`. Self-serve signup (`PRD-EVT-001`, `JNY-010`) is what makes that
+  combination reachable: product-written rows already accumulated there and were already discarded
+  by every reset — `reset.sql` says so of `attendee_itineraries` and `accelevents_sync_runs` — but
+  each of those is state *about* a demo snapshot, regenerable by using the demo again. An
+  organization somebody signed up for is the first row on that database whose loss cannot be
+  undone by re-running anything. There is no backup and no export, so the loss is final; and
+  because the demo reset is the routine way to restore the deployment after a demonstration, the
+  destructive path is the well-trodden one rather than an accident.
+
+  **Be precise about what is and is not isolated.** The *authorization* model does separate demo
+  personas from self-serve organizations, and does it structurally: every event-owned read and
+  mutation goes through `requireEventCapability` against a grant on that exact event, an
+  organization-wide capability never substitutes for it, and `findByPersona` resolves a persona
+  cookie by pinning `id = seed-<persona>`, so a demo session is always one of four seeded rows and
+  can never resolve to a self-serve user. No demo persona can read or write a self-serve
+  organization's data. What does not isolate them is the **deployment lifecycle**: one D1 database
+  holds both populations, and a reset addresses the database rather than the population.
+
+  This is why `apps/api/wrangler.toml` deliberately leaves `GOOGLE_CLIENT_ID` and
+  `GOOGLE_REDIRECT_URI` commented out. Google sign-in is implemented and the deployed demo does not
+  offer it, precisely so that no real account can accumulate on a database whose restore procedure
+  is a full teardown. Owner: platform. Governing ID: `ENG-DEV-001`. Closure: the remote reset reads
+  the data before it writes — refusing when it finds an organization, user or event the seed does
+  not name, unless an explicit flag says to destroy them — or the demo and self-serve deployments
+  become separate databases. Either one, plus a test that proves the refusal, closes this and makes
+  it safe to configure Google on the deployed demo.

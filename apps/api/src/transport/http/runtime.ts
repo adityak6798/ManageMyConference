@@ -33,9 +33,49 @@ export type ActorResolver = (
   persona: "organizer" | "reviewer" | "speaker" | "public",
 ) => Promise<Actor | null>;
 
+/**
+ * The Google sign-in door, composed in `index.ts` and absent when the deployment is not
+ * configured for it.
+ *
+ * Behaviour rather than credentials: the client secret never reaches this type, so nothing in
+ * the transport can log or echo it. The route module can only *start* an attempt and *complete*
+ * one, which is the whole surface it needs.
+ *
+ * `resolveUserActor` is here rather than beside the demo resolver because of what it is for: a
+ * demo-mode deployment resolves persona cookies, and a real Google session on that same
+ * deployment is a *different kind of credential* that also has to resolve. Its presence in this
+ * object is what makes the two doors coexist, and its absence is what keeps a deployment with no
+ * Google configuration behaving exactly as it did before.
+ */
+export interface GoogleAuthProvider {
+  /** Mint one single-use attempt; the browser is redirected to `authorizationUrl`. */
+  start(now: number): Promise<{ authorizationUrl: string; attemptId: string }>;
+  /**
+   * Spend the attempt and sign the caller in. `null` is every refusal — an unknown attempt, a
+   * `state` that does not match, an expired or already-spent attempt, a token that does not
+   * verify — deliberately indistinguishable to the browser.
+   */
+  complete(input: {
+    attemptId: string;
+    state: string;
+    code: string;
+    now: number;
+  }): Promise<{ actor: Actor; provisioned: boolean } | null>;
+  /** Resolve a signed user-session cookie back to its actor. */
+  resolveUserActor(userId: string): Promise<Actor | null>;
+}
+
 export type RuntimeAuthConfig =
-  | { demoMode: true; sessionSecret: string; now?: () => number; resolveActor: ActorResolver }
-  | { demoMode: false; sessionSecret?: undefined; now?: () => number }
+  | {
+      demoMode: true;
+      sessionSecret: string;
+      now?: () => number;
+      resolveActor: ActorResolver;
+      google?: GoogleAuthProvider;
+    }
+  // No signing secret at all: nothing can be issued, so no door is open and `google` is
+  // structurally absent rather than merely unset.
+  | { demoMode: false; sessionSecret?: undefined; now?: () => number; google?: undefined }
   | {
       demoMode: false;
       sessionSecret: string;
@@ -50,6 +90,7 @@ export type RuntimeAuthConfig =
         expiresAt: number;
       }) => Promise<void>;
       consumeLoginChallenge: (id: string, codeProof: string, now: number) => Promise<string | null>;
+      google?: GoogleAuthProvider;
     };
 
 /**

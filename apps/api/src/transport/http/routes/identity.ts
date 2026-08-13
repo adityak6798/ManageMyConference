@@ -23,7 +23,7 @@ import {
   createUserSession,
   exchangeLoginChallenge,
 } from "../../../application/identity/real-auth";
-import { setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { envelope, readJson } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
@@ -33,17 +33,159 @@ const routes = [
   "POST /api/auth/code",
   "POST /api/auth/verify",
   "POST /api/auth/tokens",
+  "GET /api/auth/google/start",
+  "GET /api/auth/google/callback",
+  "POST /api/auth/signout",
   "POST /api/demo-session",
   "GET /api/session",
 ] as const;
 const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
+/**
+ * A sign-in attempt costs a D1 write and a redirect, so it is rate limited on the caller's
+ * address alone — nothing the caller supplies enters the key, for the reason
+ * `FixedWindowThrottle` documents: a key a client can rotate lets a flooder evict its own
+ * exhausted counter.
+ */
+const googleStartThrottle = new FixedWindowThrottle(10, 60_000, 10_000);
+
+/** Where an attempt id lives between the redirect to Google and the callback. */
+const OAUTH_COOKIE = "greenroom_oauth";
+/** The session lifetime the emailed-code route already uses; Google issues the same session. */
+const SESSION_LIFETIME_MS = 28_800_000;
+
+/**
+ * `SameSite=Lax`, and this is the one place in this file that is not `Strict`.
+ *
+ * The callback is a top-level GET navigation that Google initiates, which makes it cross-site.
+ * A `Strict` cookie is not sent on such a navigation, so the attempt id would be missing and
+ * every sign-in would fail the `state` check — the flow would be broken in exactly the way that
+ * looks like a CSRF defence working. `Lax` is sent on top-level GET navigations and on nothing
+ * else, which is precisely this case and no other.
+ */
+const oauthCookieOptions = (secure: boolean) => ({
+  httpOnly: true,
+  sameSite: "Lax" as const,
+  secure,
+  path: "/",
+  maxAge: 600,
+});
 
 export const identityRoutes: RouteModule = {
   domain: "identity-access",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
     const { auth } = dependencies;
-    app.get("/api/auth/config", (context) => context.json({ demoMode: auth.demoMode }));
+    const isSecure = (context: { req: { url: string } }) =>
+      new URL(context.req.url).protocol === "https:";
+    app.get("/api/auth/config", (context) =>
+      context.json({ demoMode: auth.demoMode, google: Boolean(auth.google) }),
+    );
+
+    /**
+     * Begin the authorization-code flow.
+     *
+     * A plain redirect rather than a JSON endpoint the client follows, so the button is an
+     * ordinary link: no script, no CORS preflight, and the browser's own navigation carries the
+     * `Lax` cookie back on the callback.
+     *
+     * 404 rather than 503 when Google is unconfigured, matching the emailed-code routes: a door
+     * this deployment does not have is a route that does not exist, not a feature that is having
+     * a bad day.
+     */
+    app.get("/api/auth/google/start", async (context) => {
+      if (!auth.google)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      const now = (auth.now ?? Date.now)();
+      const throttle = googleStartThrottle.check(clientAddress(context.req.raw.headers), now);
+      if (!throttle.allowed) {
+        context.header("Retry-After", String(throttle.retryAfterSeconds));
+        return context.json(
+          envelope("RATE_LIMITED", "Try again later.", context.get("correlationId")),
+          429,
+        );
+      }
+      const { authorizationUrl, attemptId } = await auth.google.start(now);
+      setCookie(context, OAUTH_COOKIE, attemptId, oauthCookieOptions(isSecure(context)));
+      return context.redirect(authorizationUrl, 302);
+    });
+
+    /**
+     * Google's return leg.
+     *
+     * Everything that can go wrong lands on the same destination — `/signin?auth=failed` — and
+     * the reason stays in the Worker log. A callback is reachable by anybody with a browser, so
+     * telling them *which* check refused (unknown attempt, wrong `state`, expired, bad
+     * signature, unverified address) would hand an attacker the oracle this flow exists to deny
+     * them.
+     *
+     * The redirect targets are string literals in this file. Nothing from the request decides
+     * where the browser goes next, which is the open redirect this route would otherwise be.
+     */
+    app.get("/api/auth/google/callback", async (context) => {
+      if (!auth.google)
+        return context.json(
+          envelope(
+            "NOT_FOUND",
+            "The requested resource was not found.",
+            context.get("correlationId"),
+          ),
+          404,
+        );
+      const secure = isSecure(context);
+      const attemptId = getCookie(context, OAUTH_COOKIE);
+      // Spent or not, this browser is done with the attempt: clearing first means an abandoned
+      // or failed sign-in leaves nothing behind to be retried against.
+      deleteCookie(context, OAUTH_COOKIE, { path: "/", secure, httpOnly: true, sameSite: "Lax" });
+      const code = context.req.query("code");
+      const state = context.req.query("state");
+      const failed = () => context.redirect("/signin?auth=failed", 302);
+      if (!attemptId || !code || !state) return failed();
+      const now = (auth.now ?? Date.now)();
+      const outcome = await auth.google.complete({ attemptId, state, code, now });
+      if (!outcome) return failed();
+      setCookie(
+        context,
+        "greenroom_session",
+        await createUserSession(
+          outcome.actor.id,
+          auth.sessionSecret as string,
+          now + SESSION_LIFETIME_MS,
+        ),
+        {
+          httpOnly: true,
+          sameSite: "Strict",
+          secure,
+          path: "/",
+          maxAge: SESSION_LIFETIME_MS / 1000,
+        },
+      );
+      // A brand-new workspace lands on its own welcome rather than on a console full of empty
+      // tables. Same-origin literal, and the flag carries no identity.
+      return context.redirect(outcome.provisioned ? "/?welcome=1" : "/", 302);
+    });
+
+    /**
+     * End this browser's session.
+     *
+     * Clearing the cookie, and nothing more — see `signOutResponseSchema`. Answering 200 whether
+     * or not a session was present keeps this from reporting whether the caller had one.
+     */
+    app.post("/api/auth/signout", (context) => {
+      deleteCookie(context, "greenroom_session", {
+        path: "/",
+        secure: isSecure(context),
+        httpOnly: true,
+        sameSite: "Strict",
+      });
+      return context.json({ signedOut: true as const });
+    });
     app.post("/api/auth/code", async (context) => {
       if (auth.demoMode || !auth.sessionSecret)
         return context.json(
@@ -222,6 +364,10 @@ export const identityRoutes: RouteModule = {
           capabilities: [...access.capabilities],
         })),
         capabilities: [...actor.capabilities],
+        // The middleware already decided this; reporting it is what lets the console tell a
+        // persona from a session on a deployment that serves both. "none" cannot reach here —
+        // an unresolved actor threw two lines up.
+        authentication: context.get("authentication"),
       });
     });
   },

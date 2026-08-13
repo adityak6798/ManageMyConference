@@ -47,6 +47,33 @@ DEMO_MODE = "true"
 # the assistant entirely. See docs/engineering/review-suggestions.md.
 REVIEW_AI_PROVIDER = "fixture"
 
+# Google sign-in (`ADR-004`): configured here, and deliberately not configured *yet*.
+#
+# `GOOGLE_CLIENT_ID` is the OAuth client's public identifier and `GOOGLE_REDIRECT_URI` is the exact
+# URI registered against that client in the Google Cloud console — for this deployment,
+# `<PUBLIC_BASE_URL>/api/auth/google/callback`. Both are non-secret, which is why they belong in
+# vars rather than in a secret; the redirect URI is *configuration* on purpose, never derived from
+# a request, because a redirect URI a caller can name is the open redirect. It is not derived from
+# `PUBLIC_BASE_URL` either: local development inherits that value from this file and would then
+# claim the deployed callback as its own.
+#
+# `GOOGLE_CLIENT_SECRET` is a Worker **secret** (`npx wrangler secret put GOOGLE_CLIENT_SECRET`)
+# and is never written here. All three or none: `resolveGoogleConfiguration` (src/index.ts) refuses
+# to boot a partial configuration by name, because a deployment that offers a sign-in button it
+# cannot complete is worse than one that offers none. With none of them set, `/api/auth/config`
+# reports `google: false`, both Google routes answer 404, and this deployment is byte-for-byte
+# the configuration it was before the feature existed.
+#
+# **Why they are commented out.** Google sign-in works; enabling it here would not. `GAP-019`: the
+# demo restore (`npm run reset:demo`) executes `seed/reset.sql` against this database, which
+# DELETEs every row of `users`, `organizations` and `events` before reinserting the fixture, and
+# its guard reads this file rather than the data — so the first real person to sign up here would
+# be erased by the next routine demo restore, silently and with a successful exit. Uncomment these
+# two lines and put the secret once that gap is closed.
+#
+# GOOGLE_CLIENT_ID = "<client-id>.apps.googleusercontent.com"
+# GOOGLE_REDIRECT_URI = "https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback"
+
 # The origin the scheduled outbox drain puts into links it sends.
 #
 # The cron handler has no request to read an origin from, so a link in a schedule confirmation

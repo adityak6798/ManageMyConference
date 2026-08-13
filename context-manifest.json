@@ -327,7 +327,9 @@
         "apps/api/src/adapters/persistence/d1-write-result.ts",
         "apps/web/src/App.tsx",
         "apps/web/src/main.tsx",
+        "apps/web/src/landing",
         "apps/web/src/api/config.ts",
+        "apps/web/src/api/identity.ts",
         "apps/web/src/api/overview.ts",
         "apps/api/test/http.test.ts",
         "apps/api/test/api-docs.test.ts",
@@ -346,6 +348,7 @@
         "apps/web/src/AppShell.tsx",
         "apps/web/src/InstanceMarker.tsx",
         "apps/web/src/OverviewPage.tsx",
+        "apps/web/test/landing.test.tsx",
         "apps/web/test/overview-dashboard.test.tsx",
         "apps/web/test/shell-error-surface.test.tsx",
         "apps/web/src/router.ts",
@@ -369,7 +372,9 @@
         "PRD-IAM-001",
         "PRD-IAM-002"
       ],
-      "journeys": [],
+      "journeys": [
+        "JNY-010"
+      ],
       "acceptance": [],
       "plans": [
         "PLAN-002"
@@ -379,13 +384,19 @@
         "apps/api/src/adapters/persistence/schema/identity-access.ts",
         "apps/api/seed/domains/identity-access",
         "apps/api/src/application/identity",
+        "apps/api/src/adapters/identity",
         "apps/api/migrations/0023_identity_emails.sql",
         "apps/api/migrations/0024_identity_login_challenges.sql",
+        "apps/api/migrations/1000_identity_google_oauth.sql",
         "apps/api/src/transport/http/routes/identity.ts",
         "apps/api/src/adapters/persistence/d1-identity-directory.ts",
         "apps/api/test/d1-identity-directory.integration.test.ts",
+        "apps/api/test/d1-identity-signup.integration.test.ts",
         "apps/api/test/demo-session.test.ts",
         "apps/api/test/actor.test.ts",
+        "apps/api/test/google-oauth.test.ts",
+        "apps/api/test/google-oauth-client.test.ts",
+        "apps/api/test/signup-service.test.ts",
         "apps/api/test/real-auth.test.ts"
       ]
     },
