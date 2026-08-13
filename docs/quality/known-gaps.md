@@ -397,7 +397,7 @@ feature-by-feature verdict.
   which is why it is preferable wherever database access is available. Either way the speakers who
   lost the entry get it back at the next Send, which is the point of repairing at all.
 - `GAP-022` **Search opens the surface a record lives on, not the record, and its cost is proven
-  bounded only against the seed.** Two limits, both deliberate, both worth naming rather than
+  bounded only against the seed.** Three limits, all deliberate, all worth naming rather than
   discovering.
 
   The console has **no per-record routes**. Every workspace is addressed by its path plus
@@ -416,10 +416,18 @@ feature-by-feature verdict.
   proven. On a conference with a few thousand proposals it is unmeasured, and the honest
   expectation is that the read cost, not the filtering, is what would show first.
 
-  Owner: platform. Governing ID: `PRD-OPS-001`, `ACC-OPS`. Closure: two independent halves. A
+  Programme inbox dismissal keys carry no occurrence. The agenda projection names the conflict
+  or unplaced session but exposes no board revision or occurrence, so resolving and then exactly
+  recreating that condition derives the same key and leaves it dismissed. Other categories carry
+  the deadline, attempt, or publication state that changes when their condition recurs.
+
+  Owner: platform. Governing ID: `PRD-OPS-001`, `PRD-OPS-002`, `ACC-OPS`. Closure: three
+  independent halves. A
   record-addressable route on at least the surfaces search returns — a selection the workspace
   reads from the query string, and hits that carry it — closes the first, and the browser spec's
   assertion tightens from "the surface shows it" to "the record is selected". A measurement
   against a fixture an order of magnitude larger than the seed, with a stated ceiling that the
   suite enforces, closes the second; if it fails, the projection reads are where to look before
-  the filter is.
+  the filter is. An agenda-owned monotonic board revision or occurrence on each derived programme
+  condition, carried into the platform key and covered by a resolve-then-recreate test, closes the
+  third.

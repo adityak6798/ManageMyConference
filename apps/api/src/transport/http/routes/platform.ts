@@ -1,18 +1,30 @@
 /** Public API discovery routes owned by the platform domain. @spec ARC-001 ENG-CI-001 PRD-OPS-001 */
-import { eventIdParamsSchema, searchQuerySchema } from "@greenroom/contracts";
+import {
+  eventIdParamsSchema,
+  inboxDismissalInputSchema,
+  inboxDismissalParamsSchema,
+  searchQuerySchema,
+} from "@greenroom/contracts";
+import type { Context } from "hono";
+import openApiDocument from "../../../../../../packages/contracts/openapi.json";
 import { AgendaNotFoundError } from "../../../application/agenda/public";
 import {
   AuthenticationRequiredError,
   CapabilityDeniedError,
 } from "../../../application/identity/actor";
 import {
+  INBOX_CATEGORY_KEYS,
+  InboxItemNotFoundError,
   SEARCH_SECTION_KEYS,
   SearchQueryTooShortError,
-  type SearchSection,
-  type SearchSectionKey,
 } from "../../../application/platform/public";
-import openApiDocument from "../../../../../../packages/contracts/openapi.json";
-import { envelope, type ErrorTranslation, validationFields } from "../runtime";
+import {
+  type ErrorTranslation,
+  envelope,
+  readJson,
+  type Variables,
+  validationFields,
+} from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
@@ -20,6 +32,9 @@ const routes = [
   "GET /docs",
   "GET /api/events/:eventId/overview",
   "GET /api/events/:eventId/search",
+  "GET /api/events/:eventId/inbox",
+  "POST /api/events/:eventId/inbox/dismissals",
+  "DELETE /api/events/:eventId/inbox/dismissals/:itemKey",
 ] as const;
 
 const docsPage = `<!doctype html>
@@ -113,6 +128,48 @@ const docsPage = `<!doctype html>
   </body>
 </html>`;
 
+/**
+ * One degraded source, rendered for the caller and logged exactly once.
+ *
+ * A refused source arrives as `unauthorized` and is deliberately *not* logged: it is the ordinary
+ * answer to a reviewer opening one of these surfaces, and logging it would fill the telemetry
+ * with the authorization model working. Only a genuine rejection is logged, and the application
+ * layer hands the rejection itself across rather than a message, so the correlation id and the
+ * demo-only stack stay the transport's to decide.
+ *
+ * Shared by search and the inbox because they degrade identically; two copies is how one surface
+ * ends up logging what the other omits.
+ */
+type DegradableSection =
+  | { readonly state: "ok" }
+  | { readonly state: "unauthorized" }
+  | { readonly state: "failed"; readonly reason: unknown };
+
+function wireSection<T extends DegradableSection>(
+  context: Context<{ Variables: Variables }>,
+  { logger, auth }: HttpDependencies,
+  operation: string,
+  section: T,
+) {
+  if (section.state !== "failed") return section;
+  const error =
+    section.reason instanceof Error ? section.reason : new Error(String(section.reason));
+  logger.error(
+    {
+      correlationId: context.get("correlationId"),
+      operation,
+      actorId: context.get("actor")?.id,
+      errorName: error.name,
+      ...(auth.demoMode ? { errorMessage: error.message, errorStack: error.stack } : {}),
+    },
+    "request.exception",
+  );
+  return {
+    state: "failed" as const,
+    error: envelope("INTERNAL_ERROR", "Something went wrong.", context.get("correlationId")).error,
+  };
+}
+
 export const platformRoutes: RouteModule = {
   domain: "platform",
   routes,
@@ -205,48 +262,108 @@ export const platformRoutes: RouteModule = {
         query.data.q,
         query.data.limit,
       );
-      /*
-       * A refused source is reported as `unauthorized` and is not logged: it is the ordinary
-       * answer to a reviewer searching an event, and logging it would fill the telemetry with
-       * the authorization model working. Only a genuine rejection is logged, once, here — the
-       * application layer deliberately hands the rejection over rather than a message, so the
-       * correlation id and the demo-only stack stay the transport's to decide.
-       */
-      const wire = (key: SearchSectionKey, section: SearchSection) => {
-        if (section.state !== "failed") return section;
-        const error =
-          section.reason instanceof Error ? section.reason : new Error(String(section.reason));
-        logger.error(
-          {
-            correlationId: context.get("correlationId"),
-            operation: `search.${key}`,
-            actorId: context.get("actor")?.id,
-            errorName: error.name,
-            ...(auth.demoMode ? { errorMessage: error.message, errorStack: error.stack } : {}),
-          },
-          "request.exception",
-        );
-        return {
-          state: "failed" as const,
-          error: envelope("INTERNAL_ERROR", "Something went wrong.", context.get("correlationId"))
-            .error,
-        };
-      };
       return context.json({
         query: answer.query,
         limit: answer.limit,
         sections: Object.fromEntries(
-          SEARCH_SECTION_KEYS.map((key) => [key, wire(key, answer.sections[key])]),
+          SEARCH_SECTION_KEYS.map((key) => [
+            key,
+            wireSection(context, dependencies, `search.${key}`, answer.sections[key]),
+          ]),
         ),
       });
     });
+    app.get("/api/events/:eventId/inbox", async (context) => {
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Event ID is malformed.",
+            context.get("correlationId"),
+            validationFields(params.error.issues),
+          ),
+          400,
+        );
+      const { platformOps } = dependencies;
+      if (!platformOps) throw new Error("Platform operations service is not configured");
+      const answer = await platformOps.inbox(context.get("actor"), params.data.eventId);
+      return context.json({
+        derivedAt: answer.derivedAt,
+        categories: Object.fromEntries(
+          INBOX_CATEGORY_KEYS.map((key) => [
+            key,
+            wireSection(context, dependencies, `inbox.${key}`, answer.categories[key]),
+          ]),
+        ),
+      });
+    });
+    app.post("/api/events/:eventId/inbox/dismissals", async (context) => {
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      const body = inboxDismissalInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The dismissal request is malformed.",
+            context.get("correlationId"),
+            validationFields([
+              ...(params.success ? [] : params.error.issues),
+              ...(body.success ? [] : body.error.issues),
+            ]),
+          ),
+          400,
+        );
+      const { platformOps } = dependencies;
+      if (!platformOps) throw new Error("Platform operations service is not configured");
+      return context.json(
+        {
+          dismissal: await platformOps.dismissInboxItem(
+            context.get("actor"),
+            params.data.eventId,
+            body.data.itemKey,
+          ),
+        },
+        201,
+      );
+    });
+    /*
+     * Undo, and idempotent on purpose. The caller asked for the dismissal to be gone; a second
+     * request finding it already gone has got what it asked for, and answering 404 would turn a
+     * double click into an error message about a state the operator wanted.
+     */
+    app.delete("/api/events/:eventId/inbox/dismissals/:itemKey", async (context) => {
+      const params = inboxDismissalParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The dismissal request is malformed.",
+            context.get("correlationId"),
+            validationFields(params.error.issues),
+          ),
+          400,
+        );
+      const { platformOps } = dependencies;
+      if (!platformOps) throw new Error("Platform operations service is not configured");
+      await platformOps.restoreInboxItem(
+        context.get("actor"),
+        params.data.eventId,
+        params.data.itemKey,
+      );
+      return context.body(null, 204);
+    });
   },
   /**
-   * The one platform error a caller can act on.
+   * The platform errors a caller can act on.
    *
-   * The route's own Zod check refuses a short query first, so this is the defence behind it
-   * rather than the usual path: the service enforces its own minimum, and a caller reaching it
-   * some other way is told the same thing on the same field instead of seeing a 500.
+   * The search route's own Zod check refuses a short query first, so that translation is the
+   * defence behind it rather than the usual path: the service enforces its own minimum, and a
+   * caller reaching it some other way is told the same thing on the same field instead of a 500.
+   *
+   * An unknown item key is a 404 rather than a validation failure, and the distinction is real:
+   * the string was well formed, and what it names simply is not waiting on this event — either
+   * because the condition resolved while the list was on screen, or because it never existed.
    */
   translateError(error: unknown): ErrorTranslation | null {
     if (error instanceof SearchQueryTooShortError)
@@ -255,6 +372,12 @@ export const platformRoutes: RouteModule = {
         message: "Search for at least two characters.",
         status: 400,
         fields: { q: [error.message] },
+      };
+    if (error instanceof InboxItemNotFoundError)
+      return {
+        code: "NOT_FOUND",
+        message: "That item is no longer waiting on this event.",
+        status: 404,
       };
     return null;
   },

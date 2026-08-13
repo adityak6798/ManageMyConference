@@ -125,6 +125,78 @@ export const searchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(SEARCH_SECTION_LIMIT_MAX).default(10),
 });
 
+/**
+ * An operational inbox item. @spec PRD-OPS-001
+ *
+ * Derived on every read, never stored: resolving the underlying condition removes the item with
+ * no write anywhere. `key` is identity *and* occurrence — it carries the task's deadline or the
+ * delivery's attempt count — because it is what a dismissal is recorded against, and the
+ * operator should be told again when the occurrence genuinely changes.
+ */
+export const inboxItemSchema = z.object({
+  key: z.string(),
+  category: z.enum(["reviews", "speakerWork", "programme", "deliveries", "publication"]),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  priority: z.enum(["high", "normal", "low"]),
+  status: z.enum(["open", "dismissed"]),
+  owner: z.string().optional(),
+  dueAt: z.string().optional(),
+  href: z.string(),
+  dismissedAt: z.string().optional(),
+});
+
+/** Same three states as a search section, and for the same reason. */
+export const inboxSectionSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("ok"), items: z.array(inboxItemSchema) }),
+  z.object({ state: z.literal("unauthorized") }),
+  z.object({ state: z.literal("failed"), error: apiErrorEnvelopeSchema.shape.error }),
+]);
+
+export const inboxCategoriesSchema = z.object({
+  reviews: inboxSectionSchema,
+  speakerWork: inboxSectionSchema,
+  programme: inboxSectionSchema,
+  deliveries: inboxSectionSchema,
+  publication: inboxSectionSchema,
+});
+
+export const inboxResponseSchema = z.object({
+  categories: inboxCategoriesSchema,
+  /** When the answer was derived; every relative label on the surface is measured from it. */
+  derivedAt: z.string(),
+});
+
+export const inboxDismissalInputSchema = z.object({
+  itemKey: z.string().trim().min(1).max(400),
+});
+
+/**
+ * The DELETE route's path parameters — both of them.
+ *
+ * Declaring only `eventId` left `{itemKey}` as a path template variable with no parameter, which
+ * is invalid under OAS 3 and leaves a generated client no way to fill the segment.
+ */
+export const inboxDismissalParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  itemKey: z.string().min(1).max(400),
+});
+
+export const inboxDismissalResponseSchema = z.object({
+  dismissal: z.object({
+    eventId: z.string(),
+    itemKey: z.string(),
+    actorId: z.string(),
+    dismissedAt: z.string(),
+  }),
+});
+
+export type InboxDismissalDto = z.infer<typeof inboxDismissalResponseSchema>["dismissal"];
+export type InboxItemDto = z.infer<typeof inboxItemSchema>;
+export type InboxSectionDto = z.infer<typeof inboxSectionSchema>;
+export type InboxCategoryKey = keyof z.infer<typeof inboxCategoriesSchema>;
+export type InboxResponseDto = z.infer<typeof inboxResponseSchema>;
+
 export type SearchResultKind = z.infer<typeof searchResultKindSchema>;
 export type SearchResultDto = z.infer<typeof searchResultSchema>;
 export type SearchSectionDto = z.infer<typeof searchSectionSchema>;

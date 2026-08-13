@@ -21,6 +21,7 @@ import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-director
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
+import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
@@ -979,12 +980,17 @@ export default {
      * role already lets them open, because the reads are the same reads.
      */
     const platformOps = new PlatformOperationsService({
-      events: service,
-      content,
-      review: reviewService,
-      agenda,
-      communications,
-      crm,
+      sources: {
+        events: service,
+        content,
+        review: reviewService,
+        agenda,
+        publishing,
+        communications,
+        crm,
+      },
+      dismissals: new D1InboxDismissalStore(environment.DB),
+      now: () => new Date(),
     });
     // --- end platform ---
     const app = createHttpAppFrom({

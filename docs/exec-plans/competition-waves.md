@@ -429,3 +429,55 @@ sorts within a group second, so `/search` at `order: 5` in the `home` group rend
 console has no per-record routes at all, and `GAP-022` owns both that and the fact that the in-memory
 filtering is proven bounded only against the seed. The inbox (`99b`) and the audit timeline (`99c`)
 are separate phases with their own rows; `ACC-OPS` covers search alone until they land.
+
+#### 99b — the inbox
+
+**Items are derived; only a dismissal is stored.** There is no work queue and nothing marks an
+item done, so completing a task or placing a session removes its item with no write and no
+possibility of the surface disagreeing with the domains it reads. The one stored thing is a
+dismissal, and its key carries the *occurrence* rather than the record — a task's key includes its
+deadline, a delivery's its attempt count — so a re-derived identical item stays dismissed while a
+moved deadline comes back. That is also why `item_key` is opaque text with no foreign key: the
+conditions it names live in five other domains, and a reference into any of them would be platform
+holding a pointer at another domain's row.
+
+**Dismissals are per actor.** A dismissal that hid an item from every organizer would let one
+person silently remove work from a colleague's list. The primary key is
+`(event_id, item_key, actor_id)` for that reason, and the service suite asserts it.
+
+**Four of five categories populate from the seed, and the fifth honestly cannot.** The seeded event
+is published and its draft matches its snapshot, so nothing is awaiting publication — which is the
+correct answer, not a missing fixture. #99 is not permitted to add a platform seed fragment, so
+rather than assert a row into existence the browser spec creates an event and reads its inbox,
+exactly as `publishing.spec.ts` creates its own event for the same reason. The scorecard says this
+in as many words.
+
+**`tools/tests/check-schema-drift.test.mjs` moved from 55 to 56 tables.** That count is hard-coded
+in a platform-owned self-test, and the number is the point of the assertion, so adding a table
+means updating it. Any lane adding a table this wave will hit the same line.
+
+**`platform_inbox_dismissals` cascades, and the coordination rules stand.** The wave document
+says #99 must not add a platform seed fragment and must not edit `tools/compose-seed.mjs`. It does
+neither, and the first attempt at this fix did both before being backed out.
+
+The defect was real: the table references `events(id)` and `users(id)`, `seed/reset.sql` is a full
+teardown of both, and D1 enforces foreign keys. A single dismissed inbox item made **every
+subsequent `npm run reset` fail** with a bare `FOREIGN KEY constraint failed` naming no table — and
+both Playwright configs bootstrap through `npm run reset`, so `gate:browser` stopped coming up
+before a spec ran. Reproduced against a real Miniflare D1.
+
+A cleanup fragment fixes that and breaks something else, which is why it was withdrawn: the seed
+has to stay applicable at migration `1801`, because `d1-publication-repository.integration.test.ts`
+applies it there to prove `1802`'s guard refuses a pre-existing collision. A `DELETE` against a
+table introduced at `1900` cannot run at that point, and the D1 suite says so. **Any lane adding a
+cleanup fragment for a table created after `1801` will hit this**, and the cascade is the general
+answer rather than a special case.
+
+`apps/api/test/d1-platform-repository.integration.test.ts` carries the gate that was missing: it
+seeds a database, dismisses an item, and re-applies `reset.sql`. Confirmed by removing the cascade
+and watching it fail.
+
+**The section-degradation rule now lives in one place.** `application/platform/section.ts` holds the
+three-state classification and `transport/http/routes/platform.ts` holds one `wireSection` helper,
+both shared by search and the inbox. Two copies of that rule is how one surface ends up refusing
+where the other omits, or logging what the other does not.
