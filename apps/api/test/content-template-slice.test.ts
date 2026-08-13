@@ -14,7 +14,7 @@ import {
   speakerResourceTemplateSlice,
 } from "../src/application/content/public";
 import { EventService } from "../src/application/events/event-service";
-import { EventTemplateService } from "../src/application/events/public";
+import { EventTemplateService, SliceRefusalError } from "../src/application/events/public";
 import type { Actor, Capability } from "../src/application/identity/actor";
 
 const ORGANIZATION = "00000000-0000-4000-8000-000000000010";
@@ -438,6 +438,11 @@ describe("Content template slices: speaker portal resources", () => {
     await expect(slice.apply(organizer, DESTINATION, payload, REMAP)).rejects.toThrow(
       /could not be read/,
     );
+    // Raised as a refusal, which is what keeps this sentence in front of the organizer instead of
+    // the orchestrator's generic retry advice — and keeps a stored payload out of the fault log.
+    await expect(slice.apply(organizer, DESTINATION, payload, REMAP)).rejects.toBeInstanceOf(
+      SliceRefusalError,
+    );
     const destination = await content.workspace(organizer, DESTINATION);
     expect(destination.resources).toEqual([]);
   });
@@ -572,6 +577,11 @@ describe("Content template slices: speaker task checklists", () => {
     );
     await expect(slice.apply(organizer, DESTINATION, payload, REMAP)).rejects.toThrow(
       /could not be read/,
+    );
+    // Raised as a refusal, for the same reason the resources slice raises one: nothing about a
+    // payload at rest changes on a second attempt, so the generic "apply again" would be false.
+    await expect(slice.apply(organizer, DESTINATION, payload, REMAP)).rejects.toBeInstanceOf(
+      SliceRefusalError,
     );
     expect(await content.taskTemplates(organizer, DESTINATION)).toEqual([]);
   });

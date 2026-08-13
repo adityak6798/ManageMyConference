@@ -6,7 +6,7 @@ import { MemoryReviewRepository } from "../src/adapters/persistence/memory-revie
 import { MemorySubmittedProposalAdapter } from "../src/adapters/persistence/memory-submitted-proposal-adapter";
 import type { SubmittedProposal } from "../src/application/cfp/submitted-proposal-interface";
 import { EventService } from "../src/application/events/event-service";
-import { EventTemplateService } from "../src/application/events/public";
+import { EventTemplateService, SliceRefusalError } from "../src/application/events/public";
 import type { Actor, Capability } from "../src/application/identity/actor";
 import { reviewTemplateSlice } from "../src/application/review/public";
 import { ReviewService } from "../src/application/review/review-service";
@@ -94,6 +94,7 @@ async function setup(options: { destination?: readonly SubmittedProposal[] } = {
   let clock = new Date("2026-08-12T10:00:00.000Z");
   const now = () => clock;
 
+  const templateRepository = new MemoryEventTemplateRepository();
   const eventRepository = new MemoryEventRepository();
   for (const [id, name] of [
     [SOURCE, "Greenroom Demo Summit"],
@@ -141,7 +142,7 @@ async function setup(options: { destination?: readonly SubmittedProposal[] } = {
   await review.configurePlan(actor, SOURCE, SOURCE_CRITERIA);
 
   const templates = new EventTemplateService({
-    repository: new MemoryEventTemplateRepository(),
+    repository: templateRepository,
     events,
     slices: [reviewTemplateSlice(review)],
     newId,
@@ -155,6 +156,7 @@ async function setup(options: { destination?: readonly SubmittedProposal[] } = {
     proposals,
     review,
     statusWrites,
+    templateRepository,
     templates,
   };
 }
@@ -331,6 +333,220 @@ describe("Review template slice", () => {
     ]);
     expect((await review.organizerWorkspace(actor, DESTINATION)).plan?.criteria).toEqual(
       SOURCE_CRITERIA,
+    );
+  });
+});
+
+/*
+ * The stored payload, read as the untrusted input it is.
+ *
+ * Every case below is a status set or a rubric the review composer would have refused —
+ * `configureProposalStatusesInputSchema` and `configureReviewPlanInputSchema` state each bound —
+ * reaching `apply` through a table an operator can edit rather than through those schemas. The
+ * assertion is always the same pair: the category is refused, and the destination is left exactly
+ * as it was found, both halves of it.
+ */
+describe("Review template slice: a hand-edited payload", () => {
+  const NUMERIC = {
+    id: "fit",
+    name: "Audience fit",
+    description: "How well it lands",
+    minScore: 1,
+    maxScore: 5,
+  };
+  const DROPDOWN = {
+    id: "track",
+    name: "Suggested track",
+    description: "Where it belongs",
+    type: "dropdown",
+    options: ["Platform", "Practice"],
+  };
+  const TEXT = {
+    id: "notes",
+    name: "Notes",
+    description: "Anything else",
+    type: "text",
+    maxLength: 500,
+  };
+
+  const status = (overrides: Record<string, unknown>) => ({
+    key: "screening",
+    label: "Screening",
+    sortOrder: 1,
+    ...overrides,
+  });
+
+  const criterion = (overrides: Record<string, unknown>) => ({ ...NUMERIC, ...overrides });
+
+  /** A payload that differs from a legitimate capture in exactly the field under test. */
+  const stored = (overrides: Record<string, unknown>) => ({
+    statuses: SOURCE_STATUSES,
+    criteria: [NUMERIC],
+    ...overrides,
+  });
+
+  async function refuses(payload: unknown) {
+    const { actor, review, statusWrites, templateRepository, templates } = await setup();
+    const { template } = await save(templates, actor);
+    const version = await templateRepository.findVersion(template.id, 1);
+    // The stored row, as an operator with table access left it. Nothing between here and the
+    // write re-validates it, which is why the slice's own reader has to.
+    (version?.payload.slices as Record<string, unknown>).review = payload;
+    const writesBefore = statusWrites.length;
+
+    const result = await applyTo(templates, actor, template.id);
+
+    const slice = reviewSlice(result.slices);
+    expect(slice?.outcome).toBe("failed");
+    expect(slice?.reason).toContain("could not be read");
+    // Refused *rather than written*: a payload this reader turns down reaches neither command,
+    // so the statuses the destination would have taken do not land either.
+    expect(statusWrites.length).toBe(writesBefore);
+    expect((await review.organizerWorkspace(actor, DESTINATION)).plan).toBeNull();
+  }
+
+  it("refuses more triage statuses than the composer would accept", async () => {
+    await refuses(
+      stored({
+        statuses: Array.from({ length: 21 }, (_, index) => status({ key: `stage-${index}` })),
+      }),
+    );
+  });
+
+  it("refuses a status key no transition route could ever name", async () => {
+    // Every route that moves an abstract parses the key with `proposalStatusSchema`, so a key
+    // outside its alphabet is a column nothing can be moved into.
+    await refuses(stored({ statuses: [status({ key: "Screening Pending" })] }));
+    await refuses(stored({ statuses: [status({ key: "x".repeat(41) })] }));
+    await refuses(stored({ statuses: [status({ key: "" })] }));
+  });
+
+  it("refuses a blank or oversized status label", async () => {
+    await refuses(stored({ statuses: [status({ label: "   " })] }));
+    await refuses(stored({ statuses: [status({ label: "x".repeat(81) })] }));
+  });
+
+  it("refuses a sort order that is not a whole non-negative number", async () => {
+    await refuses(stored({ statuses: [status({ sortOrder: 1.5 })] }));
+    await refuses(stored({ statuses: [status({ sortOrder: -1 })] }));
+  });
+
+  it("refuses more criteria than the composer would accept", async () => {
+    await refuses(
+      stored({
+        criteria: Array.from({ length: 13 }, (_, index) => criterion({ id: `c-${index}` })),
+      }),
+    );
+  });
+
+  it("refuses a criterion id outside the alphabet, or past its ceiling", async () => {
+    await refuses(stored({ criteria: [criterion({ id: "Audience Fit" })] }));
+    await refuses(stored({ criteria: [criterion({ id: "x".repeat(41) })] }));
+  });
+
+  it("refuses a blank or oversized criterion name, and an oversized description", async () => {
+    await refuses(stored({ criteria: [criterion({ name: "  " })] }));
+    await refuses(stored({ criteria: [criterion({ name: "x".repeat(81) })] }));
+    await refuses(stored({ criteria: [criterion({ description: "x".repeat(301) })] }));
+  });
+
+  it("refuses a weight outside the range the aggregate is defined over", async () => {
+    await refuses(stored({ criteria: [criterion({ weight: 0 })] }));
+    await refuses(stored({ criteria: [criterion({ weight: -2 })] }));
+    await refuses(stored({ criteria: [criterion({ weight: 101 })] }));
+  });
+
+  it("refuses a numeric scale outside 0-10, or one with nowhere to go", async () => {
+    await refuses(stored({ criteria: [criterion({ minScore: -1 })] }));
+    await refuses(stored({ criteria: [criterion({ maxScore: 11 })] }));
+    await refuses(stored({ criteria: [criterion({ minScore: 1.5 })] }));
+    await refuses(stored({ criteria: [criterion({ minScore: 3, maxScore: 3 })] }));
+    await refuses(stored({ criteria: [criterion({ minScore: 5, maxScore: 2 })] }));
+  });
+
+  it("refuses a dropdown with nothing to choose between", async () => {
+    // A numeric criterion stands beside each one, so the refusal is this reader's rather than
+    // `configurePlan`'s "at least one numeric criterion" answer to a rubric of one dropdown.
+    await refuses(stored({ criteria: [NUMERIC, { ...DROPDOWN, options: [] }] }));
+    await refuses(stored({ criteria: [NUMERIC, { ...DROPDOWN, options: ["Platform"] }] }));
+    await refuses(
+      stored({
+        criteria: [
+          NUMERIC,
+          { ...DROPDOWN, options: Array.from({ length: 21 }, (_, index) => `Track ${index}`) },
+        ],
+      }),
+    );
+    await refuses(stored({ criteria: [NUMERIC, { ...DROPDOWN, options: ["Platform", " "] }] }));
+    await refuses(
+      stored({ criteria: [NUMERIC, { ...DROPDOWN, options: ["Platform", "x".repeat(81)] }] }),
+    );
+  });
+
+  it("refuses a text criterion whose answer box is absurd", async () => {
+    await refuses(stored({ criteria: [NUMERIC, { ...TEXT, maxLength: 0 }] }));
+    await refuses(stored({ criteria: [NUMERIC, { ...TEXT, maxLength: 5001 }] }));
+    await refuses(stored({ criteria: [NUMERIC, { ...TEXT, maxLength: 12.5 }] }));
+  });
+
+  it("takes the payload this slice exports, up to every ceiling it holds", async () => {
+    // The other half of the same claim: a reader that refuses a legitimate export has broken the
+    // round trip, and an empty half is what a source with no configured statuses produces.
+    const { actor, review, templateRepository, templates } = await setup();
+    const { template } = await save(templates, actor);
+    const version = await templateRepository.findVersion(template.id, 1);
+    const criteria = [
+      criterion({ minScore: 0, maxScore: 10, weight: 100 }),
+      { ...DROPDOWN, description: "" },
+      TEXT,
+    ];
+    (version?.payload.slices as Record<string, unknown>).review = { statuses: [], criteria };
+
+    const result = await applyTo(templates, actor, template.id);
+
+    expect(reviewSlice(result.slices)?.outcome).toBe("applied");
+    const workspace = await review.organizerWorkspace(actor, DESTINATION);
+    expect(workspace.plan?.criteria).toEqual(criteria);
+    // An empty status list is completed with the reserved decision keys rather than refused,
+    // which is what `configureStatuses` does with any submission that omits them.
+    expect(workspace.statuses.map(({ key }) => key)).toEqual(["accepted", "declined"]);
+  });
+});
+
+/*
+ * A payload at rest reads the same way on every attempt, so the orchestrator's generic "apply
+ * this version again" would be advice that cannot work, and routing it through `onSliceFault`
+ * would page an operator for a template that is simply wrong. Raised as `SliceRefusalError`,
+ * this slice's own sentence reaches the organizer and the fault sink stays quiet — which is why
+ * the type, not just the wording, is what this asserts.
+ */
+describe("Review template slice: what it refuses in its own words", () => {
+  const REMAP = {
+    destination: { ...DESTINATION_RANGE, eventId: DESTINATION, timezone: "UTC" },
+    source: { eventId: SOURCE, timezone: "UTC" },
+  };
+  const unreached = (): never => {
+    throw new Error("The payload should never have reached the destination");
+  };
+  const slice = reviewTemplateSlice({
+    configurePlan: unreached,
+    configureStatuses: unreached,
+    reviewConfiguration: unreached,
+  });
+
+  it("refuses a stored status set it cannot read", async () => {
+    // A status with no label and no sort order: not a shape `configureStatuses` would store, and
+    // a hand-edited row is exactly where one arrives from.
+    const refused = slice.apply(
+      organizer([DESTINATION]),
+      DESTINATION,
+      { statuses: [{ key: "screening" }], criteria: [] },
+      REMAP,
+    );
+
+    await expect(refused).rejects.toBeInstanceOf(SliceRefusalError);
+    await expect(refused).rejects.toThrow(
+      "This template's stored review configuration could not be read.",
     );
   });
 });

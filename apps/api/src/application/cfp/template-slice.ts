@@ -10,13 +10,14 @@
  * @spec PRD-CFP-001 PRD-EVT-002 ARC-DOM-001
  */
 import type { CfpField, CfpFieldType, CfpRoutingRule } from "../../domain/cfp/cfp";
-import type {
-  DateRemap,
-  EventConfigurationSlice,
-  SliceContext,
-  SliceEntry,
-  SlicePreview,
-  SliceResult,
+import {
+  type DateRemap,
+  type EventConfigurationSlice,
+  type SliceContext,
+  type SliceEntry,
+  type SlicePreview,
+  SliceRefusalError,
+  type SliceResult,
 } from "../events/public";
 import type { Actor } from "../identity/actor";
 import { CfpRoutingConfigurationError, type CfpService } from "./cfp-service";
@@ -428,6 +429,12 @@ function readCondition(raw: unknown): CfpRoutingRule["when"] {
   };
 }
 
-function unreadable(): Error {
-  return new Error("This template's stored CFP configuration could not be read.");
+/**
+ * A refusal, not a fault: what this reader turns down is a fixed property of bytes already at
+ * rest, so the orchestrator's generic "apply this version again" would be false advice and an
+ * operator paged for it would find nothing broken. The organizer is told which category of which
+ * version to recapture instead, which is the only act that changes the answer.
+ */
+function unreadable(): SliceRefusalError {
+  return new SliceRefusalError("This template's stored CFP configuration could not be read.");
 }

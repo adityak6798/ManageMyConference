@@ -7,7 +7,7 @@ import { AgendaService } from "../src/application/agenda/agenda-service";
 import { agendaTemplateSlice } from "../src/application/agenda/public";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import { EventService } from "../src/application/events/event-service";
-import { EventTemplateService } from "../src/application/events/public";
+import { EventTemplateService, type SliceFault } from "../src/application/events/public";
 import type { Actor, Capability } from "../src/application/identity/actor";
 import type { AgendaDraft } from "../src/domain/agenda/agenda";
 
@@ -84,6 +84,7 @@ async function setup(
     destinationTimezone?: string;
     source?: Partial<AgendaDraft>;
     destination?: AgendaDraft;
+    onSliceFault?: (fault: SliceFault) => void;
   } = {},
 ) {
   let sequence = 0;
@@ -131,6 +132,7 @@ async function setup(
     slices: [agendaTemplateSlice(agenda)],
     newId,
     now,
+    ...(options.onSliceFault ? { onSliceFault: options.onSliceFault } : {}),
   });
   return { actor: organizer(), agenda, agendaRepository, templateRepository, templates };
 }
@@ -693,6 +695,27 @@ describe("Event templates: the agenda slice", () => {
     expect(agendaSlice(result)?.incompatible.map(({ id }) => id)).toEqual(["slot-third-day"]);
   });
 
+  /*
+   * An event can genuinely hold a zone `Intl` cannot read: `createEventInputSchema` accepts any
+   * non-empty string where the update schema refines against `Intl`. Naming it is the whole
+   * point — the organizer can correct the destination's timezone, whereas the orchestrator's
+   * generic sentence would tell them to apply the same version again and get the same answer.
+   * The fault sink stays silent because a stored zone is not this system malfunctioning.
+   */
+  it("names an unreadable timezone in its own words, and reports no fault for it", async () => {
+    const onSliceFault = vi.fn();
+    const { actor, templates } = await setup({ destinationTimezone: "Mars/Olympus", onSliceFault });
+    const { template } = await save(templates, actor);
+
+    const result = await apply(templates, actor, template.id);
+
+    expect(agendaSlice(result)).toMatchObject({
+      outcome: "failed",
+      reason: "“Mars/Olympus” is not a timezone this system can read.",
+    });
+    expect(onSliceFault).not.toHaveBeenCalled();
+  });
+
   it("reports a stored payload it cannot read rather than writing part of a board", async () => {
     const { actor, agenda, templateRepository, templates } = await setup();
     const { template, version } = await save(templates, actor);
@@ -713,9 +736,12 @@ describe("Event templates: the agenda slice", () => {
       destination: DESTINATION_RANGE,
     });
 
-    // The wording belongs to the orchestrator, which decides what a fault says to an organizer;
-    // what this pins is that the agenda refused the payload instead of writing part of a board.
-    expect(agendaSlice(result)?.outcome).toBe("failed");
+    // The agenda's own sentence, not the orchestrator's generic one: a payload at rest reads the
+    // same way on every attempt, so "apply this version again" would be advice that cannot work.
+    expect(agendaSlice(result)).toMatchObject({
+      outcome: "failed",
+      reason: "This template's stored agenda configuration could not be read.",
+    });
     await expect(agenda.draft(actor, DESTINATION)).rejects.toThrow("Agenda not found");
   });
 });

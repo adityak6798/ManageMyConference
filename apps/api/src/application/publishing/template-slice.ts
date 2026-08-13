@@ -22,16 +22,17 @@ import {
   type PublicEventProjection,
   publicEventSlug,
 } from "../../domain/publishing/publication";
-import type {
-  DateRemap,
-  EventConfigurationSlice,
-  SliceEntry,
-  SlicePreview,
-  SliceResult,
+import {
+  type DateRemap,
+  type EventConfigurationSlice,
+  type SliceEntry,
+  type SlicePreview,
+  SliceRefusalError,
+  type SliceResult,
 } from "../events/public";
 import type { Actor } from "../identity/actor";
 import type { PublicationRepository } from "./publication-repository";
-import { PublicationSlugTakenError, type PublicationService } from "./publication-service";
+import { type PublicationService, PublicationSlugTakenError } from "./publication-service";
 
 export const PUBLISHING_TEMPLATE_SLICE_KEY = "publishing";
 
@@ -203,11 +204,14 @@ export function publishingTemplateSlice(
       /*
        * `updateSettings` answers null rather than throwing when publishing cannot resolve the
        * destination event at all — no grant on it, or no composer wired. Nothing was written,
-       * so reporting "applied" would be a false statement in a product surface; the orchestrator
-       * reports this against this category alone.
+       * so reporting "applied" would be a false statement in a product surface.
+       *
+       * Refused rather than faulted: both causes are settled before the attempt and unchanged by
+       * repeating it, so "apply this version again" would send the organizer round a loop, and
+       * this sentence tells them the destination is what to look at. It names no internals.
        */
       if (!saved)
-        throw new Error(
+        throw new SliceRefusalError(
           "The destination event's public page could not be read, so nothing was written.",
         );
       return {
@@ -293,8 +297,11 @@ async function derivedSlug(
   eventId: string,
 ): Promise<string> {
   const name = await destinationEventName(actor, eventId);
+  // Refused rather than faulted: the destination being unreadable to this actor is settled before
+  // the attempt, so the generic retry advice would be false, and the sentence points at the one
+  // thing that would change the answer.
   if (name === null)
-    throw new Error(
+    throw new SliceRefusalError(
       "The destination event could not be read, so its public address has no name to derive from.",
     );
   return publicEventSlug(name, eventId);
@@ -368,6 +375,14 @@ function readPayload(raw: unknown): PublishingTemplatePayload {
   return { summary: candidate.summary, venue: candidate.venue };
 }
 
-function unreadable(): Error {
-  return new Error("This template's stored public page configuration could not be read.");
+/**
+ * A refusal, not a fault: what this reader turns down is a fixed property of bytes already at
+ * rest, so the orchestrator's generic "apply this version again" would be false advice and an
+ * operator paged for it would find nothing broken. The organizer is told which category of which
+ * version to recapture instead, which is the only act that changes the answer.
+ */
+function unreadable(): SliceRefusalError {
+  return new SliceRefusalError(
+    "This template's stored public page configuration could not be read.",
+  );
 }

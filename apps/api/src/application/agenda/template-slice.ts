@@ -22,12 +22,13 @@ import type {
   AgendaTrack,
   Placement,
 } from "../../domain/agenda/agenda";
-import type {
-  DateRemap,
-  EventConfigurationSlice,
-  SliceEntry,
-  SlicePreview,
-  SliceResult,
+import {
+  type DateRemap,
+  type EventConfigurationSlice,
+  type SliceEntry,
+  type SlicePreview,
+  SliceRefusalError,
+  type SliceResult,
 } from "../events/public";
 import type { Actor } from "../identity/actor";
 import {
@@ -565,10 +566,14 @@ function zoneClock(timezone: string): ZoneClock {
       second: "2-digit",
     });
   } catch (error) {
-    // `Intl` throws a `RangeError` for a zone it does not recognise, and a template carries
-    // whatever string its source event was stored with. Named in the message, and carried as the
-    // cause, so this reads as a template that cannot be applied rather than an unexplained fault.
-    throw new Error(`“${timezone}” is not a timezone this system can read.`, { cause: error });
+    // `Intl` throws a `RangeError` for a zone it does not recognise, and an event can genuinely
+    // hold one: `createEventInputSchema` accepts any non-empty string where the update schema
+    // refines against `Intl`. A stored zone is the same on every attempt, so this is the
+    // organizer's refusal — naming the zone to correct — and not an operator's incident. The
+    // `RangeError` rides along as the cause for whoever reads the throw itself.
+    throw new SliceRefusalError(`“${timezone}” is not a timezone this system can read.`, {
+      cause: error,
+    });
   }
   const wallClockAt = (instant: number): WallClock => {
     const parts = new Map(
@@ -668,6 +673,12 @@ function isInstant(value: unknown): value is string {
   return typeof value === "string" && INSTANT.test(value) && !Number.isNaN(Date.parse(value));
 }
 
-function unreadable(): Error {
-  return new Error("This template's stored agenda configuration could not be read.");
+/**
+ * A refusal, not a fault: what this reader turns down is a fixed property of bytes already at
+ * rest, so the orchestrator's generic "apply this version again" would be false advice and an
+ * operator paged for it would find nothing broken. The organizer is told which category of which
+ * version to recapture instead, which is the only act that changes the answer.
+ */
+function unreadable(): SliceRefusalError {
+  return new SliceRefusalError("This template's stored agenda configuration could not be read.");
 }

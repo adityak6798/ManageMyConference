@@ -16,11 +16,12 @@
  * @spec PRD-ABS-001 PRD-REV-001 PRD-EVT-002 ARC-DOM-001
  */
 import { RESERVED_PROPOSAL_STATUSES, type ReviewCriterion } from "../../domain/review/review";
-import type {
-  EventConfigurationSlice,
-  SliceEntry,
-  SlicePreview,
-  SliceResult,
+import {
+  type EventConfigurationSlice,
+  type SliceEntry,
+  type SlicePreview,
+  SliceRefusalError,
+  type SliceResult,
 } from "../events/public";
 import type { Actor } from "../identity/actor";
 import { type ReviewService, ReviewValidationError } from "./review-service";
@@ -354,21 +355,101 @@ const appliedEntries = (
 ): readonly SliceEntry[] => [...statusEntries(statuses), ...criterionEntries(criteria)];
 
 /**
+ * The bounds `proposalStatusDefinitionSchema`, `configureProposalStatusesInputSchema`,
+ * `reviewCriterionSchema` and `configureReviewPlanInputSchema` state in
+ * `packages/contracts/src/domains/review.ts`. Repeated rather than imported because the
+ * application layer may import no external package, so the two must stay in agreement.
+ */
+const LIMIT = {
+  criteria: 12,
+  description: 300,
+  id: 40,
+  label: 80,
+  name: 80,
+  option: 80,
+  options: 20,
+  optionsMin: 2,
+  score: 10,
+  statuses: 20,
+  textLength: 5_000,
+  weight: 100,
+} as const;
+
+/**
+ * The status-key and criterion-id alphabet, from `proposalStatusSchema` and the criterion base
+ * schema. Worth duplicating rather than waving through: a key outside this alphabet is storable
+ * but unusable, because every HTTP route that moves an abstract into a status parses the key it
+ * is given with the same pattern, so the destination would hold a column nothing can transition
+ * into.
+ */
+const KEY_PATTERN = /^[a-z0-9_-]+$/;
+
+/**
  * A stored template payload is untrusted input by the time it is applied.
  *
  * It was serialized by this slice, but it has since been at rest in a table an operator can
  * write to, and it reaches `configureStatuses` and `configurePlan` without passing the Zod
  * schemas that guard review's HTTP surface. So it is validated here instead of trusted here.
+ *
+ * "Validated" means every bound that decides whether the result is a status set and a rubric the
+ * review composer would have accepted. What is deliberately *not* duplicated is the schemas'
+ * `.trim()` normalisation: this reader answers whether a payload is usable, and rewriting it
+ * would break the comparison the slice converges on — an edited payload would differ from the
+ * configuration the destination stores, so every apply would write again forever.
  */
 function readPayload(raw: unknown): ReviewTemplatePayload {
   if (typeof raw !== "object" || raw === null) throw unreadable();
   const candidate = raw as Record<string, unknown>;
   if (!Array.isArray(candidate.statuses) || !Array.isArray(candidate.criteria)) throw unreadable();
-  return {
+  return whole({
     statuses: candidate.statuses.map(readStatus),
     criteria: candidate.criteria.map(readCriterion),
-  };
+  });
 }
+
+/**
+ * The two bounds that are about a list rather than about one status or one criterion.
+ *
+ * Neither list has a floor here, and the schemas' `.min(1)` is the one bound deliberately left
+ * out: `export` writes an empty `statuses` for an event whose stored set is empty and an empty
+ * `criteria` for one that never configured a rubric, so a floor would refuse payloads this slice
+ * itself produces. Nothing is written from an empty half either — `configureStatuses` completes
+ * an empty set with the reserved decision keys, exactly as it does for a form submission, and
+ * `applyRubric` calls `configurePlan` only when there are criteria, which is where the schema's
+ * "at least one" lives for the case that reaches a write.
+ *
+ * Three more invariants are checked by `ReviewService` on the way through and so are not
+ * repeated: `configureStatuses` refuses duplicate status keys, and `configurePlan` refuses
+ * duplicate criterion ids and a rubric with no numeric criterion to aggregate.
+ */
+function whole(payload: ReviewTemplatePayload): ReviewTemplatePayload {
+  /*
+   * The status ceiling applies to the organizer's own keys because that is what the composer
+   * bounded: a submission of 20 is completed with whatever reserved decision keys it left out,
+   * so a set stored — and therefore exported — at the ceiling carries two more than the schema's
+   * `.max(20)`. Counting the completed set instead would refuse a fully configured event's own
+   * template.
+   */
+  if (payload.statuses.filter(({ key }) => !isReserved(key)).length > LIMIT.statuses)
+    throw unreadable();
+  if (payload.criteria.length > LIMIT.criteria) throw unreadable();
+  return payload;
+}
+
+const within = (value: string, min: number, max: number): boolean =>
+  value.length >= min && value.length <= max;
+
+/** An integer in an inclusive range, which is what every bounded number here but a weight is. */
+const counted = (value: unknown, min: number, max: number): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+
+/**
+ * A weight is a multiplier rather than a count, so it is the one number in this payload that may
+ * be fractional; zero and negatives are not weightings but a criterion deleted from the aggregate
+ * or inverted in it.
+ */
+const weighted = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 && value <= LIMIT.weight;
 
 function readStatus(raw: unknown): TemplateStatus {
   if (typeof raw !== "object" || raw === null) throw unreadable();
@@ -377,6 +458,15 @@ function readStatus(raw: unknown): TemplateStatus {
     typeof candidate.key !== "string" ||
     typeof candidate.label !== "string" ||
     typeof candidate.sortOrder !== "number"
+  )
+    throw unreadable();
+  if (
+    !within(candidate.key, 1, LIMIT.id) ||
+    !KEY_PATTERN.test(candidate.key) ||
+    !within(candidate.label.trim(), 1, LIMIT.label) ||
+    // The column is `INTEGER` and the board orders by it; a fractional or negative order is one
+    // no composer submission can produce.
+    !counted(candidate.sortOrder, 0, Number.MAX_SAFE_INTEGER)
   )
     throw unreadable();
   return { key: candidate.key, label: candidate.label, sortOrder: candidate.sortOrder };
@@ -392,6 +482,14 @@ function readCriterion(raw: unknown): ReviewCriterion {
     (candidate.weight !== undefined && typeof candidate.weight !== "number")
   )
     throw unreadable();
+  if (
+    !within(candidate.id, 1, LIMIT.id) ||
+    !KEY_PATTERN.test(candidate.id) ||
+    !within(candidate.name.trim(), 1, LIMIT.name) ||
+    candidate.description.trim().length > LIMIT.description ||
+    (candidate.weight !== undefined && !weighted(candidate.weight))
+  )
+    throw unreadable();
   const shared = {
     id: candidate.id,
     name: candidate.name,
@@ -404,16 +502,27 @@ function readCriterion(raw: unknown): ReviewCriterion {
       candidate.options.some((option) => typeof option !== "string")
     )
       throw unreadable();
+    // A dropdown with fewer than two options is not a choice, and the reviewer's form has no way
+    // to render one.
+    if (
+      candidate.options.length < LIMIT.optionsMin ||
+      candidate.options.length > LIMIT.options ||
+      (candidate.options as string[]).some((option) => !within(option.trim(), 1, LIMIT.option))
+    )
+      throw unreadable();
     return { ...shared, type: "dropdown", options: candidate.options as string[] };
   }
   if (candidate.type === "text") {
-    if (typeof candidate.maxLength !== "number") throw unreadable();
+    if (!counted(candidate.maxLength, 1, LIMIT.textLength)) throw unreadable();
     return { ...shared, type: "text", maxLength: candidate.maxLength };
   }
   if (
     (candidate.type !== undefined && candidate.type !== "numeric") ||
-    typeof candidate.minScore !== "number" ||
-    typeof candidate.maxScore !== "number"
+    !counted(candidate.minScore, 0, LIMIT.score) ||
+    !counted(candidate.maxScore, 1, LIMIT.score) ||
+    // The scale must have somewhere to go: `numericReviewCriterionSchema` refines exactly this,
+    // and an inverted or single-point scale would make the aggregate meaningless.
+    candidate.maxScore <= candidate.minScore
   )
     throw unreadable();
   // An absent `type` is the numeric shape stored before dropdown and text criteria existed, and
@@ -430,6 +539,12 @@ function readCriterion(raw: unknown): ReviewCriterion {
     : { ...shared, minScore: candidate.minScore, maxScore: candidate.maxScore };
 }
 
-function unreadable(): Error {
-  return new Error("This template's stored review configuration could not be read.");
+/**
+ * A refusal, not a fault: what this reader turns down is a fixed property of bytes already at
+ * rest, so the orchestrator's generic "apply this version again" would be false advice and an
+ * operator paged for it would find nothing broken. The organizer is told which category of which
+ * version to recapture instead, which is the only act that changes the answer.
+ */
+function unreadable(): SliceRefusalError {
+  return new SliceRefusalError("This template's stored review configuration could not be read.");
 }

@@ -4,19 +4,19 @@ import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-
 import { MemoryEventTemplateRepository } from "../src/adapters/persistence/memory-event-template-repository";
 import type { PublicSchedule } from "../src/application/agenda/public";
 import { EventService } from "../src/application/events/event-service";
-import { EventTemplateService } from "../src/application/events/public";
+import { EventTemplateService, SliceRefusalError } from "../src/application/events/public";
 import type { Actor, Capability } from "../src/application/identity/actor";
+import { publishingTemplateSlice } from "../src/application/publishing/public";
 import type { PublicationRepository } from "../src/application/publishing/publication-repository";
 import {
   PublicationService,
   PublicationSlugTakenError,
   type PublicationSources,
 } from "../src/application/publishing/publication-service";
-import { publishingTemplateSlice } from "../src/application/publishing/public";
 import {
-  publicEventSlug,
   type Publication,
   type PublicEventProjection,
+  publicEventSlug,
 } from "../src/domain/publishing/publication";
 
 const ORGANIZATION = "00000000-0000-4000-8000-000000000010";
@@ -524,5 +524,70 @@ describe("Event templates: the public page", () => {
       startsOn: "2027-05-10",
       endsOn: "2027-05-12",
     });
+  });
+});
+
+/*
+ * The three things this slice throws, and why each is a refusal rather than a fault.
+ *
+ * Every one of them is settled before the attempt — a payload at rest, a destination this actor
+ * cannot read — so the orchestrator's generic "apply this version again" would send an organizer
+ * round a loop, and reporting them through `onSliceFault` would page an operator for a system
+ * working exactly as designed. Raised as `SliceRefusalError` the sentence survives and the fault
+ * sink stays quiet, so the type is what these assert.
+ */
+describe("Publishing template slice: what it refuses in its own words", () => {
+  const REMAP = {
+    destination: { ...DESTINATION_RANGE, eventId: DESTINATION, timezone: "UTC" },
+    source: { eventId: SOURCE, timezone: "UTC" },
+  };
+
+  const slice = (name: string | null = DESTINATION_NAME) =>
+    publishingTemplateSlice(
+      {
+        preview: async () => null,
+        // Null is how publishing says it resolved no destination event at all.
+        updateSettings: async () => null,
+      },
+      { findByEventId: async () => null, findEventIdBySlug: async () => null },
+      async () => name,
+    );
+
+  it("refuses a stored payload it cannot read", async () => {
+    const refused = slice().apply(
+      organizer([DESTINATION]),
+      DESTINATION,
+      { summary: SUMMARY },
+      REMAP,
+    );
+
+    await expect(refused).rejects.toBeInstanceOf(SliceRefusalError);
+    await expect(refused).rejects.toThrow(
+      "This template's stored public page configuration could not be read.",
+    );
+  });
+
+  it("refuses when the destination event has no name to derive a first address from", async () => {
+    const refused = slice(null).apply(
+      organizer([DESTINATION]),
+      DESTINATION,
+      { summary: SUMMARY, venue: VENUE },
+      REMAP,
+    );
+
+    await expect(refused).rejects.toBeInstanceOf(SliceRefusalError);
+    await expect(refused).rejects.toThrow("has no name to derive from");
+  });
+
+  it("refuses when the write reported that it resolved no public page", async () => {
+    const refused = slice().apply(
+      organizer([DESTINATION]),
+      DESTINATION,
+      { summary: SUMMARY, venue: VENUE },
+      REMAP,
+    );
+
+    await expect(refused).rejects.toBeInstanceOf(SliceRefusalError);
+    await expect(refused).rejects.toThrow("could not be read, so nothing was written");
   });
 });

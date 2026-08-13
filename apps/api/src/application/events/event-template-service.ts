@@ -267,14 +267,20 @@ export class EventTemplateService {
         });
         continue;
       }
-      slices.push({
-        key: slice.key,
-        label: slice.label,
-        ...(await this.previewSlice(slice, actor, eventId, payload, context.remap, {
-          appliedBefore: [...appliedBefore],
-        })),
+      const report = await this.previewSlice(slice, actor, eventId, payload, context.remap, {
+        appliedBefore: [...appliedBefore],
       });
-      appliedBefore.push(slice.key);
+      slices.push({ key: slice.key, label: slice.label, ...report });
+      /*
+       * Only a category that will actually land counts as landing before the next one.
+       *
+       * Being selected and carrying a payload is not the same as being about to succeed: a slice
+       * whose own preview just answered `unauthorized`, `incompatible`, `failed` or `skipped` is
+       * one this application will not write. Announcing it anyway would have CFP report a routing
+       * rule as copied on the strength of triage statuses that are never coming — the same
+       * preview-versus-apply disagreement this list exists to remove, pointing the other way.
+       */
+      if (report.outcome === "copies") appliedBefore.push(slice.key);
     }
     return {
       ...context.identity,

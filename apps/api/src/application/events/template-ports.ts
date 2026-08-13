@@ -54,6 +54,16 @@ export class SliceRefusalError extends Error {}
  *
  * Carried out through a port rather than logged here: the application layer imports no logger,
  * so this file owns the shape and the composition root owns the sink.
+ *
+ * **The sink must not throw.** It is reached from inside the catch whose whole purpose is to stop
+ * one category's trouble from becoming a 500 that hides every other category's outcome, and by
+ * then the slices ordered before the failing one have already written — so a throwing sink would
+ * lose the per-category report *and* the application record describing what landed, which is the
+ * one thing this design promises when it declines to be atomic. It is stated here rather than
+ * guarded in the service because the guard would be an empty catch, which this repository's error
+ * policy forbids outright and is right to: a `catch {}` that is correct here is indistinguishable
+ * from the hundred that are not. The composition root's sink in `apps/api/src/index.ts` is total
+ * by construction — it stringifies five primitives and calls the structured logger.
  */
 export interface SliceFault {
   readonly sliceKey: string;

@@ -79,6 +79,13 @@ async function setup(
   options: {
     routing?: { id: string; status: string }[];
     sourceStatuses?: { key: string; label: string; sortOrder: number }[];
+    onSliceFault?: (fault: SliceFault) => void;
+    /**
+     * What the captured version stores under the `cfp` key, standing in for a row an operator
+     * edited after the capture. The real slice reads it back, so a payload named here reaches
+     * the same reader an untrusted stored row would.
+     */
+    storedCfpPayload?: unknown;
   } = {},
 ) {
   let sequence = 0;
@@ -122,12 +129,18 @@ async function setup(
   await cfp.changeState(actor, SOURCE, "publish");
 
   const repository = new MemoryEventTemplateRepository();
+  const cfpSlice = cfpTemplateSlice(cfp);
   const templates = new EventTemplateService({
     repository,
     events,
-    slices: [cfpTemplateSlice(cfp)],
+    slices: [
+      "storedCfpPayload" in options
+        ? { ...cfpSlice, export: async () => options.storedCfpPayload }
+        : cfpSlice,
+    ],
     newId,
     now,
+    ...(options.onSliceFault ? { onSliceFault: options.onSliceFault } : {}),
   });
   return { actor, cfp, cfpRepository, events, repository, templates, proposals };
 }
@@ -407,6 +420,59 @@ describe("Event templates: apply", () => {
     await expect(apply(templates, sourceOnly, template.id)).rejects.toThrow(
       "Actor lacks events:settings:update for event",
     );
+  });
+
+  /*
+   * A stored payload nobody can read is the slice's own answer, not the system's fault.
+   *
+   * The reason matters because the generic one advises applying the version again, and no retry
+   * changes a condition on bytes at rest — so an organizer following it would loop forever
+   * instead of recapturing. The `onSliceFault` assertion is the other half and the harder one:
+   * routing this through the fault sink would page an operator, every attempt, for a template
+   * that is simply wrong.
+   */
+  it("answers the CFP slice's own sentence for an unreadable payload, and reports no fault", async () => {
+    const onSliceFault = vi.fn();
+    const { actor, templates } = await setup({
+      onSliceFault,
+      // A form with no questions: `readPayload` refuses it exactly as the composer's schema would.
+      storedCfpPayload: {
+        title: "Share your conference story",
+        description: "Submit a practical session.",
+        fields: [],
+        routing: [],
+      },
+    });
+    const { template } = await save(templates, actor);
+
+    const result = await apply(templates, actor, template.id);
+
+    expect(result.slices.find(({ key }) => key === "cfp")).toMatchObject({
+      outcome: "failed",
+      reason: "This template's stored CFP configuration could not be read.",
+    });
+    expect(onSliceFault).not.toHaveBeenCalled();
+  });
+
+  it("says the same thing about an unreadable payload in a preview, and reports no fault there", async () => {
+    const onSliceFault = vi.fn();
+    const { actor, templates } = await setup({
+      onSliceFault,
+      storedCfpPayload: { title: "", description: "", fields: [], routing: [] },
+    });
+    const { template } = await save(templates, actor);
+
+    const plan = await templates.preview(actor, DESTINATION, {
+      templateId: template.id,
+      version: 1,
+      destination: DESTINATION_RANGE,
+    });
+
+    expect(plan.slices.find(({ key }) => key === "cfp")).toMatchObject({
+      outcome: "failed",
+      reason: "This template's stored CFP configuration could not be read.",
+    });
+    expect(onSliceFault).not.toHaveBeenCalled();
   });
 });
 
