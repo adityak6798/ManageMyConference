@@ -167,7 +167,7 @@ describe("signed webhook D1 lifecycle", () => {
         actor,
         organizationId,
         created.subscription.id,
-        { url: "https://receiver.example.com/hooks/updated" },
+        { url: "https://receiver.example.com/hooks/updated#ignored-on-retry" },
         "update-key",
       ),
     ).resolves.toEqual(updated);
@@ -490,6 +490,17 @@ describe("signed webhook D1 lifecycle", () => {
           eventTypes: ["schedule.published"],
         },
         "unsafe-v6",
+      ),
+    ).rejects.toThrow("non-public");
+    await expect(
+      service.create(
+        actor,
+        {
+          organizationId,
+          url: "https://[ff02::1]/hook",
+          eventTypes: ["schedule.published"],
+        },
+        "unsafe-v6-multicast",
       ),
     ).rejects.toThrow("non-public");
     await expect(

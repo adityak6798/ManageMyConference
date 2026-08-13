@@ -155,7 +155,11 @@ export const validateWebhookUrl = (value: string): string => {
     isUnsafeIpv4(host) ||
     host === "::" ||
     host === "::1" ||
-    (ipv6 && (host.startsWith("fc") || host.startsWith("fd") || /^fe[89ab]/.test(host))) ||
+    (ipv6 &&
+      (host.startsWith("fc") ||
+        host.startsWith("fd") ||
+        /^fe[89ab]/.test(host) ||
+        host.startsWith("ff"))) ||
     host.startsWith("::ffff:")
   )
     throw new CommunicationsInputError("Webhook URL resolves to a non-public host");
@@ -320,6 +324,7 @@ export class WebhookService {
     if (input.eventId !== undefined) await this.event(authorized, organizationId, input.eventId);
     const normalizedInput = {
       ...input,
+      ...(input.url === undefined ? {} : { url: validateWebhookUrl(input.url) }),
       ...(input.eventTypes === undefined
         ? {}
         : { eventTypes: [...new Set(input.eventTypes)].sort() }),
@@ -331,7 +336,7 @@ export class WebhookService {
       { subscriptionId, input: normalizedInput },
       async (record) => {
         if (normalizedInput.url !== undefined)
-          await this.dependencies.egress.validate(validateWebhookUrl(normalizedInput.url));
+          await this.dependencies.egress.validate(normalizedInput.url);
         for (let attempt = 0; attempt < 5; attempt += 1) {
           const current = await this.dependencies.repository.get(subscriptionId);
           if (!current || current.organizationId !== organizationId || current.state !== "active")
@@ -339,9 +344,7 @@ export class WebhookService {
           const result: WebhookSubscription = {
             ...current,
             revision: current.revision + 1,
-            ...(normalizedInput.url === undefined
-              ? {}
-              : { url: validateWebhookUrl(normalizedInput.url) }),
+            ...(normalizedInput.url === undefined ? {} : { url: normalizedInput.url }),
             ...(normalizedInput.eventId === undefined ? {} : { eventId: normalizedInput.eventId }),
             ...(normalizedInput.eventTypes === undefined
               ? {}
@@ -353,9 +356,6 @@ export class WebhookService {
               subscriptionId,
               expectedRevision: current.revision,
               ...normalizedInput,
-              ...(normalizedInput.url === undefined
-                ? {}
-                : { url: validateWebhookUrl(normalizedInput.url) }),
             },
             record(result),
           );
