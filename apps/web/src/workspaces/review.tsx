@@ -25,6 +25,7 @@ export const abstractsWorkspace: WorkspaceModule = {
     <OrganizerReviewWorkspace
       key={`${event.id}:${session?.actor.id}:organizer-review`}
       eventId={event.id}
+      {...(session ? { currentActor: session.actor } : {})}
     />
   ),
 };

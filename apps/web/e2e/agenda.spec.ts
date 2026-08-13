@@ -274,8 +274,8 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
     .getByLabel(`Room assignment ${secondPlacement}`)
     .selectOption({ label: "Workshop lab" });
   await expect(page.getByRole("status")).toContainText("moved to a new room");
-  await expect(page.getByText("room overlap")).toHaveCount(0);
-  await expect(page.getByText("speaker overlap")).toBeVisible();
+  await expect(page.getByText("Room double-booked", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Speaker double-booked", { exact: false }).first()).toBeVisible();
   await expect(publish).toBeDisabled();
 
   // Moving the time settles the rest.

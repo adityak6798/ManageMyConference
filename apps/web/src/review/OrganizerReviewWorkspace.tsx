@@ -36,7 +36,22 @@ const RECENT_CHANGES = 12;
 // focus, dialog state, and background reloads must remain one lifecycle. Its remaining table and
 // detail branches are single-use renderers, which issue #70 says not to extract for size alone;
 // configuration, decision, assignment, and reviewer forms already own separate modules.
-export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
+export function memberName(
+  id: string,
+  directory: readonly { id: string; name: string }[],
+  currentActor?: { id: string; name: string },
+): string {
+  if (currentActor?.id === id) return currentActor.name;
+  return directory.find((member) => member.id === id)?.name ?? id;
+}
+
+export function OrganizerReviewWorkspace({
+  eventId,
+  currentActor,
+}: {
+  eventId: string;
+  currentActor?: { id: string; name: string };
+}) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [sortByScore, setSortByScore] = useState(false);
@@ -277,8 +292,7 @@ export function OrganizerReviewWorkspace({ eventId }: { eventId: string }) {
    * looked up in; the fallback covers a server that predates the field.
    */
   const directory = data.reviewerDirectory ?? data.reviewers;
-  const reviewerName = (reviewerId: string) =>
-    directory.find(({ id }) => id === reviewerId)?.name ?? reviewerId;
+  const reviewerName = (reviewerId: string) => memberName(reviewerId, directory, currentActor);
   const assignmentsFor = (proposalId: string) =>
     data.assignments.filter((assignment) => assignment.proposalId === proposalId);
 
