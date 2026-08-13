@@ -187,6 +187,7 @@ export class GoogleAuthenticationError extends Error {}
 interface IdTokenClaims {
   iss?: unknown;
   aud?: unknown;
+  azp?: unknown;
   exp?: unknown;
   iat?: unknown;
   nonce?: unknown;
@@ -277,6 +278,19 @@ export async function verifyGoogleIdToken(
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!audiences.includes(expected.clientId))
     throw new GoogleAuthenticationError("id_token audience is another client");
+  /*
+   * The authorized-presenter check, which membership in `aud` does not subsume.
+   *
+   * OIDC Core §2 requires `azp` when a token carries more than one audience, and requires the
+   * relying party to verify it identifies *itself*. Without this, a token minted for another
+   * client that merely lists this one among its audiences satisfies the check above — the
+   * presenting party would be someone else, and this deployment would accept their token as
+   * proof of its own user's identity. Checked whenever `azp` is present rather than only for
+   * multi-audience tokens, because a single-audience token that names a different presenter is
+   * not something to accept either.
+   */
+  if (claims.azp !== undefined && claims.azp !== expected.clientId)
+    throw new GoogleAuthenticationError("id_token was presented by another client");
   if (typeof claims.exp !== "number" || claims.exp * 1000 + CLOCK_SKEW_MS <= expected.now)
     throw new GoogleAuthenticationError("id_token has expired");
   if (typeof claims.iat !== "number" || claims.iat * 1000 - CLOCK_SKEW_MS > expected.now)

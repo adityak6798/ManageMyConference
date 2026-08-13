@@ -39,6 +39,7 @@
         "apps/web/test/landing.test.tsx",
         "apps/api/test/real-auth.test.ts",
         "apps/api/test/google-oauth.test.ts",
+        "apps/api/test/google-oauth-client.test.ts",
         "apps/api/test/signup-service.test.ts",
         "apps/api/test/d1-identity-directory.integration.test.ts",
         "apps/api/test/d1-identity-signup.integration.test.ts"

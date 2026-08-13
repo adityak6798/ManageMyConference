@@ -169,6 +169,28 @@ describe("Google id_token verification", () => {
     ).resolves.toMatchObject({ subject: "104729183746501928374" });
   });
 
+  /**
+   * The authorized-presenter check, which membership in `aud` does not subsume.
+   *
+   * A multi-audience token names the party it was issued *to* in `azp`, and OIDC Core §2 requires
+   * a relying party to verify that party is itself. Without it, a token minted for another client
+   * that merely lists this one in `aud` — which the case above deliberately accepts — is enough
+   * to sign in as its subject here.
+   */
+  it("refuses a token another client was the authorized presenter of", async () => {
+    await expect(
+      verify(await google.sign(claims({ aud: ["another-app", clientId], azp: "another-app" }))),
+    ).rejects.toThrow(/presented by another client/);
+    // Its own `azp` is acceptance, and so is a token that carries none at all — Google omits it
+    // for the ordinary single-audience case.
+    await expect(verify(await google.sign(claims({ azp: clientId })))).resolves.toMatchObject({
+      subject: "104729183746501928374",
+    });
+    await expect(verify(await google.sign(claims({})))).resolves.toMatchObject({
+      subject: "104729183746501928374",
+    });
+  });
+
   it("accepts both spellings Google issues and nothing else", async () => {
     for (const iss of ["https://accounts.google.com", "accounts.google.com"])
       await expect(verify(await google.sign(claims({ iss })))).resolves.toMatchObject({

@@ -41239,6 +41239,14 @@
                           "review:evaluate"
                         ]
                       }
+                    },
+                    "authentication": {
+                      "type": "string",
+                      "enum": [
+                        "session",
+                        "demo",
+                        "bearer"
+                      ]
                     }
                   },
                   "required": [

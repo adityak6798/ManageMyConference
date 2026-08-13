@@ -19,6 +19,7 @@ import {
   startDemoSession,
   verifyLoginCode,
 } from "../api/identity";
+import { apiBase } from "../api/config";
 import { useLinkProps } from "../router";
 
 const personas = ["organizer", "reviewer", "speaker", "public"] as const;
@@ -90,7 +91,13 @@ export function SignInPanel({
     // A plain link, because the route answers with a redirect to Google rather than with JSON.
     // Fetching it would follow the redirect in the background and land the response in script,
     // where a cross-origin consent screen cannot be shown and the whole flow dies quietly.
-    <a className="landing-door" href="/api/auth/google/start">
+    //
+    // Built from `apiBase` for the same reason every other call is: a separately hosted frontend
+    // (`VITE_API_BASE_URL`) serves this document from an origin that has no `/api` on it, so a
+    // root-relative href would navigate to the frontend host and 404 — while the probes that
+    // decided to render this button had gone to the API. Empty by default, which leaves the
+    // local proxy and the same-origin Worker deployment exactly as they were.
+    <a className="landing-door" href={`${apiBase}/api/auth/google/start`}>
       Continue with Google
     </a>
   ) : null;

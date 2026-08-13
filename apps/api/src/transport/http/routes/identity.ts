@@ -364,6 +364,10 @@ export const identityRoutes: RouteModule = {
           capabilities: [...access.capabilities],
         })),
         capabilities: [...actor.capabilities],
+        // The middleware already decided this; reporting it is what lets the console tell a
+        // persona from a session on a deployment that serves both. "none" cannot reach here —
+        // an unresolved actor threw two lines up.
+        authentication: context.get("authentication"),
       });
     });
   },

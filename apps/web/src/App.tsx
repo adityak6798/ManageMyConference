@@ -129,9 +129,13 @@ export function App({
    */
   session?: SessionDto;
   /**
-   * Whether this session was signed in for, rather than being a demo persona. Only the surface
-   * that established it can tell the two apart — they arrive in the same cookie — so it is
-   * passed in rather than guessed at, and the shell offers sign-out only when it is true.
+   * A hint from the landing root for the case where the session read has not landed yet.
+   *
+   * The authority is `session.authentication`, which the server reports on every read — this is
+   * only what the shell believes for the frame before the first one arrives. It used to be the
+   * authority, and that was wrong twice: a deep link mounts this component directly with nobody
+   * to pass it, and on a demo deployment with Google configured it was hard-coded false, so a
+   * genuinely signed-in user was never offered a sign-out on any page at all.
    */
   realSession?: boolean;
 } = {}) {
@@ -214,6 +218,18 @@ export function App({
     setSettingsName(selectedEvent?.name ?? "");
     setSettingsTimezone(selectedEvent?.timezone ?? "");
   }, [selectedEvent]);
+
+  /**
+   * Is there something to sign out *of*?
+   *
+   * The server answers this on every session read, so the console no longer depends on having
+   * been reached through the landing page to know it — a deep link, a reload, and a demo
+   * deployment that also offers Google all arrive at the same answer. The prop is the fallback
+   * for the frame before the first read lands, and for an API old enough not to send the field.
+   */
+  const signedInForRealSession = session?.authentication
+    ? session.authentication === "session"
+    : realSession;
 
   const activeRole = useMemo<Persona>(() => {
     if (!session) return "public";
@@ -662,7 +678,7 @@ export function App({
         // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
         void switchPersona(persona);
       }}
-      {...(realSession
+      {...(signedInForRealSession
         ? {
             onSignOut: () => {
               // ERROR-INTENT: handlers cannot await; endSession renders its own failure.

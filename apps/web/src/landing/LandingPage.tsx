@@ -127,7 +127,10 @@ function LandingChrome({ children, active }: { children: ReactNode; active: "hom
         <a
           className="landing-header-link"
           {...linkProps(active === "signin" ? "/" : "/signin")}
-          aria-current={active === "signin" ? "page" : undefined}
+          // No `aria-current`: on /signin this link points *away*, at "/", and marking it as the
+          // current page tells a screen reader that "Back to the overview" is where you are.
+          // axe has no rule for a truthful-but-misapplied aria-current, so the quality gate would
+          // never have caught it.
         >
           {active === "signin" ? "Back to the overview" : "Sign in"}
         </a>

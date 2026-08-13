@@ -22,6 +22,7 @@
     "apps/api/test/demo-session.test.ts",
     "apps/api/test/actor.test.ts",
     "apps/api/test/google-oauth.test.ts",
+    "apps/api/test/google-oauth-client.test.ts",
     "apps/api/test/signup-service.test.ts",
     "apps/api/test/real-auth.test.ts"
   ]

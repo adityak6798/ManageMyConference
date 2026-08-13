@@ -68,5 +68,18 @@ export const sessionResponseSchema = z.object({
   organizations: z.array(z.object({ id: z.string().uuid() })),
   eventAccess: z.array(sessionEventAccessSchema),
   capabilities: z.array(capabilitySchema),
+  /**
+   * Which kind of credential this session was resolved from.
+   *
+   * A demo persona and a real user session arrive in the same cookie, and the two are undone
+   * differently: a persona is *switched*, a session is *signed out of*. Without this the console
+   * cannot tell them apart, so it either offers a sign-out that does nothing to a persona or
+   * withholds one from someone who genuinely needs it — which is what happened before this
+   * field existed, on every deep link and on every demo deployment with Google configured.
+   *
+   * Optional because a frontend can meet an API a version behind that does not send it; callers
+   * fall back rather than failing to read the session at all. The server always sends it.
+   */
+  authentication: z.enum(["session", "demo", "bearer"]).optional(),
 });
 export type SessionDto = z.infer<typeof sessionResponseSchema>;
