@@ -10,6 +10,7 @@ import {
   demoSessionResponseSchema,
   eventTokenRequestSchema,
   eventTokenResponseSchema,
+  googleCallbackQuerySchema,
   loginCodeRequestResponseSchema,
   loginCodeRequestSchema,
   loginCodeVerifyResponseSchema,
@@ -90,6 +91,7 @@ export const identityPaths: OpenApiFragment = {
     registry.registerPath({
       method: "get",
       path: "/api/auth/google/callback",
+      request: { query: googleCallbackQuerySchema },
       description:
         "Google's return leg. Verifies the attempt, the state, and the id_token's signature, " +
         "issuer, audience, expiry and nonce, then establishes a session and redirects. Every " +

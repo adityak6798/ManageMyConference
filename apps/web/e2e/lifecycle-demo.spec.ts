@@ -78,7 +78,7 @@ test("audits the landing and sign-in surfaces a signed-out visitor lands on", as
   await expect(firstTabStop).toHaveAccessibleName("Skip to main content");
 
   // The demo door is the one an evaluator with ten minutes uses, and the browser suite's own
-  // bootstrap depends on it being here, on "/": thirteen specs open "/" and click this button.
+  // bootstrap depends on it being here, on "/": twelve spec files open "/" and click this button.
   await expect(page.getByRole("button", { name: "Continue as organizer" })).toBeVisible();
 
   // Client-side navigation between the two surfaces has to move focus, or a keyboard user is

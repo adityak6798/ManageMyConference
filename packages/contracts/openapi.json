@@ -313,6 +313,28 @@
     "/api/auth/google/callback": {
       "get": {
         "description": "Google's return leg. Verifies the attempt, the state, and the id_token's signature, issuer, audience, expiry and nonce, then establishes a session and redirects. Every refusal redirects to the same destination and reports nothing about which check failed. The redirect URI is fixed server-side and is never read from a request parameter.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The authorization code Google issued for this attempt."
+            },
+            "required": true,
+            "description": "The authorization code Google issued for this attempt.",
+            "name": "code",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The opaque per-attempt value this deployment issued."
+            },
+            "required": true,
+            "description": "The opaque per-attempt value this deployment issued.",
+            "name": "state",
+            "in": "query"
+          }
+        ],
         "responses": {
           "302": {
             "description": "Signed session established, or sign-in refused"

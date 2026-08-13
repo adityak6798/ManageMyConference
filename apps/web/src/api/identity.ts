@@ -49,13 +49,37 @@ export async function getSession(fetcher: typeof fetch = fetch): Promise<Session
 /** The ways into this deployment, as `/api/auth/config` reports them. */
 export type AuthDoors = { demoMode: boolean; google: boolean };
 
+/**
+ * The contract shape with `google` relaxed to optional, for reading across a version boundary.
+ * Derived from `authConfigResponseSchema` rather than rewritten, so a field added to the
+ * contract later cannot be silently dropped here.
+ */
+const legacyTolerantAuthConfigSchema = authConfigResponseSchema.partial({ google: true });
+
+/**
+ * Tolerates every API this frontend can find itself talking to, which is more than one.
+ *
+ * A frontend and its API do not roll atomically — `VITE_API_BASE_URL` allows them to be hosted
+ * separately, and even same-origin a stacked deploy has a window — so this client meets three
+ * shapes and must not lose its doors to any of them:
+ *
+ * - **404**, an API old enough not to serve the route at all. Demo mode, no Google.
+ * - **200 without `google`**, the API immediately before this change. It served
+ *   `{ demoMode }` and nothing else. This is the case a `status === 404` guard alone misses,
+ *   and missing it is worse than not having the guard: the strict parse throws, `doors` is
+ *   null, and the sign-in surface renders *no* doors — the exact outcome the fallback exists
+ *   to prevent. `google` is false there because that API has no such route.
+ * - **200 with both**, this API.
+ *
+ * Parsed leniently rather than by loosening `authConfigResponseSchema`, which is the contract
+ * every current caller is entitled to rely on: the server always sends both fields, and it is
+ * only this one client, reading across a version boundary, that has to be forgiving.
+ */
 export async function getAuthConfig(fetcher: typeof fetch = fetch): Promise<AuthDoors> {
   const response = await fetcher("/api/auth/config");
-  // A stacked frontend may briefly run against the preceding demo-only API while deploys roll.
-  // That API predates the Google door, so the fallback answers `false` for it: an API that has
-  // never heard of the route cannot be serving it, and offering the button would be a 404.
   if (response.status === 404) return { demoMode: true, google: false };
-  return decode(response, authConfigResponseSchema);
+  const doors = await decode(response, legacyTolerantAuthConfigSchema);
+  return { demoMode: doors.demoMode, google: doors.google ?? false };
 }
 
 export async function startDemoSession(

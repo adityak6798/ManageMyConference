@@ -67,6 +67,8 @@ export interface SignupDirectory {
     userId: string;
     linkedAt: number;
   }): Promise<void>;
+  /** `INSERT OR IGNORE`, so adopting an event a previous attempt created is safe to repeat. */
+  grantOrganizer(eventId: string, userId: string): Promise<void>;
   /**
    * User row, address, provider link and organization membership, in one batch. Together or not
    * at all: an account that can sign in but belongs to no organization is a dead end the user
@@ -93,6 +95,11 @@ export interface WorkspaceProvisioning {
     actor: Actor,
     command: { organizationId: string; name: string; timezone: string },
   ): Promise<{ id: string }>;
+  /**
+   * The events this organization already holds. Read before provisioning a first one, so a
+   * resumed signup adopts the event a previous attempt left behind instead of making another.
+   */
+  eventsInOrganization(actor: Actor, organizationId: string): Promise<readonly { id: string }[]>;
 }
 
 export interface SignupDependencies {
@@ -178,16 +185,33 @@ export class SignupService {
    * narrow on purpose — an organization but no event role at all — so a user who simply has not
    * been added to an event by somebody else is never handed one, and a linked speaker (no
    * organization) is never provisioned anything.
+   *
+   * **It adopts before it creates, and that is the whole reason this reads the organization
+   * first.** `EventService.create` writes the event row and the organizer role as two separate
+   * calls, so a failure between them leaves precisely the state this method treats as resumable:
+   * an organization, an event, and no role on it. Creating unconditionally would then hand the
+   * user a *second* "Your first event" on their next sign-in — two identical entries in the
+   * switcher, the older of which refuses `/settings` because the role it never got is what
+   * grants `events:settings:update`. Adopting converges instead: the role is granted on the
+   * event already there, and `grantOrganizer` is `INSERT OR IGNORE`, so repeating it is free.
+   *
+   * This narrows the concurrent case without closing it: two callbacks that both read an empty
+   * organization before either writes still create two events. Closing that needs uniqueness the
+   * events domain would have to declare, so it is recorded rather than half-solved here.
    */
   private async completeWorkspace(actor: Actor): Promise<Actor> {
     if (actor.organizations.length === 0 || actor.eventAccess.length > 0) return actor;
     const organizationId = actor.organizations[0]?.id;
     if (!organizationId) return actor;
-    await this.dependencies.workspace.createFirstEvent(actor, {
-      organizationId,
-      name: FIRST_EVENT_NAME,
-      timezone: DEFAULT_TIMEZONE,
-    });
+    const existing = await this.dependencies.workspace.eventsInOrganization(actor, organizationId);
+    const adopted = existing[0];
+    if (adopted) await this.dependencies.directory.grantOrganizer(adopted.id, actor.id);
+    else
+      await this.dependencies.workspace.createFirstEvent(actor, {
+        organizationId,
+        name: FIRST_EVENT_NAME,
+        timezone: DEFAULT_TIMEZONE,
+      });
     // Re-read rather than patched in memory: the event role the creation granted is what decides
     // every capability the session is about to be issued with, and it is D1 that holds it.
     return (await this.dependencies.directory.findByUserId(actor.id)) ?? actor;

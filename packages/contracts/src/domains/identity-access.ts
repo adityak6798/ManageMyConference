@@ -32,6 +32,18 @@ export const authConfigResponseSchema = z.object({
  * #12; naming this honestly is what keeps that distinction visible.
  */
 export const signOutResponseSchema = z.object({ signedOut: z.literal(true) });
+/**
+ * What Google appends to the redirect. Declared because a caller reading the document otherwise
+ * sees a parameterless endpoint, and the route answers a missing parameter with the same refusal
+ * redirect as a forged one — so this is the only place the requirement is legible.
+ *
+ * Not used to validate the request: the callback deliberately treats a malformed return exactly
+ * as it treats a refused one.
+ */
+export const googleCallbackQuerySchema = z.object({
+  code: z.string().describe("The authorization code Google issued for this attempt."),
+  state: z.string().describe("The opaque per-attempt value this deployment issued."),
+});
 export const capabilitySchema = z.enum([
   "events:read",
   "events:create",

@@ -88,9 +88,13 @@ signature is not 64 hex characters, or whose expiry is not a safe integer. Neith
 the other even though both are signed with `SESSION_SECRET`, so trying one and then the other
 introduces no ambiguity about which credential the caller presented.
 
-The `authentication` kind follows what actually resolved rather than what the deployment mode is: a
-real Google session on a demo deployment is a `session`, and `/api/auth/tokens` is right to mint an
-event token for it. Nothing about the persona path changes — `findByPersona` still pins
+The `authentication` kind follows what actually resolved rather than what the deployment mode is, so
+a real Google session on a demo deployment is reported as a `session` and a persona cookie as
+`demo`. That is a description of the credential rather than a grant, and it is worth being exact
+about the difference: `/api/auth/tokens` is the only reader of that value in the repository, and it
+answers 404 to every caller while `demoMode` is set, before it reads it. So event-scoped bearer
+tokens remain a non-demo feature, and no demo configuration mints one. Nothing about the persona
+path changes — `findByPersona` still pins
 `id = seed-<persona>`, so a persona cookie resolves to one of four seeded rows and can never
 resolve to a self-serve user. That is authorization isolation between the two populations, and it
 is not deployment isolation: they share one database, and `GAP-019` records what the demo reset

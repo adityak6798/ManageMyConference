@@ -89,9 +89,11 @@ export function createHttpAppFrom(dependencies: HttpDependencies) {
      * not a known persona. Neither can be mistaken for the other even though both are signed
      * with `SESSION_SECRET`.
      *
-     * `authentication` follows what actually resolved rather than what the deployment mode is:
-     * a real Google session on a demo deployment is a `session`, and `/api/auth/tokens` is right
-     * to mint an event token for it.
+     * `authentication` follows what actually resolved rather than what the deployment mode is,
+     * so a real Google session on a demo deployment is reported as a `session` and a persona
+     * cookie as `demo`. That is a description of the credential, not a grant: the one reader of
+     * this variable, `/api/auth/tokens`, refuses every caller on a demo deployment before it
+     * looks at it. Event-scoped bearer tokens are a non-demo feature and stay one.
      */
     let resolved: Actor | null = null;
     let kind: Variables["authentication"] = "none";

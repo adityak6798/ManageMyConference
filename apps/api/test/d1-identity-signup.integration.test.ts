@@ -48,6 +48,8 @@ function signupStack(database: unknown) {
     workspace: {
       provisionOrganization: (command) => events.provisionOrganization(command),
       createFirstEvent: (actor, command) => events.create(actor, command),
+      eventsInOrganization: async (actor, organizationId) =>
+        (await events.list(actor)).filter((event) => event.organizationId === organizationId),
     },
     newId: () => crypto.randomUUID(),
     now: () => linkedAt,
@@ -104,6 +106,26 @@ describe("Google signup against migrated D1", () => {
     await expect(
       directory.consumeOauthAttempt("attempt-unknown", attempt.stateProof, 1_000_000),
     ).resolves.toBeNull();
+
+    /*
+     * The assertion that separates the shipped statement from a plausible rewrite of it.
+     *
+     * Everything above is await-then-await, and a `SELECT` whose result guards a separate
+     * `DELETE` satisfies every line of it — measured, not assumed: replayed against this same
+     * Miniflare D1, the sequential assertions pass for both implementations. Only overlapping
+     * callers tell them apart, and then decisively: one winner for `DELETE … RETURNING`, three
+     * for read-then-delete. Two callbacks carrying the same `state` arriving together is exactly
+     * the replay this table exists to refuse, so it is worth asserting rather than describing.
+     */
+    await directory.saveOauthAttempt({ ...attempt, id: "attempt-raced" });
+    const raced = await Promise.all([
+      directory.consumeOauthAttempt("attempt-raced", attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt("attempt-raced", attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt("attempt-raced", attempt.stateProof, 1_000_000),
+    ]);
+    expect(raced.filter((outcome) => outcome !== null)).toEqual([
+      { codeVerifier: attempt.codeVerifier, nonce: attempt.nonce },
+    ]);
   });
 
   /**

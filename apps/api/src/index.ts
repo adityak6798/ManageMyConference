@@ -158,6 +158,20 @@ export interface Environment {
  *
  * The message names bindings, never values.
  */
+/**
+ * Module scope, and that is the whole point of it.
+ *
+ * The Worker builds a fresh application for every request — `FixedWindowThrottle` is at module
+ * scope for exactly this reason — so a client constructed inside `fetch` starts every callback
+ * with an empty key cache, and the five-minute cache the adapter documents would never once be
+ * read. Holding it here is what makes a burst of sign-ins one JWKS request rather than N, and
+ * what lets a warm isolate carry sign-ins through a brief Google outage.
+ *
+ * It holds no credential and no per-request state: the configuration and the code arrive as
+ * arguments on each call, so one instance is safe to share across every request in an isolate.
+ */
+const googleOauthClient = new GoogleOauthClient();
+
 export function resolveGoogleConfiguration(
   environment: Pick<
     Environment,
@@ -426,7 +440,7 @@ export default {
      */
     const googleAuth: GoogleAuthProvider | undefined = auth.google
       ? ((configuration: GoogleConfiguration, sessionSecret: string): GoogleAuthProvider => {
-          const client = new GoogleOauthClient();
+          const client = googleOauthClient;
           const signup = new SignupService({
             directory: identityDirectory,
             workspace: {
@@ -436,6 +450,12 @@ export default {
               // `EventService.create`'s own capability and membership checks, which is the point:
               // a first event is created exactly as every later one is.
               createFirstEvent: (actor, command) => service.create(actor, command),
+              // Scoped by the actor's own memberships, so this reads the organization it has
+              // just been made a member of and nothing else.
+              eventsInOrganization: async (actor, organizationId) =>
+                (await service.list(actor)).filter(
+                  (event) => event.organizationId === organizationId,
+                ),
             },
             newId: () => crypto.randomUUID(),
             now: () => Date.now(),

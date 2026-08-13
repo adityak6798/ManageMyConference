@@ -78,11 +78,11 @@ class FakeDirectory implements SignupDirectory {
     if (user.roles) this.eventRoles.set(user.id, user.roles);
   }
 
-  grantOrganizer(eventId: string, userId: string): void {
-    this.eventRoles.set(userId, [
-      ...(this.eventRoles.get(userId) ?? []),
-      { eventId, role: "organizer" },
-    ]);
+  /** `INSERT OR IGNORE` in D1, so the fake must not accrete a duplicate role either. */
+  async grantOrganizer(eventId: string, userId: string): Promise<void> {
+    const held = this.eventRoles.get(userId) ?? [];
+    if (held.some((role) => role.eventId === eventId && role.role === "organizer")) return;
+    this.eventRoles.set(userId, [...held, { eventId, role: "organizer" }]);
   }
 
   async findByProviderAccount(provider: "google", subject: string): Promise<Actor | null> {
@@ -190,8 +190,14 @@ class FakeWorkspace implements WorkspaceProvisioning {
       throw new CapabilityDeniedError("Organization access denied");
     const id = `event-${this.events.length + 1}`;
     this.events.push({ id, ...command });
-    this.directory.grantOrganizer(id, actor.id);
+    await this.directory.grantOrganizer(id, actor.id);
     return { id };
+  }
+
+  /** Scoped by membership, exactly as `EventService.list` is. */
+  async eventsInOrganization(actor: Actor, organizationId: string) {
+    if (!actor.organizations.some(({ id }) => id === organizationId)) return [];
+    return this.events.filter((event) => event.organizationId === organizationId);
   }
 }
 
@@ -392,6 +398,53 @@ describe("SignupService", () => {
     );
     expect(speaker.actor.eventAccess).toEqual([]);
     expect(workspace.events).toHaveLength(1);
+  });
+
+  /**
+   * The retry that used to hand somebody a second workspace.
+   *
+   * `EventService.create` writes the event row and the organizer role as two separate calls, so a
+   * failure between them leaves an organization holding an event the user has no role on — which
+   * is bit-for-bit the state the resume condition looks for. Creating unconditionally then makes
+   * a *second* "Your first event": two identical entries in the switcher, the older refusing
+   * `/settings` because the role it never got is what grants `events:settings:update`.
+   */
+  it("adopts the event a failed attempt left behind rather than making a second one", async () => {
+    const { directory, workspace, service } = build();
+    directory.seed({
+      id: "interrupted",
+      name: "Ingrid Interrupted",
+      persona: "organizer",
+      email: "ingrid@example.test",
+      organizationIds: ["organization-existing"],
+    });
+    directory.providerAccounts.set("google:interrupted-subject", "interrupted");
+    // The event committed; the role grant did not.
+    workspace.events.push({
+      id: "event-orphaned",
+      organizationId: "organization-existing",
+      name: FIRST_EVENT_NAME,
+      timezone: DEFAULT_TIMEZONE,
+    });
+
+    const resumed = await service.signInWithGoogle(
+      identity({ subject: "interrupted-subject", email: "ingrid@example.test" }),
+    );
+
+    expect(workspace.events).toHaveLength(1);
+    expect(resumed.actor.eventAccess).toEqual([
+      {
+        eventId: "event-orphaned",
+        role: "organizer",
+        capabilities: new Set(roleCapabilities.organizer),
+      },
+    ]);
+    // And it converges: signing in again neither creates nor re-grants.
+    await service.signInWithGoogle(
+      identity({ subject: "interrupted-subject", email: "ingrid@example.test" }),
+    );
+    expect(workspace.events).toHaveLength(1);
+    expect(resumed.actor.eventAccess).toHaveLength(1);
   });
 
   it("names an organization after the person, clamped to what the column accepts", () => {

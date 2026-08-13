@@ -1,6 +1,7 @@
 import type { IdentityDirectory } from "../../application/identity/identity-directory";
 import type { DemoPersona } from "../../application/identity/demo-session";
 import type { Actor, Capability, EventAccess } from "../../application/identity/actor";
+import { ATTEMPT_LIFETIME_MS } from "../../application/identity/google-oauth";
 
 interface D1Result<T> {
   results?: T[];
@@ -121,6 +122,12 @@ export class D1IdentityDirectory implements IdentityDirectory {
    *
    * The sweep is the same shape as `saveLoginChallenge`'s and exists for the same reason: this
    * table only ever grows otherwise, and every row in it is a secret that has outlived its use.
+   *
+   * The threshold is `expiresAt - ATTEMPT_LIFETIME_MS`, which is *now* — the moment this attempt
+   * was minted — so it deletes exactly the attempts that have already expired and never one that
+   * is still in flight. It reads the same constant the lifetime is set from rather than repeating
+   * its value: written as a literal, raising the lifetime to accommodate a slow consent screen
+   * would silently start sweeping attempts belonging to users who were still on Google's page.
    */
   async saveOauthAttempt(attempt: {
     id: string;
@@ -132,7 +139,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
     const results = await this.database.batch([
       this.database
         .prepare("DELETE FROM identity_oauth_attempts WHERE expires_at <= ?")
-        .bind(attempt.expiresAt - 600_000),
+        .bind(attempt.expiresAt - ATTEMPT_LIFETIME_MS),
       this.database
         .prepare(
           "INSERT INTO identity_oauth_attempts (id,state_proof,code_verifier,nonce,expires_at) VALUES (?,?,?,?,?)",

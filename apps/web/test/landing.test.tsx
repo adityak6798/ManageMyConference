@@ -148,6 +148,40 @@ describe("the landing surfaces", () => {
     expect(screen.getByRole("link", { name: "Continue with Google" })).toBeInTheDocument();
   });
 
+  /**
+   * The version-skew case, which is the one a `status === 404` guard alone misses.
+   *
+   * A frontend and its API do not roll atomically — `VITE_API_BASE_URL` allows them to be hosted
+   * separately — so this bundle can meet the API immediately before this change, which answered
+   * `200 {"demoMode": true}` with no `google` at all. A strict parse throws there, `doors` is
+   * null, and the surface renders *no* doors: the failure mode the fallback exists to prevent,
+   * arrived at through the fallback. Both older shapes have to keep the demo door open.
+   */
+  it("keeps its doors when the API is a version behind, in both shapes", async () => {
+    for (const older of [
+      { status: 200, body: { demoMode: true } },
+      { status: 404, body: { error: { code: "NOT_FOUND", message: "no", correlationId: "c" } } },
+    ]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) =>
+          String(input).endsWith("/api/auth/config")
+            ? jsonResponse(older.body, older.status)
+            : jsonResponse(unauthorized, 401),
+        ),
+      );
+      render(<LandingRoot bootstrap={probeIdentity()} />);
+
+      expect(
+        await screen.findByRole("button", { name: "Continue as organizer" }),
+      ).toBeInTheDocument();
+      // The door that API cannot serve is not offered, rather than offered and answering 404.
+      expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("says so when the deployment does not answer, instead of guessing at its doors", async () => {
     vi.stubGlobal(
       "fetch",
