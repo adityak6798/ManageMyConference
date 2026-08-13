@@ -575,7 +575,10 @@ export class ContentService {
           ? existing.embedHtml
           : this.dependencies.sanitizeResourceEmbed(input.embedHtml, embedAllowedHosts),
     };
-    await this.dependencies.repository.updateResource(resource);
+    // A resource another organizer deleted between the read above and this write matches no
+    // row, and is refused exactly as one that never existed rather than reported as saved.
+    if (!(await this.dependencies.repository.updateResource(resource)))
+      throw new CapabilityDeniedError("Speaker resource access denied");
     return resource;
   }
 
@@ -1218,11 +1221,16 @@ export class ContentService {
     const workspace = await this.dependencies.repository.workspace(eventId, authorized.id);
     const task = workspace.tasks.find(({ id }) => id === taskId);
     if (!task) throw new CapabilityDeniedError("Speaker task access denied");
-    await this.dependencies.repository.updateTask({
-      ...task,
-      status: "complete",
-      completedAt: this.dependencies.now().toISOString(),
-    });
+    // Same rule: a task withdrawn while the speaker had the portal open matches nothing, and
+    // answering "completed" over work that is gone is the report this count exists to prevent.
+    if (
+      !(await this.dependencies.repository.updateTask({
+        ...task,
+        status: "complete",
+        completedAt: this.dependencies.now().toISOString(),
+      }))
+    )
+      throw new CapabilityDeniedError("Speaker task access denied");
     return this.workspace(actor, eventId);
   }
 

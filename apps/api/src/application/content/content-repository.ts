@@ -87,7 +87,8 @@ export interface ContentRepository {
    * that landed in between. A speaker choosing a picture should write the picture.
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<void>;
-  updateTask(task: SpeakerTask): Promise<void>;
+  /** `false` when no row matched — the task has gone since the caller read it. */
+  updateTask(task: SpeakerTask): Promise<boolean>;
   /**
    * Write a session with no revision and no guard.
    *
@@ -111,7 +112,8 @@ export interface ContentRepository {
   findAsset(assetId: string): Promise<SpeakerAsset | null>;
   findProfileBySource(eventId: string, sourcePersonId: string): Promise<SpeakerProfile | null>;
   addResource(resource: SpeakerResource): Promise<void>;
-  updateResource(resource: SpeakerResource): Promise<void>;
+  /** `false` when no row matched — the resource has gone since the caller read it. */
+  updateResource(resource: SpeakerResource): Promise<boolean>;
   deleteResource(resourceId: string): Promise<void>;
   findResource(resourceId: string): Promise<SpeakerResource | null>;
   /**

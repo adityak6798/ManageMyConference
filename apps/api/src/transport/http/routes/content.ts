@@ -589,7 +589,10 @@ export const contentRoutes: RouteModule = {
        * The event is resolved from the stored line rather than taken from the request, so this
        * route has no event parameter to disagree with the row it edits. The service authorizes
        * against that event and answers the same denial for a line on an event this actor cannot
-       * write as for one that does not exist.
+       * write as for one that does not exist — and, for the same reason, for a line another
+       * organizer has deleted since this form was opened. A 403 here is as likely to mean "that
+       * line is gone" as "not yours", which is the price of not being an oracle for other
+       * organizations' ids.
        */
       const saved = await content.updateTaskTemplate(
         context.get("actor"),

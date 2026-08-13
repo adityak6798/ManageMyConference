@@ -224,7 +224,9 @@ export class MemoryContentRepository
     });
   }
   async updateTask(task: SpeakerTask) {
+    if (!this.tasks.some(({ id }) => id === task.id)) return false;
     this.tasks = this.tasks.map((item) => (item.id === task.id ? task : item));
+    return true;
   }
   async updateSession(session: ContentWorkspace["sessions"][number]) {
     this.sessions = this.sessions.map((item) => (item.id === session.id ? session : item));
@@ -277,8 +279,11 @@ export class MemoryContentRepository
   async addResource(resource: SpeakerResource) {
     this.resources = [...this.resources, resource];
   }
+  /** The affected-row count D1 reports, stated the way this store can state it. */
   async updateResource(resource: SpeakerResource) {
+    if (!this.resources.some(({ id }) => id === resource.id)) return false;
     this.resources = this.resources.map((item) => (item.id === resource.id ? resource : item));
+    return true;
   }
   async deleteResource(resourceId: string) {
     this.resources = this.resources.filter(({ id }) => id !== resourceId);
@@ -331,10 +336,16 @@ export class MemoryContentRepository
     this.taskTemplates = [...this.taskTemplates, template];
   }
   async updateTaskTemplate(template: SpeakerTaskTemplate) {
-    this.assertTitleFree(template);
-    // The affected-row count D1 reports, stated the way this store can state it: a line another
-    // writer removed between the read and this call matched nothing, and says so.
+    /*
+     * Existence first, then the title rule — the order D1 resolves them in.
+     *
+     * A `WHERE id = ?` that matches nothing never reaches the unique index, so a store that
+     * checked the title first would answer 409 where D1 answers "no such row". That is the
+     * difference between a double that lets a service test pass through the wrong path and one
+     * that cannot.
+     */
     if (!this.taskTemplates.some((item) => item.id === template.id)) return false;
+    this.assertTitleFree(template);
     this.taskTemplates = this.taskTemplates.map((item) =>
       item.id === template.id ? { ...template, createdAt: item.createdAt } : item,
     );

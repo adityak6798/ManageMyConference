@@ -263,20 +263,33 @@ feature-by-feature verdict.
   **The half that was missing is closed by issue #175.** The stored outcome is read back:
   `EventTemplateService.applications` carries `event_template_applications.outcome_json` out through
   `GET /api/events/{eventId}/template-applications`, and the event templates workspace leads with a
-  card for any application whose stored envelope reads `partial` or `failed`. It names the
+  card when the event's **most recent** application reads `partial` or `failed`. It names the
   categories that did not land with the destination's own reason for each, says who applied the
   version and when, and its one button re-applies **that version, onto the stored destination range,
   with the categories the original command named** — the row records the selection for exactly that
   reason, so a repair repeats the request that was made rather than a wider one. The card is derived
-  from storage on every load and shows the **most recent** application only, which is a correctness
-  rule rather than tidiness: an application row is keyed per version, so applying a newer version
-  writes its own row and leaves an older `partial` one where it was, and offering that older one as
-  a repair would write its payload over the configuration that superseded it. It therefore clears
-  both when the version is applied again and when a later application supersedes it.
+  from storage on every load and shows only that most recent application, which is a safety rule
+  rather than tidiness: an application row is keyed per version, so applying a newer version writes
+  its own row and leaves an older `partial` one where it was — and offering *that* as a repair
+  would write its payload over the configuration that superseded it, because every category
+  converges on the payload it is given. The card therefore clears when the version is applied
+  again, and also when any later application takes its place.
   `event-templates.test.ts` drives a slice that fails once and then succeeds, asserts the event
   still reports itself configured in part afterwards, and asserts the second apply clears it.
 
-  What remains, and is the residual risk this entry now records. **There is no dismissal**, so an
+  What remains, and is the residual risk this entry now records — three things, largest first.
+
+  **A later application hides a partial it did not repair.** "Most recent" is the only reading that
+  cannot offer a revert, and it is not the same question as "is anything still missing": a second
+  application naming a *different* template, or the same one with a subset of categories, is newer
+  and may read `applied` while the category the first one could not write is still unconfigured. The
+  signal is then lost entirely rather than merely made inconvenient, which is this issue's own
+  failure mode in a narrower case. Answering it properly means asking whether a *category* is
+  outstanding rather than whether an *application* was — a per-category reading across applications
+  that nothing supports today, because `outcome_json` is a per-application document and no query
+  decomposes it.
+
+  **There is no dismissal**, so an
   organizer who repairs the refused category by hand — creating the room a slot wanted, granting a
   capability — keeps the card until they apply that version again; doing so is safe and converging,
   but it is a step they would not otherwise have needed. And **the surface is the templates
@@ -286,8 +299,10 @@ feature-by-feature verdict.
   platform's product surface rather than about events. Non-atomicity itself is unchanged and stays
   documented rather than fixed.
 
-  Owner: events. Governing ID: `PRD-EVT-002`. Closure: an operator who never opens Event templates
-  is still told, which means an inbox category derived from the same stored outcome.
+  Owner: events. Governing ID: `PRD-EVT-002`. Closure: outstanding work is answered per *category*
+  rather than per application, so a later clone cannot hide it, and an operator who never opens
+  Event templates is still told — which together mean a decomposed read of the stored outcome and an
+  inbox category over it.
 - `GAP-020` **Google sign-in has never exchanged a request with Google.** The adapter at
   `apps/api/src/adapters/identity/google-oauth-client.ts` is the entire boundary — one POST to the
   token endpoint, one GET for the key set — and its request shape comes from Google's documentation

@@ -1259,6 +1259,56 @@ describe("speaker checklist authoring", () => {
     expect(await service.taskTemplates(organizer, eventId)).toHaveLength(1);
   });
 
+  /**
+   * A write that matched no row is refused, rather than announced as a save.
+   *
+   * The three unguarded `UPDATE`s a caller reads a row for first — a checklist line, a portal
+   * resource, a speaker's task — all have the same gap between that read and the write, and it is
+   * where another organizer's delete lands. `success` alone cannot tell "rewrote the row" from
+   * "matched nothing", so before the affected-row count was read these answered 200 and reported
+   * a save over a projection that no longer contains the thing.
+   */
+  it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
+    const { repository, service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+
+    // The row goes out from under its caller between the read and the write.
+    await repository.deleteTaskTemplate(created.id);
+
+    await expect(
+      service.updateTaskTemplate(organizer, created.id, { ...line, description: "Changed" }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+
+    /*
+     * The same rule at the store, for the two writers that reach it the same way. Asserted here
+     * rather than through their services because the point is the contract every one of them now
+     * shares: a matched row is what makes an update an update.
+     */
+    await expect(
+      repository.updateResource({
+        id: "00000000-0000-4000-8000-00000000ff01",
+        eventId,
+        title: "Gone",
+        slug: "gone",
+        bodyHtml: "",
+        embedHtml: "",
+        visibility: "hidden",
+        sortOrder: 0,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      repository.updateTask({
+        id: "00000000-0000-4000-8000-00000000ff02",
+        eventId,
+        speakerProfileId: samProfile.id,
+        title: "Gone",
+        dueAt: "2026-09-01T00:00:00.000Z",
+        status: "complete",
+      }),
+    ).resolves.toBe(false);
+  });
+
   /*
    * The cross-event refusal is asserted over HTTP instead of here. The seeded demo organizer
    * carries actor-level capabilities that satisfy `requireEventCapability` for any event id, so

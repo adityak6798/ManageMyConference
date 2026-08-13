@@ -279,6 +279,16 @@ conclusion: #25 made `createMigratedDatabase()` mint a Miniflare instance per ca
 count now scales with test count, and seven concurrent lanes is a load pattern that did not exist
 before this month.
 
+**A fifth occurrence, on 2026-08-13, is the first on hosted CI rather than a developer machine.**
+`gate:browser` on PR #188 at `86662d3` failed 2 of 70 — both in `speaker-portal.spec.ts`, which is
+simply what was running when the Worker exited. The log is unambiguous about the mechanism and it is
+not an assertion: `workerd` raised `kj/async-io-unix.c++:186: disconnected: ::write(...): Broken
+pipe` repeatedly, `wrangler dev exited with status 1`, and every request after that point is
+`connect ECONNREFUSED`. The same suite had passed locally at the same commit minutes earlier, and a
+re-run of the unchanged job on CI passed. So the failure reaches a single-tenant GitHub runner with
+no concurrent worktrees, which rules out the cross-worktree load the fourth occurrence measured as a
+*necessary* condition — whatever kills the process can do it under one suite's own load.
+
 **A fourth occurrence, on 2026-08-12 at `c739ec6`, names the mechanism.** `gate:d1` failed 24 of 79
 with `fetch failed`, and `gate:browser` died *before the suite started* — inside `npm run reset`,
 with `connect EADDRNAVAIL 127.0.0.1:56532` from `wrangler d1 execute`. That is ephemeral-port

@@ -376,10 +376,13 @@ export function EventTemplatesWorkspace({
   const incomplete = useMemo(() => {
     // Newest first, as the route promises; re-sorted here rather than trusted, because the whole
     // point of this value is which one is last and a client that assumed wrong would revert.
-    const newest = [...applications].sort((left, right) =>
+    // Named `last`, not `newest`: `newest` is already the selected template's newest *version*
+    // a few lines above, and two live bindings of one word in one component is one careless edit
+    // away from a card about the wrong thing.
+    const last = [...applications].sort((left, right) =>
       right.appliedAt.localeCompare(left.appliedAt),
     )[0];
-    return newest && (newest.outcome === "partial" || newest.outcome === "failed") ? [newest] : [];
+    return last && (last.outcome === "partial" || last.outcome === "failed") ? [last] : [];
   }, [applications]);
 
   // Opening a template arms its own controls: the rename box holds the current name, the apply

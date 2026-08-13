@@ -136,7 +136,16 @@ function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
       typeof slice.outcome !== "string" ||
       typeof slice.reason !== "string" ||
       !Array.isArray(slice.applied) ||
-      !Array.isArray(slice.incompatible)
+      !Array.isArray(slice.incompatible) ||
+      // The mapper destructures `{ id, label }` per entry, so the entries are checked too — a
+      // stored `applied: [null]` is otherwise the same `undefined.map` one level further in.
+      ![...slice.applied, ...slice.incompatible].every(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof entry.id === "string" &&
+          typeof entry.label === "string",
+      )
     )
       refuse();
   return outcome;

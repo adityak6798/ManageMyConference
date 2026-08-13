@@ -211,7 +211,19 @@ export class D1ContentRepository
   private async run(query: string, ...values: unknown[]) {
     await this.write(query, ...values);
   }
-  /** `run`, for the writers whose correctness depends on how many rows they touched. */
+  /**
+   * `run`, for the writers whose correctness depends on how many rows they touched.
+   *
+   * A conditional write matching no row and a write that landed are both `success: true`; only
+   * `meta.changes` separates them, and a driver that omits the count is refused rather than read
+   * as either (`d1-write-result.ts`). Every unguarded `UPDATE` in this file that a caller reads
+   * a row for first goes through here, because the gap between that read and the write is where
+   * another organizer's delete lands — and without the count, editing something that has gone
+   * answers 200 and announces "saved" over a projection that does not contain it.
+   *
+   * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
+   * row" from "no visible difference" rather than refusing an edit that changed nothing.
+   */
   private async write(query: string, ...values: unknown[]) {
     const result = await this.database
       .prepare(query)
@@ -439,12 +451,13 @@ export class D1ContentRepository
     );
   }
   async updateTask(task: SpeakerTask) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_tasks SET status=?,completed_at=? WHERE id=?",
       task.status,
       task.completedAt ?? null,
       task.id,
     );
+    return changedRows(result, "update a speaker task") > 0;
   }
   private sessionWrite(session: ContentSession, where?: RowGuard): D1Statement {
     return this.database
@@ -637,7 +650,7 @@ export class D1ContentRepository
     );
   }
   async updateResource(resource: SpeakerResource) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_resources SET title=?,slug=?,body_html=?,embed_html=?,visibility=?,sort_order=? WHERE id=?",
       resource.title,
       resource.slug,
@@ -647,6 +660,7 @@ export class D1ContentRepository
       resource.sortOrder,
       resource.id,
     );
+    return changedRows(result, "update a speaker resource") > 0;
   }
   async deleteResource(resourceId: string) {
     await this.run("DELETE FROM speaker_resources WHERE id=?", resourceId);
@@ -719,14 +733,6 @@ export class D1ContentRepository
       template.createdAt,
     );
   }
-  /**
-   * Answers whether a row was actually rewritten, which `success` alone cannot say.
-   *
-   * A conditional write matching no row and a write that landed are both `success: true`; only
-   * `meta.changes` separates them, and a driver that omits it is refused rather than read as
-   * either (`d1-write-result.ts`). Without this an edit to a line another organizer deleted a
-   * moment earlier answered 200 and announced "saved" over a checklist that does not contain it.
-   */
   async updateTaskTemplate(template: SpeakerTaskTemplate) {
     // `created_at` is not in the SET list: a line was declared when it was declared, and editing
     // its wording is not a new declaration.
