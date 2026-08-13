@@ -66,13 +66,15 @@ function ResourceForm({
       <label>
         Allowed embed hosts
         <input name="embedAllowedHosts" placeholder="docs.example.org, video.example.org" />
-        {/* The read model does not return the stored allowlist (`speakerResourceSchema` carries
-            no `embedAllowedHosts`), so this field cannot be prefilled and a save replaces whatever
-            was there. Said out loud rather than left as a silent overwrite. */}
+        {/* Deliberately not prefilled, because there is nothing to prefill it from: the allowlist
+            is an argument to the sanitizer at save time, never a stored property of the resource —
+            what persists is the already-sanitized `embedHtml`. `updateResource` keeps an unchanged
+            embed verbatim when this field is empty, so leaving it blank on an unrelated edit is
+            safe; it matters only when the embed itself changes. */}
         {editing ? (
           <span className="hint">
-            Not shown for an existing resource. Saving replaces the stored allowlist with whatever
-            is in this field, so re-enter every host the embed needs.
+            Only needed if you change the embed above. Leave it empty and the current embed is kept
+            as it is; supply hosts and the embed is re-checked against them.
           </span>
         ) : null}
       </label>
