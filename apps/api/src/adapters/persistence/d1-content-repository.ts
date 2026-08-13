@@ -209,12 +209,17 @@ export class D1ContentRepository
     return result.results ?? [];
   }
   private async run(query: string, ...values: unknown[]) {
+    await this.write(query, ...values);
+  }
+  /** `run`, for the writers whose correctness depends on how many rows they touched. */
+  private async write(query: string, ...values: unknown[]) {
     const result = await this.database
       .prepare(query)
       .bind(...values)
       .run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
+    return result;
   }
   async findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null> {
     const row = (
@@ -714,10 +719,18 @@ export class D1ContentRepository
       template.createdAt,
     );
   }
+  /**
+   * Answers whether a row was actually rewritten, which `success` alone cannot say.
+   *
+   * A conditional write matching no row and a write that landed are both `success: true`; only
+   * `meta.changes` separates them, and a driver that omits it is refused rather than read as
+   * either (`d1-write-result.ts`). Without this an edit to a line another organizer deleted a
+   * moment earlier answered 200 and announced "saved" over a checklist that does not contain it.
+   */
   async updateTaskTemplate(template: SpeakerTaskTemplate) {
     // `created_at` is not in the SET list: a line was declared when it was declared, and editing
     // its wording is not a new declaration.
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_task_templates SET title=?,description=?,sort_order=?,due_offset_days=? WHERE id=?",
       template.title,
       template.description,
@@ -725,9 +738,14 @@ export class D1ContentRepository
       template.dueOffsetDays,
       template.id,
     );
+    return changedRows(result, "update a speaker checklist line") > 0;
   }
   async deleteTaskTemplate(templateId: string) {
-    await this.run("DELETE FROM speaker_task_templates WHERE id = ?", templateId);
+    const result = await this.write("DELETE FROM speaker_task_templates WHERE id = ?", templateId);
+    // Zero is the row having gone between the caller's read and this statement, which is the
+    // outcome the caller asked for. The count is still *read*, so a driver that cannot report
+    // one is a failure here rather than a silent success.
+    changedRows(result, "delete a speaker checklist line");
   }
   async addComment(comment: ContentComment) {
     await this.run(

@@ -104,6 +104,11 @@ function rowToVersion(row: VersionRow): EventTemplateVersion {
  */
 function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
   const parsed: unknown = JSON.parse(row.outcome_json);
+  const refuse = () => {
+    throw new Error(
+      `Event template application for version ${row.template_version_id} has an unreadable outcome`,
+    );
+  };
   if (
     typeof parsed !== "object" ||
     parsed === null ||
@@ -112,10 +117,29 @@ function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
     !Array.isArray((parsed as { slices: unknown }).slices) ||
     !("destination" in parsed)
   )
-    throw new Error(
-      `Event template application for version ${row.template_version_id} has an unreadable outcome`,
-    );
-  return parsed as EventTemplateApplicationOutcome;
+    refuse();
+  const outcome = parsed as EventTemplateApplicationOutcome;
+  /*
+   * Each category, not just the array around them.
+   *
+   * The transport maps `applied` and `incompatible` entry by entry, so a row whose `slices` hold
+   * `[{}]` — hand-written, or written by a shape this code no longer speaks — would be an
+   * `undefined.map` three layers away, which is the exact failure the check above exists to
+   * prevent. Refusing here is what makes the promise in this comment true rather than aspirational.
+   */
+  for (const slice of outcome.slices)
+    if (
+      typeof slice !== "object" ||
+      slice === null ||
+      typeof slice.key !== "string" ||
+      typeof slice.label !== "string" ||
+      typeof slice.outcome !== "string" ||
+      typeof slice.reason !== "string" ||
+      !Array.isArray(slice.applied) ||
+      !Array.isArray(slice.incompatible)
+    )
+      refuse();
+  return outcome;
 }
 
 const TEMPLATE_COLUMNS = "id, organization_id, name, state, created_at, updated_at";

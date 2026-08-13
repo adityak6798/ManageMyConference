@@ -122,10 +122,13 @@ function ChecklistForm({
       </div>
       <div className="field">
         <label htmlFor={`${field}-order`}>Order</label>
+        {/* `required`, because an empty number box reads as `Number("") === 0` — which is a
+            valid order that silently moves the line to the front of the checklist. */}
         <input
           id={`${field}-order`}
           name="sortOrder"
           type="number"
+          required
           min={0}
           defaultValue={entry ? entry.sortOrder : nextSortOrder}
         />

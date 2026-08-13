@@ -22,6 +22,7 @@ import { ContentConflictError } from "../src/application/content/content-reposit
 import type { SpeakerProfile } from "../src/domain/content/content";
 import {
   ContentService,
+  SpeakerChecklistTitleTakenError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
@@ -703,8 +704,64 @@ describe("D1ContentRepository template imports", () => {
     );
     expect(await mine()).toHaveLength(2);
 
+    // A row another writer removed first matches nothing, and says so rather than reporting a
+    // save. `success` alone cannot tell those apart; the affected-row count is what does.
     await store.deleteTaskTemplate(line.id);
+    await expect(store.updateTaskTemplate({ ...line, title: "Gone" })).resolves.toBe(false);
     expect(await mine()).toEqual([other]);
     await expect(store.findTaskTemplate(line.id)).resolves.toBeNull();
+  });
+
+  /**
+   * The 409 an organizer meets, driven through the real driver's own error text.
+   *
+   * `isTitleConflict` is a regex over a message SQLite composes, and every other test that
+   * reaches it runs against `MemoryContentRepository`, whose double throws a hand-written copy of
+   * the string the regex was written to match. That is a test of the copy. This one lets D1 write
+   * the message, so a change in its wording turns duplicate titles into 500s here rather than in
+   * front of somebody.
+   */
+  it("turns D1's own duplicate-title violation into the organizer's refusal", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "content-checklist-conflict",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const store = new D1ContentRepository(migrated.database as ContentDatabasePort);
+    let id = 0;
+    const service = new ContentService({
+      repository: store,
+      assetStorage: new DeterministicAssetStorage(),
+      proposals: {
+        acceptedProposal: async () => {
+          throw new ProposalNotFoundError("unused");
+        },
+      },
+      agenda: new AgendaService(
+        new D1AgendaRepository(migrated.database, () => new Date("2026-08-12T10:00:00.000Z")),
+        () => new Date("2026-08-12T10:00:00.000Z"),
+        store,
+      ),
+      speakerConversion: new D1SpeakerConversion(
+        migrated.database,
+        () => crypto.randomUUID(),
+        new D1IdentityDirectory(migrated.database),
+      ),
+      newId: () => `90000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+      now: () => new Date("2026-08-12T10:00:00.000Z"),
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+    const line = { title: "Book your travel", description: "", sortOrder: 9, dueOffsetDays: -30 };
+
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+
+    await expect(
+      service.createTaskTemplate(organizer, { eventId, ...line }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+    // And on the edit path, which reaches the same constraint from the other direction: the
+    // seed's own "Send your slides" is the title this rename collides with.
+    await expect(
+      service.updateTaskTemplate(organizer, created.id, { ...line, title: "Send your slides" }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
   });
 });

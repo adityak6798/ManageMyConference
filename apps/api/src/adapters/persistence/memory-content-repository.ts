@@ -332,9 +332,13 @@ export class MemoryContentRepository
   }
   async updateTaskTemplate(template: SpeakerTaskTemplate) {
     this.assertTitleFree(template);
+    // The affected-row count D1 reports, stated the way this store can state it: a line another
+    // writer removed between the read and this call matched nothing, and says so.
+    if (!this.taskTemplates.some((item) => item.id === template.id)) return false;
     this.taskTemplates = this.taskTemplates.map((item) =>
       item.id === template.id ? { ...template, createdAt: item.createdAt } : item,
     );
+    return true;
   }
   async deleteTaskTemplate(templateId: string) {
     this.taskTemplates = this.taskTemplates.filter((item) => item.id !== templateId);

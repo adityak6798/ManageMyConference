@@ -608,7 +608,15 @@ export const contentRoutes: RouteModule = {
           400,
         );
       if (!content) throw new Error("Content service is unavailable");
-      // The event comes back from the delete, which is the only thing that still knows it.
+      /*
+       * The event comes back from the delete, which is the only thing that still knows it.
+       *
+       * A repeat of this request — a retry, a double click that got through — answers 403 rather
+       * than 200, because a line that is already gone is refused exactly as one that never
+       * existed. That single refusal is deliberate (it is what stops this route being an oracle
+       * for another organization's ids) and the consequence is worth naming here: a 403 on the
+       * second attempt is not a permission problem, it is the first attempt having succeeded.
+       */
       const eventId = await content.deleteTaskTemplate(
         context.get("actor"),
         params.data.templateId,

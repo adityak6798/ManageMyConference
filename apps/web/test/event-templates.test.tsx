@@ -405,5 +405,66 @@ describe("event templates", () => {
         screen.queryByRole("region", { name: "Greenroom Summit is configured in part" }),
       ).toBeNull();
     });
+
+    /**
+     * A superseded partial application is history, and offering it as a repair is a revert.
+     *
+     * An application row is keyed per version, so applying a newer version writes its own row
+     * and leaves the older `partial` one exactly where it was. Before this was scoped to the
+     * newest application the card went on naming version 1's missing category and offering
+     * "Re-apply version 1" — which writes version 1's payload over the version 2 configuration,
+     * because every category converges on the payload it is given.
+     */
+    it("does not offer to re-apply a version a later application has superseded", async () => {
+      const supersededByV2 = [
+        { ...storedPartial, appliedAt: "2027-01-05T12:00:00.000Z" },
+        {
+          ...storedPartial,
+          templateVersionId: "523e4567-e89b-42d3-a456-426614174004",
+          version: 2,
+          appliedAt: "2027-02-09T09:00:00.000Z",
+          outcome: "applied" as const,
+          slices: partial.slices.map((slice) => ({ ...slice, outcome: "applied" as const })),
+        },
+      ];
+      stubTemplates(undefined, template, [version], supersededByV2);
+      renderWorkspace();
+
+      await screen.findByRole("button", { name: "Annual summit starter" });
+      expect(
+        screen.queryByRole("region", { name: "Greenroom Summit is configured in part" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+      ).toBeNull();
+    });
+
+    it("offers the newest application when that is the one that fell short", async () => {
+      // The mirror of the case above, so "newest only" cannot be satisfied by never rendering.
+      const partialAfterAClean = [
+        {
+          ...storedPartial,
+          appliedAt: "2027-01-05T12:00:00.000Z",
+          outcome: "applied" as const,
+          slices: partial.slices.map((slice) => ({ ...slice, outcome: "applied" as const })),
+        },
+        {
+          ...storedPartial,
+          templateVersionId: "523e4567-e89b-42d3-a456-426614174004",
+          version: 2,
+          appliedAt: "2027-02-09T09:00:00.000Z",
+        },
+      ];
+      stubTemplates(undefined, template, [version], partialAfterAClean);
+      renderWorkspace();
+
+      const card = within(
+        await screen.findByRole("region", { name: "Greenroom Summit is configured in part" }),
+      );
+      expect(
+        card.getByRole("button", { name: "Re-apply version 2 to Greenroom Summit" }),
+      ).toBeEnabled();
+      expect(card.getByText("Rooms and time slots")).toBeInTheDocument();
+    });
   });
 });

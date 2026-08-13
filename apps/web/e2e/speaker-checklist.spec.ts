@@ -10,19 +10,23 @@
  * **Two events, deliberately.** Authoring runs against an event this run creates, because these
  * specs share one mutable D1 fixture at `workers: 1` and a line added to the demo event would
  * change what `speaker-portal.spec.ts`, the traceability rows and the demo itself show. The
- * assignment half runs against the demo event, because that is the only place with a speaker to
- * assign to — and it uses the seed's third checklist line, which the seed leaves assigned to
- * nobody for exactly this purpose. Sam ends the run with one extra open task, which
- * `speaker-portal.spec.ts` restores from at its own start.
+ * assignment half has to run against the demo event, because that is the only place with a
+ * speaker to assign to. This file sorts before `speaker-portal.spec.ts`, which restores Sam's
+ * onboarding checklist at its own start, so the extra task lands before that restoration rather
+ * than after it.
  *
- * This file sorts before `speaker-portal.spec.ts`, which is what makes that restoration the
- * thing that runs second.
+ * **Re-runnable in place, which took care.** `assignTaskChecklist` skips a `(speaker, title)`
+ * pair the speaker already holds *in any status*, and `speaker-portal.spec.ts` restores by
+ * completing tasks rather than removing them — so a second run against a fixture nobody reset
+ * would find every seeded line already assigned and the count assertion would fail. The line
+ * this spec assigns therefore carries a title unique to the run, the way `event-templates.spec.ts`
+ * names the template it saves, and is removed again afterwards so the demo event's checklist does
+ * not grow a line per run. `gate:browser` resets first in any case; this is for the developer
+ * re-running the suite in place, which `speaker-portal.spec.ts` goes to real trouble to support.
  */
 import { expect, type Page, test } from "@playwright/test";
 
 const DEMO_EVENT_ID = "00000000-0000-4000-8000-000000000001";
-/** The seeded line the seed deliberately assigns to nobody. */
-const UNASSIGNED_LINE = "Send your slides";
 
 async function signIn(page: Page) {
   await page.goto("/");
@@ -135,24 +139,40 @@ test("an organizer turns the demo event's checklist into work for a named speake
 }) => {
   await signIn(page);
   const panel = await openChecklist(page, DEMO_EVENT_ID);
-  // The seed's third line, left assigned to nobody so this command has something to do.
-  await expect(panel.getByRole("listitem").filter({ hasText: UNASSIGNED_LINE })).toBeVisible();
+  /*
+   * A line unique to this run, so the count below is a fact about what this press wrote rather
+   * than about how many times the suite has been run against this fixture. The seed's own three
+   * lines may or may not already be Sam's, depending on that history; this one never is.
+   */
+  const line = `Confirm dietary needs ${Date.now()}`;
+  await panel.getByRole("button", { name: "New checklist line" }).click();
+  await panel.getByLabel("What the speaker is asked for").fill(line);
+  await panel.getByRole("button", { name: "Add line" }).click();
+  await expect(panel.getByRole("listitem").filter({ hasText: line })).toBeVisible();
 
+  const assign = panel.getByRole("button", { name: /Assign \d+ lines? to 1 speaker/ });
   await panel.getByLabel("Assign to").selectOption({ label: "Sam Speaker" });
-  await panel.getByRole("button", { name: /Assign 3 lines to 1 speaker/ }).click();
+  await assign.click();
 
   /*
-   * Idempotent per speaker and line: Sam already holds the first two lines as tasks, so exactly
-   * one is created. That number is the whole point of the command — it is what makes running it
-   * again after a speaker joins safe rather than a way to ask everybody for everything twice.
+   * At least this run's line, and the sentence is in English at either end of the plural. The
+   * exact number depends on which seeded lines Sam already holds, which is fixture history; that
+   * *something* was written is the claim, and the press below is what proves it was durable.
    */
-  await expect(panel.getByRole("status")).toContainText("1 task assigned across 1 speaker");
+  await expect(panel.getByRole("status")).toContainText(/\d+ tasks? assigned across 1 speaker/);
 
   /*
    * And again, which now has nothing left to do. That answer is the assertion that the first
-   * press really wrote: "everybody already has every line" is only reachable once the line
-   * this run assigned is a task Sam holds.
+   * press really wrote: "everybody already has every line" is only reachable once the line this
+   * run assigned is a task Sam holds.
    */
-  await panel.getByRole("button", { name: /Assign 3 lines to 1 speaker/ }).click();
+  await assign.click();
   await expect(panel.getByRole("status")).toContainText("already has every line");
+
+  // Clean up the line, so the demo event's checklist does not grow one per run. The task it
+  // created stays with Sam, because once assigned the work is theirs — which is the rule the
+  // removal announcement states, exercised here rather than only asserted in the unit suite.
+  await panel.getByRole("button", { name: new RegExp(`Remove ${line}`) }).click();
+  await expect(panel.getByRole("status")).toContainText("Tasks already assigned from it");
+  await expect(panel.getByRole("listitem").filter({ hasText: line })).toHaveCount(0);
 });

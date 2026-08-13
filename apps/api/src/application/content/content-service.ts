@@ -768,8 +768,13 @@ export class ContentService {
     editing: boolean,
   ): Promise<SpeakerTaskTemplate> {
     try {
-      if (editing) await this.dependencies.repository.updateTaskTemplate(template);
-      else await this.dependencies.repository.addTaskTemplate(template);
+      // A matched row is what makes this a save. Another organizer can delete a line between the
+      // read above and this write, and reporting that as a success would announce "saved" over a
+      // checklist the same response shows the line missing from.
+      if (editing) {
+        if (!(await this.dependencies.repository.updateTaskTemplate(template)))
+          throw new CapabilityDeniedError("Speaker checklist access denied");
+      } else await this.dependencies.repository.addTaskTemplate(template);
     } catch (error) {
       // ERROR-INTENT: `UNIQUE(event_id, title)` is the checklist's own rule, so a violation is
       // the organizer's answer and becomes a 409 naming the title. Every other failure keeps
@@ -1734,14 +1739,15 @@ export class ContentService {
 /**
  * Whether a driver error is the checklist's own uniqueness rule rather than anything else.
  *
- * SQLite names the columns for a table constraint and the index for a partial one; both spellings
- * are matched, and the generic phrase alone is deliberately not enough — a different unique
- * violation must not be reported to an organizer as a duplicate checklist title.
+ * `1405` declares the uniqueness as a table constraint, so SQLite names the columns:
+ * `UNIQUE constraint failed: speaker_task_templates.event_id, speaker_task_templates.title`.
+ * The table and one of its two columns are both required, because the generic phrase alone is
+ * not enough — a violation on `speaker_tasks`, or on this table's primary key, must not be
+ * reported to an organizer as a duplicate checklist title.
  */
 function isTitleConflict(reason: unknown): boolean {
   const text = reason instanceof Error ? reason.message : String(reason ?? "");
   return (
-    /UNIQUE constraint failed/i.test(text) &&
-    /speaker_task_templates[.\s,]*(event_id|title)/i.test(text)
+    /UNIQUE constraint failed/i.test(text) && /speaker_task_templates\.(event_id|title)/i.test(text)
   );
 }

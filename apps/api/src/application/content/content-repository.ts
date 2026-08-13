@@ -140,7 +140,12 @@ export interface ContentRepository {
    */
   findTaskTemplate(templateId: string): Promise<SpeakerTaskTemplate | null>;
   addTaskTemplate(template: SpeakerTaskTemplate): Promise<void>;
-  updateTaskTemplate(template: SpeakerTaskTemplate): Promise<void>;
+  /**
+   * `false` when no row matched, which the caller turns into the same refusal a line that does
+   * not exist gets. A conditional write that matched nothing and one that landed are both a
+   * successful statement; only the affected-row count separates them.
+   */
+  updateTaskTemplate(template: SpeakerTaskTemplate): Promise<boolean>;
   /**
    * Remove a line from the checklist. Tasks already assigned from it are untouched, because a
    * task is keyed by its title rather than by a pointer here: once assigned, the work is that

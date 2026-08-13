@@ -356,17 +356,31 @@ export function EventTemplatesWorkspace({
   /** What the categories in the result support, which is all the card above them may claim. */
   const resultVerdict = result ? verdict(result.slices) : null;
   /*
-   * The applications that left this event configured in part.
+   * The **most recent** application, and only when it left this event configured in part.
    *
    * Read from the stored envelope word rather than recomputed from the categories, because the
    * server is what decided it and the row is what an operator would query. `failed` is here too:
    * an application where nothing landed is not a lesser problem than one where half did — it is
    * a clone the organizer believes happened.
+   *
+   * **Newest only, and that is a correctness rule rather than tidiness.** An application row is
+   * keyed per version, so applying a *newer* version — or a different template — writes its own
+   * row and leaves an older `partial` one exactly where it was. Offering that older one as a
+   * repair would write its payload over the configuration that superseded it: every slice
+   * converges on the payload it is given, so "re-apply version 1" against an event since
+   * configured from version 2 is a revert wearing the word repair. The newest application is the
+   * only one whose payload is still the state the organizer chose, so it is the only one this
+   * card may offer — which is also exactly what the issue asked for, "events whose most recent
+   * application was `partial`".
    */
-  const incomplete = useMemo(
-    () => applications.filter(({ outcome }) => outcome === "partial" || outcome === "failed"),
-    [applications],
-  );
+  const incomplete = useMemo(() => {
+    // Newest first, as the route promises; re-sorted here rather than trusted, because the whole
+    // point of this value is which one is last and a client that assumed wrong would revert.
+    const newest = [...applications].sort((left, right) =>
+      right.appliedAt.localeCompare(left.appliedAt),
+    )[0];
+    return newest && (newest.outcome === "partial" || newest.outcome === "failed") ? [newest] : [];
+  }, [applications]);
 
   // Opening a template arms its own controls: the rename box holds the current name, the apply
   // form offers its newest version, and a plan built against the previous template is dropped.
@@ -581,7 +595,7 @@ export function EventTemplatesWorkspace({
         <Card
           labelledBy="event-template-incomplete"
           title={`${eventName} is configured in part`}
-          hint="A category that did not land is still missing, and nothing else in the console says so. Re-applying the same version is the repair: every category converges rather than duplicating what it already wrote."
+          hint="The last template applied to this event did not land in full, and nothing else in the console says so. Re-applying that version is the repair: every category converges rather than duplicating what it already wrote. If you have since fixed the category by hand, applying again is still safe and is what clears this."
         >
           <div className="template-stack">
             {incomplete.map((application) => {
