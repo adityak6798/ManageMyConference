@@ -101,9 +101,21 @@ describe("the organizer's window controls", () => {
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
 
-    fireEvent.change(await screen.findByLabelText("Deadline"), {
-      target: { value: "2026-09-30T23:59" },
-    });
+    /*
+     * Waited for the composer to settle before typing.
+     *
+     * `CfpWorkspace` seeds its two window inputs from the loaded form in a passive effect, so the
+     * control can be findable on the commit that first renders it, *before* that effect has run —
+     * and the effect's `setClosesAtInput("")` then lands after `fireEvent.change` and silently
+     * clears what was typed. The save goes out with `closesAt: null` and the failure reads as a
+     * broken deadline conversion, which is nowhere near the cause. Roughly 3 in 200 loaded runs.
+     * Waiting on a rendered value the effect is responsible for is what makes the field settled
+     * rather than merely present.
+     */
+    const deadline = await screen.findByLabelText("Deadline");
+    await waitFor(() => expect(screen.getByLabelText("Opens")).toHaveValue(""));
+    fireEvent.change(deadline, { target: { value: "2026-09-30T23:59" } });
+    await waitFor(() => expect(deadline).toHaveValue("2026-09-30T23:59"));
     fireEvent.click(screen.getByRole("button", { name: "Save window" }));
 
     /*
@@ -128,6 +140,11 @@ describe("the organizer's window controls", () => {
     // was typed as.
     expect(await screen.findByText(/Submission window saved/)).toBeInTheDocument();
     expect(screen.getByLabelText("Deadline")).toHaveValue("2026-09-30T23:59");
+    // And *still* only one write, checked after the response has landed. `waitFor` above succeeds
+    // the instant the PUT is issued, so on its own it cannot see a second request that follows —
+    // which is the half of "must not publish the form" this test is named for, and which the
+    // reordering that fixed a timing flake quietly stopped checking.
+    expect(writes).toHaveLength(1);
   });
 
   it("states the precedence rule beside the controls, in the event's zone", async () => {

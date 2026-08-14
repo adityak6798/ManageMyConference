@@ -703,7 +703,11 @@ describe("what the public surface says about the call for proposals", () => {
 
     fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Submission form unavailable.");
+    // Awaited, not asserted synchronously: the heading comes from the projection while this
+    // sentence comes from the *live CFP* read, which is still in flight when the heading paints.
+    // The sync form failed roughly 2 runs in 86 under load, showing the state one tick earlier.
+    // The sentence itself is main's, which this branch's status-line merge kept.
+    expect(await screen.findByText("Submission form unavailable.")).toBeInTheDocument();
     expect(container.textContent).not.toContain("Open for submissions.");
     // The reason is stated as a reading failure, not as a rejected submission.
     expect(await screen.findByRole("alert")).toHaveTextContent("The CFP is not published.");

@@ -1458,6 +1458,30 @@ four are covered now, each verified by reverting it and watching a named test fa
 narrower than "write tests": a claim *about coverage* is exactly as checkable as the code, and this
 one went into a commit message and a plan document without being run.
 
+**A fourteenth pass then found that the fix for that had itself shipped two behaviours with no
+assertion, and one of them was a regression.** Preferring the copy in hand over the list row is
+right after a *successful* write and wrong after a refused one — `editing` is replaced only on
+success while the list refreshes either way, so a 409 from another tab left the in-hand copy
+stale, and pressing `Continue` on the row the conflict message points at rebound the same stale
+revision and was refused identically, with no escape but a reload. Whichever copy carries the
+higher revision now wins, and both directions are pinned.
+
+That pass also found the reordering that de-flaked the window test had quietly stopped checking
+the guarantee the test is named for: `waitFor` succeeds the instant the request is *issued*, so a
+second write following it was invisible, and "must not publish the form" was no longer asserted.
+
+**And it found three more load-dependent flakes, one of them in the test the previous round had
+just "fixed".** Two are the same shape and worth naming as a family: a control seeded from props
+or a URL in a passive effect is *findable* before that effect has run, so a value typed in the gap
+is silently cleared by the effect's own reset — the window's deadline went out as `null`, and the
+invitation token never reached the button. The third was a synchronous assertion on a sentence
+still in flight. None is in product code, but the first two shadow a real narrowness: an effect
+that resets a controlled input after first paint clobbers anything typed in that window.
+
+Three flakes across three rounds were found only by running the suites *concurrently*, which is
+what `npm run check` does and what a single-workspace run does not. Sixteen green runs of the web
+suite alone said nothing about any of them.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`

@@ -343,7 +343,10 @@ describe("the signed-in applicant's proposals", () => {
     const original = globalThis.fetch as typeof fetch;
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === "/api/auth/signout") signedOut = true;
-      if (signedOut && String(input) === proposalsPath && !init?.method) listsAfterSignOut += 1;
+      // `!init?.method` *or* an explicit GET: `loadMyProposals` passes no init today, and a test
+      // that silently stops counting if it ever does is a test that passes for the wrong reason.
+      const reading = !init?.method || init.method === "GET";
+      if (signedOut && String(input) === proposalsPath && reading) listsAfterSignOut += 1;
       return original(input, init);
     });
     fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
@@ -398,6 +401,92 @@ describe("the signed-in applicant's proposals", () => {
       answers: { title: "Talk" },
       expectedRevision: 1,
     });
+  });
+
+  it("resumes from whichever copy of a proposal is newer, after a win and after a refusal", async () => {
+    /*
+     * Both directions, because fixing one broke the other.
+     *
+     * The list can be a refresh behind, so `Continue` on a row just saved handed back the
+     * *pre-save* revision and the applicant's own next save was refused as a conflict with
+     * themselves. Preferring the in-hand copy fixed that — and broke the refusal case, where the
+     * in-hand copy is the stale one: `editing` is replaced only on a successful write, while the
+     * list refreshes either way. So after a 409 from another tab, pressing `Continue` on the row
+     * the conflict message points at rebound the same stale revision and was refused identically,
+     * with no way out but a reload. Neither copy is reliably newer; the revision says which is.
+     */
+    let refuseNextSave = false;
+    const listed = [proposal({ revision: 2, title: "Moved on elsewhere" })];
+    const test = mount({
+      proposals: listed,
+      write: (url, init) =>
+        init.method === "PUT"
+          ? refuseNextSave
+            ? jsonResponse(
+                { error: { code: "CONFLICT", message: "Changed elsewhere.", correlationId: "x" } },
+                409,
+              )
+            : jsonResponse({ proposal: proposal({ revision: 3 }) })
+          : undefined,
+    });
+
+    // The list is ahead of anything held: resume from the list.
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));
+    expect(test.calls.find(({ method }) => method === "PUT")?.body).toMatchObject({
+      expectedRevision: 2,
+    });
+
+    // Now the write has returned revision 3 and the list still shows 2: resume from the copy in
+    // hand, or the applicant is refused for an edit they themselves just made.
+    refuseNextSave = true;
+    // Another tab moves it on again, which is what the refusal below will be about; the refresh
+    // that follows the failed save is what brings this back.
+    test.setProposals([proposal({ revision: 4, title: "Moved on elsewhere" })]);
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() =>
+      expect(test.calls.filter(({ method }) => method === "PUT")).toHaveLength(2),
+    );
+    expect(test.calls.filter(({ method }) => method === "PUT")[1]?.body).toMatchObject({
+      expectedRevision: 3,
+    });
+
+    // The refusal came from another tab moving the proposal on, so the refresh that follows that
+    // failed save brings back a *newer* row than the copy in hand.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Continue/ })).not.toBeDisabled(),
+    );
+    refuseNextSave = false;
+
+    // Pressing Continue on the row the conflict message points at must rebind to the list, not to
+    // the revision that just lost — otherwise the next save is refused identically, for ever.
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() =>
+      expect(test.calls.filter(({ method }) => method === "PUT")).toHaveLength(3),
+    );
+    expect(test.calls.filter(({ method }) => method === "PUT")[2]?.body).toMatchObject({
+      expectedRevision: 4,
+    });
+  });
+
+  it("says how many answers a republished form has left without questions", async () => {
+    /*
+     * Saving is what makes the loss permanent, so it is said before the save rather than found
+     * afterwards — and on a *submitted* proposal it deletes content the organizers already hold.
+     * This shipped with no assertion anywhere, in the commit whose subject was a false coverage
+     * claim.
+     */
+    mount({
+      proposals: [proposal({ answers: { title: "Kept", gone: "One", alsoGone: "Two" } })],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent("2 answers no longer have questions");
+    expect(notice).toHaveTextContent("saving will drop them");
   });
 
   it("does not tell an applicant a submission failed when what failed was signing out", async () => {

@@ -338,9 +338,16 @@ export function PublicCfpView({
      * The list can be a refresh behind — the controls come back before the trailing read lands —
      * so `Continue` on the row you have just saved could hand back the revision *before* that
      * save, and the next save is then refused as a conflict with the applicant's own edit.
-     * `editing` holds what the write returned, which is never staler than the list.
+     *
+     * **The revision comparison is what makes this safe in both directions.** `editing` is only
+     * replaced on a *successful* write, while the list refreshes either way — so after a 409 from
+     * another tab, `editing` is the stale one. Preferring it unconditionally meant pressing
+     * `Continue` on the row the conflict message points at rebound the same stale revision, and
+     * the next save was refused identically, with no way out but a reload. Whichever copy is
+     * newer wins.
      */
-    const current = editing?.id === proposal.id ? editing : proposal;
+    const current =
+      editing?.id === proposal.id && editing.revision >= proposal.revision ? editing : proposal;
     const kept = answersTheFormStillAccepts(current.answers);
     const dropped = Object.keys(current.answers).length - Object.keys(kept).length;
     setEditing(current);
