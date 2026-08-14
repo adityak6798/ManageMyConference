@@ -384,19 +384,24 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
         : []),
     ]),
   );
-  let communicationsProcessed = 0;
-  while (communicationsProcessed < limit && (await worker.runOne())) communicationsProcessed += 1;
-  let webhooksProcessed = 0;
-  if (configuredWebhooks) {
-    const webhookWorker = new WebhookWorker(configuredWebhooks.repository, {
-      egress: configuredWebhooks.egress,
-      newId: () => crypto.randomUUID(),
-      now: () => new Date(),
-    });
-    // Each durable queue gets its own bounded budget. Sharing the communications count here lets
-    // a sustained mail/projection backlog consume every turn before webhooks are even examined.
-    while (webhooksProcessed < limit && (await webhookWorker.runOne())) webhooksProcessed += 1;
-  }
+  const runBounded = async (runOne: () => Promise<boolean>) => {
+    let processed = 0;
+    while (processed < limit && (await runOne())) processed += 1;
+    return processed;
+  };
+  if (!configuredWebhooks) return runBounded(() => worker.runOne());
+
+  const webhookWorker = new WebhookWorker(configuredWebhooks.repository, {
+    egress: configuredWebhooks.egress,
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  // Start both independently bounded drains together. A slow provider in either queue must not
+  // prevent the other queue from leasing and durably completing work during this scheduled turn.
+  const [communicationsProcessed, webhooksProcessed] = await Promise.all([
+    runBounded(() => worker.runOne()),
+    runBounded(() => webhookWorker.runOne()),
+  ]);
   return communicationsProcessed + webhooksProcessed;
 }
 

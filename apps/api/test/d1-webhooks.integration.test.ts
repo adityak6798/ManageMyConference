@@ -501,33 +501,68 @@ describe("signed webhook D1 lifecycle", () => {
       .bind(new Date().toISOString())
       .first<{ count: number }>();
     expect(ordinaryDue?.count).toBeGreaterThanOrEqual(1);
-    const egress = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    let releaseOrdinary!: () => void;
+    const ordinaryReleased = new Promise<void>((resolve) => {
+      releaseOrdinary = resolve;
+    });
+    let markOrdinaryStarted!: () => void;
+    const ordinaryStarted = new Promise<void>((resolve) => {
+      markOrdinaryStarted = resolve;
+    });
+    let markWebhookDispatched!: () => void;
+    const webhookDispatched = new Promise<void>((resolve) => {
+      markWebhookDispatched = resolve;
+    });
+    const egress = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === "https://mail.example.net/send") {
+        markOrdinaryStarted();
+        await ordinaryReleased;
+        return Response.json({ id: "mail-fairness" });
+      }
+      expect(String(input)).toBe("https://egress.example.net/v1/webhooks");
       expect(JSON.parse(String(init?.body))).toMatchObject({
         operation: "dispatch",
         url: "https://receiver.example.com/hooks/fairness",
       });
+      markWebhookDispatched();
       return Response.json({ result: "delivered", targetStatus: 204 });
     });
     vi.stubGlobal("fetch", egress);
 
-    await expect(
-      drainOutbox(
-        {
-          DB: migrated.database,
-          WEBHOOK_EGRESS_ENDPOINT: "https://egress.example.net/v1/webhooks",
-          WEBHOOK_EGRESS_TOKEN: "egress-token",
-          WEBHOOK_WRAPPING_KEY_VERSION: "test-v1",
-          WEBHOOK_WRAPPING_KEYS: wrappingKeyring,
-        } as Environment,
-        1,
-      ),
-    ).resolves.toBe(2);
+    const draining = drainOutbox(
+      {
+        DB: migrated.database,
+        COMMUNICATIONS_PROVIDERS: "live",
+        EMAIL_API_ENDPOINT: "https://mail.example.net/send",
+        EMAIL_API_TOKEN: "mail-token",
+        EMAIL_SENDER: "greenroom@example.test",
+        AIRTABLE_BASE_ID: "airtable-base",
+        AIRTABLE_TABLE_ID: "airtable-table",
+        AIRTABLE_TOKEN: "airtable-token",
+        ACCELEVENTS_API_ENDPOINT: "https://accelevents.example.net/project",
+        ACCELEVENTS_TOKEN: "accelevents-token",
+        WEBHOOK_EGRESS_ENDPOINT: "https://egress.example.net/v1/webhooks",
+        WEBHOOK_EGRESS_TOKEN: "egress-token",
+        WEBHOOK_WRAPPING_KEY_VERSION: "test-v1",
+        WEBHOOK_WRAPPING_KEYS: wrappingKeyring,
+      } as Environment,
+      1,
+    );
+    await ordinaryStarted;
+    await webhookDispatched;
 
-    await expect(repository.getDelivery("webhook-fairness-delivery")).resolves.toMatchObject({
-      state: "succeeded",
-      attemptCount: 1,
-    });
-    expect(egress).toHaveBeenCalledTimes(1);
+    await vi.waitFor(
+      async () => {
+        await expect(repository.getDelivery("webhook-fairness-delivery")).resolves.toMatchObject({
+          state: "succeeded",
+          attemptCount: 1,
+        });
+      },
+      { timeout: 3_000 },
+    );
+    releaseOrdinary();
+    await expect(draining).resolves.toBe(2);
+    expect(egress).toHaveBeenCalledTimes(2);
   });
 
   it("rejects unsafe destinations and records terminal redirects without following them", async () => {
