@@ -306,12 +306,12 @@ describe("D1CfpRepository", () => {
       // assertion on the first clause alone.
     ).rejects.toThrow(/matched no submission[\s\S]*needs checking rather than retrying/);
 
-    // And the update itself.
+    // And the update itself, asserted on the same whole message rather than its first clause.
     await expect(
       new D1SubmittedProposalAdapter(withCounts([1, 0])).transitionAtomically(
         transition({ eventId, proposalIds: [proposalId] }),
       ),
-    ).rejects.toThrow(/matched no submission/);
+    ).rejects.toThrow(/matched no submission[\s\S]*needs checking rather than retrying/);
 
     // A driver that will not say how many rows it touched is refused too, rather than read as
     // either zero or one — the whole contract in `d1-write-result.ts`.

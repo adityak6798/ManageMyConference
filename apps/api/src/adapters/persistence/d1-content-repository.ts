@@ -234,8 +234,10 @@ export class D1ContentRepository
    *
    * - **Reads the count and answers with it**: `updateProfilePhoto`, `updateProfileWorkflow`,
    *   `updateTask`, `updateAsset`, `updateResource`, `updateTaskTemplate`, `completeSpeakerImport`.
-   *   Each is a single guarded `UPDATE` whose caller read the row first and then tells somebody
-   *   it saved. That combination is what the count is for.
+   *   Each is a single guarded `UPDATE` whose callers read the row first and then tell somebody
+   *   it saved. That combination is what the count is for. (`updateProfilePhoto` has one further
+   *   call site, inside asset deletion, that deliberately discards the answer and says so at that
+   *   line — the method still reads and returns it.)
    * - **Reads the count and deliberately discards it**: `deleteSession`, `deleteResource`,
    *   `deleteTaskTemplate`. A row already gone is the outcome the caller asked for, so zero is
    *   not a failure — but a driver that cannot report a count still is, which is the half worth
@@ -251,11 +253,15 @@ export class D1ContentRepository
    *   `replaceLatestAsset` is the interesting one: its demotion is `WHERE id=?` against the
    *   version it means to replace, and a zero there would be a lost write. It is left without a
    *   count because **storage refuses the batch instead** — `speaker_assets_latest_unique`
-   *   (migration `1403`) is a partial unique index over `version_group_id WHERE is_latest=1`, so
-   *   an insert that lands beside a row the demotion failed to clear violates it and the whole
-   *   batch throws. A constraint that makes the loss loud is a stronger guard than a count this
-   *   method would have to interpret, which is why this is a deliberate exception rather than an
-   *   oversight — and why loosening that index would mean revisiting this line.
+   *   (migration `1403`) is a partial unique index on `version_group_id`
+   *   `WHERE version_group_id IS NOT NULL AND is_latest=1`, and the group is never null here
+   *   because the insert binds `versionGroupId ?? id` — so an insert that lands beside a row the
+   *   demotion failed to clear violates it and D1 **rejects the whole batch**, which was proven
+   *   against a real database rather than argued from the schema. A constraint that makes the
+   *   loss loud is a stronger guard than a count this method would have to interpret: it also
+   *   catches the case a count would miss, where the demotion matched its row but a competitor
+   *   had already inserted its own latest. This is a deliberate exception rather than an
+   *   oversight, and loosening that index would mean revisiting this line.
    *   (The private `batch()` used by `revise` is separate: it reports each statement's count.)
    * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
    *   no production caller to mislead — stated here and in `content-repository.ts`.

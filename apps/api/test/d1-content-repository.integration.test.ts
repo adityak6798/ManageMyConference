@@ -451,8 +451,10 @@ describe("D1ContentRepository revisions", () => {
      * so deleting it means clearing `crm_prospects.speaker_id` — a write to a table the CRM
      * domain owns, from a test the content domain owns, which `npm run context -- check`
      * refuses and is right to. Nothing in the product deletes a speaker at all, which is exactly
-     * why this has to be driven at the store: the criterion for reading the count is a caller
-     * that reports success to a person, not whether a delete path happens to exist yet.
+     * why this has to be driven at the store: what decides whether a writer reads its count is
+     * whether the count decides anything for its caller, not whether a delete path happens to
+     * exist yet. (Deliberately not stated as a rule — see the `write` docblock, where three
+     * attempts at one were each refuted.)
      */
     const strangerId = "10000000-0000-4000-8000-0000000000f1";
     const headshotId = "80000000-0000-4000-8000-0000000000a2";
