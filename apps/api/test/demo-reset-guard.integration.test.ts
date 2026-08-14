@@ -244,8 +244,8 @@ describe("the remote demo reset guard, against a real seeded database", () => {
      * **And applying the seed no longer makes that refusal's claim true, which is the point of
      * this lane.**
      *
-     * `seed/reset.sql` used to be a full teardown — `DELETE FROM users`, `organizations`,
-     * `events`, unscoped — so overriding the guard silently destroyed this person's workspace and
+     * `seed/reset.sql` used to be a full teardown — an unscoped delete of every row in the three
+     * guarded tables — so overriding the guard silently destroyed this person's workspace and
      * exited with `Remote demo restored`. Every cleanup is now scoped to the ids the seed
      * inserts, so the restore rebuilds the demo and cannot reach anything it did not create.
      *
