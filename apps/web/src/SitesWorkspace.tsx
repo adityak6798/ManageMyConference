@@ -21,10 +21,12 @@ import { type FormEvent, useCallback, useState } from "react";
 import {
   createSite,
   getSite,
+  listSiteConsents,
   listSites,
   publishPrivacyNotice,
   setSiteState,
   SiteApiError,
+  type SiteConsents,
   type SiteDetail,
   type SitesResponse,
   updateSite,
@@ -80,6 +82,8 @@ export function SitesWorkspace({
   const [detail, setDetail] = useState<SiteDetail | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [notice, setNotice] = useState("");
+  /** Fetched on request rather than with the portal: the record is a list of people's addresses. */
+  const [consents, setConsents] = useState<SiteConsents | null>(null);
 
   const sites = useLoad<string, SitesResponse>(
     organizationId,
@@ -93,6 +97,8 @@ export function SitesWorkspace({
       const found = await getSite(organizationId, siteId);
       setSelected(siteId);
       setDetail(found);
+      // Another portal's consent record must not survive the switch, even for a frame.
+      setConsents(null);
       setDraft({
         slug: found.site.slug,
         name: found.site.name,
@@ -192,38 +198,40 @@ export function SitesWorkspace({
             portal — behind one address and one privacy notice.
           </EmptyState>
         ) : (
-          <table>
-            <caption className="visually-hidden">Portals in this organization</caption>
-            <thead>
-              <tr>
-                <th scope="col">Portal</th>
-                <th scope="col">Address</th>
-                <th scope="col">State</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.sites.map((site) => (
-                <tr key={site.id}>
-                  <td className="primary-cell" data-label="Portal">
-                    {site.name}
-                    {site.tagline ? <span className="sub">{site.tagline}</span> : null}
-                  </td>
-                  <td data-label="Address">
-                    <code>/sites/{site.slug}</code>
-                  </td>
-                  <td data-label="State">
-                    <Pill tone={site.state === "published" ? "ok" : "neutral"}>{site.state}</Pill>
-                  </td>
-                  <td data-label="Actions">
-                    <button type="button" disabled={busy} onClick={() => open(site.id)}>
-                      Open
-                    </button>
-                  </td>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="visually-hidden">Portals in this organization</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Portal</th>
+                  <th scope="col">Address</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.sites.map((site) => (
+                  <tr key={site.id}>
+                    <td className="primary-cell" data-label="Portal">
+                      {site.name}
+                      {site.tagline ? <span className="sub">{site.tagline}</span> : null}
+                    </td>
+                    <td data-label="Address">
+                      <code>/sites/{site.slug}</code>
+                    </td>
+                    <td data-label="State">
+                      <Pill tone={site.state === "published" ? "ok" : "neutral"}>{site.state}</Pill>
+                    </td>
+                    <td data-label="Actions">
+                      <button type="button" disabled={busy} onClick={() => open(site.id)}>
+                        Open
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 
@@ -389,6 +397,76 @@ export function SitesWorkspace({
                 </button>
               </form>
             ) : null}
+          </Card>
+
+          {/*
+           * Who accepted which version, which is the only thing that makes an append-only notice
+           * worth having: a notice nobody can trace a consent back to proves nothing.
+           *
+           * Loaded on request rather than with the portal. Every row is a registrant's address, so
+           * opening the portal to change its tagline should not put a list of people's email
+           * addresses on the screen and into a screenshot.
+           */}
+          <Card
+            title="Consent record"
+            hint="Each registration stores the notice version it accepted, and neither the notice nor the record can be rewritten."
+          >
+            {consents === null ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    setConsents(await listSiteConsents(organizationId, detail.site.id));
+                  } catch (reason) {
+                    announce("error", describe(reason));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Show who consented
+              </button>
+            ) : consents.consents.length === 0 ? (
+              <EmptyState title="Nobody has registered yet">
+                A consent appears here the first time somebody completes the registration form.
+              </EmptyState>
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <caption className="visually-hidden">Consents recorded on this portal</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Registrant</th>
+                      <th scope="col">Notice version</th>
+                      <th scope="col">Accepted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {consents.consents.map((entry) => (
+                      <tr key={entry.id}>
+                        <td className="primary-cell" data-label="Registrant">
+                          {entry.actorRef}
+                        </td>
+                        <td data-label="Notice version">
+                          <Pill
+                            tone={
+                              entry.noticeVersion === detail.site.privacyNotice?.version
+                                ? "ok"
+                                : "warn"
+                            }
+                          >
+                            Version {entry.noticeVersion}
+                          </Pill>
+                        </td>
+                        <td data-label="Accepted">{new Date(entry.acceptedAt).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
 
           {canManage ? (

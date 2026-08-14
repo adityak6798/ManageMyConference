@@ -26,6 +26,7 @@ import {
   deleteCustomRole,
   listCustomRoles,
   previewCustomRole,
+  setEventFieldLocks,
   unassignCustomRole,
   updateCustomRole,
 } from "./api/custom-roles";
@@ -36,6 +37,7 @@ import { Card, EmptyState, Notice, Pill, useActionFeedback, useLoad } from "./ui
 type Subject = "session" | "speaker" | "contact";
 type Policy = "view" | "lock" | "hide";
 type Template = CustomRoleDraft["template"];
+type LockEntry = CustomRolesResponse["fieldLocks"][number];
 
 const POLICIES: readonly Policy[] = ["view", "lock", "hide"];
 const POLICY_LABEL: Record<Policy, string> = {
@@ -81,6 +83,8 @@ export function CustomRolesWorkspace({
   const [draft, setDraft] = useState<CustomRoleDraft | null>(null);
   const [expectedRevision, setExpectedRevision] = useState(0);
   const [preview, setPreview] = useState<CustomRolePreview | null>(null);
+  /** `null` means "unedited": the stored set is what the screen shows until somebody changes it. */
+  const [lockDraft, setLockDraft] = useState<LockEntry[] | null>(null);
 
   const scope = useMemo(() => ({ organizationId, eventId }), [organizationId, eventId]);
   const roles = useLoad<typeof scope, CustomRolesResponse>(
@@ -153,6 +157,19 @@ export function CustomRolesWorkspace({
       };
     });
 
+  const storedLocks = data.fieldLocks;
+  const locks = lockDraft ?? storedLocks;
+  const lockOf = (subject: Subject, field: string): Policy =>
+    (locks.find((entry) => entry.subject === subject && entry.field === field)?.policy as Policy) ??
+    "view";
+  const setLock = (subject: Subject, field: string, policy: Policy) =>
+    setLockDraft((current) => {
+      const others = (current ?? storedLocks).filter(
+        (entry) => !(entry.subject === subject && entry.field === field),
+      );
+      return policy === "view" ? others : [...others, { subject, field, policy }];
+    });
+
   const policyOf = (subject: Subject, field: string): Policy =>
     draft?.fieldPolicies.find((entry) => entry.subject === subject && entry.field === field)
       ?.policy ?? "view";
@@ -187,96 +204,98 @@ export function CustomRolesWorkspace({
             is checked against the allowlist regardless of what the template said.
           </EmptyState>
         ) : (
-          <table>
-            <caption className="visually-hidden">Custom roles on this event</caption>
-            <thead>
-              <tr>
-                <th scope="col">Role</th>
-                <th scope="col">Capabilities</th>
-                <th scope="col">Holders</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.roles.map((role) => (
-                <tr key={role.id}>
-                  <td className="primary-cell" data-label="Role">
-                    {role.name}
-                    {role.description ? <span className="sub">{role.description}</span> : null}
-                  </td>
-                  <td data-label="Capabilities">
-                    {role.capabilities.map((capability) => (
-                      <Pill key={capability} tone="info">
-                        {capability}
-                      </Pill>
-                    ))}
-                  </td>
-                  <td data-label="Holders">
-                    {holdersOf(role.id).length === 0 ? (
-                      <span className="hint">Nobody yet</span>
-                    ) : (
-                      holdersOf(role.id).map((assignment) => (
-                        <span key={assignment.userId} className="holder">
-                          {assignment.userName}
-                          {canManage ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                run(`Removed ${assignment.userName} from ${role.name}.`, () =>
-                                  unassignCustomRole(
-                                    organizationId,
-                                    eventId,
-                                    role.id,
-                                    assignment.userId,
-                                  ),
-                                )
-                              }
-                            >
-                              Remove
-                            </button>
-                          ) : null}
-                        </span>
-                      ))
-                    )}
-                  </td>
-                  <td data-label="Actions">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={async () => {
-                        try {
-                          setPreview(await previewCustomRole(organizationId, eventId, role.id));
-                        } catch (reason) {
-                          announce("error", describe(reason));
-                        }
-                      }}
-                    >
-                      Preview as this role
-                    </button>
-                    {canManage ? (
-                      <>
-                        <button type="button" disabled={busy} onClick={() => startEdit(role.id)}>
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            run(`Deleted ${role.name}.`, () =>
-                              deleteCustomRole(organizationId, eventId, role.id, role.revision),
-                            )
-                          }
-                        >
-                          Delete
-                        </button>
-                      </>
-                    ) : null}
-                  </td>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="visually-hidden">Custom roles on this event</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Role</th>
+                  <th scope="col">Capabilities</th>
+                  <th scope="col">Holders</th>
+                  <th scope="col">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.roles.map((role) => (
+                  <tr key={role.id}>
+                    <td className="primary-cell" data-label="Role">
+                      {role.name}
+                      {role.description ? <span className="sub">{role.description}</span> : null}
+                    </td>
+                    <td data-label="Capabilities">
+                      {role.capabilities.map((capability) => (
+                        <Pill key={capability} tone="info">
+                          {capability}
+                        </Pill>
+                      ))}
+                    </td>
+                    <td data-label="Holders">
+                      {holdersOf(role.id).length === 0 ? (
+                        <span className="hint">Nobody yet</span>
+                      ) : (
+                        holdersOf(role.id).map((assignment) => (
+                          <span key={assignment.userId} className="holder">
+                            {assignment.userName}
+                            {canManage ? (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  run(`Removed ${assignment.userName} from ${role.name}.`, () =>
+                                    unassignCustomRole(
+                                      organizationId,
+                                      eventId,
+                                      role.id,
+                                      assignment.userId,
+                                    ),
+                                  )
+                                }
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </span>
+                        ))
+                      )}
+                    </td>
+                    <td data-label="Actions">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          try {
+                            setPreview(await previewCustomRole(organizationId, eventId, role.id));
+                          } catch (reason) {
+                            announce("error", describe(reason));
+                          }
+                        }}
+                      >
+                        Preview as this role
+                      </button>
+                      {canManage ? (
+                        <>
+                          <button type="button" disabled={busy} onClick={() => startEdit(role.id)}>
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              run(`Deleted ${role.name}.`, () =>
+                                deleteCustomRole(organizationId, eventId, role.id, role.revision),
+                              )
+                            }
+                          >
+                            Delete
+                          </button>
+                        </>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {canManage ? (
           <div className="actions">
@@ -290,6 +309,69 @@ export function CustomRolesWorkspace({
                 New from “{template.label}”
               </button>
             ))}
+          </div>
+        ) : null}
+      </Card>
+
+      {/*
+       * Portal locks, beside the roles, because an organizer asking "can this speaker still change
+       * their bio?" should not have to know which of the two mechanisms answers.
+       *
+       * They are a different thing from a role's field policy and the copy says so: a role policy
+       * governs somebody staffed onto the event, and a lock governs the person whose record it is.
+       * A speaker holds no role, so nothing in the roles table above could ever have closed their
+       * own portal — which is why the write surface used to be fixed in code (issue #189's
+       * `GAP-028`) rather than configured per event.
+       */}
+      <Card
+        title="Portal field locks"
+        hint="What the person whose record it is may still change on their own portal. Locking is per event, so freezing biographies once the programme is printed does not touch next year's."
+      >
+        {data.catalogue.map((subject) => (
+          <fieldset key={subject.subject} disabled={!canManage}>
+            <legend>{SUBJECT_LABEL[subject.subject as Subject]}</legend>
+            {subject.fields.map((entry) => (
+              <label key={entry.field}>
+                {fieldLabel(entry.field)}
+                <select
+                  value={lockOf(subject.subject as Subject, entry.field)}
+                  onChange={(changed) =>
+                    setLock(subject.subject as Subject, entry.field, changed.target.value as Policy)
+                  }
+                >
+                  {POLICIES.filter((policy) => !(entry.required && policy === "hide")).map(
+                    (policy) => (
+                      <option key={policy} value={policy}>
+                        {POLICY_LABEL[policy]}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+            ))}
+          </fieldset>
+        ))}
+        {canManage ? (
+          <div className="actions">
+            <button
+              type="button"
+              disabled={busy || lockDraft === null}
+              onClick={() =>
+                run("Portal field locks saved.", async () => {
+                  await setEventFieldLocks(organizationId, eventId, locks);
+                  setLockDraft(null);
+                })
+              }
+            >
+              Save portal locks
+            </button>
+            <button
+              type="button"
+              disabled={busy || lockDraft === null}
+              onClick={() => setLockDraft(null)}
+            >
+              Discard changes
+            </button>
           </div>
         ) : null}
       </Card>
@@ -408,37 +490,39 @@ export function CustomRolesWorkspace({
               </Pill>
             ))}
           </p>
-          <table>
-            <caption className="visually-hidden">Resolved field access for this role</caption>
-            <thead>
-              <tr>
-                <th scope="col">Record</th>
-                <th scope="col">Field</th>
-                <th scope="col">Access</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preview.fields.map((entry) => (
-                <tr key={`${entry.subject}:${entry.field}`}>
-                  <td data-label="Record">{SUBJECT_LABEL[entry.subject as Subject]}</td>
-                  <td data-label="Field">{entry.field}</td>
-                  <td data-label="Access">
-                    <Pill
-                      tone={
-                        entry.policy === "hide"
-                          ? "warn"
-                          : entry.policy === "lock"
-                            ? "neutral"
-                            : "ok"
-                      }
-                    >
-                      {POLICY_LABEL[entry.policy as Policy]}
-                    </Pill>
-                  </td>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="visually-hidden">Resolved field access for this role</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Record</th>
+                  <th scope="col">Field</th>
+                  <th scope="col">Access</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {preview.fields.map((entry) => (
+                  <tr key={`${entry.subject}:${entry.field}`}>
+                    <td data-label="Record">{SUBJECT_LABEL[entry.subject as Subject]}</td>
+                    <td data-label="Field">{entry.field}</td>
+                    <td data-label="Access">
+                      <Pill
+                        tone={
+                          entry.policy === "hide"
+                            ? "warn"
+                            : entry.policy === "lock"
+                              ? "neutral"
+                              : "ok"
+                        }
+                      >
+                        {POLICY_LABEL[entry.policy as Policy]}
+                      </Pill>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       ) : null}
 

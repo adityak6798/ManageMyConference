@@ -15,6 +15,7 @@ import {
   customRolePreviewResponseSchema,
   customRoleResponseSchema,
   customRolesResponseSchema,
+  eventFieldLocksResponseSchema,
   membershipChangeResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
@@ -121,6 +122,29 @@ export async function deleteCustomRole(
     envelope.error.correlationId,
     envelope.error.message,
     envelope.error.fieldErrors ?? {},
+  );
+}
+
+/**
+ * Replace this event's portal field locks with exactly this set.
+ *
+ * Whole-set replacement rather than a per-field toggle, so what is stored is what the organizer
+ * confirmed on the screen; an omitted field is open, and there is no accumulated lock nobody
+ * remembers setting. The current set arrives on `listCustomRoles`, beside the roles, so there is
+ * no separate read.
+ */
+export async function setEventFieldLocks(
+  organizationId: string,
+  eventId: string,
+  locks: readonly { subject: "session" | "speaker" | "contact"; field: string; policy: string }[],
+  fetcher: typeof fetch = fetch,
+) {
+  return decode(
+    await fetcher(
+      `/api/organizations/${organizationId}/events/${eventId}/field-locks`,
+      body("PUT", { locks }),
+    ),
+    eventFieldLocksResponseSchema,
   );
 }
 

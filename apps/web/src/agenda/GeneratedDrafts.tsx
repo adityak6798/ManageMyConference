@@ -122,57 +122,59 @@ export function GeneratedDrafts({ eventId, canManage }: { eventId: string; canMa
             accept the parts you want.
           </EmptyState>
         ) : (
-          <table>
-            <caption className="visually-hidden">Generated arrangements for this event</caption>
-            <thead>
-              <tr>
-                <th scope="col">Arrangement</th>
-                <th scope="col">Seated</th>
-                <th scope="col">State</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((draft) => (
-                <tr key={draft.id}>
-                  <td className="primary-cell" data-label="Arrangement">
-                    {draft.name}
-                    <span className="sub">{new Date(draft.generatedAt).toLocaleString()}</span>
-                  </td>
-                  <td data-label="Seated">
-                    {draft.placements.length}
-                    {draft.unplaced.length > 0 ? (
-                      <span className="sub">{draft.unplaced.length} could not be seated</span>
-                    ) : null}
-                  </td>
-                  <td data-label="State">
-                    <Pill tone={draft.status === "accepted" ? "ok" : "neutral"}>
-                      {draft.status}
-                    </Pill>
-                  </td>
-                  <td data-label="Actions">
-                    <button type="button" disabled={busy} onClick={() => open(draft.id)}>
-                      Compare
-                    </button>
-                    {canManage && draft.status === "proposed" ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          run(`Discarded ${draft.name}.`, async () => {
-                            await discardDraft(eventId, draft.id);
-                            if (comparison?.draft.id === draft.id) setComparison(null);
-                          })
-                        }
-                      >
-                        Discard
-                      </button>
-                    ) : null}
-                  </td>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="visually-hidden">Generated arrangements for this event</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Arrangement</th>
+                  <th scope="col">Seated</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {list.map((draft) => (
+                  <tr key={draft.id}>
+                    <td className="primary-cell" data-label="Arrangement">
+                      {draft.name}
+                      <span className="sub">{new Date(draft.generatedAt).toLocaleString()}</span>
+                    </td>
+                    <td data-label="Seated">
+                      {draft.placements.length}
+                      {draft.unplaced.length > 0 ? (
+                        <span className="sub">{draft.unplaced.length} could not be seated</span>
+                      ) : null}
+                    </td>
+                    <td data-label="State">
+                      <Pill tone={draft.status === "accepted" ? "ok" : "neutral"}>
+                        {draft.status}
+                      </Pill>
+                    </td>
+                    <td data-label="Actions">
+                      <button type="button" disabled={busy} onClick={() => open(draft.id)}>
+                        Compare
+                      </button>
+                      {canManage && draft.status === "proposed" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            run(`Discarded ${draft.name}.`, async () => {
+                              await discardDraft(eventId, draft.id);
+                              if (comparison?.draft.id === draft.id) setComparison(null);
+                            })
+                          }
+                        >
+                          Discard
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {canManage ? (
           <form
@@ -236,54 +238,56 @@ export function GeneratedDrafts({ eventId, canManage }: { eventId: string; canMa
             </Notice>
           ) : null}
 
-          <table>
-            <caption className="visually-hidden">Proposed changes, session by session</caption>
-            <thead>
-              <tr>
-                <th scope="col">Apply</th>
-                <th scope="col">Session</th>
-                <th scope="col">Change</th>
-              </tr>
-            </thead>
-            <tbody>
-              {comparison.changes.map((change) => (
-                <tr key={change.sessionId}>
-                  <td data-label="Apply">
-                    <input
-                      type="checkbox"
-                      aria-label={`Apply the change to ${change.title}`}
-                      disabled={change.change === "unchanged" || !canManage}
-                      checked={chosen.has(change.sessionId)}
-                      onChange={(ticked) =>
-                        setChosen((current) => {
-                          const next = new Set(current);
-                          if (ticked.target.checked) next.add(change.sessionId);
-                          else next.delete(change.sessionId);
-                          return next;
-                        })
-                      }
-                    />
-                  </td>
-                  <td className="primary-cell" data-label="Session">
-                    {change.title}
-                  </td>
-                  <td data-label="Change">
-                    <Pill
-                      tone={
-                        change.change === "remove"
-                          ? "warn"
-                          : change.change === "unchanged"
-                            ? "neutral"
-                            : "info"
-                      }
-                    >
-                      {CHANGE_LABEL[change.change] ?? change.change}
-                    </Pill>
-                  </td>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="visually-hidden">Proposed changes, session by session</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Apply</th>
+                  <th scope="col">Session</th>
+                  <th scope="col">Change</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {comparison.changes.map((change) => (
+                  <tr key={change.sessionId}>
+                    <td data-label="Apply">
+                      <input
+                        type="checkbox"
+                        aria-label={`Apply the change to ${change.title}`}
+                        disabled={change.change === "unchanged" || !canManage}
+                        checked={chosen.has(change.sessionId)}
+                        onChange={(ticked) =>
+                          setChosen((current) => {
+                            const next = new Set(current);
+                            if (ticked.target.checked) next.add(change.sessionId);
+                            else next.delete(change.sessionId);
+                            return next;
+                          })
+                        }
+                      />
+                    </td>
+                    <td className="primary-cell" data-label="Session">
+                      {change.title}
+                    </td>
+                    <td data-label="Change">
+                      <Pill
+                        tone={
+                          change.change === "remove"
+                            ? "warn"
+                            : change.change === "unchanged"
+                              ? "neutral"
+                              : "info"
+                        }
+                      >
+                        {CHANGE_LABEL[change.change] ?? change.change}
+                      </Pill>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           {canManage ? (
             <button

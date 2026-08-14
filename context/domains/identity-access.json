@@ -69,6 +69,7 @@
     "apps/web/src/CustomRolesWorkspace.tsx",
     "apps/web/src/workspaces/custom-roles.tsx",
     "apps/web/src/api/custom-roles.ts",
+    "apps/web/test/portal-field-locks.test.tsx",
     "apps/api/migrations/1006_reports_pii_capability.sql",
     "apps/api/migrations/1007_event_field_locks.sql"
   ]

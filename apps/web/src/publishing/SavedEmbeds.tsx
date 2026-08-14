@@ -103,71 +103,73 @@ export function SavedEmbeds({ eventId, canManage }: { eventId: string; canManage
           later and an address you can stop.
         </EmptyState>
       ) : (
-        <table>
-          <caption className="visually-hidden">Embeds issued on this event</caption>
-          <thead>
-            <tr>
-              <th scope="col">Embed</th>
-              <th scope="col">Output</th>
-              <th scope="col">State</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {issued.map((embed) => (
-              <tr key={embed.id}>
-                <td className="primary-cell" data-label="Embed">
-                  {embed.name}
-                  <span className="sub">{embed.view}</span>
-                </td>
-                <td data-label="Output">
-                  {/* Text rather than a control: an issued output is what its consumers parse. */}
-                  {OUTPUTS.find((entry) => entry.id === embed.output)?.label ?? embed.output}
-                </td>
-                <td data-label="State">
-                  {embed.revokedAt ? (
-                    <Pill tone="neutral">
-                      Withdrawn {new Date(embed.revokedAt).toLocaleDateString()}
-                    </Pill>
-                  ) : (
-                    <Pill tone="ok">Live</Pill>
-                  )}
-                </td>
-                <td data-label="Actions">
-                  {canManage ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          run(`Duplicated ${embed.name}.`, async () => {
-                            const copy = await duplicateEmbed(eventId, embed.id, {
-                              name: `${embed.name} (copy)`,
-                            });
-                            setIssuedUrl(copy.url);
-                          })
-                        }
-                      >
-                        Duplicate
-                      </button>
-                      {embed.revokedAt ? null : (
+        <div className="table-wrap">
+          <table className="data">
+            <caption className="visually-hidden">Embeds issued on this event</caption>
+            <thead>
+              <tr>
+                <th scope="col">Embed</th>
+                <th scope="col">Output</th>
+                <th scope="col">State</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issued.map((embed) => (
+                <tr key={embed.id}>
+                  <td className="primary-cell" data-label="Embed">
+                    {embed.name}
+                    <span className="sub">{embed.view}</span>
+                  </td>
+                  <td data-label="Output">
+                    {/* Text rather than a control: an issued output is what its consumers parse. */}
+                    {OUTPUTS.find((entry) => entry.id === embed.output)?.label ?? embed.output}
+                  </td>
+                  <td data-label="State">
+                    {embed.revokedAt ? (
+                      <Pill tone="neutral">
+                        Withdrawn {new Date(embed.revokedAt).toLocaleDateString()}
+                      </Pill>
+                    ) : (
+                      <Pill tone="ok">Live</Pill>
+                    )}
+                  </td>
+                  <td data-label="Actions">
+                    {canManage ? (
+                      <>
                         <button
                           type="button"
                           disabled={busy}
                           onClick={() =>
-                            run(`Withdrew ${embed.name}.`, () => revokeEmbed(eventId, embed.id))
+                            run(`Duplicated ${embed.name}.`, async () => {
+                              const copy = await duplicateEmbed(eventId, embed.id, {
+                                name: `${embed.name} (copy)`,
+                              });
+                              setIssuedUrl(copy.url);
+                            })
                           }
                         >
-                          Withdraw
+                          Duplicate
                         </button>
-                      )}
-                    </>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                        {embed.revokedAt ? null : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              run(`Withdrew ${embed.name}.`, () => revokeEmbed(eventId, embed.id))
+                            }
+                          >
+                            Withdraw
+                          </button>
+                        )}
+                      </>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {canManage ? (

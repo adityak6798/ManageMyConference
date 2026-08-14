@@ -53,6 +53,7 @@ const body = (method: "POST" | "PUT", payload: unknown) => ({
 export type SitesResponse = z.infer<typeof sitesResponseSchema>;
 export type SiteDetail = z.infer<typeof siteDetailResponseSchema>;
 export type PublicSiteResponse = z.infer<typeof publicSiteResponseSchema>;
+export type SiteConsents = z.infer<typeof siteConsentsResponseSchema>;
 
 const base = (organizationId: string) => `/api/publishing/organizations/${organizationId}/sites`;
 

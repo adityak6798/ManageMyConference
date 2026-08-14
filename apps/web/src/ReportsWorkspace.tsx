@@ -510,46 +510,48 @@ export function ReportsWorkspace({
 
       <Card title="Saved reports">
         {saved.data && saved.data.reports.length > 0 ? (
-          <table>
-            <caption className="visually-hidden">Saved reports on this event</caption>
-            <thead>
-              <tr>
-                <th scope="col">Report</th>
-                <th scope="col">Dataset</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {saved.data.reports.map((report) => (
-                <tr key={report.id}>
-                  <td className="primary-cell" data-label="Report">
-                    {report.name}
-                  </td>
-                  <td data-label="Dataset">{report.dataset}</td>
-                  <td data-label="Actions">
-                    <button type="button" disabled={busy} onClick={() => openSaved(report.id)}>
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        act("Report deleted.", async () => {
-                          await deleteReport(eventId, report.id, report.revision);
-                          if (selected === report.id) {
-                            setSelected(null);
-                            setResult(null);
-                          }
-                        })
-                      }
-                    >
-                      Delete
-                    </button>
-                  </td>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="visually-hidden">Saved reports on this event</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Report</th>
+                  <th scope="col">Dataset</th>
+                  <th scope="col">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {saved.data.reports.map((report) => (
+                  <tr key={report.id}>
+                    <td className="primary-cell" data-label="Report">
+                      {report.name}
+                    </td>
+                    <td data-label="Dataset">{report.dataset}</td>
+                    <td data-label="Actions">
+                      <button type="button" disabled={busy} onClick={() => openSaved(report.id)}>
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          act("Report deleted.", async () => {
+                            await deleteReport(eventId, report.id, report.revision);
+                            if (selected === report.id) {
+                              setSelected(null);
+                              setResult(null);
+                            }
+                          })
+                        }
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <EmptyState title="No saved reports">
             Build a question above and save it. A saved report stores the question, never the
@@ -588,31 +590,33 @@ function ReportResult({ result }: { result: ReportRunResponse }) {
           ))}
         </ul>
       ) : null}
-      <table>
-        <caption className="visually-hidden">Report result</caption>
-        <thead>
-          <tr>
-            {fields.map((field) => (
-              <th scope="col" key={field.key}>
-                {field.label}
-                {meta.maskedFields.includes(field.key) ? <Pill tone="warn">Masked</Pill> : null}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: a result row has no stable identity
-            <tr key={index}>
+      <div className="table-wrap">
+        <table className="data">
+          <caption className="visually-hidden">Report result</caption>
+          <thead>
+            <tr>
               {fields.map((field) => (
-                <td key={field.key} data-label={field.label}>
-                  {row[field.key] ?? ""}
-                </td>
+                <th scope="col" key={field.key}>
+                  {field.label}
+                  {meta.maskedFields.includes(field.key) ? <Pill tone="warn">Masked</Pill> : null}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a result row has no stable identity
+              <tr key={index}>
+                {fields.map((field) => (
+                  <td key={field.key} data-label={field.label}>
+                    {row[field.key] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {rows.length === 0 ? (
         <EmptyState title="No rows matched">
           Nothing in this dataset satisfies every filter. Widen one and run again.

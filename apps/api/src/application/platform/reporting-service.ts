@@ -27,7 +27,7 @@
  *
  * @spec PRD-OPS-001 PRD-IAM-002 ARC-DOM-001
  */
-import { type Actor, CapabilityDeniedError, requireEventCapability } from "../identity/actor";
+import { type Actor, requireEventCapability } from "../identity/actor";
 import type { AuditRecorder } from "./audit-service";
 import {
   type CapabilityLink,

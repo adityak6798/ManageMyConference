@@ -24,6 +24,7 @@ import { auditWorkspace, inboxWorkspace, searchWorkspace } from "./platform";
 import { publishingWorkspace } from "./publishing";
 import { reportsWorkspace } from "./reports";
 import { sitesWorkspace } from "./sites";
+import { webhooksWorkspace } from "./webhooks";
 import { abstractsWorkspace, reviewsWorkspace } from "./review";
 
 export const workspaceModules: readonly WorkspaceModule[] = [
@@ -46,6 +47,7 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   inboxWorkspace,
   reportsWorkspace,
   auditWorkspace,
+  webhooksWorkspace,
 ];
 
 /**
