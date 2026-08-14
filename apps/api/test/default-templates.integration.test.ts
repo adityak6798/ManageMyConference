@@ -215,12 +215,17 @@ describe("lifecycle templates for every organization", () => {
       .all<SeededTemplateRow>();
 
     expect(
-      ((seeded.results ?? []) as SeededTemplateRow[]).map((row) => ({
-        key: row.template_key,
-        channel: row.channel,
-        subject: row.subject,
-        body: row.body,
-      })),
+      // Both sides sorted in JavaScript by the same comparator. `ORDER BY` in SQLite is BINARY and
+      // `localeCompare` is not, and pairing the two would make this pass or fail on the collation
+      // of whatever keys the catalogue happens to hold.
+      ((seeded.results ?? []) as SeededTemplateRow[])
+        .map((row) => ({
+          key: row.template_key,
+          channel: row.channel,
+          subject: row.subject,
+          body: row.body,
+        }))
+        .sort((left, right) => left.key.localeCompare(right.key)),
     ).toEqual(
       [...DEFAULT_TEMPLATES]
         .map(({ key, channel, subject, body }) => ({ key, channel, subject, body }))

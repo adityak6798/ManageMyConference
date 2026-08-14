@@ -103,11 +103,13 @@ export class MemoryCfpRepository implements CfpRepository {
    * snapshot would answer "when does this close" differently from the adapter the product runs on
    * — which is exactly the bug this whole feature is about.
    *
-   * "Published" is **the snapshot's existence**, matching the adapter's `published_json IS NOT
-   * NULL`, and not `publishedAt`. That distinction is the whole of a defect this fake originally
-   * reproduced without exposing: every draft save clears `publishedAt`, so a filter on it goes
-   * blind on any call whose form has been edited since publication — and because the fake read
-   * the same wrong field, no unit test could see it.
+   * "Published" is **the snapshot's own status**, matching the adapter's
+   * `json_extract(published_json, '$.status') = 'open'`, and not `publishedAt`. Two defects are
+   * folded into that one expression. Every draft save clears `publishedAt`, so a filter on it goes
+   * blind on any call whose form has been edited since publication — and because this fake read
+   * the same wrong field, no unit test could see it. And a call the organizer closed by hand still
+   * has a snapshot, so filtering on the snapshot's *existence* reminded its draft holders to press
+   * a Submit the submission guard refuses.
    */
   listDeadlineNotices(window: { from: string; to: string }, limit: number) {
     const closing = [...this.forms.values()]

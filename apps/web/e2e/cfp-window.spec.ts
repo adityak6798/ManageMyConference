@@ -13,10 +13,13 @@
  * because the two paths differ in the browser: closing hides a form that is on screen, reopening
  * has to bring one back that is not.
  *
- * **This spec mutates the fixture and puts it back.** It runs before `cfp.spec.ts` in path order
- * (`-` sorts before `.`), which asserts `Published · open` from the first line, so the window is
- * cleared at the end — and the clearing is itself the last assertion rather than a `finally` that
- * nobody reads.
+ * **This spec mutates the fixture and puts it back, twice over.** It runs before `cfp.spec.ts` in
+ * path order (`-` sorts before `.`), which asserts `Published · open` from its first line, and
+ * before nothing else that matters — but `00-seed-state.spec.ts` runs first on the *next* run and
+ * submits through the public form expecting 201, so a past deadline left behind by a failure here
+ * becomes a failing seed canary that reads like fixture corruption. So the window is cleared
+ * through the control as the last assertion, *and* restored in a `finally` whatever happened. The
+ * assertion is the point; the `finally` is the safety net.
  */
 import { type Page, expect, test } from "@playwright/test";
 
@@ -185,6 +188,8 @@ test("a deadline saved in one tab closes and reopens the public call in another,
     await page.request
       .put(`/api/events/${EVENT_ID}/cfp/window`, { data: { opensAt: null, closesAt: null } })
       .catch(() => undefined);
-    await publicPage.close();
+    // ERROR-INTENT: same reason as the restore above, and `close()` is idempotent — a throw here
+    // could only replace a real failure with a less useful one.
+    await publicPage.close().catch(() => undefined);
   }
 });

@@ -486,6 +486,16 @@ describe("D1CommunicationsRepository", () => {
       repository.countDeliveriesTo(organizationId, eventId, "a@example.test"),
     ).resolves.toBe(0);
 
+    /*
+     * A character outside ASCII, which the submitted-address validator admits. SQLite's `lower()`
+     * leaves it alone and JavaScript's `toLowerCase` does not, so a domain key folded further than
+     * the column it is compared against matched nothing at all and the cap never bound.
+     */
+    await write("cap-9", "Ä@example.test", "declared");
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "Ä@example.test"),
+    ).resolves.toBe(1);
+
     await write("cap-8", "a+b@x@example.test", "declared");
     await expect(
       repository.countDeliveriesTo(organizationId, eventId, "a+b@x@example.test"),

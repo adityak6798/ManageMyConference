@@ -258,8 +258,9 @@ const mustBeDevelopment = (environment: ProviderEnvironment, what: string) => {
     throw new ProviderConfigurationError(
       `${what} are refused under COMMUNICATIONS_PROVIDERS=live unless ENVIRONMENT names a ` +
         `development deployment (got "${environment.ENVIRONMENT ?? ""}"). Configure the real ` +
-        "bindings, or set ENVIRONMENT to one of: " +
-        `${[...DEVELOPMENT_NAMES].join(", ")}.`,
+        "bindings, or accept that this channel is not in use. Renaming ENVIRONMENT is not the " +
+        "fix: it also hands every other unconfigured channel a deterministic fake, on the same " +
+        "deployment, which is what this refusal exists to prevent.",
     );
 };
 

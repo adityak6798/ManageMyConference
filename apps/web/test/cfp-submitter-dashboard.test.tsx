@@ -854,6 +854,25 @@ describe("the signed-in applicant's proposals", () => {
     );
   });
 
+  it("claims no loss when the proposal on the form was never changed", async () => {
+    /*
+     * The other half of the same sentence, and a regression the first version of this repair
+     * introduced: `abandoned` is null both when no proposal is open *and* when an open one is
+     * unmodified, so a discard notice guarded only on that fired for somebody who had just opened
+     * — or just saved — a proposal that is sitting unchanged in the list above. Telling an
+     * applicant their work is gone when it is not is the same defect as losing it silently.
+     */
+    mount({ proposals: [proposal({ title: "Alpha", answers: { title: "Alpha" } })] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Start another proposal" }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
+    expect(screen.queryByText(/are gone/)).toBeNull();
+    expect(screen.queryByText(/were not saved/)).toBeNull();
+  });
+
   it("says what it discarded when the applicant chooses an empty form", async () => {
     // `Start another proposal` is the one control that is *meant* to discard. It still says so,
     // because the applicant choosing the loss is not a reason to leave them guessing whether the

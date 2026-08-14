@@ -206,9 +206,12 @@ export const deadlineInZone = (instant: string, timeZone: string): string => {
  * ever. Reading in list order therefore lets a run of unreachable accounts at the front of a call
  * hold the whole budget permanently, and every holder behind them — and every call after this one
  * — is never reached at all. The offset is the hour, so it is stable within a tick and across the
- * retries of one, and it moves often enough that a 48-hour lead window covers everybody many
- * times over. Nothing here decides *whether* a message is sent, only in which order candidates
- * are considered, so a rotation cannot send twice: the key is what prevents that.
+ * retries of one. Stated exactly rather than generously: it advances one position per hour, so an
+ * event needs more unreachable holders at the front than the lead window has hours before anybody
+ * reachable is missed — with today's constants, over two hundred of them. That is a bound rather
+ * than a guarantee, and it is the honest one. Nothing here decides *whether* a message is sent,
+ * only in which order candidates are considered, so a rotation cannot send twice: the key is what
+ * prevents that.
  */
 async function pendingHolders(
   dependencies: CfpDeadlineDependencies,

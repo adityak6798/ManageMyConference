@@ -340,7 +340,10 @@ describe("a saved window converges on the state the server computed", () => {
       initial: { publishedStatus: "closed", effectiveStatus: "closed" },
       afterSave: {
         opensAt: "2027-01-01T00:00:00.000Z",
-        closesAt: null,
+        // A deadline that has *also* passed, which is the overlap a clock comparison gets wrong:
+        // an organizer may close a call whose deadline has already gone, and the closure is still
+        // the reason applicants cannot submit.
+        closesAt: "2026-08-01T00:00:00.000Z",
         publishedStatus: "closed",
         effectiveStatus: "closed",
       },

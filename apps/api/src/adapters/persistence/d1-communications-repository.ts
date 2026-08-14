@@ -207,8 +207,10 @@ const isTemplateVersionTaken = (error: unknown): boolean => {
  * - The `+` guard is `> 1`, not `> 0`. At position 1 the local part is empty, and
  *   `substr(address, 1, 0)` is `''` — so `+a@x` normalized to `@x` here while `recipientCapKey`
  *   left it alone, and the two never matched: the cap silently never bound for that address.
- * - `trim` and `lower` mirror the domain's first line, so a stored value with stray whitespace
- *   cannot become a second budget.
+ * - `trim` and `lower` are the *reference* here rather than the mirror: `recipientCapKey` folds
+ *   ASCII and strips spaces because that is what these two do, not the other way round. Doing more
+ *   on the JavaScript side is what let `Ä@example.test` be stored unfolded and looked up folded,
+ *   matching nothing — a cap that silently never binds.
  *
  * `d1-communications-repository.integration.test.ts` drives real rows through both statements.
  */

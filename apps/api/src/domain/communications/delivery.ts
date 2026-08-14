@@ -227,17 +227,32 @@ export const lifecycleRecipient = (subject: {
  * a projection's resource ref — has no `@` and is returned lower-cased and otherwise untouched,
  * which is correct because those are never `declared` in the first place.
  *
- * **Every operation here has an exact SQLite counterpart**, because the count is a `WHERE` over
- * stored rows and the two have to agree on every input rather than on the ones somebody thought
- * of. `indexOf` rather than `lastIndexOf` for the `@` is that agreement and not a preference:
- * `instr` finds the first occurrence, and asking the two sides different questions made
- * `a+b@x@y` normalize two ways. A leading `+` is likewise **not** a tag — an empty local part is
- * a different address, and `substr(x, 1, 0)` in SQL is `''`, so the guard is "after the first
- * character" on both sides. Neither input is reachable through `CfpService`'s validator today;
- * the point is that the pair cannot disagree if one ever becomes reachable.
+ * **Every operation here is what SQLite does, exactly**, because the count is a `WHERE` over
+ * stored rows: this function produces the value that is compared, and the same rule expressed in
+ * SQL produces the values it is compared *against*. The two agreeing on the inputs somebody
+ * thought of is not enough — where they disagree the cap silently never binds, which is the
+ * failure mode of a security control that reports success.
+ *
+ * So three operations, each deliberately the SQLite one rather than the JavaScript one:
+ *
+ * - **Case folding is ASCII-only**, like `lower()`. `String.prototype.toLowerCase` is
+ *   Unicode-aware, so it folds `Ä` to `ä` where SQLite leaves it alone — and `Ä@x` stored then
+ *   matched nothing at all. The regex that validates a submitted address admits those characters,
+ *   so this is reachable. Folding less means `ä@x` and `Ä@x` are two budgets rather than none,
+ *   which is the safe direction: the cap binds later, never not at all.
+ * - **Trimming strips spaces only**, like `trim()`. JavaScript's strips every Unicode space.
+ * - **The `@` is the first one**, like `instr`, rather than the last. Asking the two sides
+ *   different questions made `a+b@x@y` normalize two ways.
+ * - **A leading `+` is not a tag.** An empty local part is a different address, and
+ *   `substr(x, 1, 0)` in SQL is `''`, so the guard is "after the first character" on both sides.
+ *   `+a@x` passes the submitted-address validator, so this one is reachable too.
  */
 export const recipientCapKey = (recipientRef: string): string => {
-  const address = recipientRef.trim().toLowerCase();
+  // Deliberately not `.trim().toLowerCase()`: see above. SQLite's `trim` removes spaces, and its
+  // `lower` folds A–Z. Anything wider makes this disagree with the query that uses it.
+  const address = recipientRef
+    .replace(/^ +| +$/g, "")
+    .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
   const at = address.indexOf("@");
   if (at <= 0) return address;
   const plus = address.indexOf("+");

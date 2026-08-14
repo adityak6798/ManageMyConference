@@ -367,13 +367,19 @@ export function CfpWorkspace({
            * answers `closed` for a call the organizer closed by hand *before* it looks at the
            * deadline at all, so blaming the deadline for every closure told an organizer who had
            * closed the call and then scheduled an opening date that a deadline had passed — on
-           * the surface this whole change exists to stop saying false things. The deadline is
-           * named only when there is one and it is behind us.
+           * the surface this whole change exists to stop saying false things.
+           *
+           * Which cause it is comes from `publishedStatus`, the organizer's own half of the
+           * answer, and **not** from comparing the deadline against this browser's clock. Two
+           * reasons, and the second is the one that matters: a clock comparison is exactly the
+           * recomputation issue #222 exists to remove, and it gets the *overlap* wrong — an
+           * organizer may close a call whose deadline has already gone, and there the deadline is
+           * both past and not the reason. The server has already decided; this only picks words.
            */
           saved.effectiveStatus === "closed"
-            ? saved.closesAt && Date.parse(saved.closesAt) <= Date.now()
-              ? "Submission window saved. That deadline has already passed, so the call is closed to new submissions."
-              : "Submission window saved. The call is closed to new submissions until you reopen it, so the window changes nothing for applicants yet."
+            ? saved.publishedStatus === "closed"
+              ? "Submission window saved. The call is closed to new submissions until you reopen it, so the window changes nothing for applicants yet."
+              : "Submission window saved. That deadline has already passed, so the call is closed to new submissions."
             : saved.effectiveStatus === "scheduled"
               ? "Submission window saved. The call is not open yet and opens at the time you set."
               : window.closesAt

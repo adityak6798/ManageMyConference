@@ -355,6 +355,18 @@ export function PublicCfpView({
     return keys.length === Object.keys(right).length && keys.every((id) => left[id] === right[id]);
   };
 
+  /**
+   * Whether anything is on the form **that the applicant can see**, bound to a proposal or not.
+   *
+   * Pruned like every other comparison on this page. An answer whose question the published form
+   * has since removed is not on screen and is not the applicant's to lose here, so counting it
+   * would refuse a switch over a visually empty form — and point at a Save that the server would
+   * reject for the very key that is invisible.
+   */
+  const formHasAnswers = Object.values(answersTheFormStillAccepts(answers)).some(
+    (value) => value.trim() !== "",
+  );
+
   const openForEditing = (proposal: SubmitterProposalDto) => {
     /*
      * Rebind from the copy in hand when it is the same proposal.
@@ -407,8 +419,7 @@ export function PublicCfpView({
      * cheerful "Editing …" the first repair existed to remove. It is refused on the same terms
      * as a switch between two stored proposals, because it is the same loss.
      */
-    const typedIntoNewProposal =
-      editing === null && Object.values(answers).some((value) => value.trim() !== "");
+    const typedIntoNewProposal = editing === null && formHasAnswers;
     const unsaved =
       typedIntoNewProposal ||
       (editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers)));
@@ -461,7 +472,15 @@ export function PublicCfpView({
    * above names this control as the way out for exactly that reason.
    */
   const startFresh = () => {
-    const typed = Object.values(answers).some((value) => value.trim() !== "");
+    /*
+     * `editing === null` is load-bearing and was missing. `abandoned` is null in two different
+     * states — no proposal open, and a proposal open but unmodified — and a `typed` branch guarded
+     * only on `abandoned` fired in the second one too: pressing this straight after opening a
+     * stored proposal, or straight after saving one, announced that answers "were not saved
+     * anywhere and are gone" about a proposal sitting unchanged in the list two inches above.
+     * A false loss claim is the same defect as a silent loss, introduced by the repair for it.
+     */
+    const typedIntoNothing = editing === null && formHasAnswers;
     const abandoned =
       editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers))
         ? editing
@@ -478,7 +497,7 @@ export function PublicCfpView({
         : // The same statement for the form bound to no proposal at all: what is cleared there
           // was never stored anywhere, so "it is unchanged and you can open it again" would be a
           // lie, and saying nothing at all is what this control did before issue #211.
-          typed
+          typedIntoNothing
           ? {
               tone: "ok",
               text: "Started a new proposal. The answers that were on the form were not saved anywhere and are gone.",
@@ -526,8 +545,6 @@ export function PublicCfpView({
         : null
     : null;
   const formOpen = liveCfp !== null && status === "open";
-  /** Whether anything is on the form at all, bound to a stored proposal or not. */
-  const formHasAnswers = Object.values(answers).some((value) => value.trim() !== "");
 
   return (
     <article className="pub-detail">
