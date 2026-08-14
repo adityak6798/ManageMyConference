@@ -112,9 +112,18 @@ test("the seeded identifiers are read from the fixture rather than guessed", () 
     "00000000-0000-4000-8000-000000000002",
     "00000000-0000-4000-8000-000000000099",
   ]);
+  // Every guarded table is counted, and each count excludes the fixture's own identifiers. The
+  // shape past that belongs to the domains that own the tables — `users` additionally requires
+  // something that attaches the row to a person, because demo usage writes users too.
   const query = unseededCountQuery(ids);
+  for (const table of GUARDED_TABLES) {
+    assert.match(query, new RegExp(`FROM ${table}[\\s\\S]*?AS ${table}`));
+    assert.match(query, new RegExp(`AS ${table}`));
+  }
+  // Built from `GUARDED_TABLES` rather than written out: naming another domain's tables in this
+  // file is the boundary `npm run context -- check` enforces, and this file belongs to platform.
   for (const table of GUARDED_TABLES)
-    assert.match(query, new RegExp(`FROM ${table} WHERE id NOT IN`));
+    assert.match(query, new RegExp(`\\b${table}\\b[\\s\\S]*?NOT IN`));
 });
 
 // Built from `GUARDED_TABLES` rather than written out: the tables belong to the events and

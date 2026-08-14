@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-13
+Status: canonical | Owner: quality | Last verified: 2026-08-14
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -287,7 +287,9 @@ feature-by-feature verdict.
   database and watches all three rows disappear, which is what the refusal is a refusal of.
 
   **What it still does not do.** It counts three tables — the ones whose rows are a person, an
-  organization somebody signed up for, or an event they made. Everything else the reset clears is
+  organization somebody signed up for, or an event they made, judged by what attaches each row to
+  a person rather than by "the seed did not write it" (see the false positives below, which is how
+  that distinction was learned). Everything else the reset clears is
   state *about* a demo snapshot with **one exception worth naming rather than glossing**:
   `attendee_itineraries` is keyed on a token hash and references only the event, so an itinerary a
   real attendee built against the *seeded* event is destroyed with all three counts at zero. It is
@@ -296,6 +298,39 @@ feature-by-feature verdict.
   seconds and nothing serializes it. It says nothing about *whose* rows they are. And it does not
   make the deployment safe to run real workloads on: one D1 database still holds both populations,
   and separating them remains the larger fix this entry chose not to take.
+
+  **One false-positive class, found the first time the guard met a real deployment (2026-08-14),
+  and closed the same day.** It counted every `users` row the fixture does not name, and *not all
+  of those are people who signed up*. Ordinary demo usage writes them: accepting a proposal
+  converts a speaker, and `provisionSpeaker` inserts a `users` row with no provider account and no
+  membership. The first live reading of the deployed database showed exactly that shape — 1
+  organization, 1 event, and **3 users**, of which one was the real signup (a provider account and
+  a membership) and two were speakers converted against the *seeded* event.
+
+  The direction was safe — it refuses rather than deletes — but the cost was not cosmetic: the
+  routine restore stopped being one command after the demo had been *used* rather than after
+  somebody had signed up, which pushes an operator toward `--destroy-real-data` for a restore that
+  destroys nothing real. Habituating that flag is the one thing its design exists to prevent.
+
+  **A row now counts when something attaches it to a person rather than to the fixture**, which is
+  what "real" was supposed to mean all along:
+
+  - a **user** counts with a provider account (only a completed sign-in writes one), an
+    organization membership (only signup or an accepted invitation), or an event role on an event
+    the seed did not create. A speaker whose only role is on a seeded event matches none of them.
+    If that same person later signs in, the provider account appears and they begin counting —
+    the rule follows the evidence rather than a snapshot of it.
+  - an **event** counts only when it is outside every seeded organization. The organizer persona
+    holds `events:create` on the seeded organization, so creating an event is an ordinary thing to
+    click in the demo, and the row it writes is demo state. This sibling of the same defect was
+    found by looking for it rather than by meeting it.
+  - an **organization** counts whenever the seed did not create it, unchanged: nothing but
+    self-serve signup writes one, so no demo path produces a row.
+
+  Both refinements are pinned by mutation in `demo-reset-guard.integration.test.ts`, which drives
+  the conversions and the event creation through the same services production uses: reverting
+  either makes a case fail that asserts demo usage counts zero, and a separate case asserts a
+  speaker who holds a role in a *self-serve* workspace still counts.
 
   Two more limits on the evidence itself. **Wrangler's `--json` output has never been observed
   here**: the parser is covered against a hand-written model of that shape, and the D1 integration
@@ -380,7 +415,37 @@ feature-by-feature verdict.
   rather than per application, so a later clone cannot hide it, and an operator who never opens
   Event templates is still told — which together mean a decomposed read of the stored outcome and an
   inbox category over it.
-- `GAP-020` **Google sign-in has never exchanged a request with Google.** The adapter at
+- `GAP-020` **Closed 2026-08-14: Google sign-in has now exchanged a request with Google, and a
+  real person has signed in.** Recorded before the detail, because this entry existed to say the
+  opposite: on **2026-08-14**, against commit **`d14b047`** and OAuth client
+  **`629474442220-ab3t4tb1bgddnsfjjkm801puan53chtu.apps.googleusercontent.com`**, one sign-in was
+  completed end to end on https://project-greenroom-api.adityak6798.workers.dev by the operator who
+  configured it.
+
+  **What that observation actually proves**, which is more than "a button worked". The deployed
+  database holds one organizer beyond the seeded fixture, carrying both a provider account and an
+  organization membership, alongside one organization and one event it did not have before — so
+  the whole path ran against a live Google identity: the authorization request was accepted, the
+  code exchanged at the token endpoint, the `id_token` verified against Google's **published**
+  key set rather than a generated one, and the account provisioned with its first event and the
+  organizer role on it. Every one of those had only ever run against a stub. The authorization
+  request itself was inspected on the live deployment before the sign-in: a 302 to
+  `accounts.google.com/o/oauth2/v2/auth` carrying that client id, the registered redirect URI,
+  `response_type=code`, `scope=openid email profile`, `code_challenge_method=S256`,
+  `prompt=select_account`, and a `state`, `nonce` and challenge — with the attempt cookie set.
+
+  **No divergence from Google's documented behaviour was observed**, so no case was added to
+  `google-oauth-client.test.ts`; the closure condition allowed for one and did not require it.
+
+  **What is still unobserved**, because one sign-in is one sign-in: every refusal path at Google's
+  end (a revoked client secret, a rotated signing key, a `kid` Google has retired, an expired or
+  replayed code), the key-cache expiry against the real key set, and the timeout. Those remain
+  covered by tests against a stub, which is the same position every other adapter is in and no
+  longer a gap peculiar to this one. Owner: identity-access. Governing IDs: `PRD-IAM-001`,
+  `ARC-AUTH-001`, `ADR-004`. Closes issue #165.
+
+  The original entry follows, because what it warned about is why the observation was worth
+  recording. **Google sign-in had never exchanged a request with Google.** The adapter at
   `apps/api/src/adapters/identity/google-oauth-client.ts` is the entire boundary — one POST to the
   token endpoint, one GET for the key set — and its request shape comes from Google's documentation
   rather than from observation. No OAuth client existed in this repository when it was written, and
@@ -399,10 +464,10 @@ feature-by-feature verdict.
   `GAP-012`, with one difference in consequence: a wrong request shape there degrades one feature,
   and a wrong request shape here means **nobody can sign in**, discovered by the first person who
   configures a client id. Impact: the authentication path most likely to be wrong on first contact
-  is the one with no observation behind it. Owner: identity-access. Governing IDs: `PRD-IAM-001`,
-  `ARC-AUTH-001`, `ADR-004`. Closure: issue #165 — one real sign-in completed against Google, with
-  the date, commit and client id recorded here and in the `ACC-IDENTITY-EVENTS` scorecard row, and
-  any divergence pinned by a case in `google-oauth-client.test.ts`.
+  is the one with no observation behind it. Closure was: issue #165 — one real sign-in completed
+  against Google, with the date, commit and client id recorded here and in the
+  `ACC-IDENTITY-EVENTS` scorecard row, and any divergence pinned by a case in
+  `google-oauth-client.test.ts`. That is what the record above discharges.
 
 - `GAP-022` **Search opens the surface a record lives on, not the record, and its cost is proven
   bounded only against the seed.** Five limits, all deliberate, all worth naming rather than

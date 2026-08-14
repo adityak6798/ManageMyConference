@@ -92,9 +92,9 @@ REVIEW_AI_PROVIDER = "fixture"
 #      that reason, and an empty value there overrides the one above.
 #   4. `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET` **immediately afterwards**,
 #      pasting the client secret. Then confirm `/api/auth/config` reports `google: true` and
-#      complete one real sign-in. That sign-in is also what closes `GAP-020`, which records that
-#      this adapter has never exchanged a request with Google — record the date, commit and
-#      client id there when it succeeds.
+#      complete one real sign-in. `GAP-020` recorded that this adapter had never exchanged a
+#      request with Google; it was closed on 2026-08-14 by the first such sign-in. A *rotation*
+#      does not reopen it, but the same check is the one that tells you the new client works.
 #
 # **Steps 3 and 4 are one operation, and between them this deployment is down.** All three
 # bindings are one unit and `resolveGoogleConfiguration` throws on a partial one from inside

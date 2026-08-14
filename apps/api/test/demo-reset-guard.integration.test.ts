@@ -40,6 +40,8 @@ import { readFile } from "node:fs/promises";
 type Database = Awaited<ReturnType<Miniflare["getD1Database"]>>;
 
 const seedSql = () => readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
+const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
+const DEMO_ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 
 /**
  * The counts, taken the way the command takes them: the shipped query, then the shipped parser
@@ -50,6 +52,33 @@ async function unseededCounts(database: Database): Promise<UnseededCounts> {
   const result = await database.prepare(unseededCountQuery(ids)).all();
   expect(result.success).toBe(true);
   return parseUnseededCounts(JSON.stringify([{ results: result.results, success: true }]));
+}
+
+/**
+ * The composition `index.ts` builds for a request, so what these cases write is what production
+ * writes rather than SQL shaped to suit the assertion.
+ */
+function signupStack(database: Database) {
+  const directory = new D1IdentityDirectory(database as IdentityDatabasePort);
+  const events = new EventService({
+    repository: new D1EventRepository(database as D1DatabasePort, preparedOrganizerGrant),
+    newId: () => crypto.randomUUID(),
+    now: () => new Date("2026-08-14T09:00:00.000Z"),
+  });
+  const signup = new SignupService({
+    directory,
+    workspace: {
+      provisionOrganization: (command) => events.provisionOrganization(command),
+      createFirstEvent: (actor, command) => events.provisionFirstEvent(actor, command),
+      eventsInOrganization: async (actor, organizationId) =>
+        (await events.list(actor)).filter((event) => event.organizationId === organizationId),
+      discardUnusedOrganization: (organizationId) =>
+        events.discardUnusedOrganization(organizationId),
+    },
+    newId: () => crypto.randomUUID(),
+    now: () => 1_760_000_000_000,
+  });
+  return { directory, events, signup };
 }
 
 describe("the remote demo reset guard, against a real seeded database", () => {
@@ -104,6 +133,81 @@ describe("the remote demo reset guard, against a real seeded database", () => {
     expect(() => assertOnlySeededData(counts, undefined)).not.toThrow();
   });
 
+  /**
+   * Demo usage is not somebody's data, and the guard learned that the hard way.
+   *
+   * The first live reading of the deployed database returned three non-seeded users where exactly
+   * one person had signed up. The other two were speakers: accepting a proposal converts one, and
+   * `provisionSpeaker` writes a `users` row with no provider account and no membership. Counting
+   * them made the restore refuse over the demo having been *used* — and an operator who meets that
+   * reaches for `--destroy-real-data` on a teardown that destroys nothing real, which is the habit
+   * that flag exists to prevent.
+   *
+   * The same shape exists one table over: the organizer persona holds `events:create` on the
+   * seeded organization, so creating an event is an ordinary thing to click in the demo.
+   *
+   * Everything here goes through the services that write those rows in production, so the fixture
+   * is the real shape rather than an approximation of it.
+   */
+  it("counts nothing for demo usage that converts a speaker or adds an event", async () => {
+    const migrated = await createMigratedDatabase({ label: "demo-reset-demo-usage", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const directory = new D1IdentityDirectory(database as IdentityDatabasePort);
+    const events = new EventService({
+      repository: new D1EventRepository(database as D1DatabasePort, preparedOrganizerGrant),
+      newId: () => crypto.randomUUID(),
+      now: () => new Date("2026-08-14T09:00:00.000Z"),
+    });
+
+    // A speaker converted against the seeded event, exactly as accepting a proposal does.
+    await directory.provisionSpeaker(crypto.randomUUID(), "Converted Speaker", DEMO_EVENT);
+    await directory.provisionSpeaker(crypto.randomUUID(), "Another Speaker", DEMO_EVENT);
+    // And an event a demo visitor made in the seeded organization, through the ordinary route.
+    const persona = await directory.findByPersona("organizer");
+    await events.create(persona, {
+      organizationId: DEMO_ORGANIZATION,
+      name: "A visitor's event",
+      timezone: "UTC",
+    });
+
+    // None of it is somebody's workspace, so the restore stays the one command it is meant to be.
+    const counts = await unseededCounts(database);
+    expect(counts).toEqual({ organizations: 0, events: 0, users: 0 });
+    expect(() => assertOnlySeededData(counts, undefined)).not.toThrow();
+  });
+
+  /**
+   * The other half of the same rule: the moment a row is attached to a person rather than to the
+   * fixture, it counts — including a speaker who only ever appears in somebody's own workspace.
+   */
+  it("counts a speaker who holds a role in a self-serve workspace", async () => {
+    const migrated = await createMigratedDatabase({ label: "demo-reset-real-speaker", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { directory, events, signup } = signupStack(database);
+
+    const owner = await signup.signInWithGoogle({
+      subject: "104729183746501928374",
+      email: "nadia@example.test",
+      emailVerified: true,
+      name: "Nadia Newcomer",
+    });
+    const ownEvent = owner.actor.eventAccess[0]?.eventId as string;
+    // A speaker in *their* event, not the demo's: a person in somebody's workspace.
+    await directory.provisionSpeaker(crypto.randomUUID(), "Their Speaker", ownEvent);
+    // And one more against the seeded event, which still does not count.
+    await directory.provisionSpeaker(crypto.randomUUID(), "Demo Speaker", DEMO_EVENT);
+    expect(events).toBeDefined();
+
+    // The organizer and their speaker; the demo conversion is not among them.
+    await expect(unseededCounts(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 2,
+    });
+  });
+
   it("refuses when the database holds an organization nobody seeded", async () => {
     const migrated = await createMigratedDatabase({ label: "demo-reset-real", seed: true });
     runtime = migrated.runtime;
@@ -115,31 +219,14 @@ describe("the remote demo reset guard, against a real seeded database", () => {
      * The identifiers it mints are ordinary UUIDs, indistinguishable in shape from the seeded
      * ones, which is exactly why the guard identifies the seed positively rather than by pattern.
      */
-    const directory = new D1IdentityDirectory(database as IdentityDatabasePort);
-    const events = new EventService({
-      repository: new D1EventRepository(database as D1DatabasePort, preparedOrganizerGrant),
-      newId: () => crypto.randomUUID(),
-      now: () => new Date("2026-08-13T09:00:00.000Z"),
-    });
-    const signup = new SignupService({
-      directory,
-      workspace: {
-        provisionOrganization: (command) => events.provisionOrganization(command),
-        createFirstEvent: (actor, command) => events.provisionFirstEvent(actor, command),
-        eventsInOrganization: async (actor, organizationId) =>
-          (await events.list(actor)).filter((event) => event.organizationId === organizationId),
-        discardUnusedOrganization: (organizationId) =>
-          events.discardUnusedOrganization(organizationId),
-      },
-      newId: () => crypto.randomUUID(),
-      now: () => 1_760_000_000_000,
-    });
+    const { signup } = signupStack(database);
     const signedUp = await signup.signInWithGoogle({
       subject: "104729183746501928374",
       email: "nadia@example.test",
       emailVerified: true,
       name: "Nadia Newcomer",
     });
+    const { directory, events } = signupStack(database);
     const realUserId = signedUp.actor.id;
     const realEventId = signedUp.actor.eventAccess[0]?.eventId as string;
 
