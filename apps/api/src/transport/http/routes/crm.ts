@@ -20,9 +20,12 @@ import {
   mergeContactsInputSchema,
   outreachInputSchema,
   prospectListQuerySchema,
+  deletePipelineStageInputSchema,
+  pipelineStagePathSchema,
   prospectPathSchema,
   pushContactToEventInputSchema,
   updateContactInputSchema,
+  savePipelineStagesInputSchema,
   updateProspectInputSchema,
 } from "@greenroom/contracts";
 import {
@@ -31,6 +34,9 @@ import {
   ContactImportInvalidError,
   ContactMergeInvalidError,
   ContactNotFoundError,
+  PipelineStageInUseError,
+  PipelineStageInvalidError,
+  PipelineStageNotFoundError,
   EventOutsideOrganizationError,
   OutreachRecipientsEmptyError,
   OutreachRejectedError,
@@ -52,6 +58,10 @@ const routes = [
   "GET /api/events/:eventId/prospects",
   "POST /api/events/:eventId/prospects",
   "GET /api/events/:eventId/prospects/owners",
+  "GET /api/events/:eventId/pipeline/stages",
+  "PUT /api/events/:eventId/pipeline/stages",
+  "DELETE /api/events/:eventId/pipeline/stages/:stageKey",
+  "GET /api/events/:eventId/pipeline/history",
   "GET /api/events/:eventId/prospects/:prospectId",
   "PATCH /api/events/:eventId/prospects/:prospectId",
   "POST /api/events/:eventId/prospects/:prospectId/convert",
@@ -136,6 +146,108 @@ export const crmRoutes: RouteModule = {
         );
       return context.json({
         owners: await crm.listOwners(context.get("actor"), path.data.eventId),
+      });
+    });
+    /* ------------------------------ the board itself ------------------------------ */
+
+    /**
+     * This event's stages, healing an event that has none.
+     *
+     * A `GET` that may write is deliberate and bounded: it writes only the default set, only
+     * when there is none, and with `INSERT OR IGNORE` — so two organizers opening a new board
+     * at the same instant cannot fail each other, and an existing rename is never undone. The
+     * alternative, an empty board, renders every card nowhere.
+     */
+    app.get("/api/events/:eventId/pipeline/stages", async (context) => {
+      requireCapability(context.get("actor"), "crm:manage");
+      if (!crm) throw new Error("CRM service is not configured");
+      const path = eventIdParamsSchema.safeParse(context.req.param());
+      if (!path.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        stages: await crm.pipelineStages(context.get("actor"), path.data.eventId),
+      });
+    });
+    app.put("/api/events/:eventId/pipeline/stages", async (context) => {
+      requireCapability(context.get("actor"), "crm:manage");
+      if (!crm) throw new Error("CRM service is not configured");
+      const path = eventIdParamsSchema.safeParse(context.req.param());
+      if (!path.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const parsed = savePipelineStagesInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The pipeline stages are invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      // `PUT`, because the whole list replaces the whole list: adding, renaming and reordering
+      // are one act on a board, and a partial application would leave two columns claiming the
+      // same position.
+      return context.json({
+        stages: await crm.savePipelineStages(
+          context.get("actor"),
+          path.data.eventId,
+          parsed.data.stages,
+        ),
+      });
+    });
+    app.delete("/api/events/:eventId/pipeline/stages/:stageKey", async (context) => {
+      requireCapability(context.get("actor"), "crm:manage");
+      if (!crm) throw new Error("CRM service is not configured");
+      const path = pipelineStagePathSchema.safeParse(context.req.param());
+      if (!path.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Stage identity is malformed.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      const parsed = deletePipelineStageInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Choose where the prospects in this stage should move.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      // A body on DELETE, because the destination is not an identifier of the thing being
+      // deleted and a query parameter would make it look optional. It is not.
+      return context.json({
+        stages: await crm.deletePipelineStage(
+          context.get("actor"),
+          path.data.eventId,
+          path.data.stageKey,
+          parsed.data.migrateTo,
+        ),
+      });
+    });
+    app.get("/api/events/:eventId/pipeline/history", async (context) => {
+      requireCapability(context.get("actor"), "crm:manage");
+      if (!crm) throw new Error("CRM service is not configured");
+      const path = eventIdParamsSchema.safeParse(context.req.param());
+      if (!path.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        transitions: await crm.pipelineHistory(context.get("actor"), path.data.eventId),
       });
     });
     app.get("/api/events/:eventId/prospects/:prospectId", async (context) => {
@@ -463,11 +575,25 @@ export const crmRoutes: RouteModule = {
         status: 400 as const,
         fields: error.fields,
       };
-    if (error instanceof ContactNotFoundError || error instanceof SegmentNotFoundError)
+    if (
+      error instanceof ContactNotFoundError ||
+      error instanceof SegmentNotFoundError ||
+      error instanceof PipelineStageNotFoundError
+    )
       return {
         code: "NOT_FOUND" as const,
         message: "The requested resource was not found.",
         status: 404 as const,
+      };
+    // The organizer's own words come back rather than a generic sentence: this refusal names
+    // which stages still hold prospects, and that is the thing they have to act on.
+    if (error instanceof PipelineStageInUseError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    if (error instanceof PipelineStageInvalidError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
       };
     if (error instanceof ContactEmailTakenError || error instanceof SegmentNameTakenError)
       return {

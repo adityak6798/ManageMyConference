@@ -26,6 +26,10 @@ import {
   prospectListQuerySchema,
   prospectListResponseSchema,
   prospectOwnerListResponseSchema,
+  deletePipelineStageInputSchema,
+  pipelineHistoryResponseSchema,
+  pipelineStageListResponseSchema,
+  pipelineStagePathSchema,
   prospectPathSchema,
   prospectResponseSchema,
   pushContactToEventInputSchema,
@@ -33,6 +37,7 @@ import {
   segmentListResponseSchema,
   segmentResponseSchema,
   updateContactInputSchema,
+  savePipelineStagesInputSchema,
   updateProspectInputSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
@@ -78,6 +83,82 @@ export const crmPaths: OpenApiFragment = {
         200: {
           description: "Users assignable as the owner of a prospect on this event",
           content: json(prospectOwnerListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/pipeline/stages",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description:
+            "The stages of this event's sourcing board, in board order. An event with none is given the default set on first read, so a board always has columns to render its cards in.",
+          content: json(pipelineStageListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/events/{eventId}/pipeline/stages",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventIdParamsSchema,
+        body: { required: true, content: json(savePipelineStagesInputSchema) },
+      },
+      responses: {
+        200: {
+          description:
+            "The saved stages. The whole list replaces the whole list: adding, renaming and reordering are one act on a board.",
+          content: json(pipelineStageListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/events/{eventId}/pipeline/stages/{stageKey}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: pipelineStagePathSchema,
+        body: { required: true, content: json(deletePipelineStageInputSchema) },
+      },
+      responses: {
+        200: {
+          description:
+            "The remaining stages. Every prospect standing in the deleted stage is moved to `migrateTo` in the same write, and each move is recorded in the pipeline history.",
+          content: json(pipelineStageListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/pipeline/history",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description:
+            "Every stage move on this event's board, oldest first, with who made it and what did. Stage keys are stored as text so history survives a stage being renamed or deleted.",
+          content: json(pipelineHistoryResponseSchema),
         },
         400: errorResponse,
         401: errorResponse,

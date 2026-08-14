@@ -15,32 +15,44 @@
  */
 
 import type { ProspectDto, ProspectOwnerDto } from "@greenroom/contracts";
+import type { PipelineStageDto, StageCategoryDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CrmApiError,
   convertProspect,
   createProspect,
   crmFieldErrors,
+  deletePipelineStage,
+  listPipelineStages,
   listProspectOwners,
   listProspects,
+  savePipelineStages,
   updateProspect,
 } from "./api/crm";
+import { PipelineBoard } from "./crm/PipelineBoard";
+import { PipelineStageEditor } from "./crm/PipelineStageEditor";
 import "./styles/crm.css";
 import { IconCheck, IconClock, IconPlus, IconSpeakers, IconWarning } from "./ui/icons";
 import { Card, EmptyState, Notice, Pill, Stat, Tabs, useActionFeedback } from "./ui/primitives";
 
 type PillTone = "neutral" | "ok" | "warn" | "danger" | "info" | "strong";
 
-const STAGES: { id: ProspectDto["stage"]; label: string; tone: PillTone }[] = [
-  { id: "identified", label: "Identified", tone: "neutral" },
-  { id: "contacted", label: "Contacted", tone: "info" },
-  { id: "engaged", label: "Engaged", tone: "info" },
-  { id: "invited", label: "Invited", tone: "warn" },
-  { id: "converted", label: "Converted", tone: "ok" },
-];
+/**
+ * The tone a stage is drawn in, by what it *means* rather than by its name.
+ *
+ * The five hard-coded stages this replaces could carry a tone each because the list was fixed.
+ * A configurable board cannot: an organizer's "Shortlisted" has no entry in any table here, and
+ * its semantic category is exactly the thing that survives their renaming it (#197).
+ */
+const CATEGORY_TONE: Record<StageCategoryDto, PillTone> = {
+  open: "info",
+  won: "ok",
+  nurture: "warn",
+  lost: "neutral",
+};
 
-/** The API refuses to move a prospect back out of "converted", so it is not offered. */
-const EDITABLE_STAGES = STAGES.filter(({ id }) => id !== "converted");
+/** The stage converting a prospect writes; the API refuses a move into it, so it is not offered. */
+const CONVERTED = "converted";
 
 const ACTIVITY_TONES: Record<ProspectDto["activities"][number]["kind"], PillTone> = {
   note: "neutral",
@@ -108,6 +120,14 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
   const [newOwner, setNewOwner] = useState(ownerId);
   const [newOwnerErrors, setNewOwnerErrors] = useState<string[]>([]);
 
+  const [stages, setStages] = useState<PipelineStageDto[]>([]);
+  /*
+   * Board or table. Both read the same stages and the same prospects; they answer different
+   * questions — "where is everybody" and "who is stuck" — which is why the table stayed rather
+   * than being replaced by the board #197 asks for.
+   */
+  const [view, setView] = useState<"board" | "table">("board");
+  const [configuring, setConfiguring] = useState(false);
   const [stage, setStage] = useState<ProspectDto["stage"]>("identified");
   const [assignedOwner, setAssignedOwner] = useState(ownerId);
   const [assignedOwnerErrors, setAssignedOwnerErrors] = useState<string[]>([]);
@@ -122,15 +142,17 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
 
   const reload = useCallback(async () => {
     const sequence = ++loadSequence.current;
-    const [loaded, staff] = await Promise.all([
+    const [loaded, staff, board] = await Promise.all([
       listProspects(eventId),
       listProspectOwners(eventId),
+      listPipelineStages(eventId),
     ]);
     // A response that lands after the organizer switched events describes the old
     // workspace; rendering it would show another event's pipeline.
     if (sequence !== loadSequence.current) return;
     setProspects(loaded);
     setOwners(staff);
+    setStages(board);
     // The new-prospect form defaults to the signed-in organizer. If this event's staff list
     // does not contain the pending choice — a different event, or an identity that has left —
     // fall back to somebody the server will accept rather than posting a doomed owner.
@@ -259,6 +281,62 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
     }
   }
 
+  /**
+   * Move one card to one stage.
+   *
+   * A request rather than an optimistic reorder: the server decides whether the target exists
+   * and whether this prospect may leave where it is, and a card that snapped across and then
+   * snapped back is the most confusing possible way to learn that it could not.
+   */
+  async function moveProspect(prospect: ProspectDto, target: PipelineStageDto) {
+    setBusy(true);
+    try {
+      await updateProspect(eventId, prospect.id, { stage: target.key, source: "board" });
+      await reload();
+      pipelineFeedback.announce("success", `${prospect.name} moved to ${target.label}.`);
+    } catch (reason) {
+      pipelineFeedback.announce(
+        "error",
+        readCrmError(reason, `${prospect.name} could not be moved.`),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveBoard(next: { key: string; label: string; category: StageCategoryDto }[]) {
+    setBusy(true);
+    try {
+      setStages(await savePipelineStages(eventId, next));
+      await reload();
+      pipelineFeedback.announce("success", "Board saved.");
+    } catch (reason) {
+      // The server's refusal names the stages that still hold prospects, which is the thing to
+      // act on — so it is surfaced verbatim rather than replaced with a generic sentence.
+      pipelineFeedback.announce("error", readCrmError(reason, "The board could not be saved."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeStage(stageKey: string, migrateTo: string) {
+    const from = stages.find(({ key }) => key === stageKey);
+    const to = stages.find(({ key }) => key === migrateTo);
+    setBusy(true);
+    try {
+      setStages(await deletePipelineStage(eventId, stageKey, migrateTo));
+      await reload();
+      pipelineFeedback.announce(
+        "success",
+        `${from?.label ?? stageKey} removed. Anybody standing there is now in ${to?.label ?? migrateTo}.`,
+      );
+    } catch (reason) {
+      pipelineFeedback.announce("error", readCrmError(reason, "That stage could not be removed."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save(formEvent: FormEvent) {
     formEvent.preventDefault();
     if (!selected) return;
@@ -323,15 +401,15 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
   const tabs = [
     { id: "all", label: "All", count: counts.all },
     { id: "overdue", label: "Overdue", count: counts.overdue },
-    ...STAGES.map((item) => ({
-      id: item.id,
+    ...stages.map((item) => ({
+      id: item.key,
       label: item.label,
-      count: counts.byStage.get(item.id) ?? 0,
+      count: counts.byStage.get(item.key) ?? 0,
     })),
   ];
 
-  const inPipeline = prospects.filter((prospect) => prospect.stage !== "converted").length;
-  const converted = counts.byStage.get("converted") ?? 0;
+  const inPipeline = prospects.filter((prospect) => prospect.stage !== CONVERTED).length;
+  const converted = counts.byStage.get(CONVERTED) ?? 0;
 
   if (error)
     return (
@@ -366,7 +444,12 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
         />
       </dl>
 
-      <div className="split">
+      {/*
+       * The board wants the whole width — eight columns in half a page shows three — so the
+       * detail panel drops beneath it rather than beside it. The table keeps the two-pane
+       * layout, where a row and its detail genuinely are read together.
+       */}
+      <div className={view === "board" ? "crm-stack" : "split"}>
         <Card
           labelledBy="crm-pipeline"
           title="Prospect pipeline"
@@ -469,10 +552,93 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                 />
               </div>
             </div>
-            <Tabs items={tabs} active={tab} onSelect={setTab} label="Pipeline stage" />
+            {/* One switch, two readings of the same pipeline. The tabs below filter the table
+                and are hidden with it: a board already shows every stage at once, so a stage
+                filter over it would be a control with nothing to do. */}
+            <fieldset className="pipeline-views">
+              <legend className="visually-hidden">Pipeline view</legend>
+              <button
+                type="button"
+                className={view === "board" ? "secondary is-active" : "secondary"}
+                aria-pressed={view === "board"}
+                onClick={() => setView("board")}
+              >
+                Board
+              </button>
+              <button
+                type="button"
+                className={view === "table" ? "secondary is-active" : "secondary"}
+                aria-pressed={view === "table"}
+                onClick={() => setView("table")}
+              >
+                Table
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                aria-expanded={configuring}
+                onClick={() => setConfiguring((open) => !open)}
+              >
+                {configuring ? "Close stage settings" : "Configure stages"}
+              </button>
+            </fieldset>
+            {view === "table" ? (
+              <Tabs items={tabs} active={tab} onSelect={setTab} label="Pipeline stage" />
+            ) : null}
           </div>
 
-          <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
+          {configuring ? (
+            <div className="stage-editor-panel">
+              <h3>Stages</h3>
+              <PipelineStageEditor
+                stages={stages}
+                counts={counts.byStage}
+                busy={busy}
+                onSave={(next) => {
+                  // ERROR-INTENT: handlers cannot await; saveBoard announces both outcomes.
+                  void saveBoard(next);
+                }}
+                onDelete={(stageKey, migrateTo) => {
+                  // ERROR-INTENT: handlers cannot await; removeStage announces both outcomes.
+                  void removeStage(stageKey, migrateTo);
+                }}
+              />
+            </div>
+          ) : null}
+
+          {view === "board" ? (
+            loading ? (
+              <div className="crm-skeletons">
+                <div aria-hidden="true">
+                  {[0, 1, 2].map((index) => (
+                    <div key={index} className="skeleton" style={{ height: 120 }} />
+                  ))}
+                </div>
+                <p className="visually-hidden" role="status">
+                  Loading the sourcing board.
+                </p>
+              </div>
+            ) : (
+              <PipelineBoard
+                stages={stages}
+                prospects={prospects}
+                selectedId={selectedId}
+                busy={busy}
+                onOpen={open}
+                onMove={(prospect, target) => {
+                  // ERROR-INTENT: handlers cannot await; moveProspect announces both outcomes.
+                  void moveProspect(prospect, target);
+                }}
+              />
+            )
+          ) : null}
+
+          <div
+            id={`panel-${tab}`}
+            role="tabpanel"
+            aria-labelledby={`tab-${tab}`}
+            hidden={view !== "table"}
+          >
             {loading ? (
               <div className="crm-skeletons">
                 <div aria-hidden="true">
@@ -529,7 +695,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                   <tbody>
                     {visible.map((prospect) => {
                       const overdue = isOverdue(prospect, now);
-                      const meta = STAGES.find(({ id }) => id === prospect.stage);
+                      const meta = stages.find(({ key }) => key === prospect.stage);
                       const primary =
                         prospect.contacts.find((contact) => contact.isPrimary) ??
                         prospect.contacts[0];
@@ -550,7 +716,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                             {primary ? <span className="sub">{primary.email}</span> : null}
                           </td>
                           <td>
-                            <Pill tone={meta?.tone ?? "neutral"}>
+                            <Pill tone={meta ? CATEGORY_TONE[meta.category] : "neutral"}>
                               {meta?.label ?? prospect.stage}
                             </Pill>
                             {prospect.speakerId ? (
@@ -667,11 +833,13 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                           setStage(changeEvent.target.value as ProspectDto["stage"])
                         }
                       >
-                        {EDITABLE_STAGES.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.label}
-                          </option>
-                        ))}
+                        {stages
+                          .filter(({ key }) => key !== CONVERTED)
+                          .map((item) => (
+                            <option key={item.key} value={item.key}>
+                              {item.label}
+                            </option>
+                          ))}
                       </select>
                     </div>
                     <div className="field">

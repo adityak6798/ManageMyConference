@@ -14,10 +14,11 @@ import type {
   OrganizationContact,
 } from "../../domain/crm/contact";
 import type {
+  PipelineStage,
   Prospect,
   ProspectActivity,
   ProspectContact,
-  ProspectStage,
+  ProspectTransition,
 } from "../../domain/crm/prospect";
 
 interface D1Statement {
@@ -34,7 +35,7 @@ interface ProspectRow {
   id: string;
   event_id: string;
   name: string;
-  stage: ProspectStage;
+  stage: string;
   owner_id: string;
   next_action: string | null;
   next_action_at: string | null;
@@ -89,11 +90,30 @@ interface ContactAliasRow extends ContactChildRow {
   merged_from_id: string;
   merged_at: string;
 }
+interface StageRow {
+  id: string;
+  event_id: string;
+  key: string;
+  label: string;
+  category: string;
+  sort_order: number;
+  created_at: string;
+}
+interface TransitionRow {
+  id: string;
+  event_id: string;
+  prospect_id: string;
+  from_stage: string | null;
+  to_stage: string;
+  actor_id: string;
+  source: string;
+  occurred_at: string;
+}
 interface ContactEventRow extends ContactChildRow {
   event_id: string;
   prospect_id: string;
   linked_at: string;
-  stage: ProspectStage;
+  stage: string;
   speaker_id: string | null;
   converted_at: string | null;
 }
@@ -242,7 +262,7 @@ export class D1CrmRepository implements CrmRepository {
     const id = result.results?.[0]?.id;
     return id ? this.findById(eventId, id) : null;
   }
-  async create(prospect: Prospect) {
+  async create(prospect: Prospect, transition?: ProspectTransition) {
     const statements = [
       this.database
         .prepare(
@@ -266,6 +286,9 @@ export class D1CrmRepository implements CrmRepository {
           )
           .bind(contact.id, prospect.id, contact.name, contact.email, contact.isPrimary ? 1 : 0),
       ),
+      // The arrival is the first entry in the prospect's history, written in the same batch so
+      // a board can never show a card whose history begins after it.
+      ...(transition ? [this.transitionStatement(transition)] : []),
     ];
     await this.runBatch(statements, "create prospect atomically");
   }
@@ -273,6 +296,7 @@ export class D1CrmRepository implements CrmRepository {
     prospect: Prospect,
     activities: readonly ProspectActivity[] = [],
     contact?: ProspectContact,
+    transition?: ProspectTransition,
   ) {
     const statements: D1Statement[] = [
       this.database
@@ -289,6 +313,27 @@ export class D1CrmRepository implements CrmRepository {
           prospect.eventId,
         ),
     ];
+    // The move's own history entry, guarded the same way the row update is: a prospect that
+    // converted under the caller is no longer movable, and its history must not say otherwise.
+    if (transition)
+      statements.push(
+        this.database
+          .prepare(
+            "INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_prospects WHERE id=? AND event_id=? AND speaker_id IS NULL)",
+          )
+          .bind(
+            transition.id,
+            transition.eventId,
+            transition.prospectId,
+            transition.fromStage,
+            transition.toStage,
+            transition.actorId,
+            transition.source,
+            transition.occurredAt,
+            prospect.id,
+            prospect.eventId,
+          ),
+      );
     // Every activity this command produced rides the same batch as the row update, so a
     // stage-change entry can never survive a failed transition or be lost after a saved one.
     for (const activity of activities) {
@@ -377,6 +422,7 @@ export class D1CrmRepository implements CrmRepository {
     prospectId: string,
     speakerId: string,
     activity: ProspectActivity,
+    transition?: ProspectTransition,
   ) {
     const update = this.database
       .prepare(
@@ -384,12 +430,197 @@ export class D1CrmRepository implements CrmRepository {
       )
       .bind(speakerId, activity.occurredAt, activity.occurredAt, prospectId, eventId);
     await this.runBatch(
-      [update, this.activityStatement(prospectId, activity)],
+      [
+        update,
+        this.activityStatement(prospectId, activity),
+        ...(transition ? [this.transitionStatement(transition)] : []),
+      ],
       "record conversion atomically",
     );
     const current = await this.findById(eventId, prospectId);
     if (!current) throw new Error("Prospect not found");
     return current;
+  }
+
+  /* ------------------------------ the board itself ------------------------------ */
+
+  private stageRow(row: StageRow): PipelineStage {
+    return {
+      id: row.id,
+      eventId: row.event_id,
+      key: row.key,
+      label: row.label,
+      category: row.category as PipelineStage["category"],
+      sortOrder: Number(row.sort_order),
+      createdAt: row.created_at,
+    };
+  }
+
+  async listStages(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT id, event_id, key, label, category, sort_order, created_at FROM crm_pipeline_stages WHERE event_id=? ORDER BY sort_order, key",
+      )
+      .bind(eventId)
+      .all<StageRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to list pipeline stages: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map((row) => this.stageRow(row));
+  }
+
+  /**
+   * Write the default board for an event that has none, then answer with what it now has.
+   *
+   * `INSERT OR IGNORE` against `UNIQUE (event_id, key)` rather than "read, then decide": two
+   * organizers opening a new event's board at the same instant both read no stages, and a
+   * read-then-write would have one of them fail on the other's insert. An existing row is left
+   * exactly as it is, so healing can never undo a rename.
+   */
+  async ensureStages(eventId: string, stages: readonly PipelineStage[]) {
+    if (stages.length)
+      await this.runBatch(
+        stages.map((stage) =>
+          this.database
+            .prepare(
+              "INSERT OR IGNORE INTO crm_pipeline_stages (id,event_id,key,label,category,sort_order,created_at) VALUES (?,?,?,?,?,?,?)",
+            )
+            .bind(
+              stage.id,
+              eventId,
+              stage.key,
+              stage.label,
+              stage.category,
+              stage.sortOrder,
+              stage.createdAt,
+            ),
+        ),
+        "seed the default pipeline stages",
+      );
+    return this.listStages(eventId);
+  }
+
+  /**
+   * Replace this event's stage list wholesale.
+   *
+   * One batch, and a delete-then-insert rather than a diff: adding, renaming and reordering are
+   * the same operation from the board's point of view, and a partial application would leave two
+   * columns claiming the same position. The delete is scoped to keys *not* in the new list, so a
+   * stage that survives keeps its id — history is text and does not follow the id, but a stable
+   * id is what lets the console's own list keep its React keys across a reorder.
+   */
+  async saveStages(eventId: string, stages: readonly PipelineStage[]) {
+    const keys = stages.map(({ key }) => key);
+    const placeholders = keys.map(() => "?").join(",");
+    const statements: D1Statement[] = [
+      this.database
+        .prepare(
+          keys.length
+            ? `DELETE FROM crm_pipeline_stages WHERE event_id=? AND key NOT IN (${placeholders})`
+            : "DELETE FROM crm_pipeline_stages WHERE event_id=?",
+        )
+        .bind(eventId, ...keys),
+      ...stages.map((stage) =>
+        this.database
+          .prepare(
+            "INSERT INTO crm_pipeline_stages (id,event_id,key,label,category,sort_order,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(event_id,key) DO UPDATE SET label=excluded.label, category=excluded.category, sort_order=excluded.sort_order",
+          )
+          .bind(
+            stage.id,
+            eventId,
+            stage.key,
+            stage.label,
+            stage.category,
+            stage.sortOrder,
+            stage.createdAt,
+          ),
+      ),
+    ];
+    await this.runBatch(statements, "save the pipeline stages");
+  }
+
+  async countByStage(eventId: string) {
+    const result = await this.database
+      .prepare("SELECT stage, COUNT(*) AS total FROM crm_prospects WHERE event_id=? GROUP BY stage")
+      .bind(eventId)
+      .all<{ stage: string; total: number }>();
+    if (!result.success)
+      throw new Error(`D1 failed to count prospects by stage: ${result.error ?? "unknown error"}`);
+    return new Map((result.results ?? []).map((row) => [row.stage, Number(row.total)]));
+  }
+
+  /**
+   * Move everything out of a stage and delete it, in one batch.
+   *
+   * The migration and the delete cannot be two requests: between them the board would serve a
+   * stage key no column exists for, and every card in it would render nowhere. The transitions
+   * are written in the same batch for the same reason — a move nobody can see in the history is
+   * a move that did not happen as far as a report is concerned.
+   */
+  async deleteStage(
+    eventId: string,
+    stageKey: string,
+    migrateTo: string,
+    transitions: readonly ProspectTransition[],
+    remaining: readonly PipelineStage[],
+  ) {
+    const now = transitions[0]?.occurredAt ?? new Date(0).toISOString();
+    await this.runBatch(
+      [
+        this.database
+          .prepare("UPDATE crm_prospects SET stage=?, updated_at=? WHERE event_id=? AND stage=?")
+          .bind(migrateTo, now, eventId, stageKey),
+        ...transitions.map((transition) => this.transitionStatement(transition)),
+        this.database
+          .prepare("DELETE FROM crm_pipeline_stages WHERE event_id=? AND key=?")
+          .bind(eventId, stageKey),
+        ...remaining.map((stage) =>
+          this.database
+            .prepare("UPDATE crm_pipeline_stages SET sort_order=? WHERE event_id=? AND key=?")
+            .bind(stage.sortOrder, eventId, stage.key),
+        ),
+      ],
+      "migrate and delete a pipeline stage",
+    );
+  }
+
+  private transitionStatement(transition: ProspectTransition) {
+    return this.database
+      .prepare(
+        "INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at) VALUES (?,?,?,?,?,?,?,?)",
+      )
+      .bind(
+        transition.id,
+        transition.eventId,
+        transition.prospectId,
+        transition.fromStage,
+        transition.toStage,
+        transition.actorId,
+        transition.source,
+        transition.occurredAt,
+      );
+  }
+
+  async listTransitions(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT id, event_id, prospect_id, from_stage, to_stage, actor_id, source, occurred_at FROM crm_prospect_transitions WHERE event_id=? ORDER BY occurred_at, id",
+      )
+      .bind(eventId)
+      .all<TransitionRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to list stage transitions: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map(
+      (row): ProspectTransition => ({
+        id: row.id,
+        eventId: row.event_id,
+        prospectId: row.prospect_id,
+        fromStage: row.from_stage,
+        toStage: row.to_stage,
+        actorId: row.actor_id,
+        source: row.source as ProspectTransition["source"],
+        occurredAt: row.occurred_at,
+      }),
+    );
   }
 
   /* ---------------------------------------------------------------------------------------

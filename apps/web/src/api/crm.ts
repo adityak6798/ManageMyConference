@@ -9,12 +9,18 @@ import {
   importPreviewResponseSchema,
   outreachPreviewResponseSchema,
   outreachResponseSchema,
+  type PipelineStageDto,
+  pipelineHistoryResponseSchema,
+  pipelineStageListResponseSchema,
   type ProspectDto,
   type ProspectOwnerDto,
   prospectListResponseSchema,
   prospectOwnerListResponseSchema,
   prospectResponseSchema,
+  type ProspectTransitionDto,
   pushContactToEventResponseSchema,
+  type SavePipelineStagesInput,
+  savePipelineStagesInputSchema,
   segmentListResponseSchema,
   segmentResponseSchema,
 } from "@greenroom/contracts";
@@ -110,6 +116,76 @@ export async function updateProspect(
       prospectResponseSchema,
     )
   ).prospect;
+}
+
+/* ------------------------------ the sourcing board ------------------------------ */
+
+/**
+ * This event's stages, in board order.
+ *
+ * A `GET` that may write on the server: an event with no stages is given the default set on
+ * first read, because a board with no columns renders every card nowhere. Bounded and idempotent
+ * — it writes only the defaults, only when there are none.
+ */
+export async function listPipelineStages(eventId: string): Promise<PipelineStageDto[]> {
+  return [
+    ...(
+      await decode(
+        await fetch(`/api/events/${eventId}/pipeline/stages`),
+        pipelineStageListResponseSchema,
+      )
+    ).stages,
+  ];
+}
+
+/** The whole list replaces the whole list: adding, renaming and reordering are one act. */
+export async function savePipelineStages(
+  eventId: string,
+  stages: SavePipelineStagesInput["stages"],
+): Promise<PipelineStageDto[]> {
+  return [
+    ...(
+      await decode(
+        await fetch(`/api/events/${eventId}/pipeline/stages`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(savePipelineStagesInputSchema.parse({ stages })),
+        }),
+        pipelineStageListResponseSchema,
+      )
+    ).stages,
+  ];
+}
+
+/** Deleting a stage names where its prospects go; the server refuses without one. */
+export async function deletePipelineStage(
+  eventId: string,
+  stageKey: string,
+  migrateTo: string,
+): Promise<PipelineStageDto[]> {
+  return [
+    ...(
+      await decode(
+        await fetch(`/api/events/${eventId}/pipeline/stages/${stageKey}`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ migrateTo }),
+        }),
+        pipelineStageListResponseSchema,
+      )
+    ).stages,
+  ];
+}
+
+export async function listPipelineHistory(eventId: string): Promise<ProspectTransitionDto[]> {
+  return [
+    ...(
+      await decode(
+        await fetch(`/api/events/${eventId}/pipeline/history`),
+        pipelineHistoryResponseSchema,
+      )
+    ).transitions,
+  ];
 }
 
 /* ------------------------------------------------------------------------------------------

@@ -9,7 +9,6 @@
  *
  * @spec PRD-CRM-001
  */
-import type { ProspectStage } from "./prospect";
 
 export const contactSources = ["manual", "import", "prospect"] as const;
 export type ContactSource = (typeof contactSources)[number];
@@ -53,7 +52,8 @@ export interface ContactAlias {
 export interface ContactEventLink {
   readonly eventId: string;
   readonly prospectId: string;
-  readonly stage: ProspectStage;
+  /** A stage key from the event's configured board. Free text here: the pipeline owns it. */
+  readonly stage: string;
   readonly speakerId: string | null;
   readonly convertedAt: string | null;
   readonly linkedAt: string;

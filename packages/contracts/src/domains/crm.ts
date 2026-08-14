@@ -1,13 +1,22 @@
 import { z } from "zod";
 
+/**
+ * A stage key on this event's board.
+ *
+ * Not an enum any more. Which keys exist is data — `crm_pipeline_stages`, one row per stage an
+ * organizer configured — and an enum here would refuse every stage they added while also being
+ * a second copy of a list that lives in the database (#197, migration `1502`).
+ *
+ * The *shape* is still constrained, because a key is an identifier rather than a sentence and
+ * the console builds URLs and CSS class names from it.
+ */
 // @spec PRD-CRM-001
-export const prospectStageSchema = z.enum([
-  "identified",
-  "contacted",
-  "engaged",
-  "invited",
-  "converted",
-]);
+export const prospectStageSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase words separated by hyphens");
 export const prospectContactSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -60,10 +69,22 @@ export const createProspectInputSchema = z.object({
   nextActionAt: z.string().datetime().optional(),
   contact: z.object({ name: z.string().trim().min(1).max(160), email: z.string().email() }),
 });
-const editableProspectStageSchema = z.enum(["identified", "contacted", "engaged", "invited"]);
+/*
+ * Any key this event configured, refused by the *server* against the board rather than by a
+ * fixed list here. The five-key enum this replaces was the wire-level twin of the CHECK `1502`
+ * removed, and it would have refused every stage an organizer added.
+ */
+const editableProspectStageSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase words separated by hyphens");
 export const updateProspectInputSchema = z
   .object({
     stage: editableProspectStageSchema.optional(),
+    /** What moved it: a drag on the board and an edit in the panel are different acts. */
+    source: z.enum(["board", "detail"]).optional(),
     ownerId: z.string().trim().min(1).optional(),
     nextAction: z.string().trim().min(1).max(300).nullable().optional(),
     nextActionAt: z.string().datetime().nullable().optional(),
@@ -103,6 +124,95 @@ export const prospectOwnerListResponseSchema = z.object({
   owners: z.array(prospectOwnerSchema),
 });
 export type ProspectOwnerDto = z.infer<typeof prospectOwnerSchema>;
+
+/* ------------------------------------------------------------------------------------------
+ * The configurable sourcing board (#197).
+ *
+ * A stage's `key` is stable and is what a prospect row stores; `label` is the organizer's to
+ * rename; `category` is closed so a filter or a report keyed on "won" survives the rename.
+ * ---------------------------------------------------------------------------------------- */
+
+export const stageCategorySchema = z.enum(["open", "won", "nurture", "lost"]);
+export type StageCategoryDto = z.infer<typeof stageCategorySchema>;
+
+/**
+ * Lowercase, hyphen-separated, and never generated from the label by the client.
+ *
+ * The key outlives every rename, so deriving it from the current name would produce a *new*
+ * key the moment somebody edited the label — stranding every prospect standing in that stage.
+ */
+const stageKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase words separated by hyphens");
+
+export const pipelineStageSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  key: stageKeySchema,
+  label: z.string(),
+  category: stageCategorySchema,
+  sortOrder: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+});
+export type PipelineStageDto = z.infer<typeof pipelineStageSchema>;
+
+/**
+ * The whole list, every time.
+ *
+ * Adding, renaming and reordering are one act on a board — a reorder moves every column — so
+ * a diff would have to be reassembled into this anyway, with a window in which two columns
+ * claim the same position.
+ */
+export const savePipelineStagesInputSchema = z.object({
+  stages: z
+    .array(
+      z.object({
+        key: stageKeySchema,
+        label: z.string().trim().min(1).max(80),
+        category: stageCategorySchema,
+      }),
+    )
+    .min(1, "A pipeline needs at least one stage")
+    .max(24, "A board with more than two dozen columns is a list, not a board"),
+});
+export type SavePipelineStagesInput = z.infer<typeof savePipelineStagesInputSchema>;
+
+/**
+ * Deleting a stage names where its prospects go.
+ *
+ * Required rather than defaulted: a default would silently decide where somebody's shortlist
+ * went, and the reason a bare delete is refused at all is that losing track of a prospect is
+ * worse than one more question.
+ */
+export const deletePipelineStageInputSchema = z.object({ migrateTo: stageKeySchema });
+export type DeletePipelineStageInput = z.infer<typeof deletePipelineStageInputSchema>;
+
+export const prospectTransitionSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  prospectId: z.string().uuid(),
+  /** Null for the transition that created the prospect: it came from nowhere. */
+  fromStage: z.string().nullable(),
+  toStage: z.string(),
+  actorId: z.string(),
+  source: z.enum(["board", "detail", "created", "conversion", "migration"]),
+  occurredAt: z.string().datetime(),
+});
+export type ProspectTransitionDto = z.infer<typeof prospectTransitionSchema>;
+
+export const pipelineStageListResponseSchema = z.object({
+  stages: z.array(pipelineStageSchema),
+});
+export const pipelineHistoryResponseSchema = z.object({
+  transitions: z.array(prospectTransitionSchema),
+});
+export const pipelineStagePathSchema = z.object({
+  eventId: z.string().uuid(),
+  stageKey: stageKeySchema,
+});
 
 /* ------------------------------------------------------------------------------------------
  * The organization-wide speaker directory.

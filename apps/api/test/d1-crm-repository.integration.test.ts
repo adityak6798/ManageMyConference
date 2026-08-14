@@ -135,7 +135,7 @@ describe("D1 CRM persistence", () => {
     const stageChange = {
       id: "30000000-0000-4000-8000-000000000020",
       kind: "stage-change" as const,
-      summary: "identified → contacted",
+      summary: "Identified → Contacted",
       private: false,
       occurredAt: "2026-08-10T12:05:00.000Z",
       actorId: "seed-organizer",
@@ -160,7 +160,7 @@ describe("D1 CRM persistence", () => {
     await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
       stage: "contacted",
       activities: [
-        { kind: "stage-change", summary: "identified → contacted", private: false },
+        { kind: "stage-change", summary: "Identified → Contacted", private: false },
         { kind: "note", summary: "Left a voicemail", private: true },
       ],
     });
@@ -175,7 +175,7 @@ describe("D1 CRM persistence", () => {
     const refusedStageChange = {
       id: "30000000-0000-4000-8000-000000000022",
       kind: "stage-change" as const,
-      summary: "contacted → engaged",
+      summary: "Contacted → Engaged",
       private: false,
       occurredAt: "2026-08-10T12:10:00.000Z",
       actorId: "seed-organizer",

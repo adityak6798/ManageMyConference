@@ -450,6 +450,16 @@ INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_acti
   -- The same person, courted again for the workshop day. This is the row that makes the
   -- directory's central claim demonstrable on a clean seed: one contact, two event histories.
   ('50000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','Dr. Ada Rivera','identified','seed-organizer','Confirm interest for the workshop day',NULL,'2026-08-07T12:00:00.000Z','2026-08-07T12:00:00.000Z');
+-- Each seeded prospect's arrival on the board. The migration backfills prospects that already
+-- existed; the fixture creates its own after migrations run, so it carries its own history —
+-- otherwise the demo board's report would open empty and read as "nothing has ever happened".
+INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at) VALUES
+  ('55000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001',NULL,'identified','seed-organizer','created','2026-08-01T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','identified','contacted','seed-organizer','board','2026-08-05T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000002',NULL,'identified','seed-organizer','created','2026-08-02T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000002','identified','engaged','seed-organizer','detail','2026-08-06T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000003',NULL,'identified','seed-organizer','created','2026-08-07T12:00:00.000Z');
+
 INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) VALUES
   ('60000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','Ada Rivera','ada@example.test',1),
   ('60000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000002','Morgan Chen','morgan@example.test',1),
