@@ -343,7 +343,8 @@ export function PublicCfpView({
      * replaced on a *successful* write, while the list refreshes either way — so after a 409 from
      * another tab, `editing` is the stale one. Preferring it unconditionally meant pressing
      * `Continue` on the row the conflict message points at rebound the same stale revision, and
-     * the next save was refused identically, with no way out but a reload. Whichever copy is
+     * the next save was refused identically, the only escape being a control labelled as making
+     * a *new* proposal. Whichever copy is
      * newer wins.
      */
     const current =

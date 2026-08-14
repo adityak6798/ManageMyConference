@@ -786,7 +786,10 @@ export class CfpService {
       throw new CfpProposalStateConflictError("This proposal has already been submitted.");
     if ((current.revision ?? 1) !== expectedRevision)
       throw new CfpDraftConflictError(
-        "This proposal changed in another tab or window. Reload it before saving again.",
+        // Names the control the applicant surface actually has. "Reload it" described a browser
+        // refresh the page offers no button for — and since the resume path prefers whichever copy
+        // is newer, opening the proposal again from the list is now the recovery that works.
+        "This proposal changed in another tab or window. Open it again from your proposals to get the latest.",
       );
     // Owner, revision and lifecycle all still match, so what is left is the window: an organizer
     // closed the call between this request's read and its write.

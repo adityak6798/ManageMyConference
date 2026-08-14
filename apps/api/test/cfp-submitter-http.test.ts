@@ -393,7 +393,10 @@ describe("the submitter's proposal routes", () => {
         // The *applicant's* sentence, which the transport used to overwrite with a fixed one
         // about reloading a draft — said to people whose proposal is not a draft. Asserted here
         // because this is the only layer that shows what the caller is actually handed.
-        message: "This proposal changed in another tab or window. Reload it before saving again.",
+        // Names a control this surface has: the applicant dashboard offers no reload button, and
+        // opening the proposal again is what recovers, since the resume path prefers the newer copy.
+        message:
+          "This proposal changed in another tab or window. Open it again from your proposals to get the latest.",
       },
     });
 

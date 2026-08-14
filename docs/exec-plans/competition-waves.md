@@ -1463,8 +1463,10 @@ assertion, and one of them was a regression.** Preferring the copy in hand over 
 right after a *successful* write and wrong after a refused one — `editing` is replaced only on
 success while the list refreshes either way, so a 409 from another tab left the in-hand copy
 stale, and pressing `Continue` on the row the conflict message points at rebound the same stale
-revision and was refused identically, with no escape but a reload. Whichever copy carries the
-higher revision now wins, and both directions are pinned.
+revision and was refused identically. Whichever copy carries the higher revision now wins, and
+both directions are pinned. (An escape did exist — `Start another proposal` clears `editing`, after
+which `Continue` binds the fresh row — so "no way out but a reload", which this ledger and a commit
+message both said, was an overstatement of an otherwise real trap.)
 
 That pass also found the reordering that de-flaked the window test had quietly stopped checking
 the guarantee the test is named for: `waitFor` succeeds the instant the request is *issued*, so a
@@ -1478,9 +1480,14 @@ invitation token never reached the button. The third was a synchronous assertion
 still in flight. None is in product code, but the first two shadow a real narrowness: an effect
 that resets a controlled input after first paint clobbers anything typed in that window.
 
-Three flakes across three rounds were found only by running the suites *concurrently*, which is
-what `npm run check` does and what a single-workspace run does not. Sixteen green runs of the web
-suite alone said nothing about any of them.
+Three flakes across three rounds were found only under **load** — several copies of the suite
+running at once. That is worth stating precisely, because the first version of this paragraph said
+the load came from `npm run check` running the workspaces concurrently, and it does not: `npm test`
+runs workspace scripts **serially** (measured — the API suite finishes before the web suite starts,
+every run). No gate applies that load. So this class of flake is not caught by any gate here; it
+was caught by a reviewer choosing to run the suite sixty times against other work on the same box.
+Sixteen green runs of the web suite alone said nothing about any of them, and neither would sixteen
+green runs of `npm run check`.
 
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through

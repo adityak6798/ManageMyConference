@@ -594,6 +594,17 @@ feature-by-feature verdict.
 
   **An anonymous caller can squat one account's proposal key.** A proposal an account owns is stored under `proposal:<userId>:<clientKey>`, which makes a collision between two accounts impossible; the anonymous path keeps the bare key it has always used, because narrowing `submitProposalInputSchema` to forbid the separator would be a breaking input change under [api-compatibility](../interfaces/api-compatibility.md). So an anonymous submission *could* spell a prefixed key and take it, costing that account a refused create — not a disclosure, since the convergence read is owner-scoped either way — and requiring the caller to guess both a user id and the client's UUID. Recorded rather than closed because the fix is a contract change with a 180-day deprecation, for a residual nobody can reach by accident.
 
+  **Two smaller residuals on the applicant's own screen, both found by the fifteenth review pass
+  and both left deliberately.** Pressing `Continue` on the proposal already being edited reloads
+  its stored answers over anything typed and unsaved, saying only "Editing …" — silent loss of the
+  applicant's work on a surface whose spec is otherwise emphatic that drops are announced. And
+  `CfpWorkspace` seeds its two window inputs from the loaded form in a passive effect whose deps
+  move `undefined → null` when the load lands, so an organizer who types a deadline before that
+  resolves has it cleared; the card renders before the read returns. Neither persists anything
+  wrong and both are visible on screen. They are recorded rather than repaired because the five
+  repair commits before them each introduced the defect the next review pass found, and neither of
+  these is worth that risk on this branch. Owner: cfp.
+
   Owner: cfp, with the first limit shared with communications-integrations. Governing ID:
   `PRD-CFP-003`, `PRD-CFP-004`, `PRD-COM-001`, `ACC-CFP`. Closure: a scheduled deadline reminder
   whose trigger and consent rule are decided by communications; a real sign-in door on a deployment

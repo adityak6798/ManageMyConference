@@ -413,7 +413,8 @@ describe("the signed-in applicant's proposals", () => {
      * in-hand copy is the stale one: `editing` is replaced only on a successful write, while the
      * list refreshes either way. So after a 409 from another tab, pressing `Continue` on the row
      * the conflict message points at rebound the same stale revision and was refused identically,
-     * with no way out but a reload. Neither copy is reliably newer; the revision says which is.
+     * — the only escape being `Start another proposal`, which is labelled as making a new one.
+     * Neither copy is reliably newer; the revision says which is.
      */
     let refuseNextSave = false;
     const listed = [proposal({ revision: 2, title: "Moved on elsewhere" })];
