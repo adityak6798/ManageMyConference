@@ -29,7 +29,7 @@
  */
 
 import type { EventDto } from "@greenroom/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   AgendaApiError,
   autoPlaceSessions,
@@ -96,9 +96,18 @@ function newAgenda(eventId: string): Draft {
 export function AgendaWorkspace({
   event,
   onError,
+  belowBoard,
 }: {
   event: EventDto;
   onError: (message: string) => void;
+  /**
+   * Anything the workspace wants rendered under the board, given the board's own announcer.
+   *
+   * A render prop rather than an import, because the board should not know what the agenda
+   * domain chooses to put beneath it — but it does own the page's one live region, and a panel
+   * whose outcomes are board changes has to announce where board changes announce.
+   */
+  belowBoard?: (announce: (tone: "success" | "error", text: string) => void) => ReactNode;
 }) {
   const eventId = event.id;
   // Keyed on the zone rather than the whole event: the same formatters survive the many
@@ -1948,6 +1957,16 @@ export function AgendaWorkspace({
           ) : null}
         </form>
       </details>
+      {/*
+       * Generated arrangements, below the board rather than beside it: generating is a step an
+       * organizer takes *about* the board, and the board is what they came here to look at.
+       *
+       * Rendered from inside this component rather than as a sibling in the workspace module so
+       * that it announces through the board's live region. Its outcomes are board changes, and a
+       * second announcer on this page would be one more thing for a screen reader to disambiguate
+       * with no reader-visible benefit.
+       */}
+      {belowBoard?.(feedback.announce)}
     </div>
   );
 }

@@ -122,7 +122,26 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
   if (unconfigured)
     return (
       <Card title="Outbound webhooks">
-        <EmptyState title="Webhook delivery is not configured here">
+        <EmptyState
+          title="Webhook delivery is not configured here"
+          action={
+            // Not decoration. Configuration is an operator action taken elsewhere, and this is
+            // how somebody who has just asked for it finds out it landed without reloading the
+            // console — a screen with no control at all is a dead end for everybody, including
+            // the keyboard user who tabs into it and finds nothing.
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                // ERROR-INTENT: `useLoad` stores the rejection in its own error state, which this
+                // component renders; awaiting it here would only delay the handler's return.
+                void subscriptions.reload()
+              }
+            >
+              Check again
+            </button>
+          }
+        >
           This deployment has no webhook egress configured, so subscriptions cannot be created or
           delivered. An operator enables it; nothing on this screen can.
         </EmptyState>

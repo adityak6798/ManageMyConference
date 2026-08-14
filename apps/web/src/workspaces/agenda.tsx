@@ -30,17 +30,19 @@ export const agendaWorkspace: WorkspaceModule = {
           filled, rather than at the foot of the page. */}
       {agendaLoadFailure ? <Notice tone="error">{agendaLoadFailure}</Notice> : null}
       {/* The whole event, not only its id: the board renders every time on its grid in the
-          event's own timezone. */}
-      <AgendaWorkspace key={event.id} event={event} onError={reportAgendaLoadFailure} />
-      {/*
-        Below the board rather than beside it: generating an arrangement is a step an organizer
-        takes *about* the board, and the board is what they come here to look at. Nothing in this
-        panel writes until the Apply control, so it is safe to have open while working above it.
-      */}
-      <GeneratedDrafts
-        key={`generated-${event.id}`}
-        eventId={event.id}
-        canManage={capabilities.includes("agenda:manage")}
+          event's own timezone. The generated-arrangements panel renders inside it, below the
+          board, so that the two share one live region. */}
+      <AgendaWorkspace
+        key={event.id}
+        event={event}
+        onError={reportAgendaLoadFailure}
+        belowBoard={(announce) => (
+          <GeneratedDrafts
+            eventId={event.id}
+            canManage={capabilities.includes("agenda:manage")}
+            announce={announce}
+          />
+        )}
       />
     </>
   ),

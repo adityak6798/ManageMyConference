@@ -29,7 +29,7 @@ import {
   type GeneratedDrafts as GeneratedDraftsResponse,
   listGeneratedDrafts,
 } from "../api/agenda-generation";
-import { Card, EmptyState, Notice, Pill, useActionFeedback, useLoad } from "../ui/primitives";
+import { Card, EmptyState, Notice, Pill, useLoad } from "../ui/primitives";
 
 const describe = (reason: unknown) =>
   reason instanceof AgendaGenerationApiError
@@ -43,8 +43,23 @@ const CHANGE_LABEL: Record<string, string> = {
   remove: "Unschedules",
 };
 
-export function GeneratedDrafts({ eventId, canManage }: { eventId: string; canManage: boolean }) {
-  const { announce, node: feedback } = useActionFeedback();
+export function GeneratedDrafts({
+  eventId,
+  canManage,
+  announce,
+}: {
+  eventId: string;
+  canManage: boolean;
+  /*
+   * The board's own announcer, passed in rather than created here.
+   *
+   * One page, one live region. This panel sits directly beneath the board and everything it does
+   * *is* a board change — "applied 4 placements" belongs exactly where "moved to a new room"
+   * already goes. A second region on `/agenda` is ambiguous for a screen reader before it is
+   * ambiguous for a test.
+   */
+  announce: (tone: "success" | "error", text: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [comparison, setComparison] = useState<DraftComparison | null>(null);
@@ -92,26 +107,23 @@ export function GeneratedDrafts({ eventId, canManage }: { eventId: string; canMa
 
   if (drafts.loading && !drafts.data) return <Card title="Generated arrangements">Loading…</Card>;
   /*
-   * A failure here is reported inside this panel as a status rather than as an alert.
+   * A failure here is reported inside this panel, and quietly.
    *
    * The board above is the surface the organizer came for and is unaffected by this list failing
-   * to load; raising a second page-level alert beside the board's own would make a working board
-   * look broken. An alert is for something that needs attention now, and "the arrangements list
-   * did not load" is not that.
+   * to load; raising a page-level alert beside the board's own would make a working board look
+   * broken. It carries no live-region role either: this is a state the panel renders, not an
+   * announcement it makes, and the page's one announcer belongs to the board.
    */
   if (drafts.error)
     return (
       <Card title="Generated arrangements">
-        <Notice tone="warn" role="status">
-          {drafts.error}
-        </Notice>
+        <Notice tone="warn">{drafts.error}</Notice>
       </Card>
     );
   const list = drafts.data?.drafts ?? [];
 
   return (
     <div className="stack">
-      {feedback}
       <Card
         title="Generated arrangements"
         hint="Generating changes nothing. The board only moves when you accept specific sessions."
