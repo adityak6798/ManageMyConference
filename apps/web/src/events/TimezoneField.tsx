@@ -7,14 +7,28 @@
  * with no error anywhere (#206).
  *
  * The list comes from the browser's own zone database through `Intl.supportedValuesOf`, so it
- * cannot go stale against a bundled copy and costs no bytes. Where that is unavailable the
- * field degrades to a text box with a `datalist` of the common zones — a picker the organizer
- * can still type into, rather than nothing. Either way the API is the boundary that decides:
- * `resolveTimezone` in the contracts package refuses what this list would never have offered.
+ * cannot go stale against a bundled copy and costs no bytes. Where that is unavailable the field
+ * falls back to the same `<select>` over `FALLBACK_ZONES` below — a shorter list, never a
+ * different control. (An earlier version of this comment described the fallback as a text box
+ * with a `datalist` that the organizer could type into. No such path exists, and it is corrected
+ * rather than deleted because a reader told about a degraded typing path will go looking for it.)
+ *
+ * The API is deliberately more permissive than this list. `resolveTimezone` in the contracts
+ * package accepts anything the runtime can resolve, including fixed offsets such as `+05:30`,
+ * and refuses only what resolves to no zone at all. The console offers named zones because that
+ * is what an organizer should pick; a caller that needs an offset uses the API. A stored value
+ * this list does not contain — an offset, or a zone from a newer database — is kept as its own
+ * option, so opening the form never silently rewrites the event's zone to whatever sorts first.
  */
 import { useMemo } from "react";
 
-/** Enough to keep the field useful on an engine with no zone enumeration. */
+/**
+ * Enough to keep the field useful on an engine with no zone enumeration.
+ *
+ * Every entry is the id the zone database canonicalizes to, so that picking one stores exactly
+ * what was picked. `Asia/Calcutta` rather than `Asia/Kolkata` for that reason alone — the newer
+ * spelling resolves to the older id, so offering it would have shown one name and stored another.
+ */
 const FALLBACK_ZONES = [
   "UTC",
   "America/Los_Angeles",
@@ -29,7 +43,7 @@ const FALLBACK_ZONES = [
   "Africa/Lagos",
   "Africa/Johannesburg",
   "Asia/Dubai",
-  "Asia/Kolkata",
+  "Asia/Calcutta",
   "Asia/Singapore",
   "Asia/Shanghai",
   "Asia/Tokyo",

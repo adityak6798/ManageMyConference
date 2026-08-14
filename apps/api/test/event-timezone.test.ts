@@ -57,13 +57,36 @@ describe("event timezone", () => {
       });
 
       /*
-       * A fixed offset never observes a daylight transition, so an event stored as `+05:30`
-       * renders an hour wrong on the public site, on the board and in every `.ics` invite from
-       * the next transition onward — with no error anywhere. `Intl` accepts these, so the
-       * refusal has to be ours.
+       * What "not a zone" means, pinned by example, because the rule is now the runtime's:
+       * these resolve to nothing under any reading, and each is a plausible typo rather than a
+       * contrived string. `GMT+8` and `UTC+2` in particular *look* like the offsets accepted
+       * below and are not spellings of anything.
        */
-      it.each(["+05:30", "-08:00", "GMT+5", "UTC-3"])("refuses the fixed offset %s", (offset) => {
-        expect(writer.parse(offset).success).toBe(false);
+      it.each(["Banana", "America/Not_A_City", "GMT+8", "UTC+2", "Z", "05:30"])(
+        "refuses %s, which resolves to no zone",
+        (value) => {
+          expect(writer.parse(value).success).toBe(false);
+        },
+      );
+
+      /*
+       * A fixed offset is accepted, and this is a deliberate reversal (#206 review). An earlier
+       * rule refused them on the argument that an offset never observes a daylight transition,
+       * so an event spanning one renders an hour wrong. That argument is sound and is now
+       * guidance in the field description: it is about which zone an organizer should *want*,
+       * not about which strings are zones — and regions with no daylight saving at all (India,
+       * most of Arizona) are entitled to say so. Refusing them also narrowed accepted input on
+       * an endpoint API clients already use, which the compatibility policy calls breaking.
+       */
+      it.each([
+        ["+05:30", "+05:30"],
+        ["-08:00", "-08:00"],
+        ["+0530", "+05:30"],
+        ["+05", "+05:00"],
+      ])("accepts the fixed offset %s and stores it as %s", (input, stored) => {
+        const parsed = writer.parse(input);
+        expect(parsed.success).toBe(true);
+        if (parsed.success) expect(writer.read(parsed.data)).toBe(stored);
       });
 
       /*
@@ -75,6 +98,10 @@ describe("event timezone", () => {
         ["america/los_angeles", "America/Los_Angeles"],
         ["US/Pacific", "America/Los_Angeles"],
         ["EST5EDT", "America/New_York"],
+        // A legacy abbreviation the runtime still understands. Worth pinning because it is the
+        // exact value #206 reported an organizer typing, and it now lands somewhere sensible
+        // rather than being stored verbatim or refused.
+        ["PST", "America/Los_Angeles"],
       ])("canonicalizes %s to %s", (input, canonical) => {
         const parsed = writer.parse(input);
         expect(parsed.success).toBe(true);
@@ -96,10 +123,25 @@ describe("event timezone", () => {
     it("answers null rather than throwing for anything that is not a zone", () => {
       expect(resolveTimezone("Definitely/NotAZone")).toBeNull();
       expect(resolveTimezone("")).toBeNull();
-      expect(resolveTimezone("+05:30")).toBeNull();
+      expect(resolveTimezone("GMT+8")).toBeNull();
     });
     it("resolves a zone to the id the database uses", () => {
       expect(resolveTimezone(" Asia/Tokyo ")).toBe("Asia/Tokyo");
+    });
+    it("resolves a fixed offset rather than refusing it", () => {
+      expect(resolveTimezone("+05:30")).toBe("+05:30");
+    });
+
+    /*
+     * The property the picker depends on, asserted over the whole list rather than by sampling:
+     * every zone the console can offer survives this function unchanged. Without it an organizer
+     * could pick a name from the select and find a different id stored against their event, and
+     * the picker would then not match its own value.
+     */
+    it("leaves every zone the picker can offer exactly as it is", () => {
+      const offered = Intl.supportedValuesOf("timeZone");
+      expect(offered.length).toBeGreaterThan(100);
+      expect(offered.filter((zone) => resolveTimezone(zone) !== zone)).toEqual([]);
     });
   });
 });

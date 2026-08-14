@@ -42,6 +42,34 @@ migration note linked from deprecated responses. The `Deprecation` syntax follow
 procedure yet; the policy and the always-on version header are implemented, but an actual
 deprecation is not claimed.
 
+### The event timezone rule (#206)
+
+`POST /api/events` and `PATCH /api/events/{eventId}` now run `timezone` through one
+`resolveTimezone`, and the change was scoped deliberately against the rule above.
+
+**`PATCH` is not narrowed.** Its previous refinement accepted exactly what `Intl` could resolve,
+and the new rule accepts exactly the same set: named zones, aliases (`US/Pacific`, `EST5EDT`,
+`PST`), lower-cased ids, and fixed offsets (`+05:30`, `-08:00`, `+0530`). An earlier draft of this
+work also refused offsets — on the sound argument that a fixed offset never observes a daylight
+transition — and that refusal *was* a narrowing of accepted input. It was withdrawn for this
+reason, and the argument now lives in the field description as guidance about which zone to pick.
+No event that could be saved before can fail to save now.
+
+**`POST` is narrowed, and this is the deliberate exception.** It previously stored any non-blank
+string: `Definitely/NotAZone` created an event with `201`. The values it now refuses are exactly
+those that resolve to no zone under any reading — `Banana`, `GMT+8`, `UTC+2`, `America/Not_A_City`
+— and none of them ever worked. Storing one produced wrong times on the public site, on the agenda
+board and in every `.ics` invite, with no error anywhere; that is the defect #206 reported. A
+deprecation window here would mean six more months of accepting values whose only effect is silent
+corruption, so the narrowing ships without one.
+
+The exception is recorded rather than assumed: this is the first place the repository has knowingly
+refused input it once accepted, the refusal is confined to values that were never meaningful, and
+the response is a `400` naming the field with `TIMEZONE_REJECTED`, not a changed status code on a
+working request. Stored values are canonicalized on write, and every id
+`Intl.supportedValuesOf("timeZone")` offers round-trips unchanged — asserted over the whole list in
+`apps/api/test/event-timezone.test.ts` — so no stored zone can become unwritable later.
+
 ## Cursor pagination
 
 Cursor-paged collections accept `limit` and an opaque `cursor`, and return their collection plus
