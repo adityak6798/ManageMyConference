@@ -1,12 +1,12 @@
 # Domain boundaries
 
-Status: canonical | Owner: architecture | ID: `ARC-DOM-001` | Last verified: 2026-08-09
+Status: canonical | Owner: architecture | ID: `ARC-DOM-001` | Last verified: 2026-08-14
 
 Dependency direction is `domain → application → adapter/transport` when read as “is used by”: adapters and transports depend inward; domain depends on nothing external.
 
 | Domain | Owns | May expose |
 |---|---|---|
-| identity-access | users, memberships, roles | authorization decisions |
+| identity-access | users, memberships, roles; composed custom event roles with their capability and per-field policy sets, and an event's portal field locks (`event_field_locks`) | authorization decisions, including the per-field access an actor resolves with |
 | events | organizations, events, settings | event identity/configuration |
 | CFP | forms, fields, submissions | submitted proposal reference |
 | review | plans, assignments, scores | review outcome |
@@ -14,8 +14,8 @@ Dependency direction is `domain → application → adapter/transport` when read
 | CRM | prospects, contacts, activity; the organization-wide contact directory, its enrichment, deduplication, segments and sourcing history | speaker conversion command |
 | agenda | rooms, tracks, slots, placements | published schedule projection |
 | communications-integrations | templates, outbox, attempts, provider projections | delivery status and typed provider ports |
-| publishing | public projections/embed config | public queries |
-| platform | inbox dismissals (`platform_inbox_dismissals`), the append-only audit timeline (`platform_audit_records`) | cross-domain operational reads — search and the inbox — composed from other domains' public application interfaces |
+| publishing | public projections/embed config; saved embeds (`publication_embeds`) and organization portals — a portal, its ordered program references, pages, registration fields, append-only privacy notices and consent record | public queries |
+| platform | inbox dismissals (`platform_inbox_dismissals`), the append-only audit timeline (`platform_audit_records`), saved report definitions with their schedules and runs, and `capability_links` — the one anonymous-share primitive every domain's capability URLs are minted through | cross-domain operational reads — search, the inbox and reports — composed from other domains' public application interfaces |
 
 Rules:
 

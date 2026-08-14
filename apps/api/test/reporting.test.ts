@@ -10,7 +10,9 @@
  * screen would not, a share link that outlives the access that justified it, and a schedule that
  * delivers twice — and it asserts each by constructing the case rather than by trusting the code.
  */
+import { unzipSync } from "fflate";
 import { describe, expect, it, vi } from "vitest";
+import { renderReportCsv, renderReportXlsx } from "../src/adapters/platform/render-report-export";
 import type { Actor, Capability } from "../src/application/identity/actor";
 import { CapabilityDeniedError } from "../src/application/identity/actor";
 import type {
@@ -70,6 +72,12 @@ const actorOf = (capabilities: readonly Capability[]): Actor => ({
   eventAccess: [{ eventId: EVENT, role: "organizer", capabilities: new Set(capabilities) }],
   capabilities: new Set(capabilities),
 });
+
+/** Every entry of an XLSX, as text, so an assertion reads the sheet rather than the archive. */
+const unzipStrings = (workbook: Uint8Array): string[] => {
+  const decoder = new TextDecoder();
+  return Object.values(unzipSync(workbook)).map((entry) => decoder.decode(entry));
+};
 
 const organizer = actorOf(["events:read", "reports:pii"]);
 const scoped = actorOf(["events:read"]);
@@ -270,6 +278,9 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
       const token = `token-${nextId++}`.padEnd(20, "x");
       return { token, tokenHash: `hash:${token}` };
     },
+    // The real renderers, so what this asserts is the bytes somebody downloads rather than a
+    // stand-in that could mask differently from the shipped one.
+    exports: { csv: renderReportCsv, xlsx: renderReportXlsx },
     hash: async (value) => `hash:${value}`,
     shareBaseUrl: "https://greenroom.test",
     newId: () => `00000000-0000-4000-8000-0000000000${(nextId++).toString().padStart(2, "0")}`,
@@ -303,6 +314,70 @@ describe("running and saving a report", () => {
       includePii: true,
     });
     if (unmasked.state === "ok") expect(unmasked.result.rows[0]?.email).toBe("ada@example.test");
+  });
+
+  /*
+   * The export is the half a screen assertion cannot reach.
+   *
+   * A masked screen and an unmasked file is the failure this whole design exists to prevent, and
+   * it is invisible from the console — nobody notices the CSV disagrees with the table until the
+   * file is somewhere it should not be. So the bytes are read back, in each of the three formats,
+   * for a caller who cannot unmask and for one who can.
+   */
+  it("exports what the screen would show, in every format, for a caller who cannot unmask", async () => {
+    const { service } = harness();
+    const report = await savedReport(service);
+
+    const csv = await service.export(scoped, EVENT, { reportId: report.id, format: "csv" });
+    expect(csv.state).toBe("ok");
+    if (csv.state === "ok") {
+      expect(String(csv.body)).toContain("a…@example.test");
+      expect(String(csv.body)).not.toContain("ada@example.test");
+    }
+
+    const json = await service.export(scoped, EVENT, { reportId: report.id, format: "json" });
+    expect(json.state).toBe("ok");
+    if (json.state === "ok") {
+      expect(String(json.body)).toContain("a…@example.test");
+      expect(String(json.body)).not.toContain("ada@example.test");
+    }
+
+    // XLSX is a zip, so the address is asserted against the decompressed sheet rather than the
+    // archive — a `not.toContain` over compressed bytes would pass for the wrong reason.
+    const xlsx = await service.export(scoped, EVENT, { reportId: report.id, format: "xlsx" });
+    expect(xlsx.state).toBe("ok");
+    if (xlsx.state === "ok") {
+      const sheets = unzipStrings(xlsx.body as Uint8Array);
+      expect(sheets.some((entry) => entry.includes("a…@example.test"))).toBe(true);
+      expect(sheets.some((entry) => entry.includes("ada@example.test"))).toBe(false);
+    }
+  });
+
+  it("refuses an unmasked export to a caller without reports:pii, and serves one to a caller with it", async () => {
+    const { service } = harness();
+    const report = await savedReport(service);
+
+    // The same refusal the screen raises. An export is a format applied to a run, not a second
+    // path to the rows, so it cannot be the softer of the two.
+    await expect(
+      service.export(scoped, EVENT, { reportId: report.id, format: "csv", includePii: true }),
+    ).rejects.toThrow(ReportPiiDeniedError);
+
+    const allowed = await service.export(organizer, EVENT, {
+      reportId: report.id,
+      format: "csv",
+      includePii: true,
+    });
+    expect(allowed.state).toBe("ok");
+    if (allowed.state === "ok") expect(String(allowed.body)).toContain("ada@example.test");
+
+    // Holding the capability is still not a standing instruction.
+    const notAsked = await service.export(organizer, EVENT, {
+      reportId: report.id,
+      format: "csv",
+    });
+    expect(notAsked.state).toBe("ok");
+    if (notAsked.state === "ok") expect(String(notAsked.body)).not.toContain("ada@example.test");
   });
 
   it("degrades to unauthorized rather than refusing when a source says no", async () => {

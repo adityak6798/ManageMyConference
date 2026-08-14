@@ -140,6 +140,34 @@ five embed types and the JSON feed. The clean seed now contains two placed sessi
 These assertions close the former two-snapshot disagreement for the paths they exercise; live cache
 and deployment verification remain bounded by the existing hosted-smoke gap.
 
+Programme, portals and reporting evidence addendum (`ACC-IDENTITY-EVENTS`, `ACC-PUBLIC`,
+`ACC-AGENDA`, `ACC-OPS`, `ACC-INTEGRATION`):
+
+- **Per-field access** (`field-access.test.ts`, `custom-roles.test.ts`,
+  `d1-custom-roles.integration.test.ts`, `portal-field-locks.test.tsx`) covers the composition
+  rule across several grants, the required-field clamp from Hide to Lock, the refusal to grant
+  `identity:manage` to a composed role, the stale-revision refusal, and the resolution of a custom
+  role's capabilities *and* field policies in the same D1 read that resolves roles. What that read
+  proves is the property the rest rests on: a screen, an export and a share link cannot reach
+  different answers, because there is only one answer.
+- **Exports go through the same decision as the screen.** `reporting.test.ts` asserts that a
+  masked column is masked in CSV and XLSX as well as on screen, that a filter still evaluates
+  against the unmasked value so a saved report keeps meaning one thing, and that a caller without
+  `reports:pii` asking for an unmasked run is refused rather than quietly served masked rows.
+- **Portals** (`site-service.test.ts`, `d1-site-repository.integration.test.ts`) cover the refusal
+  to publish without a privacy notice, the append-only notice and consent record, the stored
+  notice version rather than the requested one, the unresolved-program projection, and a taken
+  slug answering as a conflict rather than a fault.
+- **Agenda generation** (`agenda-draft-generation.test.ts`, `agenda-generation-service.test.ts`,
+  `d1-agenda-generation.integration.test.ts`) covers criterion priority, the availability window,
+  the named reason a session could not be seated, and the stale-board refusal on accept.
+- **Embeds** (`embed-lifecycle.test.ts`) cover every output format, the immutable output and token,
+  and revocation.
+- **Not covered by any of these**: no browser spec drives the new workspaces end to end. They are
+  visited by the `lifecycle-demo` axe and 390px sweeps, which enumerate the sidebar and therefore
+  pick them up automatically, but no spec asserts a portal, report, embed or generated arrangement
+  as a *journey* in the browser. That is the honest limit of these rows.
+
 ## What each row's automated evidence actually is
 
 - Browser evidence is `apps/web/e2e/*.spec.ts`, one shared local D1 fixture, `workers: 1`.

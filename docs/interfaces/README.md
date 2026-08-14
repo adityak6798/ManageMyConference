@@ -17,8 +17,9 @@ shared cursor-pagination and public `Idempotency-Key` rulings.
 - `API-AGENDA-*`: rooms, tracks, placements, conflicts.
 - `API-COMMS-*`, `API-INTEGRATION-*`: templates, outbox, attempts, projection state.
 - `API-PUBLIC-*`: published hub, schedule, sessions, speakers, and CFP/embed reads.
-- `API-OPS-*`: cross-domain operational reads owned by platform — the organizer overview and the
-  permission-aware event search.
+- `API-OPS-*`: cross-domain operational reads owned by platform — the organizer overview, the
+  permission-aware event search, and the report builder with its exports, share links and
+  schedules.
 
 Implemented review routes are `GET /api/events/{eventId}/review/organizer`, `PUT /api/events/{eventId}/review/statuses`, `PUT /api/events/{eventId}/review/plan`, `POST /api/events/{eventId}/review/assignments`, `POST /api/events/{eventId}/review/transitions`, `POST /api/events/{eventId}/review/decisions`, `GET /api/events/{eventId}/review/assignments`, `DELETE /api/events/{eventId}/review/assignments/{assignmentId}`, `POST /api/events/{eventId}/review/assignments/{assignmentId}/conflict`, and `PUT /api/events/{eventId}/review/assignments/{assignmentId}/evaluation`. The transitions endpoint has an all-or-nothing atomic contract and refuses the two reserved decision statuses outright, naming the decisions endpoint: reaching `accepted`/`declined` is the effect of a recorded decision, and a transition into one wrote a status with no decision behind it. The statuses endpoint completes rather than refuses a set that omits the reserved decision statuses, and every status the organizer projection advertises is stored, so anything it offers is reachable — the pipeline steps by a transition, the two reserved outcomes by a decision. Removing an assignment is `DELETE` on the assignment: it takes any draft evaluation and declared conflict with it, releases the rubric lock that the existence of an assignment holds, and is refused once that reviewer has completed an evaluation whose score is already counted in the aggregate. The decisions endpoint records the accept/decline decision and, for an accepted outcome, composes the content acceptance in the same request; the two are not one transaction, so each proposal's `acceptances` entry reports `content` with its session id or `decision_only` with the content domain's own field errors. A `decision_only` outcome leaves the decision durable and is repaired by posting the identical decision again. Reviewer assignment validates the named user's event reviewer role. Evaluation completion is terminal, retry-repairable, and atomically writes the evaluation, aggregate, and unique versioned completion event. The reviewer assignment response deliberately omits aggregate outcomes. Shared Zod schemas define every body and response and generate the OpenAPI artifact.
 
@@ -117,6 +118,52 @@ Event-template routes are addressed two ways, because a template and an applicat
 `GET /api/events/{eventId}/inbox` is the same composition read for a different question: what is waiting. It answers six categories — `configuration`, `programme`, `speakerWork`, `reviews`, `deliveries`, `publication` — in the same three states, under the same per-source rule, and carries a `derivedAt` because every relative label the surface renders is measured from the moment the answer was composed rather than from the browser's clock. Every item is derived on the read; **nothing marks one done**, so the way to remove an item is to resolve the condition it names. The `reviews` category, like search's proposal section, is chosen by role: an organizer sees every outstanding assignment and who holds it, a reviewer sees their own from the masked queue, and the organizer projection is never reached for a reviewer. `POST /api/events/{eventId}/inbox/dismissals` records that the signed-in actor has seen an occurrence and is not acting on it; the body's `itemKey` is checked against the inbox that actor can derive right now, so an item that has already resolved, one belonging to another event, and one in a category their role cannot read are all `404 NOT_FOUND` rather than a stored row. `DELETE /api/events/{eventId}/inbox/dismissals/{itemKey}` undoes it and is idempotent — a key that is not dismissed answers `204` as well, because the caller asked for it to be gone and it is gone. A dismissal is per actor and its key carries the occurrence rather than the record, so a re-derived identical item stays dismissed while a moved deadline or a further failed attempt comes back. Programme items are no longer the exception (issue #180): the agenda draft carries `occurrences` — the board revision at which each session's placements last changed, and at which each time slot was last retimed — and each conflict carries the later of its two placements' numbers and its two slots' as `occurrence`, so an unplaced session's key is `agenda-unplaced:{sessionId}:{occurrence}` and a conflict's is `agenda-conflict:{kind}:{placementId}:{conflictingPlacementId}:{occurrence}`. A session placed and taken off the board again, and a clash resolved and reintroduced between the same two placements, both return open; a dismissal survives every edit to a different session, which is why the number is per session rather than the board revision. A dismissal recorded before the numbers existed reads as occurrence zero and its item returns open once, which is the safe direction of that one-time change.
 
 `GET /api/events/{eventId}/audit` is the unified audit timeline: one event, newest first, `limit` (1–50, default 25) and an opaque `cursor`, gated on `events:settings:read` rather than `events:read` because the log names who did what. The cursor is `(occurredAt, id)` and the id is in it deliberately — a publication and its announcement are written in the same millisecond, and a cursor on the timestamp alone would repeat one of them or skip it. Each record carries `occurredAt`, `actorId` (null when nobody signed it), `actorName`, `source` (`human | api | agent | system`; only the first and last are produced today), `action`, `targetType`, `targetId` and `correlationId`. The idempotency key is **not** in the response: it is derived from the fact and is the one field a caller could use to guess at records they were not shown. Storage is append-only through two triggers that refuse an `UPDATE` and a `DELETE`, and `UNIQUE(organization_id, idempotency_key)` is what makes a replayed command produce one record. Writers come in two shapes, mirroring communications' `enqueue`/`prepareEnqueue`: `record(...)` writes and never throws, and `prepare(...)` returns a record the caller commits inside its own batch — which is how a published schedule and the record of who published it survive or fail together. Five domains are observed, each through a port it declares itself: content's `SpeakerNotificationPort`, review's `ReviewNotificationPort`, publishing's `PublicationNotificationPort`, the agenda's publication batch, and the delivery communications enqueues. No domain imports platform to be recorded; the composition root binds each port, which is why adding the timeline changed no domain's own logic.
+
+Custom event roles are addressed under the organization that owns the event —
+`GET`/`POST /api/organizations/{organizationId}/events/{eventId}/custom-roles`, then `PUT`/`DELETE`
+on `/{roleId}`, `GET` on `/{roleId}/preview`, and `PUT`/`DELETE` on `/{roleId}/holders/{userId}` —
+for the reason every organization-addressed route here is: the organization in the path is what
+authorizes the call, and the event is then checked to belong to it. The expected revision travels
+in the **query string** on the delete rather than in a body, because a DELETE carrying a body is
+inconsistently forwarded and losing the guard rather than the request is exactly what optimistic
+concurrency exists to prevent. `PUT .../field-locks` replaces the event's portal field locks as a
+whole set — a partial write is how a screen and a database come to disagree about whether a field
+is open — and the current set is returned by the roles list rather than by a separate read. A
+`view` entry is dropped on the way in by both, because `view` is the absence of a policy.
+
+Portal routes live under `/api/publishing/organizations/{organizationId}/sites`: `GET` and `POST`
+on the collection, `GET`/`PUT` on `/{siteId}`, `POST` on `/{siteId}/privacy-notice`,
+`/{siteId}/publish` and `/{siteId}/unpublish`, and `GET /{siteId}/consents`. The `PUT` resends the
+child collections as they stand, because a save rewrites them and omitting one would read as "the
+organizer deleted every page" rather than as "leave them alone". Publishing is refused with a
+typed conflict until a privacy notice exists, and a taken slug answers `409` rather than `500`.
+The anonymous half is `GET /api/public/sites/{slug}` and `/{slug}/pages/{pageSlug}`, plus
+`POST /{slug}/registrations`, which records the notice version the **stored portal** carries
+rather than one the request supplied. There is no delete for a portal, only an unpublish.
+
+Saved embeds are event-scoped — `GET`/`POST /api/publishing/events/{eventId}/embeds`, then `PUT`
+and `DELETE` on `/{embedId}` and `POST /{embedId}/duplicate` — and are read anonymously at
+`GET /api/public/embeds/{token}`. The rendered output and the token are immutable in storage, so
+an embed already pasted into somebody's site cannot be repointed; `DELETE` revokes rather than
+erases, which is why a revoked embed stops answering without its history disappearing.
+
+Report routes are event-scoped under `/api/events/{eventId}/reports`: `/catalogue`, `GET`/`POST`
+on the collection, `POST /run` — which takes the query in the body, so an unsaved question does
+not have to be saved first — then `DELETE /{reportId}`, `POST /{reportId}/duplicate`,
+`GET /{reportId}/export`, `GET`/`POST` on `/{reportId}/shares` with `DELETE /{shareId}`, and
+`GET`/`POST` on `/{reportId}/schedules` with `DELETE /{scheduleId}`. Export is a **format applied
+to the same run** rather than a second path to the rows, so `includePii=true` is refused there on
+exactly the terms `run` refuses it, and a masked column is masked in the CSV and the XLSX as well
+as on the screen. A share is resolved anonymously at `POST /api/public/reports/{token}` — `POST`
+rather than `GET` because it may carry a password and because resolving spends a view — and it
+answers an unknown, revoked, expired, spent or wrongly-answered link identically.
+
+Agenda generation is `GET`/`PUT /api/events/{eventId}/agenda/criteria` and `/availability` for
+what the generator is told, then `GET`/`POST /api/events/{eventId}/agenda/generated-drafts`,
+`GET`/`DELETE` on `/{draftId}`, and `POST /{draftId}/accept`. Everything but the last proposes:
+generating writes a draft and never the board, `GET /{draftId}` returns the draft beside the board
+as a per-session diff, and `accept` names the sessions to apply and is refused if the board has
+moved since the draft was generated.
 
 ## Domain events
 

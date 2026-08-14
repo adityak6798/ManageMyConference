@@ -746,3 +746,27 @@ feature-by-feature verdict.
   `ACC-DEMO-SMOKE`. Closure: the audit renders a deliberately long unbreakable string into one row
   of each measured surface before measuring, so the floor is a property of the check rather than of
   the seed — or each surface gets a component-level test that asserts the constraint directly.
+- `GAP-031` **The programme, portal and reporting surfaces this branch adds have no browser
+  journey, and scheduled report delivery has never sent anything.** Issues #192 and #196 shipped
+  custom event roles with per-field access, organization portals, the report builder with its
+  exports and share links, persisted embeds, agenda draft generation, and the webhooks console
+  that seven built routes never had. Each is covered by unit, service and D1 integration tests,
+  and each is visited by the `lifecycle-demo` axe and 390px sweeps — which enumerate the sidebar
+  and therefore pick up a new workspace automatically. **What none of them has is a Playwright
+  spec that drives it as a journey**: nothing composes a portal and registers against it, nothing
+  builds a report and opens its share link, nothing accepts a generated arrangement onto the
+  board. Those are the paths that have historically broken without a test noticing.
+
+  **Scheduled report delivery is wired into the one-minute tick and has never reached a mailbox.**
+  It sends through the same provider-neutral binding pair the emailed sign-in code uses,
+  `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`, which are unset on a demo deployment — so `deliver`
+  throws and the run is recorded as `failed`, deliberately, because an unconfigured deployment
+  must not look like a working one. The provider round trip is unexercised outside its own test. It is also
+  deliberately **not** in the communications outbox: queueing there needs a new
+  `communication_deliveries.trigger_type`, a pinned `CHECK` and therefore a table rebuild in
+  another lane's migration block, so these sends do not appear in the communications history or
+  share its retry ladder. `DEBT-014` records the same trade from the capability-link side.
+
+  Owner: publishing, platform, identity-access. Governing ID: `PRD-PUB-002`, `PRD-OPS-004`,
+  `PRD-IAM-002`, `ACC-PUBLIC`, `ACC-OPS`. Closure: a browser spec per surface that carries one
+  artifact end to end, and one scheduled report observed arriving from a staged provider.

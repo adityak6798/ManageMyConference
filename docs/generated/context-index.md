@@ -244,6 +244,7 @@
 - `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-REVIEW`
@@ -674,6 +675,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/custom-roles.tsx](../../apps/web/src/workspaces/custom-roles.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/identity.tsx](../../apps/web/src/workspaces/identity.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 
 ### `PRD-INT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts](../../apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts)
