@@ -213,10 +213,23 @@ feature-by-feature verdict.
   scope in a *third* test, neither failing test touches it, and the keyboard one is confined to
   `.agenda-rail` while the branch's new controls are on Sessions & speakers. The same commit
   passed `agenda.spec.ts` alone and the full 79-test suite twice locally against a freshly reset
-  fixture, immediately before and after. The rerun was green. Recorded because the pattern now has
-  a name: a red `browser` job carrying `Broken pipe` and a small number of unrelated red specs is
-  this gap until proven otherwise, and the proof is a local re-run of the same commit rather than
-  an argument.
+  fixture, immediately before and after.
+
+  **The rerun of that same commit failed too, and that is the useful part.** It failed on a
+  *different pair* of specs — two in `communications.spec.ts` rather than two in `agenda.spec.ts` —
+  and this time the runtime did not merely stumble: `npm error Lifecycle script 'dev' failed`,
+  `Error: socket hang up`, and then `connect ECONNREFUSED 127.0.0.1:20336` repeated for the rest of
+  the run. Two runs of one commit, two disjoint sets of red specs, the worker dying in both, and
+  the same commit green locally four times over. A regression cannot select a different pair of
+  tests each time; a dying runtime can, and does.
+
+  So the earlier sightings' advice — "rerun and it will be green" — does not hold, and this entry
+  no longer says it. What the rerun buys is not a green job but a *second sample*: if the same
+  specs fail twice, suspect the change; if different ones do, suspect this gap. Recorded because
+  the pattern now has a name and a discriminator, and because a lane can currently be unable to
+  show a green `browser` job on CI through no fault of its change — which is a stronger statement
+  than the four earlier sightings supported, and one that raises this from an annoyance to
+  something that blocks the branch-protection work `GAP-003` describes.
 
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
