@@ -35,6 +35,7 @@ import {
 import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "../ui/primitives";
 
 import {
+  assetVersionGroups,
   bytesToBase64,
   type CalendarLinkSession,
   googleCalendarUrl,
@@ -484,16 +485,24 @@ export function SpeakerView({
           </div>
           {workspace.assets.length ? (
             <ul className="upload-list">
-              {workspace.assets.map((asset) => {
+              {/* One entry per deliverable rather than per upload. Re-uploading a deck used to
+                  render a second row with the same name and the same date, and nothing said
+                  which one an organizer would download. */}
+              {assetVersionGroups(workspace.assets).map(({ groupId, latest: asset, prior }) => {
                 const isPhoto = asset.id === profile.photoAssetId;
                 return (
-                  <li key={asset.id}>
+                  <li key={groupId}>
                     <span className="upload-name">
                       {asset.name}
-                      <span className="sub">Uploaded {shortDate(asset.uploadedAt)}</span>
+                      <span className="sub">
+                        {prior.length
+                          ? `Version ${asset.versionNumber ?? 1} · uploaded ${shortDate(asset.uploadedAt)}`
+                          : `Uploaded ${shortDate(asset.uploadedAt)}`}
+                      </span>
                     </span>
                     <span className="upload-actions">
                       {isPhoto ? <Pill tone="strong">Profile photo</Pill> : null}
+                      {prior.length ? <Pill tone="ok">Latest</Pill> : null}
                       <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
                         {asset.visibility === "publishable" ? "Publishable" : "Private"}
                       </Pill>
@@ -537,6 +546,25 @@ export function SpeakerView({
                           — {comment.body}
                         </p>
                       ))}
+                    {/* Superseded versions stay readable: a speaker who re-uploaded by mistake
+                        can still reach what they replaced. */}
+                    {prior.length ? (
+                      <details className="upload-history">
+                        <summary>
+                          {plural(prior.length, "earlier version")} of {asset.name}
+                        </summary>
+                        <ul>
+                          {prior.map((old) => (
+                            <li key={old.id}>
+                              <a href={`/api/speaker-assets/${old.id}`}>
+                                Version {old.versionNumber ?? 1}
+                              </a>
+                              <span className="sub">Uploaded {shortDate(old.uploadedAt)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
                   </li>
                 );
               })}

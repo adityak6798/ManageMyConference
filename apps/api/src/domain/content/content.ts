@@ -70,6 +70,29 @@ export interface SpeakerAsset {
   readonly versionGroupId?: string | undefined;
   readonly versionNumber?: number | undefined;
   readonly isLatest?: boolean | undefined;
+  /** Which logical deliverable this is a version of. See `logicalAssetKey`. */
+  readonly logicalKey?: string | undefined;
+}
+
+/**
+ * What "the same deliverable, uploaded again" means.
+ *
+ * A file-request task is the strongest statement available: the task *is* one requested
+ * deliverable, so replacing `deck.pdf` with `deck-final.pdf` against it is a new version of the
+ * same thing rather than a second thing. With no task, the name is what a person means by "the
+ * same file", scoped to a session when the upload names one.
+ *
+ * A client that names a `versionGroupId` overrides all of this — that is an explicit statement
+ * about identity, and it is the one path that lets a rename join an existing chain.
+ */
+export function logicalAssetKey(input: {
+  readonly name: string;
+  readonly taskId?: string | undefined;
+  readonly sessionId?: string | undefined;
+}): string {
+  if (input.taskId) return `task:${input.taskId}`;
+  const name = `name:${input.name.trim().toLowerCase()}`;
+  return input.sessionId ? `session:${input.sessionId}|${name}` : name;
 }
 
 export interface ContentComment {

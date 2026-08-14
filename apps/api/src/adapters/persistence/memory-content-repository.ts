@@ -11,16 +11,17 @@ import type {
   SpeakerConversionCommand,
   SpeakerConversionPort,
 } from "../../application/content/speaker-conversion";
-import type {
-  ContentComment,
-  ContentRevision,
-  ContentSession,
-  ContentWorkspace,
-  SpeakerAsset,
-  SpeakerProfile,
-  SpeakerResource,
-  SpeakerTask,
-  SpeakerTaskTemplate,
+import {
+  type ContentComment,
+  type ContentRevision,
+  type ContentSession,
+  type ContentWorkspace,
+  logicalAssetKey,
+  type SpeakerAsset,
+  type SpeakerProfile,
+  type SpeakerResource,
+  type SpeakerTask,
+  type SpeakerTaskTemplate,
 } from "../../domain/content/content";
 
 const by =
@@ -90,12 +91,33 @@ export class MemoryContentRepository
   async addTasks(tasks: readonly SpeakerTask[]) {
     this.tasks = [...this.tasks, ...tasks];
   }
-  async replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset) {
-    if (previous)
-      this.assets = this.assets.map((item) =>
-        item.id === previous.id ? { ...item, isLatest: false } : item,
-      );
-    this.assets = [...this.assets, asset];
+  /**
+   * Mirrors the D1 allocation, including *which* rows it addresses.
+   *
+   * The group and the number are decided here rather than taken from the caller, because that
+   * is the property the D1 statement exists to hold and a fixture that let the caller pick
+   * would pass while the real adapter's version of the same test failed.
+   */
+  async replaceLatestAsset(asset: SpeakerAsset, versionGroupId?: string) {
+    const logicalKey = asset.logicalKey ?? logicalAssetKey(asset);
+    const inChain = (item: SpeakerAsset) =>
+      item.eventId === asset.eventId &&
+      item.speakerProfileId === asset.speakerProfileId &&
+      (versionGroupId
+        ? item.versionGroupId === versionGroupId
+        : (item.logicalKey ?? logicalAssetKey(item)) === logicalKey);
+    const chain = this.assets.filter(inChain);
+    const allocated = {
+      versionGroupId:
+        chain.toSorted((a, b) => (b.versionNumber ?? 1) - (a.versionNumber ?? 1))[0]
+          ?.versionGroupId ?? asset.id,
+      versionNumber: Math.max(0, ...chain.map(({ versionNumber }) => versionNumber ?? 1)) + 1,
+    };
+    this.assets = [
+      ...this.assets.map((item) => (inChain(item) ? { ...item, isLatest: false } : item)),
+      { ...asset, ...allocated, logicalKey, isLatest: true },
+    ];
+    return allocated;
   }
   /** Out-of-band profile creation, the way `SpeakerConversionPort` writes one in D1. */
   async addProfile(profile: SpeakerProfile) {

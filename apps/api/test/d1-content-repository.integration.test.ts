@@ -217,7 +217,12 @@ describe("D1ContentRepository", () => {
       isLatest: true,
     };
     await repository.addAsset(privateAsset);
-    await expect(repository.findAsset(privateAsset.id)).resolves.toEqual(privateAsset);
+    // A direct add derives the logical key rather than leaving it null: a row without one is a
+    // row the next upload of the same file cannot find, and would start a second chain beside.
+    await expect(repository.findAsset(privateAsset.id)).resolves.toEqual({
+      ...privateAsset,
+      logicalKey: "name:headshot.png",
+    });
     await repository.updateAsset({ ...privateAsset, visibility: "publishable" });
     await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
       visibility: "publishable",
@@ -249,9 +254,11 @@ describe("D1ContentRepository", () => {
       ...slides,
       id: "80000000-0000-4000-8000-000000000003",
       storageKey: "event/profile/slides-v2",
-      versionNumber: 2,
     };
-    await repository.replaceLatestAsset(slidesV2, slides);
+    // The store allocates the number now, so the caller states the chain rather than the count.
+    await expect(
+      repository.replaceLatestAsset(slidesV2, slides.versionGroupId),
+    ).resolves.toMatchObject({ versionGroupId: slides.versionGroupId, versionNumber: 2 });
     await repository.deleteAsset(slidesV2.id);
     await expect(repository.findAsset(slides.id)).resolves.toMatchObject({ isLatest: true });
     await expect(
@@ -948,5 +955,109 @@ describe("D1ContentRepository template imports", () => {
     await expect(
       service.updateTaskTemplate(organizer, created.id, { ...line, title: "Send your slides" }),
     ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+  });
+});
+
+/**
+ * Asset version allocation against real D1, where the constraint actually lives.
+ *
+ * `speaker_assets_version_unique` is what stops two versions sharing a number, and a memory
+ * repository has nothing to violate — so the property #189 names ("a concurrency test produces
+ * unique monotonic versions") can only be proved here. Both halves of the CNT-04 defect are
+ * covered: the *group* an upload joins, and the *number* it takes inside that group.
+ */
+describe("D1ContentRepository asset versions", () => {
+  const eventId = "00000000-0000-4000-8000-000000000001";
+  const profileId = "10000000-0000-4000-8000-000000000001";
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  /** A migrated, seeded database with one `ContentService` per caller. */
+  async function fixture(label: string) {
+    const migrated = await createMigratedDatabase({ label, seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1ContentRepository(database as ContentDatabasePort);
+    const now = () => new Date("2026-08-12T10:00:00.000Z");
+    const service = (prefix: string) => {
+      let id = 0;
+      return new ContentService({
+        repository,
+        assetStorage: new DeterministicAssetStorage(),
+        proposals: {
+          acceptedProposal: async () => {
+            throw new ProposalNotFoundError("unused");
+          },
+        },
+        agenda: new AgendaService(new D1AgendaRepository(database, now), now, repository),
+        speakerConversion: new D1SpeakerConversion(
+          database,
+          () => crypto.randomUUID(),
+          new D1IdentityDirectory(database),
+        ),
+        newId: () => `${prefix}0000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+        now,
+      });
+    };
+    const slides = async () =>
+      (await repository.workspace(eventId)).assets
+        .filter(({ name }) => name === "slides.pdf")
+        .toSorted((left, right) => (left.versionNumber ?? 1) - (right.versionNumber ?? 1));
+    return { repository, service, slides };
+  }
+
+  it("stores a re-upload of the same name as the next version, not a second first", async () => {
+    const { service, slides } = await fixture("content-asset-version");
+    const speaker = await resolveSeededDemoActor("speaker");
+    // One service, so the two uploads take consecutive ids — and therefore distinct R2 keys,
+    // which is what a real deployment's `crypto.randomUUID()` gives them.
+    const portal = service("a");
+    const upload = (bytes: number) =>
+      portal.upload(speaker, {
+        profileId,
+        name: "slides.pdf",
+        contentType: "application/pdf",
+        bytes: new Uint8Array([bytes]),
+      });
+
+    await upload(1);
+    await upload(2);
+
+    const stored = await slides();
+    expect(stored.map(({ versionNumber, isLatest }) => [versionNumber, isLatest])).toEqual([
+      [1, false],
+      [2, true],
+    ]);
+    // One chain, and exactly one row in it is current.
+    expect(new Set(stored.map(({ versionGroupId }) => versionGroupId)).size).toBe(1);
+    expect(stored.filter(({ isLatest }) => isLatest)).toHaveLength(1);
+  });
+
+  it("gives two simultaneous uploads a version each, and leaves one latest", async () => {
+    const { service, slides } = await fixture("content-asset-version-race");
+    const speaker = await resolveSeededDemoActor("speaker");
+    const upload = (prefix: string, bytes: number) =>
+      service(prefix).upload(speaker, {
+        profileId,
+        name: "slides.pdf",
+        contentType: "application/pdf",
+        bytes: new Uint8Array([bytes]),
+      });
+
+    // A first version to race against, so both concurrent uploads are continuations.
+    await upload("a", 1);
+    const outcomes = await Promise.all([upload("b", 2), upload("c", 3)]);
+
+    const stored = await slides();
+    expect(stored).toHaveLength(3);
+    // Monotonic and unique: the constraint would have refused a duplicate, and the numbers
+    // being 1,2,3 rather than 1,2,2 is what says the allocation happened inside the write.
+    expect(stored.map(({ versionNumber }) => versionNumber)).toEqual([1, 2, 3]);
+    expect(new Set(stored.map(({ versionGroupId }) => versionGroupId)).size).toBe(1);
+    // Exactly one latest — never none, which is what demoting a row id read earlier produced
+    // when the row it named had already been demoted by the other upload.
+    expect(stored.filter(({ isLatest }) => isLatest)).toHaveLength(1);
+    // And both callers were told the number their own row actually took.
+    expect(outcomes.map(({ versionNumber }) => versionNumber).toSorted()).toEqual([2, 3]);
   });
 });

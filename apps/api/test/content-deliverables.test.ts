@@ -113,6 +113,101 @@ describe("versioned and discussable deliverables", () => {
     expect(await repository.findAsset(first.id)).toMatchObject({ isLatest: true });
   });
 
+  /*
+   * CNT-04. The evaluator uploaded `slides.pdf` twice and got two separate v1 assets, because
+   * the chain was inferred from a read and an upload naming no group found no previous version.
+   * These pin the identity rule rather than one example of it.
+   */
+  it("versions a re-upload of the same file name", async () => {
+    const { repository, service } = fixture();
+    const first = await service.upload(speaker, {
+      profileId,
+      name: "slides.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    });
+    const second = await service.upload(speaker, {
+      profileId,
+      name: "slides.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([2]),
+    });
+    expect(second.versionGroupId).toBe(first.versionGroupId);
+    expect([first.versionNumber, second.versionNumber]).toEqual([1, 2]);
+    const stored = (await repository.workspace(eventId)).assets;
+    expect(stored.map(({ versionNumber, isLatest }) => [versionNumber, isLatest])).toEqual([
+      [1, false],
+      [2, true],
+    ]);
+    // The superseded version is still readable, which is the other half of the requirement.
+    expect(await service.readAsset(speaker, first.id)).not.toBeNull();
+  });
+
+  it("keeps a different file name a different deliverable", async () => {
+    const { service } = fixture();
+    const slides = await service.upload(speaker, {
+      profileId,
+      name: "slides.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    });
+    const handout = await service.upload(speaker, {
+      profileId,
+      name: "handout.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([2]),
+    });
+    expect(handout.versionGroupId).not.toBe(slides.versionGroupId);
+    expect(handout.versionNumber).toBe(1);
+  });
+
+  /*
+   * A file-request task is one requested deliverable, so replacing the file that answers it is a
+   * new version even under a different name. Without this the rename would start a second chain
+   * and the task would appear to have two answers.
+   */
+  it("versions by the task when one is named, whatever the file is called", async () => {
+    const { service } = fixture();
+    const taskId = "30000000-0000-4000-8000-000000000001";
+    const first = await service.upload(speaker, {
+      profileId,
+      name: "deck.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+      taskId,
+    });
+    const second = await service.upload(speaker, {
+      profileId,
+      name: "deck-final.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([2]),
+      taskId,
+    });
+    expect(second.versionGroupId).toBe(first.versionGroupId);
+    expect(second.versionNumber).toBe(2);
+    // And a general upload of the same name is not swept into the task's chain.
+    const loose = await service.upload(speaker, {
+      profileId,
+      name: "deck.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([3]),
+    });
+    expect(loose.versionGroupId).not.toBe(first.versionGroupId);
+  });
+
+  it("refuses a continuation of a version group that is not this speaker's", async () => {
+    const { service } = fixture();
+    await expect(
+      service.upload(speaker, {
+        profileId,
+        name: "slides.pdf",
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1]),
+        versionGroupId: "90000000-0000-4000-8000-000000000999",
+      }),
+    ).rejects.toThrow();
+  });
+
   it("round-trips attributed comments and restores an attributed profile revision", async () => {
     const { repository, service } = fixture();
     const asset = await service.upload(speaker, {

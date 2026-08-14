@@ -2,6 +2,7 @@ import {
   type ContentSession,
   type ContentWorkspace,
   canBeProfilePhoto,
+  logicalAssetKey,
   type ResourceVisibility,
   type SpeakerAsset,
   type SpeakerProfile,
@@ -1563,7 +1564,14 @@ export class ContentService {
     if (!hasEventRole(authorized, profile.eventId, "speaker") || profile.userId !== authorized.id)
       throw new CapabilityDeniedError("Speaker asset access denied");
     const workspace = await this.dependencies.repository.workspace(profile.eventId);
-    const previous = input.versionGroupId
+    /*
+     * A named group is an explicit statement about identity and is the only path that lets a
+     * *renamed* file join an existing chain, so it is still resolved here — from the caller's
+     * own claim rather than from an inference. Everything else is resolved by the store against
+     * the stored logical key, because inferring the chain from a read is what let two uploads of
+     * `slides.pdf` each decide they were the first (`1406`).
+     */
+    const named = input.versionGroupId
       ? workspace.assets
           .filter(
             (asset) =>
@@ -1571,14 +1579,9 @@ export class ContentService {
               asset.speakerProfileId === profile.id,
           )
           .toSorted((a, b) => (b.versionNumber ?? 1) - (a.versionNumber ?? 1))[0]
-      : input.taskId
-        ? workspace.assets.filter(
-            (asset) =>
-              asset.taskId === input.taskId &&
-              asset.speakerProfileId === profile.id &&
-              asset.isLatest !== false,
-          )[0]
-        : undefined;
+      : undefined;
+    if (input.versionGroupId && !named)
+      throw new CapabilityDeniedError("Speaker asset access denied");
     if (
       input.taskId &&
       !workspace.tasks.some(
@@ -1601,6 +1604,10 @@ export class ContentService {
       contentType: input.contentType,
       bytes: input.bytes,
     });
+    // A continuation inherits the chain's task and session, so a later version does not silently
+    // detach the deliverable from the work that requested it.
+    const taskId = input.taskId ?? named?.taskId;
+    const sessionId = input.sessionId ?? named?.sessionId;
     const asset: SpeakerAsset = {
       id,
       eventId: profile.eventId,
@@ -1610,16 +1617,21 @@ export class ContentService {
       storageKey: stored.key,
       visibility: "private",
       uploadedAt: this.dependencies.now().toISOString(),
-      ...(input.taskId || previous?.taskId ? { taskId: input.taskId ?? previous?.taskId } : {}),
-      ...(input.sessionId || previous?.sessionId
-        ? { sessionId: input.sessionId ?? previous?.sessionId }
-        : {}),
-      versionGroupId: previous?.versionGroupId ?? previous?.id ?? input.versionGroupId ?? id,
-      versionNumber: (previous?.versionNumber ?? 0) + 1,
+      ...(taskId ? { taskId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      // A named continuation keeps the chain's own key so its members stay one deliverable even
+      // when the file was renamed; otherwise the key is derived from what this upload is.
+      logicalKey:
+        named?.logicalKey ??
+        (named ? logicalAssetKey(named) : logicalAssetKey({ name: input.name, taskId, sessionId })),
       isLatest: true,
     };
+    let allocated: { versionGroupId: string; versionNumber: number };
     try {
-      await this.dependencies.repository.replaceLatestAsset(asset, previous);
+      allocated = await this.dependencies.repository.replaceLatestAsset(
+        asset,
+        named?.versionGroupId ?? input.versionGroupId,
+      );
     } catch (metadataError) {
       try {
         await this.dependencies.assetStorage.delete(stored.key);
@@ -1631,7 +1643,9 @@ export class ContentService {
       }
       throw metadataError;
     }
-    return asset;
+    // The store allocated both, so the answer describes the row that committed rather than the
+    // one this method proposed.
+    return { ...asset, ...allocated };
   }
 
   /**

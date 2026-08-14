@@ -112,7 +112,21 @@ export interface ContentRepository {
   /** `false` when no row matched — the asset has gone since the caller read it. */
   updateAsset(asset: SpeakerAsset): Promise<boolean>;
   addAsset(asset: SpeakerAsset): Promise<void>;
-  replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset): Promise<void>;
+  /**
+   * Store an upload as the newest version of its logical deliverable.
+   *
+   * The group and the version number are the store's to allocate, not the caller's: computing
+   * either from a prior read is a read-then-write that two concurrent uploads resolve
+   * identically, and the loser then trips `speaker_assets_version_unique` with a 500 describing
+   * a constraint for a request that had nothing wrong with it. The caller supplies the
+   * *identity* — `logicalKey`, or an explicit `versionGroupId` — and the store answers with the
+   * group and number the row actually took (`1406`).
+   */
+  replaceLatestAsset(
+    asset: SpeakerAsset,
+    /** An explicit continuation of a named chain, which overrides `logicalKey` lookup. */
+    versionGroupId?: string,
+  ): Promise<{ versionGroupId: string; versionNumber: number }>;
   deleteAsset(assetId: string): Promise<void>;
   /**
    * Has this speaker been given any work on this event yet?

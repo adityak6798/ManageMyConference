@@ -121,10 +121,25 @@ export function defineContentSchema(references: {
       versionGroupId: text("version_group_id"),
       versionNumber: integer("version_number").notNull().default(1),
       isLatest: integer("is_latest", { mode: "boolean" }).notNull().default(true),
+      /**
+       * Which logical deliverable this upload is a version of (migration `1406`).
+       *
+       * The group id says which chain a row is in; this says how a *new* upload finds that
+       * chain when the client names no group. Storing it is what makes the lookup atomic —
+       * the insert allocates both the group and the number against this key in one statement,
+       * so two uploads arriving together cannot both decide they are the first.
+       */
+      logicalKey: text("logical_key"),
     },
     (table) => [
       check("speaker_assets_visibility", sql`${table.visibility} IN ('private','publishable')`),
       index("speaker_assets_profile_idx").on(table.speakerProfileId),
+      index("speaker_assets_logical_idx").on(
+        table.eventId,
+        table.speakerProfileId,
+        table.logicalKey,
+        table.versionNumber,
+      ),
       uniqueIndex("speaker_assets_version_unique")
         .on(table.versionGroupId, table.versionNumber)
         .where(sql`${table.versionGroupId} IS NOT NULL`),
