@@ -1,4 +1,8 @@
-import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
+import type {
+  CrmRepository,
+  ProspectFilters,
+  StageMigration,
+} from "../../application/crm/crm-repository";
 import {
   ContactAlreadySourcedError,
   ContactEmailTakenError,
@@ -317,22 +321,7 @@ export class D1CrmRepository implements CrmRepository {
     // converted under the caller is no longer movable, and its history must not say otherwise.
     if (transition)
       statements.push(
-        this.database
-          .prepare(
-            "INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_prospects WHERE id=? AND event_id=? AND speaker_id IS NULL)",
-          )
-          .bind(
-            transition.id,
-            transition.eventId,
-            transition.prospectId,
-            transition.fromStage,
-            transition.toStage,
-            transition.actorId,
-            transition.source,
-            transition.occurredAt,
-            prospect.id,
-            prospect.eventId,
-          ),
+        this.unconvertedTransitionStatement(transition, prospect.id, prospect.eventId),
       );
     // Every activity this command produced rides the same batch as the row update, so a
     // stage-change entry can never survive a failed transition or be lost after a saved one.
@@ -431,9 +420,25 @@ export class D1CrmRepository implements CrmRepository {
       .bind(speakerId, activity.occurredAt, activity.occurredAt, prospectId, eventId);
     await this.runBatch(
       [
+        /*
+         * The history entry goes in *before* the row is stamped, and under the same
+         * `speaker_id IS NULL` clause the stamp itself carries.
+         *
+         * Unguarded it recorded conversions that did not happen: two organizers pressing Convert
+         * at once produced one winning UPDATE, one conversion activity — the partial index sees
+         * to that — and two transition rows, so the history claimed a move the loser never made.
+         *
+         * The order is what makes the guard mean the right thing. Inside a batch each statement
+         * sees what the ones before it left, so placed after the UPDATE this clause would read
+         * the row this very batch had just converted and refuse every entry; placed before it,
+         * both clauses read the same pre-batch row and therefore agree — the entry lands exactly
+         * when the conversion does.
+         */
+        ...(transition
+          ? [this.unconvertedTransitionStatement(transition, prospectId, eventId)]
+          : []),
         update,
         this.activityStatement(prospectId, activity),
-        ...(transition ? [this.transitionStatement(transition)] : []),
       ],
       "record conversion atomically",
     );
@@ -549,6 +554,20 @@ export class D1CrmRepository implements CrmRepository {
   }
 
   /**
+   * A version-4 UUID built in SQL, for rows this adapter inserts from a SELECT rather than from
+   * a list it was handed.
+   *
+   * Character for character the generator `1501_crm_pipeline_stages.sql` uses to backfill this
+   * same table, so a history row's id has one shape whoever wrote it. `randomblob` is
+   * re-evaluated per result row, which is what makes it usable as a primary key for a set whose
+   * size is only known inside the statement.
+   */
+  private static readonly SQL_UUID =
+    "lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || " +
+    "substr(lower(hex(randomblob(2))), 2) || '-a' || substr(lower(hex(randomblob(2))), 2) || " +
+    "'-' || lower(hex(randomblob(6)))";
+
+  /**
    * Move everything out of a stage and delete it, in one batch.
    *
    * The migration and the delete cannot be two requests: between them the board would serve a
@@ -560,16 +579,35 @@ export class D1CrmRepository implements CrmRepository {
     eventId: string,
     stageKey: string,
     migrateTo: string,
-    transitions: readonly ProspectTransition[],
+    move: StageMigration,
     remaining: readonly PipelineStage[],
   ) {
-    const now = transitions[0]?.occurredAt ?? new Date(0).toISOString();
+    /*
+     * The history rows are derived from the same predicate the migration runs on.
+     *
+     * This used to be handed a finished list of transitions that `CrmService` built from a
+     * separate `list()` round trip, so the list described the stage as it stood a few
+     * milliseconds earlier and the two sets drifted apart in both directions: a card dragged out
+     * of the stage in between got a transition row for a move that never happened, and a card
+     * dragged *into* it was migrated with no history at all — precisely the "where did these
+     * go?" the history exists to answer. The caller now passes only who and when, so the set
+     * that moves and the set that gets a history entry are the same set by construction, and
+     * neither an empty stage nor a busy one has a special case.
+     */
     await this.runBatch(
       [
+        // Before the UPDATE, for the same reason the conversion's entry goes before its stamp:
+        // afterwards this SELECT would find the stage already empty.
+        this.database
+          .prepare(
+            `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
+             SELECT ${D1CrmRepository.SQL_UUID}, event_id, id, stage, ?, ?, ?, ?
+               FROM crm_prospects WHERE event_id=? AND stage=?`,
+          )
+          .bind(migrateTo, move.actorId, move.source, move.occurredAt, eventId, stageKey),
         this.database
           .prepare("UPDATE crm_prospects SET stage=?, updated_at=? WHERE event_id=? AND stage=?")
-          .bind(migrateTo, now, eventId, stageKey),
-        ...transitions.map((transition) => this.transitionStatement(transition)),
+          .bind(migrateTo, move.occurredAt, eventId, stageKey),
         this.database
           .prepare("DELETE FROM crm_pipeline_stages WHERE event_id=? AND key=?")
           .bind(eventId, stageKey),
@@ -583,6 +621,39 @@ export class D1CrmRepository implements CrmRepository {
     );
   }
 
+  /**
+   * A history entry that lands only while the prospect is still unconverted.
+   *
+   * The one shape both writes that move a card use, rather than a clause each of them repeats:
+   * the unguarded copy in the conversion path is exactly how the two drifted apart, and a
+   * history row is not something a caller can notice is missing. The guard belongs to whichever
+   * statement in the batch decides the move, so this must be placed *before* that statement —
+   * see `recordConversion`, where the conversion's own stamp would otherwise falsify it.
+   */
+  private unconvertedTransitionStatement(
+    transition: ProspectTransition,
+    prospectId: string,
+    eventId: string,
+  ) {
+    return this.database
+      .prepare(
+        "INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM crm_prospects WHERE id=? AND event_id=? AND speaker_id IS NULL)",
+      )
+      .bind(
+        transition.id,
+        transition.eventId,
+        transition.prospectId,
+        transition.fromStage,
+        transition.toStage,
+        transition.actorId,
+        transition.source,
+        transition.occurredAt,
+        prospectId,
+        eventId,
+      );
+  }
+
+  /** The arrival entry, unguarded: `create` inserts the prospect in the same batch. */
   private transitionStatement(transition: ProspectTransition) {
     return this.database
       .prepare(

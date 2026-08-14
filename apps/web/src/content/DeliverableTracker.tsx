@@ -7,13 +7,16 @@
  * its deadline, what was asked for, which session it belongs to, and whichever upload answers
  * it — and the filters narrow by the states somebody actually chases.
  *
- * Two actions, both bounded by the current selection. Reminders go through communications on the
- * same delivery key the automatic sweep uses, so pressing Remind on work already covered says
- * so instead of writing to the speaker twice. The ZIP takes only latest versions.
+ * Two selection actions, and they do not take the same rows: chasing is only meaningful while a
+ * task is open, downloading only once something has been uploaded. Reminders go through
+ * communications on the same delivery key the automatic sweep uses, so pressing Remind on work
+ * already covered says so instead of writing to the speaker twice. The ZIP takes only latest
+ * versions. A third action is per-row rather than per-selection: commenting on the upload in
+ * front of you.
  */
 
 import { useMemo, useState } from "react";
-import { downloadDeliverables, remindSpeakerTasks } from "../api/content";
+import { addContentComment, downloadDeliverables, remindSpeakerTasks } from "../api/content";
 import { EmptyState, Pill } from "../ui/primitives";
 import {
   assetVersionGroups,
@@ -116,10 +119,20 @@ export function DeliverableTracker({
 
   // A selection survives a filter change only for rows still on screen: reminding somebody the
   // organizer can no longer see is exactly the surprise this avoids.
+  //
+  // The two buttons below do not take the same rows, and collapsing them into one notion of
+  // "selectable" made the ZIP unusable for its main purpose. Chasing is only meaningful while a
+  // task is open; downloading is only meaningful once something has been uploaded, and a
+  // *complete* task is the ordinary case there — an organizer collecting finished decks filters
+  // to Complete, and every row then offered no checkbox at all. So a row is selectable when
+  // either button could act on it, and each button counts its own share of the selection.
   const selectable = visible
-    .filter(({ task }) => task.status === "open")
+    .filter(({ task, latest }) => task.status === "open" || latest)
     .map(({ task }) => task.id);
   const chosen = selected.filter((id) => selectable.includes(id));
+  const remindable = visible
+    .filter(({ task }) => chosen.includes(task.id) && task.status === "open")
+    .map(({ task }) => task.id);
   const chosenAssets = visible
     .filter(({ task, latest }) => chosen.includes(task.id) && latest)
     .map(({ latest }) => (latest as Asset).id);
@@ -130,11 +143,13 @@ export function DeliverableTracker({
     );
 
   function remind() {
-    if (busy || chosen.length === 0) return;
+    if (busy || remindable.length === 0) return;
     let report: Awaited<ReturnType<typeof remindSpeakerTasks>> = [];
     // ERROR-INTENT: handlers cannot await; both outcomes are announced below.
     void run(async () => {
-      report = await remindSpeakerTasks(eventId, chosen);
+      // The open share of the selection, never the whole of it: a complete task the organizer
+      // ticked to download would otherwise be sent to the server as somebody to chase.
+      report = await remindSpeakerTasks(eventId, remindable);
     }).then((result) => {
       if (!result.ok) {
         announce("error", withReference("Those reminders could not be sent.", result.error));
@@ -234,11 +249,13 @@ export function DeliverableTracker({
              * cannot satisfy in its answer rather than by greying itself out — a control that
              * refuses silently is the shape #206's sweep exists to find.
              */}
-            <button type="button" disabled={busy || chosen.length === 0} onClick={remind}>
+            <button type="button" disabled={busy || remindable.length === 0} onClick={remind}>
               {/* The count only once there is one: "Send 0 reminders" reads as an offer to do
-                  nothing rather than as "choose somebody first". */}
-              {chosen.length
-                ? `Send ${chosen.length} ${plural(chosen.length, "reminder")}`
+                  nothing rather than as "choose somebody first". The count is the *remindable*
+                  share of the selection, not the selection — a complete task in it is there to be
+                  downloaded, and counting it here would promise a chase that never happens. */}
+              {remindable.length
+                ? `Send ${remindable.length} ${plural(remindable.length, "reminder")}`
                 : "Send reminders"}
             </button>
             <button
@@ -275,7 +292,7 @@ export function DeliverableTracker({
                   return (
                     <tr key={task.id}>
                       <td className="select-cell" data-label="Select">
-                        {task.status === "open" ? (
+                        {task.status === "open" || latest ? (
                           <input
                             type="checkbox"
                             aria-label={`Select ${task.title} for ${speakerName}`}
@@ -283,7 +300,9 @@ export function DeliverableTracker({
                             onChange={() => toggle(task.id)}
                           />
                         ) : (
-                          <span className="visually-hidden">Complete</span>
+                          // Complete with nothing uploaded: neither button can act on it, so a
+                          // checkbox here would be a control that does nothing when pressed.
+                          <span className="visually-hidden">Complete, nothing uploaded</span>
                         )}
                       </td>
                       <td className="primary-cell" data-label="Requested">
@@ -322,6 +341,44 @@ export function DeliverableTracker({
                                 : ""}{" "}
                               · {shortDate(latest.uploadedAt)}
                             </span>
+                            {/*
+                              The organizer's half of an "attributed cross-role comment", which the
+                              panel this tracker replaced carried and this one dropped — leaving
+                              `POST /api/content-comments` reachable only by the speaker commenting
+                              on their own file. Restoring it here rather than where it was: an
+                              organizer says "wrong template" while looking at the upload, and this
+                              is the row where they are looking at it.
+                            */}
+                            <form
+                              className="row-actions"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                const form = event.currentTarget;
+                                const body = String(new FormData(form).get("body")).trim();
+                                if (!body) return;
+                                // ERROR-INTENT: handlers cannot await; run() owns rejection and
+                                // announces both outcomes through the shared action state.
+                                void run(() => addContentComment(latest.id, body)).then(
+                                  (result) => {
+                                    if (!result.ok) return;
+                                    form.reset();
+                                    announce(
+                                      "success",
+                                      `Comment added on ${latest.name} for ${speakerName}.`,
+                                    );
+                                  },
+                                );
+                              }}
+                            >
+                              <input
+                                name="body"
+                                aria-label={`Comment on ${latest.name} for ${speakerName}`}
+                                required
+                              />
+                              <button type="submit" disabled={busy}>
+                                Comment
+                              </button>
+                            </form>
                           </>
                         ) : (
                           <span className="sub">Nothing uploaded yet</span>

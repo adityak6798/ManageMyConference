@@ -547,25 +547,19 @@ export class CrmService {
         "Prospects cannot be moved into Converted: converting one is what puts it there.",
       );
 
-    const occurredAt = this.dependencies.now().toISOString();
-    const moving = await this.dependencies.repository.list(eventId, { stage: stageKey });
     const remaining = normalizeStageOrder(existing.filter(({ key }) => key !== stageKey));
     await this.dependencies.repository.deleteStage(
       eventId,
       stageKey,
       migrateTo,
-      // Every card that moved says so in the history, because "where did these go" is exactly
-      // the question somebody asks after a stage disappears.
-      moving.map((prospect) => ({
-        id: this.dependencies.newId(),
-        eventId,
-        prospectId: prospect.id,
-        fromStage: stageKey,
-        toStage: migrateTo,
+      // Who and when, not who moved. Every card that moves says so in the history, because
+      // "where did these go" is exactly the question somebody asks after a stage disappears —
+      // but *which* cards those are is decided by the write, not by a read taken just before it.
+      {
         actorId: authorized.id,
-        source: "detail" as const,
-        occurredAt,
-      })),
+        source: "detail",
+        occurredAt: this.dependencies.now().toISOString(),
+      },
       remaining,
     );
     return remaining;

@@ -168,6 +168,13 @@ export const previewBroadcastInputSchema = broadcastInputSchema.pick({
   eventId: true,
   templateKey: true,
   templateVersion: true,
+  /**
+   * Picked because rendering without it is the same preview/send disagreement in the other
+   * direction: a template with a `payload` placeholder previewed as `400 ... has no value`,
+   * telling the author their template cannot be sent, while the identical send with the same
+   * payload went out fine. Anything the send renders against, the preview renders against.
+   */
+  payload: true,
   recipientIds: true,
 });
 export type PreviewBroadcastInput = z.infer<typeof previewBroadcastInputSchema>;

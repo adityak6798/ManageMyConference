@@ -14,6 +14,16 @@ export interface ProspectFilters {
 }
 
 /**
+ * Who moved a stage's prospects and when — everything a history entry needs except which
+ * prospects those are, which only the write itself can know. See `deleteStage`.
+ */
+export interface StageMigration {
+  readonly actorId: string;
+  readonly source: ProspectTransition["source"];
+  readonly occurredAt: string;
+}
+
+/**
  * One store for the domain, not two.
  *
  * Sourcing a directory contact into an event writes a prospect, its contact row and the
@@ -80,12 +90,20 @@ export interface CrmRepository extends CrmDirectoryRepository {
    *
    * The migration and the delete cannot be two requests: between them the board would be
    * serving a stage key no column exists for, which is the state this refuses to create.
+   *
+   * The caller passes who is moving them and when, **not which prospects are moving**. It used
+   * to pass a list of finished transition rows built from a separate read, and the gap between
+   * that read and this write was a real defect in both directions: a card that left the stage in
+   * between got a history entry for a move it never made, and a card that arrived was migrated
+   * with no history at all. Only the implementation can know which rows its own `WHERE` matched,
+   * so it writes the history from the same predicate it moves by, and the id of each entry is
+   * its to mint.
    */
   deleteStage(
     eventId: string,
     stageKey: string,
     migrateTo: string,
-    transitions: readonly ProspectTransition[],
+    move: StageMigration,
     remaining: readonly PipelineStage[],
   ): Promise<void>;
   listTransitions(eventId: string): Promise<readonly ProspectTransition[]>;

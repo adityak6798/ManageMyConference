@@ -1,4 +1,8 @@
-import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
+import type {
+  CrmRepository,
+  ProspectFilters,
+  StageMigration,
+} from "../../application/crm/crm-repository";
 import { ContactAlreadySourcedError, ContactNotFoundError } from "../../application/crm/errors";
 import {
   type ContactActivity,
@@ -128,18 +132,27 @@ export class MemoryCrmRepository implements CrmRepository {
     eventId: string,
     stageKey: string,
     migrateTo: string,
-    transitions: readonly ProspectTransition[],
+    move: StageMigration,
     remaining: readonly PipelineStage[],
   ) {
-    const movedAt = transitions[0]?.occurredAt;
-    for (const [id, prospect] of this.prospects)
-      if (prospect.eventId === eventId && prospect.stage === stageKey)
-        this.prospects.set(id, {
-          ...prospect,
-          stage: migrateTo,
-          ...(movedAt ? { updatedAt: movedAt } : {}),
-        });
-    this.transitions.push(...transitions);
+    // The same rule the D1 adapter keeps: whatever this predicate matches is what moves *and*
+    // what gets a history entry. A fake that took the caller's word for which prospects moved
+    // would stay green against the stale-snapshot defect the real adapter had, which is the one
+    // way a fake can be worse than no test at all.
+    for (const [id, prospect] of this.prospects) {
+      if (prospect.eventId !== eventId || prospect.stage !== stageKey) continue;
+      this.prospects.set(id, { ...prospect, stage: migrateTo, updatedAt: move.occurredAt });
+      this.transitions.push({
+        id: crypto.randomUUID(),
+        eventId,
+        prospectId: id,
+        fromStage: stageKey,
+        toStage: migrateTo,
+        actorId: move.actorId,
+        source: move.source,
+        occurredAt: move.occurredAt,
+      });
+    }
     this.stages.set(eventId, [...remaining]);
   }
 

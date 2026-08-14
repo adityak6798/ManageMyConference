@@ -412,9 +412,13 @@
    * three restack below 780px by one shared recipe rather than hiding their contents in a
    * scroller. A pipeline is not special enough to answer it differently.
    *
-   * Dragging is not what moves a card on a phone in any case — HTML5 drag events do not fire for
-   * touch, so the per-card "Move to" control is the mechanism there, and it works the same
-   * stacked as it does in columns.
+   * Dragging is not what moves a card on a phone in any case: HTML5 drag events do not fire for
+   * touch. What moves it is tapping the card, which opens that prospect in the detail panel below
+   * the board, where "Stage and next action" carries a Stage select and a Save. That path is
+   * unaffected by the columns stacking. (An earlier version of this comment claimed a per-card
+   * "Move to" control was the touch mechanism. There is no such control — the card is a single
+   * button whose click opens the detail — and the claim was corrected rather than deleted because
+   * a reader who was told the wrong mechanism will go looking for it.)
    */
   .crm .pipeline-columns {
     grid-auto-flow: row;

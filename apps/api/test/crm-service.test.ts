@@ -1415,6 +1415,35 @@ describe("ACC-CRM configurable pipeline", () => {
     ).rejects.toBeInstanceOf(PipelineStageInvalidError);
   });
 
+  it("refuses a board without Converted, dropped or renamed away", async () => {
+    const { service } = setup();
+    const stages = (await service.pipelineStages(organizer, eventId)).map(
+      ({ key, label, category }) => ({ key, label, category }),
+    );
+    // Nobody is standing in Converted on this fixture, so an ordinary "you may drop an empty
+    // stage" board is what is being sent: the refusal can only be the Converted guard, not
+    // `PipelineStageInUseError` shadowing it.
+    await expect(
+      service.savePipelineStages(
+        organizer,
+        eventId,
+        stages.filter(({ key }) => key !== "converted"),
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    // A rename of the key is the same loss wearing a familiar label. `convert` writes the key
+    // `converted`, so a column still called Converted under the key `won` is a column every
+    // converted card misses — the board would render them nowhere.
+    await expect(
+      service.savePipelineStages(
+        organizer,
+        eventId,
+        stages.map((stage) => (stage.key === "converted" ? { ...stage, key: "won" } : stage)),
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    // A refused save writes nothing: the column `convert` targets is still there.
+    expect(await stageKeys(service)).toContain("converted");
+  });
+
   it("refuses a move to a stage this board does not have, and into Converted", async () => {
     const { service } = setup();
     const prospect = await service.create(organizer, {
@@ -1480,11 +1509,27 @@ describe("ACC-CRM configurable pipeline", () => {
 
   it("is closed to somebody without crm:manage on this event", async () => {
     const { service } = setup();
-    await expect(service.pipelineStages(reviewer, eventId)).rejects.toThrow();
-    await expect(service.savePipelineStages(reviewer, eventId, [])).rejects.toThrow();
+    await expect(service.pipelineStages(reviewer, eventId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // A board this service would otherwise accept, and the named error rather than a bare
+    // `toThrow`. Sending `[]` proved nothing: validation refuses an empty list before the
+    // capability check is ever reached, so that version stayed green with the check deleted.
+    // What this case is about is who is asking, not what they sent.
+    await expect(
+      service.savePipelineStages(reviewer, eventId, [
+        { key: "identified", label: "Identified", category: "open" },
+        { key: "converted", label: "Converted", category: "won" },
+      ]),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
     await expect(
       service.deletePipelineStage(reviewer, eventId, "engaged", "contacted"),
-    ).rejects.toThrow();
-    await expect(service.pipelineHistory(reviewer, eventId)).rejects.toThrow();
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(service.pipelineHistory(reviewer, eventId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // And the refusals were refusals: the board is still the untouched default, not the
+    // two-column one the reviewer tried to save.
+    expect(await stageKeys(service)).toHaveLength(8);
   });
 });

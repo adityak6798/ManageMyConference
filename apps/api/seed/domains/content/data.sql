@@ -8,8 +8,18 @@ INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bi
 ('10000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','speaker-jordan-bell','proposal-person-jordan','Jordan Bell','jordan.bell@example.test','Jordan works with event teams to create inclusive digital and physical experiences.','she/her','Northwind Access',NULL);
 -- `npm run reset` also writes these bytes into the local R2 bucket under `storage_key`,
 -- so an anonymous GET /api/speaker-assets/<id> serves a real image from a clean seed.
-INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at) VALUES
-('90000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','jordan-bell-portrait.png','image/png','00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001','publishable','2026-08-10T17:00:00.000Z');
+--
+-- The two version columns are stated here rather than left to the backfill in migration `1406`:
+-- a seed is applied after every migration on every path, so that backfill can never see this row,
+-- and it would carry no logical key at all. Re-uploading a file of the same name then finds no
+-- chain to join and stores a second v1 instead of a v2 — the CNT-04 defect — on every seeded
+-- database, the hosted demo included. `logical_key` is what `logicalAssetKey` in
+-- src/domain/content/content.ts derives for an upload naming neither a task nor a session, the
+-- trimmed and lowercased file name, and `version_group_id` repeats this row id, which is the group
+-- the repository gives a first version. `version_number` and `is_latest` default to 1 and are left
+-- to the schema.
+INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,logical_key,version_group_id) VALUES
+('90000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','jordan-bell-portrait.png','image/png','00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001','publishable','2026-08-10T17:00:00.000Z','name:jordan-bell-portrait.png','90000000-0000-4000-8000-000000000001');
 -- The demo headshot is resolved rather than asserted: the profile takes its own most recent
 -- *image* upload, which is exactly what PUT /api/speaker-profiles/{profileId}/photo accepts —
 -- the asset must belong to this profile, and it must be an image. A seed is applied by

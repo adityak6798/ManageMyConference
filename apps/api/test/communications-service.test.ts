@@ -718,4 +718,53 @@ describe("bulk speaker email", () => {
       service.broadcast(organizer, { ...chosen, audienceVersion: "something-else" }),
     ).rejects.toThrow(/changed since you confirmed/);
   });
+
+  /*
+   * The other half of that agreement, and the #189 defect pointed the other way: the preview
+   * dropped `payload` while the send rendered against it, so a template with a caller-supplied
+   * placeholder previewed as "{{hotelName}} has no value" — telling the author their template
+   * could not be sent — and then sent perfectly well. A preview that refuses what the send
+   * delivers misleads exactly as badly as one that shows a message the delivery does not store.
+   */
+  it("keeps the preview and the send agreeing about what the message says", async () => {
+    const { service } = composing();
+    await publish(service, "hotel", "Hi {{speakerName}}, your hotel is {{hotelName}}.");
+    // `hotelName` is in no merge-field vocabulary, so the renderer can fill it only from the
+    // payload the caller supplied — which is the whole point of the field.
+    const command = {
+      organizationId,
+      eventId,
+      templateKey: "hotel",
+      recipientIds: ["user-ada"],
+      payload: { hotelName: "The Wren" },
+    };
+
+    const preview = await service.previewBroadcast(organizer, command);
+    const sent = await service.broadcast(organizer, {
+      ...command,
+      audienceVersion: preview.audienceVersion,
+    });
+
+    expect(preview.entries[0]?.body).toBe("Hi Ada Rivera, your hotel is The Wren.");
+    expect(sent.deliveries.map(({ renderedBody }) => renderedBody)).toEqual(
+      preview.entries.map(({ body }) => body),
+    );
+
+    // And the per-recipient merge values still outrank a caller key of the same name, in the
+    // preview exactly as on the delivery: one name shown for everybody while each delivery
+    // stored its own recipient's would be the same disagreement wearing a different hat.
+    await publish(service, "stage", "{{speakerName}} is on {{stageName}}.");
+    const shadowed = {
+      ...command,
+      templateKey: "stage",
+      payload: { stageName: "Main", speakerName: "Everybody" },
+    };
+    const shadowedPreview = await service.previewBroadcast(organizer, shadowed);
+    const shadowedSend = await service.broadcast(organizer, shadowed);
+
+    expect(shadowedPreview.entries[0]?.body).toBe("Ada Rivera is on Main.");
+    expect(shadowedSend.deliveries.map(({ renderedBody }) => renderedBody)).toEqual(
+      shadowedPreview.entries.map(({ body }) => body),
+    );
+  });
 });

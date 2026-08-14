@@ -21,6 +21,8 @@ import {
   inviteSpeakersResponseSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
+  remindSpeakerTasksInputSchema,
+  remindSpeakerTasksResponseSchema,
   requestSpeakerTaskInputSchema,
   restoreContentRevisionInputSchema,
   saveSpeakerTaskTemplatesInputSchema,
@@ -163,6 +165,26 @@ export const contentPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         409: revisionConflictResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/content-task-reminders",
+      description:
+        "Chases the speakers behind a chosen set of open tasks. Deliberately the same delivery key the automatic sweep uses — this task, at this deadline — so pressing it on work the sweep already covered converges on that delivery and reports `already-sent` rather than writing to the speaker twice, while extending a deadline moves the key and so makes the chase after an extension a new reminder. Every task named comes back, including the ones nothing was sent for: `unreachable` is a speaker with no address, and `refused` is a task already complete or one the delivering side would not take. A task id this event does not carry answers 404 before anything is sent, so a mistyped selection reminds nobody rather than reminding the rest. 503 means the deployment cannot send speaker mail at all.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(remindSpeakerTasksInputSchema) } },
+      responses: {
+        200: {
+          description: "Per-task reminder outcomes, one row for every task the request named",
+          content: json(remindSpeakerTasksResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        503: errorResponse,
         500: errorResponse,
       },
     });

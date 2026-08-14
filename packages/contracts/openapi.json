@@ -2366,6 +2366,12 @@
                     "minimum": 0,
                     "exclusiveMinimum": true
                   },
+                  "payload": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
                   "recipientIds": {
                     "type": "array",
                     "items": {
@@ -8448,6 +8454,472 @@
         }
       }
     },
+    "/api/content-task-reminders": {
+      "post": {
+        "description": "Chases the speakers behind a chosen set of open tasks. Deliberately the same delivery key the automatic sweep uses — this task, at this deadline — so pressing it on work the sweep already covered converges on that delivery and reports `already-sent` rather than writing to the speaker twice, while extending a deadline moves the key and so makes the chase after an extension a new reminder. Every task named comes back, including the ones nothing was sent for: `unreachable` is a speaker with no address, and `refused` is a task already complete or one the delivering side would not take. A task id this event does not carry answers 404 before anything is sent, so a mistyped selection reminds nobody rather than reminding the rest. 503 means the deployment cannot send speaker mail at all.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "eventId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "taskIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  }
+                },
+                "required": [
+                  "eventId",
+                  "taskIds"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-task reminder outcomes, one row for every task the request named",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reminders": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "taskId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "speakerName": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "dueAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "already-sent",
+                              "unreachable",
+                              "refused"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "taskId",
+                          "speakerName",
+                          "title",
+                          "dueAt",
+                          "outcome",
+                          "reason"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "reminders"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "404": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "503": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/demo-session": {
       "post": {
         "description": "Internal demo-only endpoint; unavailable unless DEMO_MODE is explicitly enabled.",
@@ -10941,7 +11413,7 @@
                   "timezone": {
                     "type": "string",
                     "default": "America/Los_Angeles",
-                    "description": "An IANA time zone id, for example America/Los_Angeles. An alias is accepted and stored canonicalized (US/Pacific becomes America/Los_Angeles); a fixed offset such as +05:30 is refused, because it never observes a daylight transition."
+                    "description": "A time zone id, for example America/Los_Angeles. Anything the runtime can resolve is accepted and stored canonicalized: an alias (US/Pacific becomes America/Los_Angeles), a lower-cased id, and a fixed offset (+05:30, -08:00) all work. A value that resolves to no zone at all — Banana, GMT+8, UTC+2 — is refused. Prefer a named zone where one applies: a fixed offset never observes a daylight transition, so an event spanning one renders an hour off. Note also that the Etc/GMT±N ids invert the sign by POSIX convention — Etc/GMT+8 is UTC−8 — so +08:00 is the safer spelling of an offset."
                   }
                 },
                 "required": [
@@ -11468,7 +11940,7 @@
                   },
                   "timezone": {
                     "type": "string",
-                    "description": "An IANA time zone id, for example America/Los_Angeles. An alias is accepted and stored canonicalized (US/Pacific becomes America/Los_Angeles); a fixed offset such as +05:30 is refused, because it never observes a daylight transition."
+                    "description": "A time zone id, for example America/Los_Angeles. Anything the runtime can resolve is accepted and stored canonicalized: an alias (US/Pacific becomes America/Los_Angeles), a lower-cased id, and a fixed offset (+05:30, -08:00) all work. A value that resolves to no zone at all — Banana, GMT+8, UTC+2 — is refused. Prefer a named zone where one applies: a fixed offset never observes a daylight transition, so an event spanning one renders an hour off. Note also that the Etc/GMT±N ids invert the sign by POSIX convention — Etc/GMT+8 is UTC−8 — so +08:00 is the safer spelling of an offset."
                   }
                 },
                 "required": [

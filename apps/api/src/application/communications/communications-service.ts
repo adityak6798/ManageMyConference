@@ -275,6 +275,13 @@ export class CommunicationsService implements CommunicationsEnqueue {
       eventId: string;
       templateKey: string;
       templateVersion?: number | undefined;
+      /**
+       * The caller-supplied values, exactly as `broadcast` takes them. Dropping them here made
+       * the preview refuse — `{{hotelName}} has no value` — a message the send with the same
+       * payload delivered without complaint, which is the disagreement this surface exists to
+       * remove, pointed the other way.
+       */
+      payload?: Readonly<Record<string, unknown>> | undefined;
       recipientIds?: readonly string[] | undefined;
     },
   ): Promise<{ entries: readonly BroadcastPreviewEntry[]; audienceVersion: string }> {
@@ -286,7 +293,10 @@ export class CommunicationsService implements CommunicationsEnqueue {
           userId: recipient.userId,
           name: recipient.name,
           address: recipient.address,
-          ...renderTemplate(template, payloads[index] ?? {}),
+          // Same spread, same order as `broadcast` writes onto the delivery: the per-recipient
+          // merge values win, so a caller cannot pass `speakerName` and have every preview show
+          // one name while every delivery shows its own recipient's.
+          ...renderTemplate(template, { ...input.payload, ...payloads[index] }),
         })),
         audienceVersion: audienceVersion(recipients),
       };
