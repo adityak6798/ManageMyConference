@@ -962,9 +962,25 @@ exact habit the flag exists to prevent; migration-planted ids are now declared b
 owns the table. And the command's own ordering had no test: `main` takes its two Wrangler seams as
 parameters so a refusal can be shown to run nothing destructive, and so `--remote` on the count
 query is asserted rather than assumed.
-### Issues #202, #207, #203 and #191 rulings — the review and content lane
+### Issues #202, #207 and #203 rulings — the review and content lane
 
-Four issues taken as one pull request, three of them unfinished work from earlier lanes.
+Three issues taken as one pull request, all three unfinished work from earlier lanes.
+
+**#191 was assigned to this lane and deliberately not taken**, at the requester's direction, and
+the reason is worth recording because the next lane will meet it. #191 is an epic rather than an
+issue: first-class review plans and rounds, reviewer pools, structured co-authors, blind-review
+projections, progress and reminders, export contents, AI evaluator personas, waitlist and
+request-revision dispositions, and per-plan reporting — with a second "private-set hardening"
+half at least as large again. Parts of it are also *externally* blocked rather than merely large:
+structured co-authors depend on the CFP lifecycle epic, and saved and scheduled cross-domain
+reports are #196's. Bundling it behind three finished repairs would have held all three out of
+review for it. **What this lane established about it, so the next one does not re-derive it:**
+rounds today are an integer column on `review_assignments` and `review_outcomes` (migration
+`1300`), per-reviewer caps per round are a table plus a trigger, deterministic distribution and
+`advanceRound` both ship, and one scorecard exists per *event* rather than per round. So the
+model work is real — named, date-bounded, lifecycle-stated rounds with their own scorecards and
+pools do not exist — while several capabilities the issue lists as missing are present and
+undiscovered, exactly as its own "Evaluator baseline" section warns.
 
 **#202 — the `meta.changes` divergence, filed twice.** `GAP-025` (content) is closed and the
 decision it was waiting on is made. **A CSV import refuses and reports a row whose speaker

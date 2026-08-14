@@ -648,6 +648,7 @@
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)
 
 ### `PRD-OPS-003`
@@ -710,6 +711,7 @@
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/content.ts](../../packages/contracts/src/domains/content.ts)
 
 ### `PRD-SPK-002`
