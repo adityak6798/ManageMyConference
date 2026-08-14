@@ -106,6 +106,9 @@
     "report_schedules": "platform",
     "report_runs": "platform",
     "event_field_locks": "identity-access",
-    "publication_embeds": "publishing"
+    "publication_embeds": "publishing",
+    "agenda_generated_drafts": "agenda",
+    "agenda_generation_criteria": "agenda",
+    "agenda_speaker_availability": "agenda"
   }
 }

@@ -18,9 +18,12 @@
 
 ### `ACC-AGENDA`
 - `test` / `repository-fact`: [apps/api/test/agenda-backfill-parity.test.ts](../../apps/api/test/agenda-backfill-parity.test.ts)
+- `test` / `repository-fact`: [apps/api/test/agenda-draft-generation.test.ts](../../apps/api/test/agenda-draft-generation.test.ts)
+- `test` / `repository-fact`: [apps/api/test/agenda-generation-service.test.ts](../../apps/api/test/agenda-generation-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-http.test.ts](../../apps/api/test/agenda-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-schedule-reconciliation.test.ts](../../apps/api/test/agenda-schedule-reconciliation.test.ts)
 - `test` / `repository-fact`: [apps/api/test/agenda-service.test.ts](../../apps/api/test/agenda-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-agenda-generation.integration.test.ts](../../apps/api/test/d1-agenda-generation.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-agenda-repository.integration.test.ts](../../apps/api/test/d1-agenda-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-publication-repository.integration.test.ts](../../apps/api/test/d1-publication-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/agenda.spec.ts](../../apps/web/e2e/agenda.spec.ts)
@@ -304,6 +307,7 @@
 
 ### `ARC-DOM-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/registry.ts](../../apps/api/src/adapters/persistence/schema/registry.ts)
+- `code` / `repository-fact`: [apps/api/src/application/agenda/generation-service.ts](../../apps/api/src/application/agenda/generation-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/template-slice.ts](../../apps/api/src/application/agenda/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/cfp/template-slice.ts](../../apps/api/src/application/cfp/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
@@ -438,17 +442,22 @@
 - `code` / `repository-fact`: [packages/contracts/src/domains/review.ts](../../packages/contracts/src/domains/review.ts)
 
 ### `PRD-AGD-001`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-agenda-generation.ts](../../apps/api/src/adapters/persistence/d1-agenda-generation.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/agenda.ts](../../apps/api/src/adapters/persistence/schema/agenda.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/agenda-service.ts](../../apps/api/src/application/agenda/agenda-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/agenda/generation-service.ts](../../apps/api/src/application/agenda/generation-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/schedule-reconciliation.ts](../../apps/api/src/application/agenda/schedule-reconciliation.ts)
 - `code` / `repository-fact`: [apps/api/src/application/agenda/template-slice.ts](../../apps/api/src/application/agenda/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/agenda.ts](../../apps/api/src/domain/agenda/agenda.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/agenda/assisted-placement.ts](../../apps/api/src/domain/agenda/assisted-placement.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/agenda/draft-generation.ts](../../apps/api/src/domain/agenda/draft-generation.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/agenda.ts](../../apps/api/src/transport/http/routes/agenda.ts)
 - `code` / `repository-fact`: [apps/web/src/agenda/AgendaWorkspace.tsx](../../apps/web/src/agenda/AgendaWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/agenda/GeneratedDrafts.tsx](../../apps/web/src/agenda/GeneratedDrafts.tsx)
 - `code` / `repository-fact`: [apps/web/src/agenda/UnscheduledRail.tsx](../../apps/web/src/agenda/UnscheduledRail.tsx)
 - `code` / `repository-fact`: [apps/web/src/agenda/model.ts](../../apps/web/src/agenda/model.ts)
 - `code` / `repository-fact`: [apps/web/src/agenda/useSessionSelection.ts](../../apps/web/src/agenda/useSessionSelection.ts)
+- `code` / `repository-fact`: [apps/web/src/api/agenda-generation.ts](../../apps/web/src/api/agenda-generation.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/agenda.tsx](../../apps/web/src/workspaces/agenda.tsx)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

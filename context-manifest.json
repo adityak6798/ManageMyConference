@@ -887,7 +887,16 @@
         "apps/web/test/agenda-week-board-cost.test.tsx",
         "apps/web/e2e/agenda.spec.ts",
         "apps/api/src/transport/http/routes/agenda.ts",
-        "apps/web/src/workspaces/agenda.tsx"
+        "apps/web/src/workspaces/agenda.tsx",
+        "apps/api/migrations/1603_agenda_generation.sql",
+        "apps/api/src/domain/agenda/draft-generation.ts",
+        "apps/api/src/application/agenda/generation-service.ts",
+        "apps/api/test/agenda-draft-generation.test.ts",
+        "apps/api/src/adapters/persistence/d1-agenda-generation.ts",
+        "apps/api/test/agenda-generation-service.test.ts",
+        "apps/api/test/d1-agenda-generation.integration.test.ts",
+        "apps/web/src/agenda/GeneratedDrafts.tsx",
+        "apps/web/src/api/agenda-generation.ts"
       ]
     },
     {

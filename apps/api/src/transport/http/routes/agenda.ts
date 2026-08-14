@@ -8,6 +8,16 @@
  */
 import {
   agendaAutoPlaceSchema,
+  agendaAvailabilityInputSchema,
+  agendaAvailabilityResponseSchema,
+  agendaCriteriaInputSchema,
+  agendaCriteriaResponseSchema,
+  agendaDraftAcceptInputSchema,
+  agendaDraftAcceptResponseSchema,
+  agendaDraftComparisonResponseSchema,
+  agendaGenerateInputSchema,
+  agendaGeneratedDraftResponseSchema,
+  agendaGeneratedDraftsResponseSchema,
   agendaIdParamsSchema,
   agendaPlacementSchema,
   agendaResourcesSchema,
@@ -17,6 +27,9 @@ import {
   AgendaNotFoundError,
   AgendaPublicationConflictError,
   AgendaResourceInUseError,
+  GeneratedDraftInvalidError,
+  GeneratedDraftNotFoundError,
+  GeneratedDraftStaleError,
   type ScheduleReconciliation,
 } from "../../../application/agenda/public";
 import { requireEventCapability } from "../../../application/identity/actor";
@@ -35,6 +48,19 @@ const routes = [
   "POST /api/events/:eventId/agenda/publications",
   "GET /api/events/:eventId/agenda/schedule-reconciliation",
   "POST /api/events/:eventId/agenda/schedule-reconciliation",
+  /*
+   * Generated drafts (issue #192's residual generation epic). A generated draft is a candidate
+   * and never the board: only `accept` writes placements, and only the sessions it names.
+   */
+  "GET /api/events/:eventId/agenda/criteria",
+  "PUT /api/events/:eventId/agenda/criteria",
+  "GET /api/events/:eventId/agenda/availability",
+  "PUT /api/events/:eventId/agenda/availability",
+  "GET /api/events/:eventId/agenda/generated-drafts",
+  "POST /api/events/:eventId/agenda/generated-drafts",
+  "GET /api/events/:eventId/agenda/generated-drafts/:draftId",
+  "POST /api/events/:eventId/agenda/generated-drafts/:draftId/accept",
+  "DELETE /api/events/:eventId/agenda/generated-drafts/:draftId",
 ] as const;
 
 /**
@@ -60,7 +86,7 @@ export const agendaRoutes: RouteModule = {
   domain: "agenda",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
-    const { agenda } = dependencies;
+    const { agenda, agendaGeneration } = dependencies;
     app.get("/api/events/:eventId/agenda", async (context) => {
       if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
       const parsed = agendaIdParamsSchema.safeParse(context.req.param());
@@ -248,8 +274,169 @@ export const agendaRoutes: RouteModule = {
      * is the rule `PRD-PUB-001` states for the whole public surface, and which the publishing
      * workspace already reports on screen.
      */
+
+    /*
+     * ---- generated drafts (issue #192) ------------------------------------
+     *
+     * `assistedPlacement` seats unscheduled sessions straight onto the board; these routes are
+     * the other half of the epic. Generating produces a candidate nothing has applied, comparing
+     * it says which sessions would move and whether the board has since changed, and accepting
+     * applies only the sessions named — re-planned inside the board's own compare-and-set, so a
+     * concurrent edit produces a refusal rather than a merged arrangement.
+     */
+    const noGeneration = (context: AgendaContext) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    const invalidGeneration = (context: AgendaContext, issues: readonly unknown[]) =>
+      context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Review the highlighted scheduling settings.",
+          context.get("correlationId"),
+          validationFields(issues as never),
+        ),
+        400,
+      );
+    const eventOf = (context: AgendaContext) => context.req.param("eventId") ?? "";
+
+    app.get("/api/events/:eventId/agenda/criteria", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      return context.json(
+        agendaCriteriaResponseSchema.parse({
+          criteria: await agendaGeneration.criteria(context.get("actor"), eventOf(context)),
+        }),
+      );
+    });
+
+    app.put("/api/events/:eventId/agenda/criteria", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      const body = agendaCriteriaInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidGeneration(context, body.error.issues);
+      return context.json(
+        agendaCriteriaResponseSchema.parse({
+          criteria: await agendaGeneration.setCriteria(
+            context.get("actor"),
+            eventOf(context),
+            body.data.criteria,
+          ),
+        }),
+      );
+    });
+
+    app.get("/api/events/:eventId/agenda/availability", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      return context.json(
+        agendaAvailabilityResponseSchema.parse({
+          availability: await agendaGeneration.availability(context.get("actor"), eventOf(context)),
+        }),
+      );
+    });
+
+    app.put("/api/events/:eventId/agenda/availability", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      const body = agendaAvailabilityInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidGeneration(context, body.error.issues);
+      return context.json(
+        agendaAvailabilityResponseSchema.parse({
+          availability: await agendaGeneration.setAvailability(
+            context.get("actor"),
+            eventOf(context),
+            body.data.availability,
+          ),
+        }),
+      );
+    });
+
+    app.get("/api/events/:eventId/agenda/generated-drafts", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      return context.json(
+        agendaGeneratedDraftsResponseSchema.parse({
+          drafts: await agendaGeneration.list(context.get("actor"), eventOf(context)),
+        }),
+      );
+    });
+
+    app.post("/api/events/:eventId/agenda/generated-drafts", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      const body = agendaGenerateInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidGeneration(context, body.error.issues);
+      // Writes nothing to the board: this is a read, a pass, and one insert.
+      return context.json(
+        agendaGeneratedDraftResponseSchema.parse({
+          draft: await agendaGeneration.generate(
+            context.get("actor"),
+            eventOf(context),
+            body.data.name,
+          ),
+        }),
+        201,
+      );
+    });
+
+    app.get("/api/events/:eventId/agenda/generated-drafts/:draftId", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      return context.json(
+        agendaDraftComparisonResponseSchema.parse(
+          await agendaGeneration.compare(
+            context.get("actor"),
+            eventOf(context),
+            context.req.param("draftId") ?? "",
+          ),
+        ),
+      );
+    });
+
+    app.post("/api/events/:eventId/agenda/generated-drafts/:draftId/accept", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      const body = agendaDraftAcceptInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidGeneration(context, body.error.issues);
+      return context.json(
+        agendaDraftAcceptResponseSchema.parse(
+          await agendaGeneration.accept(
+            context.get("actor"),
+            eventOf(context),
+            context.req.param("draftId") ?? "",
+            body.data.sessionIds,
+          ),
+        ),
+      );
+    });
+
+    app.delete("/api/events/:eventId/agenda/generated-drafts/:draftId", async (context) => {
+      if (!agendaGeneration) return noGeneration(context);
+      return context.json({
+        changed: await agendaGeneration.discard(
+          context.get("actor"),
+          eventOf(context),
+          context.req.param("draftId") ?? "",
+        ),
+      });
+    });
   },
   translateError(error: unknown) {
+    // The board moved after the draft was generated. 409 rather than 400: the caller did
+    // nothing wrong, and the remedy is to re-run the draft against the board as it stands.
+    if (error instanceof GeneratedDraftStaleError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    if (error instanceof GeneratedDraftNotFoundError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That draft was not found.",
+        status: 404 as const,
+      };
+    if (error instanceof GeneratedDraftInvalidError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+        fields: error.fields,
+      };
     if (error instanceof AgendaConflictError)
       return {
         code: "AGENDA_CONFLICT" as const,

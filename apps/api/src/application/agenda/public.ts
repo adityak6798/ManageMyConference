@@ -66,3 +66,38 @@ export interface ContentAgendaInterface {
   unscheduleSession(actor: Actor | null, eventId: string, sessionId: string): Promise<void>;
 }
 export { agendaTemplateSlice } from "./template-slice";
+
+/**
+ * Generated drafts (issue #192's residual generation epic).
+ *
+ * A generated draft is a candidate the organizer compares with the board and accepts in part;
+ * nothing here writes placements except `accept`, and that re-plans inside the board's own
+ * compare-and-set.
+ */
+export type {
+  AvailabilityWindow,
+  Criterion,
+  CriterionKey,
+  GeneratedPlan,
+  PlacementChange,
+  UnplacedExplanation,
+} from "../../domain/agenda/draft-generation";
+export {
+  comparePlan,
+  CRITERION_KEYS,
+  CRITERION_KIND,
+  CRITERION_LABEL,
+  DEFAULT_CRITERIA,
+  generateAgendaDraft,
+} from "../../domain/agenda/draft-generation";
+export type {
+  GeneratedDraft,
+  GenerationBoard,
+  GenerationRepository,
+} from "./generation-service";
+export {
+  AgendaGenerationService,
+  GeneratedDraftInvalidError,
+  GeneratedDraftNotFoundError,
+  GeneratedDraftStaleError,
+} from "./generation-service";

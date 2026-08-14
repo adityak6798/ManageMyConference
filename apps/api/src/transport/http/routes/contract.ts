@@ -10,7 +10,7 @@
  * @spec ARC-001 ARC-DOM-001
  */
 import type { Hono } from "hono";
-import type { AgendaService } from "../../../application/agenda/public";
+import type { AgendaGenerationService, AgendaService } from "../../../application/agenda/public";
 import type { CfpService } from "../../../application/cfp/public";
 import type {
   AccelEventsSyncService,
@@ -100,6 +100,13 @@ export interface HttpDependencies {
   /** Organization-scoped machine-credential administration. */
   apiClients?: ApiClientService | undefined;
   agenda?: AgendaService | undefined;
+  /**
+   * Generated agenda drafts and the criteria that shape them (issue #192).
+   *
+   * Separate from `agenda` because it owns candidates rather than the board: everything here
+   * proposes, and only `accept` writes — through the board's own compare-and-set.
+   */
+  agendaGeneration?: AgendaGenerationService | undefined;
   communications?: CommunicationsService | undefined;
   webhooks?: WebhookService | undefined;
   /** The inbound Accelevents registration sync, and the last-run state its surface reads. */

@@ -10,6 +10,7 @@ import {
 } from "./adapters/content/sanitize-resource-html";
 import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
+import { D1AgendaGenerationRepository } from "./adapters/persistence/d1-agenda-generation";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1ApiClientRepository } from "./adapters/persistence/d1-api-clients";
 import {
@@ -49,6 +50,7 @@ import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-s
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
 import {
+  AgendaGenerationService,
   agendaTemplateSlice,
   type ScheduleReconciliation,
   type ScheduleSweepResult,
@@ -814,6 +816,37 @@ export default {
         return Boolean(event && actor.organizations.some(({ id }) => id === event.organizationId));
       },
     );
+    /*
+     * Generated agenda drafts (issue #192's residual generation epic).
+     *
+     * The board port is three of `AgendaRepository`'s own methods plus the revision counter the
+     * board's optimistic writes already advance — reused rather than duplicated, because a
+     * counter maintained here would need advancing by every writer, including the ones that know
+     * nothing about generation.
+     *
+     * `declaredTracks` is content's own read, bound here so the agenda never learns what a
+     * content session is: it asks for a session's declared tracks and gets a map.
+     */
+    const agendaGenerationRepository = new D1AgendaGenerationRepository(environment.DB);
+    const agendaGenerationBoard = agendaRepository(environment, now);
+    const agendaGeneration = new AgendaGenerationService({
+      repository: agendaGenerationRepository,
+      board: {
+        getDraft: (eventId) => agendaGenerationBoard.getDraft(eventId),
+        boardRevision: (eventId) => agendaGenerationRepository.boardRevision(eventId),
+        savePlacements: (eventId, plan) => agendaGenerationBoard.savePlacements(eventId, plan),
+        removePlacement: (eventId, placementId) =>
+          agendaGenerationBoard.removePlacement(eventId, placementId),
+      },
+      declaredTracks: async (actor, eventId) => {
+        const workspace = await content.workspace(actor, eventId);
+        return Object.fromEntries(
+          workspace.sessions.map((session) => [session.id, [...(session.tracks ?? [])]]),
+        );
+      },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -2015,6 +2048,7 @@ export default {
       content,
       crm,
       agenda,
+      agendaGeneration,
       communications,
       webhooks,
       publishing,
