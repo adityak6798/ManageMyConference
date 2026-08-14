@@ -58,7 +58,6 @@ class MemoryRepository implements ApiClientRepository {
     );
   }
   async findRevocationState(organizationId: string, clientId: string) {
-  async findRevocationState(organizationId: string, clientId: string) {
     const client = this.clients.find(
       (candidate) => candidate.id === clientId && candidate.organizationId === organizationId,
     );

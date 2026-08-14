@@ -29,6 +29,25 @@ describe("API compatibility contract", () => {
   it("uses one declared version in OpenAPI and on success, refusal, and not-found responses", async () => {
     expect(openApiDocument.info.version).toBe(API_CONTRACT_VERSION);
 
+    const versionHeaderReference = {
+      $ref: "#/components/headers/GreenroomApiVersion",
+    };
+    expect(openApiDocument.components.headers?.GreenroomApiVersion).toMatchObject({
+      schema: { type: "string", enum: [API_CONTRACT_VERSION] },
+    });
+    for (const path of Object.values(openApiDocument.paths)) {
+      for (const operation of Object.values(path)) {
+        if (!operation || !("responses" in operation)) continue;
+        const responses = operation.responses as Record<
+          string,
+          { headers?: Record<string, unknown> }
+        >;
+        for (const response of Object.values(responses)) {
+          expect(response.headers?.[API_VERSION_HEADER]).toEqual(versionHeaderReference);
+        }
+      }
+    }
+
     for (const path of ["/health", "/api/session", "/api/does-not-exist"]) {
       const response = await createTestApp().request(path);
       expect(response.headers.get(API_VERSION_HEADER)).toBe(API_CONTRACT_VERSION);
