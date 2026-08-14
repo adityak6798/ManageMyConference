@@ -119,6 +119,7 @@
 - `test` / `repository-fact`: [tools/tests/check-schema-drift.test.mjs](../../tools/tests/check-schema-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/compose-seed.test.mjs](../../tools/tests/compose-seed.test.mjs)
 - `test` / `repository-fact`: [tools/tests/review-loop.test.mjs](../../tools/tests/review-loop.test.mjs)
+- `test` / `repository-fact`: [tools/tests/setup-local.test.mjs](../../tools/tests/setup-local.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 - `test` / `repository-fact`: [tools/tests/worktree-env.test.mjs](../../tools/tests/worktree-env.test.mjs)
 
@@ -567,6 +568,7 @@
 - `code` / `repository-fact`: [tools/revoke-sessions.mjs](../../tools/revoke-sessions.mjs)
 - `code` / `repository-fact`: [tools/setup-local.mjs](../../tools/setup-local.mjs)
 - `test` / `repository-fact`: [tools/tests/revoke-sessions.test.mjs](../../tools/tests/revoke-sessions.test.mjs)
+- `test` / `repository-fact`: [tools/tests/setup-local.test.mjs](../../tools/tests/setup-local.test.mjs)
 
 ### `PRD-IAM-002`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-membership.ts](../../apps/api/src/adapters/persistence/d1-identity-membership.ts)

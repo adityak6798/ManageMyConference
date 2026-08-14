@@ -55,7 +55,7 @@ REVIEW_AI_PROVIDER = "fixture"
 # because either is a rotation that did not happen. Procedure:
 # docs/engineering/security-operations.md.
 
-# Google sign-in (`ADR-004`): configured here, and deliberately not configured *yet*.
+# Google sign-in (`ADR-004`): configured here.
 #
 # `GOOGLE_CLIENT_ID` is the OAuth client's public identifier and `GOOGLE_REDIRECT_URI` is the exact
 # URI registered against that client in the Google Cloud console — for this deployment,
@@ -72,26 +72,39 @@ REVIEW_AI_PROVIDER = "fixture"
 # reports `google: false`, both Google routes answer 404, and this deployment is byte-for-byte
 # the configuration it was before the feature existed.
 #
-# **How to enable it here.** These two lines are commented out because they carry a credential
-# this repository does not have — a real OAuth client id — rather than because enabling them is
-# unsafe. `GAP-019` is closed: `npm run reset:demo` now reads the database before it writes and
-# refuses when it finds an organization, user or event the seed does not name, so a real signup
-# is no longer erased by the next routine restore. Four steps, in this order:
+# **The sequence that makes these live**, and the one to repeat if the client is ever rotated.
+# They were commented out until `GAP-019` closed, because the demo restore would have erased the
+# first person to sign up here; `npm run reset:demo` now reads the database before it writes and
+# refuses when it finds an organization, user or event the seed does not name.
 #
 #   1. In the Google Cloud console, create an OAuth 2.0 **Web application** client, and register
 #      exactly this redirect URI against it:
 #      `https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback`
 #      It must match byte for byte; Google refuses the exchange otherwise.
-#   2. Uncomment both lines below and replace `<client-id>` with the client's own id. The redirect
-#      URI stays exactly as written: it is configuration on purpose, never derived from a request
-#      (that is the open redirect) and never from `PUBLIC_BASE_URL` (local development inherits
-#      that value from this file and would claim the deployed callback as its own).
-#   3. `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET`, pasting the client secret.
-#      All three or none: with one or two set the Worker refuses to boot, by name.
-#   4. `npm run deploy` from the repository root, then confirm `/api/auth/config` reports
-#      `google: true` and complete one real sign-in. That sign-in is also what closes `GAP-020`,
-#      which records that this adapter has never exchanged a request with Google — record the
-#      date, commit and client id there when it succeeds.
+#   2. Put the client's own id in `GOOGLE_CLIENT_ID` below. The redirect URI stays exactly as
+#      written: it is configuration on purpose, never derived from a request (that is the open
+#      redirect) and never from `PUBLIC_BASE_URL` (local development inherits that value from this
+#      file and would claim the deployed callback as its own).
+#   3. Deploy (`npm run deploy`, or merge to `main` and let CI do it). Note what putting the id
+#      here does to *local* runs: `wrangler dev` reads this file, so a machine with no
+#      `GOOGLE_CLIENT_SECRET` would hold two bindings of three and refuse every request.
+#      `npm run setup:local` writes all three blank into the gitignored `.dev.vars` for exactly
+#      that reason, and an empty value there overrides the one above.
+#   4. `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET` **immediately afterwards**,
+#      pasting the client secret. Then confirm `/api/auth/config` reports `google: true` and
+#      complete one real sign-in. That sign-in is also what closes `GAP-020`, which records that
+#      this adapter has never exchanged a request with Google — record the date, commit and
+#      client id there when it succeeds.
+#
+# **Steps 3 and 4 are one operation, and between them this deployment is down.** All three
+# bindings are one unit and `resolveGoogleConfiguration` throws on a partial one from inside
+# `fetch`, so a Worker holding two of the three answers 500 to *everything* — `/health` and the
+# demo personas included, not merely Google sign-in. Nothing can make the two land atomically:
+# a secret is not part of a deploy. This order is the short way round, because a `secret put` is
+# seconds and a deploy is minutes; putting the secret first inverts that and leaves the
+# deployment failing for the whole length of a build. If step 4 goes wrong,
+# `npx wrangler secret delete GOOGLE_CLIENT_SECRET` restores service at once by returning to
+# none of the three.
 #
 # Two things to know before step 4 rather than after. A Google identity resolving to a **seeded
 # persona address** is refused and logged: `seed/reset.sql` gives the personas real-looking
@@ -100,8 +113,8 @@ REVIEW_AI_PROVIDER = "fixture"
 # delete — that is the guard working, and `npm run reset:demo` will tell you what it found and
 # what destroying it would cost. See docs/engineering/security-operations.md.
 #
-# GOOGLE_CLIENT_ID = "<client-id>.apps.googleusercontent.com"
-# GOOGLE_REDIRECT_URI = "https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback"
+GOOGLE_CLIENT_ID = "629474442220-ab3t4tb1bgddnsfjjkm801puan53chtu.apps.googleusercontent.com"
+GOOGLE_REDIRECT_URI = "https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback"
 
 # The origin the scheduled outbox drain puts into links it sends.
 #

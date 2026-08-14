@@ -90,7 +90,8 @@
     "apps/api/test/publication-notifications.test.ts",
     "apps/api/test/platform-attribution.test.ts",
     "apps/api/test/demo-reset-guard.integration.test.ts",
-    "tools/remote-demo-reset.d.mts"
+    "tools/remote-demo-reset.d.mts",
+    "tools/tests/setup-local.test.mjs"
   ],
   "symbols": {
     "createHttpApp": "apps/api/src/transport/http/app.ts",
