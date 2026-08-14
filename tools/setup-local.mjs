@@ -74,8 +74,8 @@ export function withWebhookBindings(text) {
   if (missing.length === 0) return { text, added: [] };
   const separator = text === "" || text.endsWith("\n") ? "" : "\n";
   return {
-    text: `${text}${separator}${missing.map((name) => `${name}=`).join("\n")}\n`,
-    added: missing,
+    text: `${text}${separator}${WEBHOOK_BINDINGS.map((name) => `${name}=`).join("\n")}\n`,
+    added: WEBHOOK_BINDINGS,
   };
 }
 

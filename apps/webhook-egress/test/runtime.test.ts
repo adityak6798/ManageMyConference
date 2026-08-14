@@ -68,4 +68,15 @@ describe("Cloudflare container runtime", () => {
       ).status,
     ).toBe(431);
   });
+
+  it("marks every probe response as non-cacheable", async () => {
+    const requests = [
+      new Request("https://egress.example/probe-target", { method: "GET" }),
+      new Request("https://egress.example/probe-target?case=redirect", { method: "POST" }),
+      new Request("https://egress.example/probe-target?case=malformed", { method: "POST" }),
+      new Request("https://egress.example/probe-target", { method: "POST" }),
+    ];
+    for (const request of requests)
+      expect((await probeTarget(request)).headers.get("cache-control")).toBe("no-store");
+  });
 });
