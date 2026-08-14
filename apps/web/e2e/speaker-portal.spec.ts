@@ -87,6 +87,25 @@ async function restoreOnboardingChecklist(page: Page) {
   );
 }
 
+/**
+ * Open every collapsed tool panel.
+ *
+ * They are `<details>`, closed by default, and a closed disclosure keeps its contents out of
+ * the accessibility tree — so a journey that asserts on a control inside one has to open it
+ * first. Set rather than clicked: which panel holds which control is not what these journeys
+ * are about, and clicking each summary by name would break every time one is renamed.
+ */
+async function openToolPanels(page: Page) {
+  // The heading renders before the workspace fetch resolves, so waiting on it is not enough:
+  // the panels have to exist before anything can open them.
+  await expect(page.locator("details.tool-panel").first()).toBeVisible();
+  await page.evaluate(() => {
+    for (const node of document.querySelectorAll<HTMLDetailsElement>("details.tool-panel"))
+      node.open = true;
+  });
+  await expect(page.locator("details.tool-panel[open]").first()).toBeVisible();
+}
+
 /** The organizer's view of the demo event's content, which is where ids come from. */
 async function contentWorkspace(page: Page): Promise<Workspace> {
   const response = await page.request.get(`/api/events/${EVENT_ID}/content`);
@@ -446,4 +465,215 @@ test("reviewers cannot call the private content workspace", async ({ request }) 
     ).status(),
   ).toBe(403);
   expect((await request.delete(`/api/speaker-profiles/${SAM}/photo`)).status()).toBe(403);
+});
+
+/*
+ * The three journeys #189 names that no browser test drove before.
+ *
+ * They share one fixture with everything else in this suite, so each brings its own stamped
+ * data where it can and hands the roster back where it cannot — the same discipline
+ * `restoreOnboardingChecklist` already applies.
+ */
+
+/**
+ * CNT-04, end to end.
+ *
+ * The evaluator uploaded `slides.pdf` twice and got two separate v1 assets. Asserted here
+ * through the portal rather than against the service, because the readable half of that defect
+ * was the portal listing two rows with the same name and nothing marking either as current.
+ */
+test("a speaker re-uploads one deliverable and gets a second version, not a twin", async ({
+  page,
+}) => {
+  const stamp = Date.now();
+  const name = `deck-${stamp}.pdf`;
+  // A tiny but real PDF, so the bytes the asset route serves back are the bytes uploaded.
+  const pdf = (marker: string) =>
+    Buffer.from(
+      `%PDF-1.4\n% ${marker}\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF`,
+    );
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as speaker" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+  await page.goto(PORTAL);
+
+  const upload = async (marker: string) => {
+    await page.setInputFiles("#speaker-asset", {
+      name,
+      mimeType: "application/pdf",
+      buffer: pdf(marker),
+    });
+    await page.getByRole("button", { name: /Upload asset/ }).click();
+    await expect(page.getByRole("status").filter({ hasText: `${name} uploaded` })).toBeVisible();
+  };
+
+  await upload("first");
+  await upload("second");
+
+  // One entry, not two, and it says which version it is.
+  const entry = page.locator(".upload-list > li").filter({ hasText: name });
+  await expect(entry).toHaveCount(1);
+  await expect(entry).toContainText("Version 2");
+  await expect(entry.getByText("Latest", { exact: true })).toBeVisible();
+
+  // The superseded version is still reachable, which is the other half of the requirement.
+  const history = entry.locator("details.upload-history");
+  await expect(history).toContainText("1 earlier version");
+  // Closed by default, and a closed disclosure keeps its contents out of the accessibility
+  // tree — which is the point of collapsing it, and means the journey has to open it.
+  await history.locator("summary").click();
+  const priorLink = history.getByRole("link", { name: /Version 1/ });
+  await expect(priorLink).toHaveAttribute("href", /\/api\/speaker-assets\//);
+  const priorHref = (await priorLink.getAttribute("href")) ?? "";
+  const prior = await page.request.get(priorHref);
+  expect(prior.ok()).toBe(true);
+  // v1's bytes, not v2's: "retained" has to mean the file, not a row.
+  expect(await prior.text()).toContain("% first");
+
+  // And the storage agrees with the screen.
+  const stored = (
+    (await contentWorkspace(page)) as Workspace & {
+      assets: {
+        name: string;
+        versionNumber?: number;
+        isLatest?: boolean;
+        versionGroupId?: string;
+      }[];
+    }
+  ).assets.filter((asset) => asset.name === name);
+  expect(stored).toHaveLength(2);
+  expect(new Set(stored.map(({ versionGroupId }) => versionGroupId)).size).toBe(1);
+  expect(stored.filter(({ isLatest }) => isLatest !== false)).toHaveLength(1);
+  expect(stored.map(({ versionNumber }) => versionNumber).sort()).toEqual([1, 2]);
+});
+
+/**
+ * A speaker edits their profile; the organizer reads back exactly the same values.
+ *
+ * The links matter more than the text: they are new, they reach the public page, and the box
+ * that carries them is the one place a speaker can put a URL that every visitor's browser is
+ * later invited to follow.
+ */
+test("a speaker's links reach the organizer and the published programme", async ({ page }) => {
+  const stamp = Date.now();
+  const site = `https://sam-${stamp}.example`;
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as speaker" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+  await page.goto(PORTAL);
+
+  // A valid URL whose scheme is a script. The public page renders these into an `href`, so
+  // this is the refusal the field exists to make — and it lands on the box that caused it.
+  await page.getByLabel("Website", { exact: true }).fill("javascript:alert(1)");
+  await page.getByRole("button", { name: /Save profile/ }).click();
+  await expect(page.locator("#profile-social-website-error")).toContainText("http:// or https://");
+
+  await page.getByLabel("Website", { exact: true }).fill(site);
+  await page.getByLabel("Mastodon").fill(`https://hachyderm.io/@sam-${stamp}`);
+  await page.getByRole("button", { name: /Save profile/ }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Profile saved" })).toBeVisible();
+
+  // The organizer reads the same values, on the surface that maintains the rest of the roster.
+  await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
+  await page.goto(SESSIONS);
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  await openToolPanels(page);
+  // The picker defaults to whoever sorts first, and this fixture accumulates speakers across
+  // runs — so the journey names the speaker whose profile it just edited.
+  const picker = page.locator(".workflow-picker select").nth(1);
+  // The option carries the workflow status after the name, so the value is what identifies it.
+  await picker.selectOption(SAM);
+  const entered = page.locator(".speaker-entered");
+  await expect(entered).toContainText("Greenroom Labs");
+  await expect(entered.getByRole("link", { name: "Website" })).toHaveAttribute("href", site);
+
+  // And publishing freezes them onto the public page.
+  await publishEvent(page);
+  const projection = await page.request.get(`/api/public/events/${SLUG}`);
+  const speakers = (
+    (await projection.json()) as {
+      projection: {
+        speakers: { name: string; slug: string; socialLinks?: Record<string, string> }[];
+      };
+    }
+  ).projection.speakers;
+  const sam = speakers.find(({ name }) => name === "Sam Speaker");
+  expect(sam?.socialLinks?.website).toBe(site);
+
+  await page.goto(`/events/${SLUG}/speakers/${sam?.slug ?? ""}`);
+  const link = page.getByRole("navigation", { name: /Links for Sam Speaker/ }).getByRole("link", {
+    name: /Website/,
+  });
+  await expect(link).toHaveAttribute("href", site);
+  // A speaker-supplied destination must not be handed a reference to the programme's window.
+  await expect(link).toHaveAttribute("rel", /noopener/);
+});
+
+/**
+ * Filter outstanding work, chase it, and press again.
+ *
+ * The second press is the assertion: reminders converge on one delivery per (task, deadline),
+ * so an organizer must be told the speaker has already been reminded rather than that a second
+ * message was queued.
+ */
+test("an organizer chases outstanding work once per deadline", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+  await restoreOnboardingChecklist(page);
+
+  await page.goto(SESSIONS);
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  await openToolPanels(page);
+
+  // The filter is the point: this view is what an organizer opens to find what is missing.
+  await expect(page.locator(".deliverable-filters").getByLabel("Show")).toHaveValue("outstanding");
+  const table = page.locator(".deliverable-table");
+  for (const title of SEEDED_TASKS) await expect(table).toContainText(title);
+
+  await page.getByLabel("Select every task in this view").check();
+  await page.getByRole("button", { name: /^Send \d+ reminders?$/ }).click();
+  await expect(page.getByRole("status").filter({ hasText: /reminders? queued/ })).toBeVisible();
+
+  await page.getByLabel("Select every task in this view").check();
+  await page.getByRole("button", { name: /^Send \d+ reminders?$/ }).click();
+  // Converged rather than sent again, and it says so in those words.
+  await expect(
+    page.getByRole("status").filter({ hasText: "already sent for this deadline" }),
+  ).toBeVisible();
+
+  // Delivery state, from the domain that owns it.
+  // History is ordered oldest first and this fixture accumulates, so the page these reminders
+  // landed on is the last one — walk the cursor rather than assuming it is the first.
+  type Delivery = { delivery: { triggerType: string; idempotencyKey?: string } };
+  let cursor: string | null = null;
+  const entries: Delivery[] = [];
+  for (let index = 0; index < 20; index += 1) {
+    const url = `/api/communications/history?organizationId=00000000-0000-4000-8000-000000000010&eventId=${EVENT_ID}&limit=50${
+      cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+    }`;
+    const response = await page.request.get(url);
+    expect(response.ok()).toBe(true);
+    const body = (await response.json()) as { history: Delivery[]; nextCursor: string | null };
+    entries.push(
+      ...body.history.filter(({ delivery }) => delivery.triggerType === "speaker.task_reminder"),
+    );
+    cursor = body.nextCursor;
+    if (!cursor) break;
+  }
+  expect(entries.length).toBeGreaterThan(0);
+  // Keyed by the deadline, which is what makes an extension a new occurrence rather than a
+  // suppressed duplicate.
+  expect(
+    entries.every(({ delivery }) => /^task-reminder:.+:\d{4}-/.test(delivery.idempotencyKey ?? "")),
+  ).toBe(true);
+
+  // A filter that matches nothing explains itself rather than rendering an empty table.
+  // Scoped to the tracker: the workflow panel below carries a "Speaker" select of its own.
+  const filters = page.locator(".deliverable-filters");
+  await filters.getByLabel("Show").selectOption("complete");
+  await filters.getByLabel("Speaker").selectOption({ label: "Jordan Bell" });
+  await expect(page.getByRole("heading", { name: "Nothing matches this view" })).toBeVisible();
 });
