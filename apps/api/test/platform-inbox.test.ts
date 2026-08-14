@@ -302,7 +302,8 @@ describe("the operational inbox", () => {
         // instant. A re-derivation of the same refusal is not.
         key: `template-category:${EVENT_ONE}:agenda:2026-08-01T09:00:00.000Z`,
         category: "configuration",
-        title: "Rooms and time slots was not configured from \u201cAnnual summit starter\u201d",
+        title:
+          "Rooms and time slots could not be configured from \u201cAnnual summit starter\u201d",
         subtitle: "The destination has no room matching \u201cGrand Hall\u201d.",
         priority: "high",
         status: "open",

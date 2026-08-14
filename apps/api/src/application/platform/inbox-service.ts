@@ -442,7 +442,7 @@ export class PlatformInboxService {
     return (await events.outstandingConfiguration(actor, eventId)).map((category) => ({
       key: `template-category:${eventId}:${category.key}:${category.outstandingSince}`,
       category: "configuration" as const,
-      title: `${category.label} was not configured from “${category.templateName}”`,
+      title: `${category.label} could not be configured from “${category.templateName}”`,
       subtitle: category.reason,
       priority: "high" as const,
       status: "open" as const,

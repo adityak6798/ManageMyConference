@@ -146,7 +146,7 @@ describe("the operational inbox", () => {
               key: `template-category:${eventId}:agenda:2026-08-01T09:00:00.000Z`,
               category: "configuration",
               title:
-                "Rooms and time slots was not configured from \u201cAnnual summit starter\u201d",
+                "Rooms and time slots could not be configured from \u201cAnnual summit starter\u201d",
               subtitle: "The destination has no room matching \u201cGrand Hall\u201d.",
               priority: "high",
               status: "open",
@@ -165,7 +165,7 @@ describe("the operational inbox", () => {
     // operator who never opens Event templates is told, and taken there.
     expect(
       configuration.getByRole("link", {
-        name: /Rooms and time slots was not configured/,
+        name: /Rooms and time slots could not be configured/,
       }),
     ).toHaveAttribute("href", `/event-templates?event=${eventId}`);
     expect(configuration.getByText(/no room matching/)).toBeInTheDocument();

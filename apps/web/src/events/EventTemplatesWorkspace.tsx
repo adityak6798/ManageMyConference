@@ -632,7 +632,10 @@ export function EventTemplatesWorkspace({
                   <Notice tone="warn">
                     <IconWarning size={15} />
                     <span>
-                      <strong>{category.label}</strong> was not configured from version{" "}
+                      {/* "could not be configured" rather than "was not configured": the label is
+                          a category name and most of them are plural — "Rooms and time slots was
+                          not configured" is ungrammatical, and a modal verb agrees with both. */}
+                      <strong>{category.label}</strong> could not be configured from version{" "}
                       {category.version} of “{category.templateName}”, applied on{" "}
                       {stampedTime(category.outstandingSince)} onto{" "}
                       {stampedCalendarDay(category.destination.startsOn)} –{" "}
