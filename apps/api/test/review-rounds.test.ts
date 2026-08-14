@@ -510,6 +510,21 @@ describe("review rounds", () => {
      * comment, not just the aggregate and the completion count.
      */
     const workspace = await service.organizerWorkspace(organizer, eventId);
+    /*
+     * And the half that is *not* #221's: the draft's content does not travel.
+     *
+     * `evaluations` used to be unfiltered, so a reviewer's half-formed scores and the private
+     * notes they meant to rewrite reached anyone holding `review:manage` — the console filtered
+     * them in the one place it rendered them, so the boundary held in a renderer and `curl` had
+     * the lot. Asserted over the serialized response rather than over the array, because the
+     * failure is content travelling in a shape nobody looked for.
+     *
+     * That the draft *exists* is still reported, because "this reviewer has started" is a real
+     * thing an organizer chasing a round needs and is not the same as reading what they wrote.
+     */
+    expect(JSON.stringify(workspace)).not.toContain("Still thinking about this one.");
+    expect(workspace.evaluations?.map(({ state }) => state)).toEqual(["completed"]);
+    expect(workspace.draftAssignmentIds).toEqual([ninaAssignment?.id]);
     const completed = (workspace.evaluations ?? []).find(
       (item) => item.assignmentId === raviAssignment?.id,
     );

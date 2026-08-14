@@ -591,7 +591,11 @@ export function OrganizerReviewWorkspace({
             assignment.round,
             inRound?.name ?? "",
             reviewerName(assignment.reviewerId),
-            evaluation?.state ?? "outstanding",
+            // Three states, not two: the server sends completed evaluations and the *ids* of the
+            // started ones, so a reviewer halfway through still reads as `draft` here without
+            // their half-formed scores travelling with it.
+            evaluation?.state ??
+              ((data.draftAssignmentIds ?? []).includes(assignment.id) ? "draft" : "outstanding"),
             outcome?.averageScore ?? "",
             evaluation?.notes ?? "",
             ...criteria.map((criterion) =>

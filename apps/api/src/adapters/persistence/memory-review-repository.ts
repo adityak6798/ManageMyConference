@@ -92,7 +92,7 @@ export class MemoryReviewRepository implements ReviewRepository {
     eventId: string,
     sequence: number,
     reviewerIds: readonly string[],
-    _addedAt: string,
+    addedAt: string,
   ) {
     const key = this.roundKey(eventId, sequence);
     const existing = this.rounds.get(key);
@@ -117,7 +117,7 @@ export class MemoryReviewRepository implements ReviewRepository {
       throw new ReviewStateConflictError(
         "A reviewer who already holds assignments in this round cannot be removed from its pool",
       );
-    this.rounds.set(key, { ...existing, reviewerIds: [...keeping].sort() });
+    this.rounds.set(key, { ...existing, reviewerIds: [...keeping].sort(), updatedAt: addedAt });
   }
   async getPlan(eventId: string) {
     return this.plans.get(eventId) ?? null;

@@ -426,6 +426,15 @@ export const organizerReviewWorkspaceSchema = z.object({
    */
   rounds: z.array(reviewRoundSchema).optional(),
   roundProgress: z.array(reviewRoundProgressSchema).optional(),
+  /**
+   * The assignments that have a saved draft — the ids, and nothing else.
+   *
+   * `evaluations` carries completed records only, because a draft is a reviewer's unfinished
+   * thinking and `PRD-REV-001` says it is not organizer-visible. That an assignment has been
+   * *started* is a different fact, one an organizer chasing a round legitimately needs, and it is
+   * the only part of a draft that travels. Optional for a client written before the split.
+   */
+  draftAssignmentIds: z.array(z.string().uuid()).optional(),
 });
 export const reviewConflictSchema = z.object({
   assignmentId: z.string().uuid(),

@@ -28279,6 +28279,13 @@
                                       "round"
                                     ]
                                   }
+                                },
+                                "draftAssignmentIds": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  }
                                 }
                               },
                               "required": [
@@ -39735,6 +39742,13 @@
                           "outstanding",
                           "round"
                         ]
+                      }
+                    },
+                    "draftAssignmentIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
                       }
                     }
                   },

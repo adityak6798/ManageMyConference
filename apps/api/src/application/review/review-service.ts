@@ -747,8 +747,22 @@ export class ReviewService implements AcceptedProposalQuery {
     try {
       await this.dependencies.repository.updateRound(round);
     } catch (error) {
+      /*
+       * The field the refusal belongs to, rather than `state` for all three.
+       *
+       * Storage refuses this write for three different reasons — a name another round already
+       * has, a closed round's frozen terms, and the assignment lock the service checked above and
+       * a concurrent assignment can still trip — and reporting each under `state` points an
+       * organizer's form at the one control that was fine.
+       */
       if (error instanceof ReviewStateConflictError)
-        throw new ReviewValidationError({ state: [error.message] });
+        throw new ReviewValidationError(
+          /name/i.test(error.message)
+            ? { name: [error.message] }
+            : /locked/i.test(error.message)
+              ? { criteria: [error.message] }
+              : { state: [error.message] },
+        );
       throw error;
     }
     return { ...round, reviewerIds: existing.reviewerIds, createdAt: existing.createdAt };
@@ -909,11 +923,22 @@ export class ReviewService implements AcceptedProposalQuery {
        * unfinished drafts are not organizer-visible on any surface, and this is the line that
        * makes that true rather than aspirational.
        *
-       * That a draft *exists* is not hidden: `progress` and `roundProgress` are computed above
-       * from the unfiltered list, so an outstanding count still distinguishes work not started
-       * from work not finished. What is withheld is its content.
+       * That a draft *exists* is not hidden — `draftAssignmentIds` below says so — but nothing
+       * about what it contains is.
        */
       evaluations: evaluations.filter((evaluation) => evaluation.state === "completed"),
+      /**
+       * Which assignments have a saved draft: the ids, and nothing else.
+       *
+       * "A reviewer has started" is real information an organizer chasing a round needs, and
+       * filtering drafts out of `evaluations` took it away — the export's `State` column went from
+       * `draft` to `outstanding` for work somebody is halfway through. This gives it back without
+       * giving back a single score or note, which is the line worth drawing: an organizer may know
+       * that a reviewer is partway, and may not read the half-formed opinion.
+       */
+      draftAssignmentIds: evaluations
+        .filter((evaluation) => evaluation.state !== "completed")
+        .map(({ assignmentId }) => assignmentId),
       audit,
       statuses,
       reviewers: reviewers.assignable,

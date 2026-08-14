@@ -399,8 +399,10 @@ export function RoundsPanel({
               Hide the author and co-authors from this round's reviewers
             </label>
             <p className="hint">
-              This is enforced in the queue, the export and the audit timeline, not just on screen.
-              The review assistant never receives an author in any round.
+              This is enforced in the reviewer's queue itself — a blind round sends no author, no
+              contact details and no co-author list, rather than hiding them on screen. Organizer
+              surfaces, including this console and the CSV export, always show the author. The
+              review assistant never receives one in any round.
             </p>
           </fieldset>
           <fieldset className="field">

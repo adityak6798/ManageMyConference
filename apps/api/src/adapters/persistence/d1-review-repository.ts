@@ -456,6 +456,14 @@ export class D1ReviewRepository implements ReviewRepository {
           )
           .bind(eventId, sequence, reviewerId, addedAt, ...guard),
       ),
+      // The round's own timestamp moves with its pool, under the same predicate so a refused edit
+      // does not stamp it either. Without this the service returned the write's instant while
+      // storage kept the old one, and the next read moved a client's `updatedAt` *backwards*.
+      this.database
+        .prepare(
+          `UPDATE review_rounds SET updated_at = ? WHERE event_id = ? AND sequence = ? AND ${permitted}`,
+        )
+        .bind(addedAt, eventId, sequence, ...guard),
     ]);
     for (const result of results) this.ensure(result, "set review round members");
     // Read back rather than counted: the count says how many rows moved, and this has to say
