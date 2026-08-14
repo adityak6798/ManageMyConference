@@ -49,7 +49,14 @@
     "apps/api/test/d1-site-repository.integration.test.ts",
     "apps/web/src/SitesWorkspace.tsx",
     "apps/web/src/workspaces/sites.tsx",
-    "apps/web/src/api/sites.ts"
+    "apps/web/src/api/sites.ts",
+    "apps/api/migrations/1805_publication_embeds.sql",
+    "apps/api/src/domain/publishing/embed.ts",
+    "apps/api/src/application/publishing/embed-service.ts",
+    "apps/api/src/adapters/persistence/d1-embed-repository.ts",
+    "apps/api/test/embed-lifecycle.test.ts",
+    "apps/web/src/publishing/SavedEmbeds.tsx",
+    "apps/web/src/api/embeds.ts"
   ],
   "symbols": {
     "PublicationService": "apps/api/src/application/publishing/publication-service.ts",

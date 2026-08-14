@@ -30,6 +30,7 @@ import type {
   ReportingService,
 } from "../../../application/platform/public";
 import type {
+  EmbedService,
   ItineraryService,
   PublicationService,
   SiteService,
@@ -112,6 +113,14 @@ export interface HttpDependencies {
    * its machinery: it composes pointers to programs other domains own, resolved at read time.
    */
   sites?: SiteService | undefined;
+  /**
+   * Named, revocable embeds (issue #192).
+   *
+   * Separate from `publishing` because it owns durable definitions rather than the projection:
+   * the projection answers what the public programme is, and this answers who was handed a
+   * standing address onto it and whether that address still works.
+   */
+  embeds?: EmbedService | undefined;
   eventTemplates?: EventTemplateService | undefined;
   platformOps?: PlatformOperationsService | undefined;
   /**

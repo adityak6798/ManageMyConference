@@ -61,3 +61,32 @@ export {
  * Appended here rather than woven in, so a lane rebasing around this line moves nothing above it.
  */
 export type { PublicationNotificationPort } from "./publication-service";
+
+/**
+ * Named, revocable embeds (issue #192's residual lifecycle epic).
+ *
+ * The lifecycle rather than the view: PR #214 shipped the views, and what was missing was that an
+ * embed had no identity — it could not be revisited, changed, or withdrawn.
+ */
+export type {
+  EmbedFilters,
+  EmbedOutput,
+  EmbedTheme,
+  EmbedView,
+  PublicationEmbed,
+  RenderedEmbed,
+} from "../../domain/publishing/embed";
+export {
+  EMBED_FIELDS,
+  EMBED_OUTPUTS,
+  EMBED_VIEWS,
+  renderEmbed,
+  selectSessions,
+} from "../../domain/publishing/embed";
+export type { EmbedDraft, EmbedRepository } from "./embed-service";
+export {
+  EmbedConflictError,
+  EmbedInvalidError,
+  EmbedNotFoundError,
+  EmbedService,
+} from "./embed-service";

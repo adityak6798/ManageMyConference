@@ -6,6 +6,14 @@
  */
 import { z } from "zod";
 import {
+  embedCreatedResponseSchema,
+  embedDraftSchema,
+  embedDuplicateSchema,
+  embedParamsSchema,
+  embedResponseSchema,
+  embedsResponseSchema,
+  embedTokenParamsSchema,
+  embedUpdateSchema,
   eventIdParamsSchema,
   itineraryCreatedResponseSchema,
   itineraryInputSchema,
@@ -332,6 +340,122 @@ export const publishingPaths: OpenApiFragment = {
         200: { description: "Consent records", content: json(siteConsentsResponseSchema) },
         401: errorResponse,
         403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+
+    /*
+     * Named, revocable embeds (issue #192's residual lifecycle epic). PR #214 shipped the views;
+     * what was missing was that an embed had no identity — it could not be revisited, changed, or
+     * withdrawn, so a URL pasted into somebody else's site answered for ever.
+     */
+    registry.registerPath({
+      method: "get",
+      path: "/api/publishing/events/{eventId}/embeds",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Every embed issued on this event, including withdrawn ones — the row survives so an " +
+        "organizer can see what they issued and when they stopped it.",
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: { description: "Embeds", content: json(embedsResponseSchema) },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/publishing/events/{eventId}/embeds",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Issue an embed. The URL is returned once, because only the token's digest is stored — " +
+        "an organizer who loses it revokes the embed and issues another.",
+      request: {
+        params: eventIdParamsSchema,
+        body: { required: true, content: json(embedDraftSchema) },
+      },
+      responses: {
+        201: { description: "Embed issued", content: json(embedCreatedResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/publishing/events/{eventId}/embeds/{embedId}",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Change an embed's name, view, presentation, filters or fields at an expected revision. " +
+        "The output type and the address are **not** editable: a host page parsing JSON does not " +
+        "survive being handed HTML, and rotating an address breaks every installation silently. " +
+        "Both are refused by a trigger as well as by the service.",
+      request: {
+        params: embedParamsSchema,
+        body: { required: true, content: json(embedUpdateSchema) },
+      },
+      responses: {
+        200: { description: "Embed updated", content: json(embedResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/publishing/events/{eventId}/embeds/{embedId}/duplicate",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Copy an embed under a new address, optionally with a different output. The one way to " +
+        "change an output type — the old address keeps working, so whoever pasted it in is not " +
+        "broken by somebody else's decision.",
+      request: {
+        params: embedParamsSchema,
+        body: { required: true, content: json(embedDuplicateSchema) },
+      },
+      responses: {
+        201: { description: "Embed duplicated", content: json(embedCreatedResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/publishing/events/{eventId}/embeds/{embedId}",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Withdraw one embed. Its address answers as an unknown one from that moment, and every " +
+        "other embed on the event is untouched. Idempotent.",
+      request: { params: embedParamsSchema },
+      responses: {
+        200: { description: "Embed withdrawn" },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/public/embeds/{token}",
+      description:
+        "Serve one embed to a host page, in the output it was issued with. A withdrawn embed, an " +
+        "unknown token, an unpublished event and one whose publication has been taken down are a " +
+        "single answer, so none of those can be used to probe the others.",
+      request: { params: embedTokenParamsSchema },
+      responses: {
+        200: { description: "The embed, in its issued output" },
         404: errorResponse,
         500: errorResponse,
       },

@@ -17,6 +17,13 @@ import {
   publicEventProjectionSchema,
   publicEventSlugParamsSchema,
   publicScheduleSchema,
+  embedCreatedResponseSchema,
+  embedDraftSchema,
+  embedDuplicateSchema,
+  embedResponseSchema,
+  embedsResponseSchema,
+  embedTokenParamsSchema,
+  embedUpdateSchema,
   publicSitePageResponseSchema,
   publicSiteResponseSchema,
   siteConsentsResponseSchema,
@@ -35,6 +42,9 @@ import {
 } from "@greenroom/contracts";
 import {
   composePublicSchedule,
+  EmbedConflictError,
+  EmbedInvalidError,
+  EmbedNotFoundError,
   ItineraryNotFoundError,
   PublicationSettingsError,
   PublicationSlugTakenError,
@@ -81,6 +91,17 @@ const routes = [
   "POST /api/publishing/organizations/:organizationId/sites/:siteId/publish",
   "POST /api/publishing/organizations/:organizationId/sites/:siteId/unpublish",
   "GET /api/publishing/organizations/:organizationId/sites/:siteId/consents",
+  /*
+   * Named, revocable embeds (issue #192's residual lifecycle epic). The public half is one route
+   * addressed by the embed's own token, under `/api/public/*` for the same reason the itinerary
+   * is: the token is the credential and the namespace reads no session.
+   */
+  "GET /api/publishing/events/:eventId/embeds",
+  "POST /api/publishing/events/:eventId/embeds",
+  "PUT /api/publishing/events/:eventId/embeds/:embedId",
+  "POST /api/publishing/events/:eventId/embeds/:embedId/duplicate",
+  "DELETE /api/publishing/events/:eventId/embeds/:embedId",
+  "GET /api/public/embeds/:token",
 ] as const;
 
 /*
@@ -106,7 +127,7 @@ export const publishingRoutes: RouteModule = {
   domain: "publishing",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
-    const { publishing, agenda, itineraries, sites, auth } = dependencies;
+    const { publishing, agenda, itineraries, sites, embeds, auth } = dependencies;
     app.get("/api/public/events/:slug", async (context) => {
       const slug = context.req.param("slug");
       if (!publishing || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
@@ -527,6 +548,120 @@ export const publishingRoutes: RouteModule = {
         },
       );
 
+    /*
+     * ---- named, revocable embeds (issue #192) -----------------------------
+     *
+     * What was missing was the lifecycle. An embed URL pasted into somebody else's site used to
+     * answer for ever, and the only way to stop it was to unpublish the whole event; `DELETE`
+     * here withdraws one without touching the others.
+     */
+    const noEmbeds = (context: HttpContext) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    const invalidEmbed = (context: HttpContext, issues: readonly unknown[]) =>
+      context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Review the highlighted embed settings.",
+          context.get("correlationId"),
+          validationFields(issues as never),
+        ),
+        400,
+      );
+
+    app.get("/api/publishing/events/:eventId/embeds", async (context) => {
+      if (!embeds) return noEmbeds(context);
+      return context.json(
+        embedsResponseSchema.parse({
+          embeds: await embeds.list(context.get("actor"), context.req.param("eventId") ?? ""),
+        }),
+      );
+    });
+
+    app.post("/api/publishing/events/:eventId/embeds", async (context) => {
+      if (!embeds) return noEmbeds(context);
+      const body = embedDraftSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidEmbed(context, body.error.issues);
+      const created = await embeds.create(
+        context.get("actor"),
+        context.req.param("eventId") ?? "",
+        body.data,
+      );
+      // The URL is returned once and never again: only the token's digest is stored.
+      return context.json(embedCreatedResponseSchema.parse(created), 201);
+    });
+
+    app.put("/api/publishing/events/:eventId/embeds/:embedId", async (context) => {
+      if (!embeds) return noEmbeds(context);
+      const body = embedUpdateSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidEmbed(context, body.error.issues);
+      return context.json(
+        embedResponseSchema.parse({
+          embed: await embeds.update(
+            context.get("actor"),
+            context.req.param("eventId") ?? "",
+            context.req.param("embedId") ?? "",
+            body.data,
+          ),
+        }),
+      );
+    });
+
+    app.post("/api/publishing/events/:eventId/embeds/:embedId/duplicate", async (context) => {
+      if (!embeds) return noEmbeds(context);
+      const body = embedDuplicateSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidEmbed(context, body.error.issues);
+      const created = await embeds.duplicate(
+        context.get("actor"),
+        context.req.param("eventId") ?? "",
+        context.req.param("embedId") ?? "",
+        body.data,
+      );
+      return context.json(embedCreatedResponseSchema.parse(created), 201);
+    });
+
+    app.delete("/api/publishing/events/:eventId/embeds/:embedId", async (context) => {
+      if (!embeds) return noEmbeds(context);
+      return context.json({
+        changed: await embeds.revoke(
+          context.get("actor"),
+          context.req.param("eventId") ?? "",
+          context.req.param("embedId") ?? "",
+        ),
+      });
+    });
+
+    /*
+     * Serving one embed to a host page.
+     *
+     * A withdrawn embed, an unknown token, an unpublished event and one whose publication has
+     * been taken down are a single answer, so none of those routes can be used to probe the
+     * others. The content type travels with the body rather than being guessed from the output
+     * name: an `ical` served as `text/html` is a download a calendar refuses, and the failure
+     * looks like the embed being broken rather than mislabelled.
+     */
+    app.get("/api/public/embeds/:token", async (context) => {
+      const parsed = embedTokenParamsSchema.safeParse(context.req.param());
+      const notFound = () =>
+        context.json(
+          envelope("NOT_FOUND", "This embed is not available.", context.get("correlationId")),
+          404,
+        );
+      if (!embeds || !parsed.success) return notFound();
+      const rendered = await embeds.resolve(parsed.data.token);
+      if (!rendered) return notFound();
+      // Cache policy for this namespace belongs to the `/api/public/*` middleware, which gives
+      // every public representation the same bounded lifetime and a strong ETag — so a host page
+      // revalidates rather than refetching, and a withdrawn embed stops on the next validation.
+      return context.body(rendered.body, 200, { "content-type": rendered.contentType });
+    });
+
     app.get(
       "/api/publishing/organizations/:organizationId/sites/:siteId/consents",
       async (context) => {
@@ -559,6 +694,23 @@ export const publishingRoutes: RouteModule = {
      * are a single 404 — the same indistinguishability rule the public event hub follows, so a
      * site id cannot be probed from an organization it does not belong to.
      */
+    // An embed on another event, one that does not exist and a withdrawn one answer alike, so
+    // an embed id cannot be probed from an event it does not belong to.
+    if (error instanceof EmbedNotFoundError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That embed was not found.",
+        status: 404 as const,
+      };
+    if (error instanceof EmbedConflictError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    if (error instanceof EmbedInvalidError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+        fields: error.fields,
+      };
     if (error instanceof SiteNotFoundError)
       return {
         code: "NOT_FOUND" as const,

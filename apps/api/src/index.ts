@@ -32,6 +32,7 @@ import {
 import { D1CustomRoleRepository } from "./adapters/persistence/d1-custom-roles";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
+import { D1EmbedRepository } from "./adapters/persistence/d1-embed-repository";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
 import { D1CapabilityLinkStore } from "./adapters/persistence/d1-capability-links";
 import { D1ReportRepository } from "./adapters/persistence/d1-report-repository";
@@ -116,6 +117,7 @@ import {
 } from "./application/platform/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import {
+  EmbedService,
   type ProjectionRefresh,
   publishingTemplateSlice,
   SiteService,
@@ -1735,6 +1737,30 @@ export default {
     );
     const itineraries = new ItineraryService(new D1ItineraryRepository(environment.DB), publishing);
     /*
+     * Named, revocable embeds (issue #192's residual lifecycle epic).
+     *
+     * `publications` and `schedule` are the same two reads the public event hub makes, which is
+     * what keeps an embed incapable of outliving the publication it renders: unpublishing an
+     * event silences every embed on it in the same instant, because there is nothing else for
+     * them to read.
+     */
+    const embeds = new EmbedService({
+      repository: new D1EmbedRepository(environment.DB),
+      publications: publicationRepository,
+      schedule: async (eventId) => {
+        const published = await agenda.published(eventId);
+        return published
+          ? { version: published.version, publishedAt: published.publishedAt }
+          : null;
+      },
+      mintToken: mintCapabilityToken,
+      hash: hashCapabilityToken,
+      // The API's own origin, because a host page fetches this rather than a person opening it.
+      embedBaseUrl: environment.PUBLIC_BASE_URL ?? "",
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    /*
      * Sites and portals (issue #196).
      *
      * `programs` is the seam a Site resolves its attached programs through, and binding it is the
@@ -1994,6 +2020,7 @@ export default {
       publishing,
       itineraries,
       sites,
+      embeds,
       speakerCalendarInvites,
       accelEventsSync,
       membership,

@@ -46,6 +46,7 @@ const communicationsIntegrationsSchema = defineCommunicationsIntegrationsSchema(
 const publishingSchema = definePublishingSchema({
   eventsId: eventsSchema.events.id,
   organizationsId: eventsSchema.organizations.id,
+  usersId: identityAccessSchema.users.id,
 });
 const platformSchema = definePlatformSchema({
   eventsId: eventsSchema.events.id,
@@ -141,6 +142,7 @@ export const {
   outboundProjectionState,
   platformAuditRecords,
   platformInboxDismissals,
+  publicationEmbeds,
   publicEventProjections,
   capabilityLinks,
   reportDefinitions,

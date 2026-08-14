@@ -94,6 +94,12 @@ export const UNMODELLED_OBJECTS = [
   // the row an operator reads when somebody says the report never arrived, and a log a later
   // write can correct is not evidence of anything (issue #196, migration 1902).
   "trigger:report_runs_no_update",
+  // An embed's output type and its address are what a host page depends on: a page parsing JSON
+  // does not survive being handed HTML, and rotating an address breaks every installation
+  // silently. Both are refused at the table so a future writer that skipped the service still
+  // cannot move them (issue #192, migration 1805).
+  "trigger:publication_embeds_output_is_immutable",
+  "trigger:publication_embeds_token_is_immutable",
   // The pair that makes drift in `agenda_session_schedules` detectable rather than silent. They
   // belong to the database rather than to the application on purpose: a writer of
   // `agenda_publications` that knows nothing about the derived table — the old Worker during a

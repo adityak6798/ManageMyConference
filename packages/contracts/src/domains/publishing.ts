@@ -388,3 +388,76 @@ export const siteRegistrationResponseSchema = z.object({
 export type SiteDto = z.infer<typeof siteSchema>;
 export type PublicSiteDto = z.infer<typeof publicSiteSchema>;
 export type SiteDetailDto = z.infer<typeof siteDetailResponseSchema>;
+
+/*
+ * ---- named, revocable embeds (issue #192's residual lifecycle epic) ---------
+ *
+ * PR #214 shipped the embed views; what was missing was that an embed had no identity — it could
+ * not be revisited, changed, or withdrawn, so a URL pasted into somebody else's site answered for
+ * ever. `output` is immutable after creation because a host page parsing JSON does not survive
+ * being handed HTML; changing it is `duplicate`, which mints a new address.
+ *
+ * @spec PRD-PUB-001
+ */
+export const embedViewSchema = z.enum(["schedule", "speakers", "gallery", "itinerary"]);
+export const embedOutputSchema = z.enum(["styled-html", "basic-html", "json", "xml", "ical"]);
+export const embedFieldSchema = z.enum(["time", "room", "track", "format", "abstract", "speakers"]);
+export const embedFiltersSchema = z.object({
+  track: z.string().max(120).optional(),
+  format: z.string().max(120).optional(),
+  /** A calendar date; the embed shows only sessions starting on it. */
+  day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
+export const embedDraftSchema = z.object({
+  name: z.string().min(1).max(120),
+  view: embedViewSchema,
+  output: embedOutputSchema,
+  accent: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+  theme: z.enum(["light", "dark", "auto"]).optional(),
+  filters: embedFiltersSchema.optional(),
+  /** Empty selects every field, which is what a snippet issued before selection existed asks for. */
+  fields: z.array(embedFieldSchema).max(6).optional(),
+});
+export const embedUpdateSchema = embedDraftSchema.extend({
+  expectedRevision: z.number().int().min(1),
+});
+export const embedDuplicateSchema = z.object({
+  name: z.string().min(1).max(120),
+  /** The one way to change an output type: the old address keeps working until it is revoked. */
+  output: embedOutputSchema.optional(),
+});
+export const embedSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  name: z.string(),
+  view: embedViewSchema,
+  output: embedOutputSchema,
+  accent: z.string(),
+  theme: z.enum(["light", "dark", "auto"]),
+  filters: embedFiltersSchema,
+  fields: z.array(embedFieldSchema),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  revision: z.number().int().min(1),
+  /** Set means withdrawn: the address answers as an unknown one from that moment. */
+  revokedAt: z.string().datetime().nullable(),
+});
+export const embedsResponseSchema = z.object({ embeds: z.array(embedSchema) });
+export const embedResponseSchema = z.object({ embed: embedSchema });
+/** The URL is returned once, because only the token's digest is stored. */
+export const embedCreatedResponseSchema = z.object({ embed: embedSchema, url: z.string() });
+export const embedParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  embedId: z.string().uuid(),
+});
+export const embedTokenParamsSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+});
+export type EmbedDto = z.infer<typeof embedSchema>;

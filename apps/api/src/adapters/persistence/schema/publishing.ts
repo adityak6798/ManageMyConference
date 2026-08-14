@@ -14,6 +14,7 @@ import {
 export function definePublishingSchema(references: {
   eventsId: AnySQLiteColumn;
   organizationsId: AnySQLiteColumn;
+  usersId: AnySQLiteColumn;
 }) {
   // @spec PRD-PUB-001
   const publicEventProjections = sqliteTable(
@@ -307,10 +308,71 @@ export function definePublishingSchema(references: {
     ],
   );
 
+  /**
+   * A named, revocable embed (issue #192's residual lifecycle epic).
+   *
+   * Deliberately not a `capability_link`: those are one-off shares that expire and count views,
+   * and an embed is a *standing* publication with neither. Sharing the table would have meant
+   * giving every embed an expiry nobody wants, or every share link an immortality nobody should
+   * have. `output` and `token_hash` are immutable — two triggers in `1805_publication_embeds.sql`
+   * refuse to move either, because a host page parsing JSON does not survive being handed HTML.
+   */
+  // @spec PRD-PUB-001
+  const publicationEmbeds = sqliteTable(
+    "publication_embeds",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      name: text("name").notNull(),
+      view: text("view").notNull(),
+      output: text("output").notNull(),
+      accent: text("accent").notNull().default("#2f5d50"),
+      theme: text("theme").notNull().default("light"),
+      filtersJson: text("filters_json").notNull().default("{}"),
+      fieldsJson: text("fields_json").notNull().default("[]"),
+      tokenHash: text("token_hash").notNull().unique(),
+      createdBy: text("created_by")
+        .notNull()
+        .references(() => references.usersId),
+      createdAt: text("created_at").notNull(),
+      updatedAt: text("updated_at").notNull(),
+      revision: integer("revision").notNull().default(1),
+      revokedAt: text("revoked_at"),
+    },
+    (table) => [
+      check(
+        "publication_embeds_view",
+        sql`${table.view} IN ('schedule', 'speakers', 'gallery', 'itinerary')`,
+      ),
+      check(
+        "publication_embeds_output",
+        sql`${table.output} IN ('styled-html', 'basic-html', 'json', 'xml', 'ical')`,
+      ),
+      check("publication_embeds_theme", sql`${table.theme} IN ('light', 'dark', 'auto')`),
+      check("publication_embeds_filters_json", sql`json_valid(${table.filtersJson})`),
+      check("publication_embeds_fields_json", sql`json_valid(${table.fieldsJson})`),
+      check("publication_embeds_token_hash", sql`length(${table.tokenHash}) = 64`),
+      check("publication_embeds_revision", sql`${table.revision} >= 1`),
+      check("publication_embeds_name_length", sql`length(${table.name}) BETWEEN 1 AND 120`),
+      // Not six positional GLOB classes; SQLite refuses that pattern as "too complex".
+      check(
+        "publication_embeds_accent",
+        sql`length(${table.accent}) = 7 AND substr(${table.accent}, 1, 1) = '#' AND lower(${table.accent}) NOT GLOB '*[^#0-9a-f]*'`,
+      ),
+      index("publication_embeds_event_idx").on(table.eventId, table.createdAt),
+      index("publication_embeds_live_idx")
+        .on(table.tokenHash)
+        .where(sql`${table.revokedAt} IS NULL`),
+    ],
+  );
+
   return {
     publicEventProjections,
     publicEventProjectionVersions,
     attendeeItineraries,
+    publicationEmbeds,
     sites,
     sitePrograms,
     sitePages,

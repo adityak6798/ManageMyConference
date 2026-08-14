@@ -42,6 +42,7 @@ import {
   IconSpeakers,
   IconWarning,
 } from "./ui/icons";
+import { SavedEmbeds } from "./publishing/SavedEmbeds";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "./ui/primitives";
 
 type Projection = PublicationDto["draft"];
@@ -1092,6 +1093,12 @@ export function PublishingWorkspace({
           </a>
         </div>
       </Card>
+      {/*
+       * The embed cards above compose a URL to copy and nothing remembers it. This panel is the
+       * other half issue #192's residual epic asked for: an embed with a name you can find later
+       * and an address you can withdraw without unpublishing the whole event.
+       */}
+      <SavedEmbeds eventId={eventId} canManage={canPublish} />
     </>
   );
 }
