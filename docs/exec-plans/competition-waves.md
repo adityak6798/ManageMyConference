@@ -1311,6 +1311,15 @@ was reverted and the attempt recorded at the test, because the gate is right: a 
 depend on the events schema, and the coverage that costs is one `UPDATE … WHERE updated_at IS NULL`
 whose failure mode is a NULL every reader already `COALESCE`s.
 
+**One out-of-lane repair, taken rather than filed.** `apps/web/test/shell-error-surface.test.tsx`
+is the shell's, not the CFP's, and this branch does not touch the code it covers — but it made
+`gate:test-build` nondeterministic, and a suite that fails at random teaches people to re-run it.
+Its fixture answered the content read and left two more the same workspace fires —
+`speaker-task-templates` and `integrations/accelevents` — to a 404 fallback that announces into the
+same live region, so whether that 404 landed before or after the retry decided whether the final
+`queryByRole("alert")` saw "No fixture". Measured on this machine: **11 failures in 12 runs**
+before, **0 in 12** after answering both. It is the same class as issue #200 and does not close it.
+
 **One cross-domain UI edit, announced here as the rules require.** `OrganizerReviewWorkspace.tsx` is
 review-owned and gains a notice routing an organizer into the members workspace when no reviewer is
 staffed — issue #190's reviewer-provisioning discoverability, which the issue allows to be satisfied

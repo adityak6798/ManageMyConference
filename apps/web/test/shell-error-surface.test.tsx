@@ -115,6 +115,19 @@ describe("where a failed load is explained", () => {
           return contentFails
             ? refusal("content-trace", "Sessions could not be read.")
             : json({ sessions: [], speakers: [], tasks: [], assets: [], messages: [] });
+        /*
+         * The content workspace's two other reads, answered rather than left to `noFixture`.
+         *
+         * They are not what this test is about, but they land in the same shared live region, and
+         * whether their 404 arrives before or after the retry's success decided whether the final
+         * `queryByRole("alert")` saw an alert reading "No fixture" — roughly two runs in five. An
+         * incomplete fixture does not make a test wrong, it makes it nondeterministic, and a
+         * suite that fails at random teaches people to re-run it.
+         */
+        if (url.endsWith(`/api/events/${eventId}/speaker-task-templates`))
+          return json({ templates: [] });
+        if (url.endsWith(`/api/events/${eventId}/integrations/accelevents`))
+          return json({ lastRun: null });
         return noFixture();
       }),
     );
