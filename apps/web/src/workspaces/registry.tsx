@@ -22,6 +22,7 @@ import { eventTemplatesWorkspace } from "./events";
 import { membersWorkspace } from "./identity";
 import { auditWorkspace, inboxWorkspace, searchWorkspace } from "./platform";
 import { publishingWorkspace } from "./publishing";
+import { reportsWorkspace } from "./reports";
 import { sitesWorkspace } from "./sites";
 import { abstractsWorkspace, reviewsWorkspace } from "./review";
 
@@ -43,6 +44,7 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   eventTemplatesWorkspace,
   searchWorkspace,
   inboxWorkspace,
+  reportsWorkspace,
   auditWorkspace,
 ];
 
