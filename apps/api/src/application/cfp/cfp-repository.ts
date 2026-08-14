@@ -57,7 +57,18 @@ export interface ProposalOwnerWrite {
 }
 
 /** A `ProposalOwnerWrite` that also moves the proposal out of draft, so it records the decision. */
-export interface ProposalSubmitWrite extends ProposalOwnerWrite {
+/**
+ * A `ProposalOwnerWrite` that also moves the proposal out of draft, so it records the decision.
+ *
+ * `lifecycle` is **omitted** rather than inherited. The other write chooses between two snapshots
+ * from a row it read earlier, so it has to say which it assumed; this one has a single fixed
+ * precondition — submitting is one-way, so the row must still be a draft — and that belongs in the
+ * statement rather than in a value a caller supplies. Binding it here made a hard invariant into
+ * an argument: a caller passing `submitted` would re-submit an already-submitted proposal, giving
+ * it a new `submitted_at`, a re-resolved route and a second confirmation, and migration `1201`'s
+ * no-regression trigger does not fire on `submitted` → `submitted`.
+ */
+export interface ProposalSubmitWrite extends Omit<ProposalOwnerWrite, "lifecycle"> {
   readonly resolvedRoute: CfpResolvedRoute | null;
   readonly status: string;
   readonly submittedAt: string;

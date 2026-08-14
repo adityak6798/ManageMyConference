@@ -367,7 +367,7 @@ export class D1CfpRepository implements CfpRepository {
   async submitProposal(write: ProposalSubmitWrite) {
     const result = await this.database
       .prepare(
-        `UPDATE cfp_submissions SET answers_json = ?, form_fields_json = ?, resolved_route_json = ?, cfp_version = ?, status = ?, lifecycle = 'submitted', submitted_at = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND lifecycle = ? AND ${OPEN_WINDOW_GUARD}`,
+        `UPDATE cfp_submissions SET answers_json = ?, form_fields_json = ?, resolved_route_json = ?, cfp_version = ?, status = ?, lifecycle = 'submitted', submitted_at = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND lifecycle = 'draft' AND ${OPEN_WINDOW_GUARD}`,
       )
       .bind(
         JSON.stringify(write.answers),
@@ -381,9 +381,6 @@ export class D1CfpRepository implements CfpRepository {
         write.proposalId,
         write.submitterUserId,
         write.expectedRevision,
-        // `draft` — submitting is one-way, so the row must still be one. Bound rather than written
-        // into the statement so both proposal writes assert their precondition the same way.
-        write.lifecycle,
         write.eventId,
         write.at,
         write.at,

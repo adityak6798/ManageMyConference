@@ -694,6 +694,46 @@ describe("a proposal that belongs to an account", () => {
     );
   });
 
+  it("blames the submission rather than the deadline when a revision loses to its own submit", async () => {
+    /*
+     * The branch that has to be added whenever a predicate is added to the guarded write.
+     *
+     * `explainRefusedWrite` reaches its last sentence by elimination, so a new member of the
+     * write's conjunction with no branch here does not produce the wrong error *code* — it
+     * produces a confident wrong *sentence*, borrowed from whichever cause happens to be last.
+     * Adding the lifecycle predicate did exactly that: a revision that lost to a concurrent submit
+     * was told the call for proposals had closed, while it was open and nothing about the deadline
+     * had changed. The message is all the applicant gets — the envelope carries no state — so a
+     * wrong one sends them to look at the wrong thing.
+     */
+    const { service, repository } = await open();
+    const draft = await service.createDraft(pat, eventId, "k1", complete);
+    const stale = await repository.findProposalForOwner(eventId, draft.id, pat.id);
+    await service.submitProposal(pat, eventId, draft.id, complete, draft.revision);
+
+    /*
+     * The race itself. Revising an *already* submitted proposal is supported — the service
+     * re-reads and takes the submitted branch — so the only way to reach this branch is for the
+     * row to move between the request's own read and its write, which is what the predicate
+     * exists for. The first read returns the pre-submit snapshot; everything after it is real.
+     */
+    const real = repository.findProposalForOwner.bind(repository);
+    let reads = 0;
+    vi.spyOn(repository, "findProposalForOwner").mockImplementation(async (...args) => {
+      reads += 1;
+      return reads === 1 ? stale : real(...args);
+    });
+
+    const refusal = await service.saveProposal(pat, eventId, draft.id, complete, 2).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(refusal).toBeInstanceOf(CfpStateError);
+    expect((refusal as Error).message).toMatch(/already been submitted/);
+    expect((refusal as Error).message).not.toMatch(/closed/);
+  });
+
   it("keeps a revised draft following the live form rather than freezing one", async () => {
     /*
      * The other half of the snapshot rule, and the one it is easy to break while fixing the first.

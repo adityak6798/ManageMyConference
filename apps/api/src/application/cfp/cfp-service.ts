@@ -8,6 +8,7 @@ import {
   type CfpSubmissionWindow,
   cfpEffectiveState,
   cfpFieldMaxLength,
+  type ProposalLifecycle,
   type ProposalSubmission,
   proposalTitleOf,
 } from "../../domain/cfp/cfp";
@@ -435,9 +436,11 @@ export class CfpService {
     /*
      * The same 409 the owned writes answer, and for the same reason.
      *
-     * Two things make this insert match nothing, and both are conflicts with the resource's
-     * state rather than faults in the request: the storage guard saw a call that is no longer
-     * open, or the published version moved between the read above and the write. A `CfpStateError`
+     * Several things make this insert match nothing — the storage guard saw a call that is no
+     * longer open, the published version moved between the read above and the write, or the
+     * idempotency key is held by a row this caller cannot converge on — and every one of them is
+     * a conflict with the resource's state rather than a fault in the request. The refusal below
+     * says which of those is *not* worth guessing at. A `CfpStateError`
      * here reached the transport as a 400 `VALIDATION_FAILED`, so a guest who submitted as the
      * organizer closed the call was told their form answers were wrong. `createDraft` was
      * repaired for exactly this; the anonymous door is its sibling.
@@ -614,7 +617,13 @@ export class CfpService {
       lifecycle: existing.lifecycle ?? "submitted",
     };
     if (!(await this.repository.saveProposalAnswers(write)))
-      await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);
+      await this.explainRefusedWrite(
+        eventId,
+        proposalId,
+        submitter.id,
+        expectedRevision,
+        write.lifecycle,
+      );
     return this.myProposal(actor, eventId, proposalId);
   }
   /**
@@ -657,11 +666,9 @@ export class CfpService {
       resolvedRoute,
       status: resolvedRoute?.status ?? "submitted",
       submittedAt: at,
-      // Submitting is one-way, so the row must still be a draft when the write lands.
-      lifecycle: "draft",
     };
     if (!(await this.repository.submitProposal(write)))
-      await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);
+      await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision, "draft");
     /*
      * Announced from the write, and *before* the read-back.
      *
@@ -701,18 +708,25 @@ export class CfpService {
   /**
    * Say *why* a guarded write matched no row, and always throw.
    *
-   * The write's WHERE clause is one conjunction — this account, this proposal, this revision, and
-   * a call that is open — so a zero-row result on its own cannot tell a person which of those it
-   * was. Re-reading afterwards can, and the three answers need three different sentences: reload
-   * the newer copy, sign in as the owner, or the deadline has passed. Deciding it from the reads
-   * *before* the write instead would be a guess: whatever they said, the write is the thing that
-   * lost the race.
+   * The write's WHERE clause is one conjunction — this account, this proposal, this revision, the
+   * lifecycle it was built for, and a call that is open — so a zero-row result on its own cannot
+   * tell a person which of those it was. Re-reading afterwards can, and each answer needs its own
+   * sentence: reload the newer copy, sign in as the owner, the proposal has since been submitted,
+   * or the deadline has passed. Deciding it from the reads *before* the write instead would be a
+   * guess: whatever they said, the write is the thing that lost the race.
+   *
+   * **Every member of the conjunction needs a branch here, and the last one is the trap.** The
+   * final `throw` is reached by elimination, so a predicate added to the write without a branch
+   * added here does not produce a wrong error *code* — it produces a confident wrong *sentence*,
+   * and the one it borrows says the call is closed while the call is open. That is exactly what
+   * adding the lifecycle predicate did.
    */
   private async explainRefusedWrite(
     eventId: string,
     proposalId: string,
     submitterUserId: string,
     expectedRevision: number,
+    expectedLifecycle: ProposalLifecycle,
   ): Promise<never> {
     const current = await this.repository.findProposalForOwner(
       eventId,
@@ -722,8 +736,14 @@ export class CfpService {
     if (!current) throw new CfpProposalNotFoundError("Proposal not found");
     if ((current.revision ?? 1) !== expectedRevision)
       throw new CfpDraftConflictError("This proposal changed in another tab or window");
-    // Neither missing nor stale, so the only remaining member of the conjunction is the window,
-    // which an organizer closed between this request's read and its write.
+    if ((current.lifecycle ?? "submitted") !== expectedLifecycle)
+      throw new CfpStateError(
+        expectedLifecycle === "draft"
+          ? "This proposal has already been submitted"
+          : "This proposal was still a draft when the change was saved",
+      );
+    // Owner, revision and lifecycle all still match, so what is left is the window: an organizer
+    // closed the call between this request's read and its write.
     const form = await this.getPublished(eventId);
     throw new CfpClosedError(
       "This call for proposals closed before the change was saved.",

@@ -178,7 +178,6 @@ describe("D1: the submission window in SQL", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
-        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(false);
     // Nothing was written by either refusal.
@@ -361,7 +360,6 @@ describe("D1: a draft is not a submission", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
-        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(true);
     await expect(proposals.find(eventId, id)).resolves.toMatchObject({
@@ -402,7 +400,6 @@ describe("D1: a draft is not a submission", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
-        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(true);
 
@@ -447,7 +444,6 @@ describe("D1: a draft is not a submission", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
-        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(true);
 
@@ -474,6 +470,36 @@ describe("D1: a draft is not a submission", () => {
       revision: 2,
       fields: form.fields,
     });
+
+    /*
+     * And the submit statement's own precondition, which is fixed rather than supplied.
+     *
+     * Submitting is one-way, so this row cannot be submitted again — at the right owner, the
+     * right revision and an open call. Worth its own assertion because the guard briefly became a
+     * bound value and nothing failed: `1201`'s no-regression trigger only refuses
+     * `submitted` → `draft`, so a second submit would have re-stamped `submitted_at`, re-resolved
+     * the route and earned a second confirmation with the database entirely happy.
+     */
+    await expect(
+      repository.submitProposal({
+        eventId,
+        proposalId: id,
+        submitterUserId: PAT,
+        answers: { title: "Submitted twice" },
+        expectedRevision: 2,
+        updatedAt: AT,
+        at: AT,
+        cfpVersion: form.version,
+        fields: form.fields,
+        resolvedRoute: null,
+        status: "submitted",
+        submittedAt: "2026-08-10T18:00:00.000Z",
+      }),
+    ).resolves.toBe(false);
+    await expect(repository.findProposalForOwner(eventId, id, PAT)).resolves.toMatchObject({
+      revision: 2,
+      submittedAt: AT,
+    });
   });
 
   it("shows the organizer's decision on the owner's proposal and nobody else's", async () => {
@@ -491,7 +517,6 @@ describe("D1: a draft is not a submission", () => {
       resolvedRoute: null,
       status: "submitted",
       submittedAt: AT,
-      lifecycle: "draft" as const,
     });
     // The real acceptance path: review moves the triage status through the CFP interface.
     await proposals.transitionAtomically({

@@ -155,8 +155,10 @@ export class MemoryCfpRepository implements CfpRepository {
     return Promise.resolve(true);
   }
   submitProposal(write: ProposalSubmitWrite) {
-    const entry = this.ownedFor(write);
-    if (entry?.proposal.lifecycle !== "draft") return Promise.resolve(false);
+    // `lifecycle: "draft"` is this write's fixed precondition rather than a value it carries —
+    // submitting is one-way — so it is supplied here, exactly as the statement states it literally.
+    const entry = this.ownedFor({ ...write, lifecycle: "draft" });
+    if (!entry) return Promise.resolve(false);
     this.submissions.set(entry.key, {
       ...entry.proposal,
       answers: { ...write.answers },

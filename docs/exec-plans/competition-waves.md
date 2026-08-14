@@ -1299,6 +1299,22 @@ Also: `submitterUserId` was scrubbed from `organizerWorkspace` and still went ou
 `bulkTransition`, whose responses are serialized without a schema parse — the invariant is "not on
 the wire", not "not to a stranger", and one of three call sites is not an invariant.
 
+**A seventh pass found the lifecycle predicate had itself gone one step too far, twice.** Binding
+the lifecycle in `submitProposal`'s statement turned a *fixed* precondition into a caller-supplied
+argument: submitting is one-way, so the row must be a draft, and a caller passing `submitted` would
+have re-submitted an already-submitted proposal — new `submitted_at`, re-resolved route, second
+confirmation — with `1201`'s no-regression trigger silent, because it refuses only
+`submitted` → `draft`. Nothing tested it, and the fake still refused what D1 now accepted, which is
+adapter/fake drift in the direction no service test can see. `ProposalSubmitWrite` now **omits**
+`lifecycle` and the statement states `'draft'` literally; the other write keeps the argument,
+because it genuinely chooses between two snapshots.
+
+And adding a member to the write's conjunction without adding a branch to `explainRefusedWrite`
+made that explainer confidently wrong: it reaches its last sentence by elimination, so a revision
+that lost to a concurrent submit was told the call for proposals had closed while it was open —
+the same wrong sentence the anonymous 409 had just been repaired for, in the sibling path. The
+explainer now has a branch per predicate, and its docstring says why the last one is a trap.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`
@@ -1314,11 +1330,18 @@ whose failure mode is a NULL every reader already `COALESCE`s.
 **One out-of-lane repair, taken rather than filed.** `apps/web/test/shell-error-surface.test.tsx`
 is the shell's, not the CFP's, and this branch does not touch the code it covers — but it made
 `gate:test-build` nondeterministic, and a suite that fails at random teaches people to re-run it.
-Its fixture answered the content read and left two more the same workspace fires —
-`speaker-task-templates` and `integrations/accelevents` — to a 404 fallback that announces into the
-same live region, so whether that 404 landed before or after the retry decided whether the final
-`queryByRole("alert")` saw "No fixture". Measured on this machine: **11 failures in 12 runs**
-before, **0 in 12** after answering both. It is the same class as issue #200 and does not close it.
+Its fixture answered the content read and left the checklist read — `speaker-task-templates` —
+to a 404 fallback that renders an error notice into the same live region, so whether that 404
+landed before or after the retry decided whether the final `queryByRole("alert")` saw "No fixture".
+Measured on this machine: **11 failures in 12 runs** before, **0 in 12** after. It is the same class
+as issue #200 and does not close it.
+
+The first attempt stubbed a *second* unanswered read as well, on the theory that both raced. A
+review pass measured them separately and only the checklist one does: the accelevents client
+swallows a failure into a null integration and announces nothing. Worse, that second stub returned
+a body its own schema rejects, so it was indistinguishable from the 404 it replaced — a fixture
+that looks like coverage and is not. It was removed, which is why the account above names one read
+rather than two.
 
 **One cross-domain UI edit, announced here as the rules require.** `OrganizerReviewWorkspace.tsx` is
 review-owned and gains a notice routing an organizer into the members workspace when no reviewer is
