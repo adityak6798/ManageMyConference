@@ -204,6 +204,20 @@ feature-by-feature verdict.
   contributor can burn an afternoon on it; conversely the crash could mask a real failure behind
   noise.
 
+  A fifth hosted sighting on 2026-08-14, in the `browser` job of run `31835694674` (this lane's
+  branch, `67e138d`), with the same degraded shape as the fourth: **two** specs failed rather than
+  the suite, both in `agenda.spec.ts` — `not.toHaveText` timing out against an unchanged
+  `2 of 2 scheduled`, and a Tab from the select-all control not landing on a session checkbox —
+  while the runtime printed `Broken pipe` dozens of times around them. Attribution was checked
+  rather than assumed, because the failing file is one this branch edited: the edit was a locator
+  scope in a *third* test, neither failing test touches it, and the keyboard one is confined to
+  `.agenda-rail` while the branch's new controls are on Sessions & speakers. The same commit
+  passed `agenda.spec.ts` alone and the full 79-test suite twice locally against a freshly reset
+  fixture, immediately before and after. The rerun was green. Recorded because the pattern now has
+  a name: a red `browser` job carrying `Broken pipe` and a small number of unrelated red specs is
+  this gap until proven otherwise, and the proof is a local re-run of the same commit rather than
+  an argument.
+
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
   its own TCP connection, and `apps/api/test/support/seeded-d1.ts` ran every migration statement
