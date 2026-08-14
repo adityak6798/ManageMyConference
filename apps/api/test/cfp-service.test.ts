@@ -2,8 +2,11 @@
 import { describe, expect, it } from "vitest";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
 import {
+  CfpClosedError,
   CfpDraftConflictError,
+  CfpProposalNotFoundError,
   CfpService,
+  CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
 } from "../src/application/cfp/cfp-service";
@@ -316,9 +319,17 @@ describe("CFP service", () => {
       status: "closed",
     });
     // The applicant-facing consequence, which is the whole point: no late submissions.
+    //
+    // `CfpClosedError` rather than `CfpUnavailableError` since issue #190: a closed call is a
+    // resource whose *state* refuses the write (409), not one that is missing (404), and the
+    // distinction is what lets the applicant surface say "the deadline passed" instead of
+    // "something is wrong with your form". It carries which closure it was, too.
     await expect(
       service.submit(eventId, "after-republish", { title: "Late", email: "a@example.com" }),
-    ).rejects.toBeInstanceOf(CfpUnavailableError);
+    ).rejects.toMatchObject({ effectiveState: "closed" });
+    await expect(
+      service.submit(eventId, "after-republish-2", { title: "Late", email: "a@example.com" }),
+    ).rejects.toBeInstanceOf(CfpClosedError);
 
     // Reopening is still one explicit click, and it still works on the republished form.
     await service.changeState(actor, eventId, "reopen");

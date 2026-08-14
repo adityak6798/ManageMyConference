@@ -119,13 +119,58 @@ export const saveCfpInputSchema = saveCfpBaseSchema.superRefine((form, context) 
     ruleIds.add(rule.id);
   });
 });
-export const cfpFormSchema = saveCfpBaseSchema.omit({ expectedVersion: true }).extend({
-  eventId: z.string().uuid(),
-  status: cfpStatusSchema,
-  version: z.number().int().positive(),
-  publishedAt: z.string().datetime().nullable(),
-  publishedStatus: z.enum(["open", "closed"]).nullable(),
+/**
+ * The state applicants are actually in, which only the server can answer.
+ *
+ * `scheduled` and `closed` are separate members because they are opposite messages — "come back
+ * on the 3rd" against "you have missed it" — and a client that folded them together would have to
+ * guess which. `unpublished` never reaches the public route, which 404s instead; it exists for the
+ * organizer's composer, where a draft that has never been published is a real state to show.
+ */
+export const cfpEffectiveStatusSchema = z.enum(["unpublished", "scheduled", "open", "closed"]);
+/**
+ * The scheduled submission window: two UTC instants, either of which may be absent.
+ *
+ * Absent means unbounded in that direction, which is the state every call shipped in before this
+ * existed. Instants rather than wall-clock times in the event's zone, so a deadline that has been
+ * announced cannot move because somebody corrected the event's timezone afterwards; both surfaces
+ * render and collect them *in* that zone.
+ */
+export const cfpWindowSchema = z.object({
+  opensAt: z.string().datetime().nullable(),
+  closesAt: z.string().datetime().nullable(),
 });
+export const cfpWindowInputSchema = cfpWindowSchema.superRefine((window, context) => {
+  if (
+    window.opensAt &&
+    window.closesAt &&
+    Date.parse(window.closesAt) <= Date.parse(window.opensAt)
+  )
+    context.addIssue({
+      code: "custom",
+      path: ["closesAt"],
+      message: "The call has to close after it opens",
+    });
+});
+export const cfpFormSchema = saveCfpBaseSchema
+  .omit({ expectedVersion: true })
+  .merge(cfpWindowSchema)
+  .extend({
+    eventId: z.string().uuid(),
+    status: cfpStatusSchema,
+    version: z.number().int().positive(),
+    publishedAt: z.string().datetime().nullable(),
+    publishedStatus: z.enum(["open", "closed"]).nullable(),
+    /**
+     * Carried by every CFP response, organizer and public alike.
+     *
+     * Required rather than derived in the browser: deriving it there would put a visitor's own
+     * clock in charge of whether a deadline has passed, so a skewed laptop would render an open
+     * form over a call the server refuses and the applicant would find out by losing a
+     * submission.
+     */
+    effectiveStatus: cfpEffectiveStatusSchema,
+  });
 export const cfpResponseSchema = z.object({ cfp: cfpFormSchema });
 export const cfpRoutingStatusesResponseSchema = z.object({
   statuses: z.array(z.object({ key: z.string(), label: z.string() })),
@@ -154,8 +199,82 @@ export const proposalConfirmationSchema = z.object({
 export const proposalConfirmationResponseSchema = z.object({
   submission: proposalConfirmationSchema,
 });
+
+/**
+ * The account-bound half of the applicant surface.
+ *
+ * These routes take a session, which is what separates them from the anonymous submission above:
+ * a proposal they write has an owner, so it can be listed, resumed, revised, and told its
+ * decision. They deliberately live under `/api/events/...` rather than under `/api/public/...` —
+ * that namespace is anonymous by construction, answers `Access-Control-Allow-Origin: *`, and is
+ * cacheable, none of which may be true of one person's proposals.
+ */
+export const cfpProposalParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+});
+/**
+ * What a submitter is told about their own proposal.
+ *
+ * `state` is deliberately not the organizer's triage status. Triage keys are organizer vocabulary
+ * — an event may configure "shortlist_maybe" — and forwarding them would publish the inside of a
+ * review process. Only the two decisions that are communicated anyway pass through.
+ */
+export const submitterProposalStateSchema = z.enum([
+  "draft",
+  "under_consideration",
+  "accepted",
+  "declined",
+]);
+export const submitterProposalSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  lifecycle: z.enum(["draft", "submitted"]),
+  state: submitterProposalStateSchema,
+  /** Null when nothing answered yet names the proposal. */
+  title: z.string().nullable(),
+  answers: z.record(z.string().min(1).max(80), z.string().max(CFP_ANSWER_MAX_LENGTH)),
+  /** The optimistic-concurrency token every write has to name back. */
+  revision: z.number().int().positive(),
+  updatedAt: z.string().datetime(),
+  /** Null while it is a draft: nothing has been submitted, so nothing is confirmed. */
+  submittedAt: z.string().datetime().nullable(),
+});
+export const submitterProposalsResponseSchema = z.object({
+  proposals: z.array(submitterProposalSchema),
+});
+export const submitterProposalResponseSchema = z.object({ proposal: submitterProposalSchema });
+/**
+ * Answers, bounded exactly as the anonymous submission's are — same ceilings, same field count.
+ *
+ * A draft is held to the same *shape* as a submission and not to its completeness, so this schema
+ * is shared by all three writes and the required-field rule lives in the service, which is the
+ * only place that knows whether this call is a save or a submit.
+ */
+const proposalAnswersSchema = z
+  .record(z.string().min(1).max(80), z.string().max(CFP_ANSWER_MAX_LENGTH))
+  .refine((answers) => Object.keys(answers).length <= CFP_ANSWER_MAX_FIELDS, {
+    message: `A proposal carries at most ${CFP_ANSWER_MAX_FIELDS} answers`,
+  });
+export const createProposalDraftInputSchema = z.object({
+  /**
+   * The CFP command's existing deterministic key, reused rather than joined by a second one: a
+   * retried create converges on the draft the first attempt made instead of leaving two
+   * half-written proposals on the dashboard.
+   */
+  idempotencyKey: z.string().trim().min(8).max(120),
+  answers: proposalAnswersSchema,
+});
+export const saveProposalInputSchema = z.object({
+  answers: proposalAnswersSchema,
+  expectedRevision: z.number().int().positive(),
+});
 export type CfpField = z.infer<typeof cfpFieldSchema>;
 export type CfpRoutingRule = z.infer<typeof cfpRoutingRuleSchema>;
 export type CfpFormDto = z.infer<typeof cfpFormSchema>;
+export type CfpEffectiveStatus = z.infer<typeof cfpEffectiveStatusSchema>;
+export type CfpWindowInput = z.infer<typeof cfpWindowSchema>;
 export type SaveCfpInput = z.infer<typeof saveCfpInputSchema>;
 export type SubmitProposalInput = z.infer<typeof submitProposalInputSchema>;
+export type SubmitterProposalDto = z.infer<typeof submitterProposalSchema>;
+export type SubmitterProposalState = z.infer<typeof submitterProposalStateSchema>;

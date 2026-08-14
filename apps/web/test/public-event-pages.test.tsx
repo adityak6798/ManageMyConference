@@ -550,6 +550,12 @@ describe("what the public surface says about the call for proposals", () => {
       version: 4,
       publishedAt: "2026-08-01T16:00:00.000Z",
       publishedStatus: status,
+      // No scheduled window, and `effectiveStatus` therefore equal to the live status. These tests
+      // are about the snapshot-versus-live-form split; the window's own states are covered by
+      // `cfp-window.test.tsx`.
+      opensAt: null,
+      closesAt: null,
+      effectiveStatus: status,
     },
   });
 

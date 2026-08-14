@@ -256,7 +256,10 @@ describe("Event templates: preview", () => {
     const cfpSlice = plan.slices.find(({ key }) => key === "cfp");
     expect(cfpSlice?.outcome).toBe("copies");
     expect(cfpSlice?.copies.map(({ id }) => id)).toEqual(["form", "title", "track"]);
-    expect(cfpSlice?.excludes.map(({ id }) => id)).toEqual(["published", "submissions"]);
+    // `window` joined the list with the scheduled submission window (issue #190). A deadline
+    // derived from a previous conference's dates is arithmetic presented to applicants as a
+    // promise, so the slice names it as excluded rather than remapping it.
+    expect(cfpSlice?.excludes.map(({ id }) => id)).toEqual(["published", "submissions", "window"]);
     // The category the issue names that this system copies nothing for is reported, not omitted.
     const communications = plan.slices.find(({ key }) => key === "communications");
     expect(communications?.outcome).toBe("skipped");

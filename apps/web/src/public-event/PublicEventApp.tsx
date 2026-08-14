@@ -321,6 +321,11 @@ export function PublicEventApp() {
    * One answer about the call, used by every view that mentions it. The live form decides;
    * the snapshot only supplies wording until it arrives. "unknown" is a real state and is
    * rendered as one: no pill, and a link that promises reading rather than submitting.
+   *
+   * The answer is `effectiveStatus`, which the server computes, rather than `status` plus the two
+   * window timestamps: deriving it here would put the visitor's own clock in charge of whether a
+   * deadline has passed, and a skewed laptop would offer a form the server refuses. `status` is
+   * the fallback for a deployment older than that field.
    */
   // Display only facts from the active publication. The separately loaded form supplies
   // fields for submission, but may have advanced after this projection response was read.
@@ -331,17 +336,38 @@ export function PublicEventApp() {
     liveCfp.description === projection.cfp.description &&
     (liveCfp.status === "closed" ? "closed" : "open") === projection.cfp.status;
   const versionedCfp = cfpVersionMatches ? liveCfp : null;
-  const cfpStatus: "open" | "closed" = projection.cfp.status;
   const cfpTitle = projection.cfp.title;
   const cfpDescription = projection.cfp.description;
+  /*
+   * Status is the one fact the publication cannot hold, because it depends on the clock.
+   *
+   * A scheduled window opens and closes a call with no republish at all, so `projection.cfp.status`
+   * only ever says what was true when the snapshot was written — it has no way to express "opens on
+   * the 3rd" or "the deadline passed an hour ago". `effectiveStatus` is computed server-side on the
+   * live read and is the only source for those.
+   *
+   * Taken from `versionedCfp` rather than `liveCfp`, so the same-version rule above still holds: a
+   * form that has advanced past this publication is not an authority on the call this page is
+   * showing, and reads as unknown rather than contradicting the rest of the page.
+   */
+  const cfpStatus: "open" | "scheduled" | "closed" | "unknown" = versionedCfp
+    ? (versionedCfp.effectiveStatus ?? (versionedCfp.status === "open" ? "open" : "closed")) ===
+      "open"
+      ? "open"
+      : versionedCfp.effectiveStatus === "scheduled"
+        ? "scheduled"
+        : "closed"
+    : "unknown";
   const cfpStatusLine =
-    cfpStatus === "closed"
-      ? "Submissions closed."
-      : versionedCfp?.status === "open"
-        ? "Open for submissions."
-        : cfpUnavailable || liveCfp
-          ? "Submission form unavailable."
-          : "Checking submission availability…";
+    cfpStatus === "open"
+      ? "Open for submissions."
+      : cfpStatus === "scheduled"
+        ? "Not open yet."
+        : cfpStatus === "closed"
+          ? "Submissions closed."
+          : cfpUnavailable || liveCfp
+            ? "Submission form unavailable."
+            : "Checking submission availability…";
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
@@ -1165,6 +1191,8 @@ export function PublicEventApp() {
             statusLine={cfpStatusLine}
             title={cfpTitle}
             description={cfpDescription}
+            timezone={model.timezone}
+            eventStartsOn={projection.event.startsOn}
           />
         ) : null}
 

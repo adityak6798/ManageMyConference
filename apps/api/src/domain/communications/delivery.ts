@@ -26,7 +26,17 @@ export type TriggerType =
   | "speaker.task_reminder"
   /** An organizer sending a speaker the iTIP invitation for one of their sessions. */
   | "speaker.calendar_invite"
-  | "decision.recorded";
+  | "decision.recorded"
+  /**
+   * A submitter's own proposal reaching the organizers, confirmed back to the account that wrote
+   * it.
+   *
+   * The recipient is resolved from the session that submitted, never from a form answer, which is
+   * what made this message shippable at all — decision `D5` deferred it while the only available
+   * address was an unverified field on an anonymous form (`#132`). The anonymous door still sends
+   * nothing.
+   */
+  | "proposal.submitted";
 
 /**
  * Which channels each trigger may legitimately use.
@@ -51,6 +61,7 @@ export const TRIGGER_CHANNELS = {
   "speaker.task_reminder": ["email"],
   "speaker.calendar_invite": ["email"],
   "decision.recorded": ["email"],
+  "proposal.submitted": ["email"],
   "projection.requested": ["airtable", "accelevents"],
   "schedule.published": ["event"],
 } as const satisfies Record<TriggerType, readonly DeliveryChannel[]>;

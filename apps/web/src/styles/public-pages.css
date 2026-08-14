@@ -787,6 +787,67 @@ img.pub-avatar {
   color: var(--danger-fg);
 }
 
+/* ------------------- the applicant's own proposals ------------------- */
+
+/*
+ * The deadline sits directly under the open/closed pill, in the event's timezone. It is a
+ * separate line rather than appended to the status sentence because it is the one fact on this
+ * page an applicant comes back to check.
+ */
+.pub-cfp-deadline {
+  font-weight: 620;
+}
+.pub-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+}
+.pub-signin {
+  margin-top: var(--s-6);
+  padding: var(--s-5) var(--s-6);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-xl);
+}
+.public-shell .pub-signin h2 {
+  margin: 0 0 var(--s-2);
+  font-size: var(--text-lg);
+}
+.pub-signin-doors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.pub-proposal-list {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pub-proposal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.pub-proposal-title {
+  margin: 0;
+  font-weight: 650;
+}
+.pub-proposal-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+}
+
 /* ------------------------------- embed ------------------------------- */
 
 /*

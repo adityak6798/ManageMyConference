@@ -20,10 +20,18 @@ export const triggerTypeSchema = z.enum([
   "speaker.task_reminder",
   "speaker.calendar_invite",
   "decision.recorded",
+  "proposal.submitted",
 ]);
 /**
  * What an organizer's `POST /api/communications/deliveries` may name — everything except the
- * domain-event pair.
+ * domain-event pair and `proposal.submitted`.
+ *
+ * A submission confirmation is absent for a narrower reason than the domain events: it is not
+ * something an organizer authors. Its recipient is resolved from the session that submitted the
+ * proposal, which is the entire property that made it shippable (`#132`, decision `D5`), and a
+ * request naming an arbitrary address would hand back exactly the primitive that binding removed.
+ * The refusal is a 400 naming the field rather than a coherence check deeper in, and it is visible
+ * in the published OpenAPI.
  *
  * A domain event records that something already happened inside this system, and downstream
  * consumers trust it precisely because it was committed in the same transaction as the fact it
@@ -60,6 +68,7 @@ export const triggerChannels: Record<
   "speaker.task_reminder": ["email"],
   "speaker.calendar_invite": ["email"],
   "decision.recorded": ["email"],
+  "proposal.submitted": ["email"],
   "projection.requested": ["airtable", "accelevents"],
   "schedule.published": ["event"],
 };

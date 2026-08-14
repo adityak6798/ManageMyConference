@@ -53,6 +53,18 @@ type CfpTemplateCommands = Pick<CfpService, "getForOrganizer" | "routingStatuses
 const EXCLUDED: readonly SliceEntry[] = [
   { id: "published", label: "The live published form and its publication date" },
   { id: "submissions", label: "Submitted proposals and their answers" },
+  /*
+   * The window is excluded rather than remapped, and it is the one exclusion here that had a real
+   * alternative. `DateRemap` exists precisely to shift a template's dates onto a new event's
+   * range, and a deadline is a date — so remapping it would have "worked".
+   *
+   * It would also have announced a deadline nobody chose. A submission deadline is a commitment
+   * made to a specific audience; derived from a previous conference's dates it is arithmetic
+   * presented as a promise, and the applicant cannot tell the difference. A destination whose
+   * window is absent reads as an unbounded call, which is both true and visibly unfinished, so
+   * the organizer sets one deliberately.
+   */
+  { id: "window", label: "The scheduled submission window (open and close timestamps)" },
 ];
 
 /** Said whenever review is applying first, because then it, not this event, decides the rules. */

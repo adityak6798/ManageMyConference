@@ -44,6 +44,11 @@ const form = (overrides: Record<string, unknown> = {}) => ({
   version: 3,
   publishedAt: "2026-08-01T12:00:00.000Z",
   publishedStatus: "closed",
+  // No scheduled window: this file is about the explicit close/reopen half of the precedence
+  // rule, so the schedule is left unbounded and the organizer's own decision is the only gate.
+  opensAt: null,
+  closesAt: null,
+  effectiveStatus: "closed",
   ...overrides,
 });
 
@@ -56,7 +61,7 @@ const form = (overrides: Record<string, unknown> = {}) => ({
  * the announcement is the thing under test.
  */
 function renderRepublish(liveState: "open" | "closed") {
-  const live = form({ status: liveState, publishedStatus: liveState });
+  const live = form({ status: liveState, publishedStatus: liveState, effectiveStatus: liveState });
   const saved = form({ status: "draft", version: 4, publishedStatus: liveState });
   const republished = form({ status: liveState, version: 4, publishedStatus: liveState });
   vi.stubGlobal(
@@ -71,7 +76,7 @@ function renderRepublish(liveState: "open" | "closed") {
       return notFound();
     }),
   );
-  render(<CfpWorkspace eventId={eventId} organizer />);
+  render(<CfpWorkspace eventId={eventId} organizer timezone="America/Los_Angeles" />);
 }
 
 afterEach(() => {

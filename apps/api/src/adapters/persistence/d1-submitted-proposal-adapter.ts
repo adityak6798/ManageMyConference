@@ -169,13 +169,28 @@ const audit = (row: AuditRow): ProposalStatusAudit => ({
   occurredAt: row.occurred_at,
 });
 
+/**
+ * The predicate that keeps an unsubmitted draft out of every organizer and reviewer projection.
+ *
+ * It is on **every** read below rather than on the two that seemed to need it. A proposal a
+ * submitter is still writing has no place in triage, in a reviewer's queue, in a status count or
+ * in an accept/decline — and the failure of forgetting one is silent: the draft simply appears,
+ * looking like a submission nobody sent. `cfp-draft-isolation.integration.test.ts` enumerates the
+ * read paths of this class and asserts a draft is invisible to each, so a fifth one added later
+ * without the predicate fails rather than leaks (`GAP-025`'s lesson about siblings).
+ *
+ * A draft additionally carries `status = 'draft'`, which no event configures, so a status-filtered
+ * read could not reach one even without this. Both are deliberate; migration `1201` says why.
+ */
+const SUBMITTED_ONLY = "lifecycle = 'submitted'";
+
 // @spec PRD-ABS-001
 export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   constructor(private readonly database: D1ProposalDatabasePort) {}
   async list(eventId: string, status?: ProposalStatus) {
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ?${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
+        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND ${SUBMITTED_ONLY}${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...(status ? [status] : []))
       .all<ProposalRow>();
@@ -186,7 +201,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async find(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        "SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1",
+        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY} LIMIT 1`,
       )
       .bind(eventId, proposalId)
       .all<ProposalRow>();
@@ -199,7 +214,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
     const placeholders = proposalIds.map(() => "?").join(", ");
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) ORDER BY submitted_at, id`,
+        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) AND ${SUBMITTED_ONLY} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...proposalIds)
       .all<ProposalRow>();
@@ -267,7 +282,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
     const statements = current.flatMap((item, index) => [
       this.database
         .prepare(
-          "INSERT INTO cfp_status_audit (id, event_id, proposal_id, from_status, to_status, actor_id, occurred_at) SELECT ?, event_id, id, status, ?, ?, ? FROM cfp_submissions WHERE event_id = ? AND id = ?",
+          `INSERT INTO cfp_status_audit (id, event_id, proposal_id, from_status, to_status, actor_id, occurred_at) SELECT ?, event_id, id, status, ?, ?, ? FROM cfp_submissions WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY}`,
         )
         .bind(
           input.auditIds[index],
@@ -278,7 +293,9 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
           item.id,
         ),
       this.database
-        .prepare("UPDATE cfp_submissions SET status = ? WHERE event_id = ? AND id = ?")
+        .prepare(
+          `UPDATE cfp_submissions SET status = ? WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY}`,
+        )
         .bind(input.toStatus, input.eventId, item.id),
     ]);
     let results: D1Result<unknown>[];

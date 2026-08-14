@@ -49,8 +49,17 @@ const form = (overrides: Record<string, unknown> = {}) => ({
   version: 1,
   publishedAt: null,
   publishedStatus: null,
+  // The scheduled window and the state it resolves to, which every CFP response now carries.
+  // Unbounded here: these tests are about the form's own draft/live split, and the window has its
+  // own test below.
+  opensAt: null,
+  closesAt: null,
+  effectiveStatus: "unpublished",
   ...overrides,
 });
+
+/** The event's zone, which is what the composer enters and shows every deadline in. */
+const TIMEZONE = "America/Los_Angeles";
 
 /** Records every write so a test can assert *what* was sent and in *which order*. */
 function stubApi(routes: (url: string, init?: RequestInit) => Promise<Response> | undefined) {
@@ -92,7 +101,7 @@ describe("publishing what is on screen", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: form() });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "Call for talks" },
@@ -122,7 +131,7 @@ describe("publishing what is on screen", () => {
         });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Form title"), { target: { value: "Renamed" } });
     fireEvent.click(screen.getByRole("button", { name: "Publish CFP" }));
@@ -160,7 +169,7 @@ describe("publishing what is on screen", () => {
       }
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "My unsaved edit" },
@@ -188,7 +197,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: twoQuestions() });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Move Proposal title down" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
@@ -203,7 +212,7 @@ describe("building the question list", () => {
 
   it("refuses to remove the last question, which the API would reject as an empty form", async () => {
     stubApi((url) => (url.startsWith("/api/events/") ? jsonResponse({ cfp: form() }) : undefined));
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     expect(await screen.findByRole("button", { name: "Remove Proposal title" })).toBeDisabled();
   });
@@ -215,7 +224,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: form() });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Field type"), { target: { value: "select" } });
     fireEvent.change(screen.getByLabelText("Options (comma separated)"), {
@@ -250,7 +259,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: conditionalForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     await screen.findByRole("button", { name: "Remove Session abstract" });
     const abstract = question("Session abstract");
@@ -279,7 +288,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: routedForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     const routingCard = await screen.findByRole("region", { name: "Submission routing" });
     fireEvent.click(within(routingCard).getByRole("button", { name: "Add routing rule" }));
@@ -302,7 +311,7 @@ describe("building the question list", () => {
     const calls = stubApi((url) =>
       url.startsWith("/api/events/") ? jsonResponse({ cfp: conditionalForm }) : undefined,
     );
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     await screen.findByRole("button", { name: "Remove Session abstract" });
     const abstract = question("Session abstract");
@@ -333,7 +342,7 @@ describe("the live form beside the draft", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: draft });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
     return calls;
   }
 
@@ -392,7 +401,7 @@ describe("the public submission form", () => {
       if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: openForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText(/Proposal title/), {
       target: { value: "Shipping a CFP" },
@@ -430,7 +439,7 @@ describe("the public submission form", () => {
     stubApi((url) =>
       url.startsWith("/api/public/events/") ? jsonResponse({ cfp: conditional }) : undefined,
     );
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     expect(await screen.findByLabelText("Category *")).toBeInTheDocument();
     expect(screen.queryByLabelText("Equipment needs *")).toBeNull();
@@ -449,7 +458,7 @@ describe("the public submission form", () => {
       if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: openForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText(/Proposal title/), {
       target: { value: "A title well past the limit" },
@@ -464,7 +473,7 @@ describe("the public submission form", () => {
 
   it("offers no form at all when nothing is published, rather than a dead submit button", async () => {
     stubApi(() => undefined);
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     expect(await screen.findByText("This call for proposals is not available")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();

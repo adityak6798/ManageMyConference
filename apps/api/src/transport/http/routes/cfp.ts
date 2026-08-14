@@ -7,15 +7,21 @@
  * @spec PRD-CFP-001 PRD-CFP-002 PRD-ABS-001
  */
 import {
+  cfpProposalParamsSchema,
   cfpStateInputSchema,
   cfpRoutingStatusesResponseSchema,
+  cfpWindowInputSchema,
+  createProposalDraftInputSchema,
   eventIdParamsSchema,
   saveCfpInputSchema,
+  saveProposalInputSchema,
   submitProposalInputSchema,
 } from "@greenroom/contracts";
 import {
+  CfpClosedError,
   CfpRoutingConfigurationError,
   CfpDraftConflictError,
+  CfpProposalNotFoundError,
   CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
@@ -28,7 +34,22 @@ const routes = [
   "GET /api/events/:eventId/cfp",
   "GET /api/events/:eventId/cfp/routing-statuses",
   "PUT /api/events/:eventId/cfp",
+  "PUT /api/events/:eventId/cfp/window",
   "POST /api/events/:eventId/cfp/state",
+  /*
+   * The submitter's own proposals.
+   *
+   * Under `/api/events/...` and deliberately not under `/api/public/...`, which is anonymous by
+   * construction: that namespace answers `Access-Control-Allow-Origin: *` and is cacheable with a
+   * validator, and neither may be true of one person's drafts. Authorization here is a session plus
+   * ownership of the row rather than an event capability — a person proposing a talk holds no role
+   * on the conference, which is the whole point of a public call. See `CfpService`'s `submitterFor`.
+   */
+  "GET /api/events/:eventId/cfp/proposals",
+  "POST /api/events/:eventId/cfp/proposals",
+  "GET /api/events/:eventId/cfp/proposals/:proposalId",
+  "PUT /api/events/:eventId/cfp/proposals/:proposalId",
+  "POST /api/events/:eventId/cfp/proposals/:proposalId/submit",
   "GET /api/public/events/:eventId/cfp",
   "POST /api/public/events/:eventId/submissions",
 ] as const;
@@ -91,6 +112,156 @@ export const cfpRoutes: RouteModule = {
           eventId: params.data.eventId,
           ...parsed.data,
         }),
+      });
+    });
+    app.put("/api/events/:eventId/cfp/window", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      // Authorization before an attacker-controlled body is parsed, as on every write here.
+      await cfpService.getForOrganizer(context.get("actor"), params.data.eventId);
+      const parsed = cfpWindowInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The submission window could not be saved.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        cfp: await cfpService.saveWindow(context.get("actor"), params.data.eventId, parsed.data),
+      });
+    });
+    /*
+     * The submitter's dashboard and the three writes behind it.
+     *
+     * Each hands `context.get("actor")` to the service and nothing else about identity: the owner
+     * of a proposal is the resolved session, never a field of the request. That is what makes the
+     * confirmation these writes queue safe to send — see `docs/architecture/data-flows.md` and the
+     * note on `#132` in `CfpNotificationPort`.
+     */
+    app.get("/api/events/:eventId/cfp/proposals", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        proposals: await cfpService.myProposals(context.get("actor"), params.data.eventId),
+      });
+    });
+    app.post("/api/events/:eventId/cfp/proposals", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const parsed = createProposalDraftInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The draft could not be saved.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json(
+        {
+          proposal: await cfpService.createDraft(
+            context.get("actor"),
+            params.data.eventId,
+            parsed.data.idempotencyKey,
+            parsed.data.answers,
+          ),
+        },
+        201,
+      );
+    });
+    app.get("/api/events/:eventId/cfp/proposals/:proposalId", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = cfpProposalParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Proposal ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        proposal: await cfpService.myProposal(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.proposalId,
+        ),
+      });
+    });
+    app.put("/api/events/:eventId/cfp/proposals/:proposalId", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = cfpProposalParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Proposal ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const parsed = saveProposalInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The proposal could not be saved.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        proposal: await cfpService.saveProposal(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.proposalId,
+          parsed.data.answers,
+          parsed.data.expectedRevision,
+        ),
+      });
+    });
+    app.post("/api/events/:eventId/cfp/proposals/:proposalId/submit", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = cfpProposalParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Proposal ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const parsed = saveProposalInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The proposal could not be submitted.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        proposal: await cfpService.submitProposal(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.proposalId,
+          parsed.data.answers,
+          parsed.data.expectedRevision,
+        ),
       });
     });
     app.post("/api/events/:eventId/cfp/state", async (context) => {
@@ -199,6 +370,21 @@ export const cfpRoutes: RouteModule = {
         message: "This draft changed elsewhere. Reload the latest draft before saving again.",
         status: 409 as const,
       };
+    /*
+     * A closed call is a 409, not a 404 or a 400.
+     *
+     * The request is well formed and the resource exists; what refuses it is the state the
+     * resource is in, which is exactly what `CONFLICT` means and what a client needs to know to
+     * show "the deadline passed" rather than "something is wrong with your form". The message
+     * carries which of the three closures it was, because "not open yet" and "you have missed it"
+     * are opposite things to tell somebody.
+     */
+    if (error instanceof CfpClosedError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    // Indistinguishable from a proposal that does not exist, deliberately: see
+    // `CfpProposalNotFoundError`.
+    if (error instanceof CfpProposalNotFoundError)
+      return { code: "NOT_FOUND" as const, message: "Proposal not found.", status: 404 as const };
     if (error instanceof CfpStateError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
     if (error instanceof CfpUnavailableError)

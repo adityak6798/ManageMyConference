@@ -134,6 +134,11 @@
         "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
       },
       {
+        "path": "apps/web/src/api/identity.ts",
+        "governing": "PRD-IAM-001",
+        "reason": "The browser's identity client — who this document is, which doors the deployment offers, and the four ways through them — and the same kind of surface as api/cfp.ts one entry above. Three unrelated roots read it: the console shell, the landing page, and the public CFP, which offers a submitter a way to sign in so their drafts and decisions belong to an account (issue #190). It was already declared its own module rather than living in api/events.ts precisely because the landing page must not import the console's domain client; the public bundle has the same constraint and the same need. It holds no session state and no capability logic — the httpOnly cookie means only the API can answer either question."
+      },
+      {
         "path": "apps/web/src/api/config.ts",
         "governing": "ARC-001",
         "reason": "The browser transport's shared origin and fetch adapter. Every domain API client uses it so development proxying, same-origin deployment, and optional split hosting resolve requests consistently."

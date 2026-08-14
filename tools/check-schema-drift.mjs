@@ -52,6 +52,14 @@ export const UNMODELLED_OBJECTS = [
   "trigger:cfp_submission_route_status_guard",
   "trigger:cfp_submission_initializes_default_status",
   "trigger:cfp_transition_requires_configured_status",
+  // The four guards that make an account-bound proposal's lifecycle a property of the database
+  // rather than of the service that happens to write it: a draft is owned and marked `draft` in
+  // both columns, submitting is one-way, and an owner cannot be reassigned onto somebody else's
+  // dashboard (issue #190, migration 1201).
+  "trigger:cfp_submission_lifecycle_insert_guard",
+  "trigger:cfp_submission_lifecycle_update_guard",
+  "trigger:cfp_submission_lifecycle_no_regression",
+  "trigger:cfp_submission_owner_is_immutable",
   "trigger:review_assignment_requires_plan",
   "trigger:review_completion_rejects_conflict",
   "trigger:review_conflict_rejects_completion",

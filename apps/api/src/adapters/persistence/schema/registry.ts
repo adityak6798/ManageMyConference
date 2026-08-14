@@ -16,7 +16,10 @@ const identityAccessSchema = defineIdentityAccessSchema({
   eventsId: eventsSchema.events.id,
   organizationsId: eventsSchema.organizations.id,
 });
-const cfpSchema = defineCfpSchema({ eventsId: eventsSchema.events.id });
+const cfpSchema = defineCfpSchema({
+  eventsId: eventsSchema.events.id,
+  usersId: identityAccessSchema.users.id,
+});
 const contentSchema = defineContentSchema({
   eventsId: eventsSchema.events.id,
   usersId: identityAccessSchema.users.id,

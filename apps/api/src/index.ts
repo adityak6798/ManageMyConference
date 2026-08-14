@@ -46,6 +46,7 @@ import {
   type ScheduleSweepResult,
   sweepDriftedSchedules,
 } from "./application/agenda/public";
+import type { CfpNotificationPort } from "./application/cfp/cfp-service";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
@@ -606,12 +607,6 @@ export default {
       environment.DB,
       () => crypto.randomUUID(),
       identityDirectory,
-    );
-    const cfpService = new CfpService(
-      new D1CfpRepository(environment.DB),
-      () => crypto.randomUUID(),
-      () => new Date(),
-      new D1SubmittedProposalAdapter(environment.DB),
     );
     const now = () => new Date();
     /*
@@ -1188,6 +1183,64 @@ export default {
         }));
       },
     };
+    /*
+     * The submission confirmation (issue #190), and the one line that makes it safe.
+     *
+     * `findRecipient` resolves the address from the **user id the session carried**, so the
+     * recipient of this message is by construction somebody who proved control of that mailbox at
+     * sign-in. Nothing a submitter typed into the form reaches it. That is the difference between
+     * this message and the one decision `D5` refused to ship: the anonymous door sends nothing, and
+     * an address on a form buys ownership of nothing (`#132`).
+     *
+     * An account with no linked address is logged rather than queued, exactly as an unaddressable
+     * reviewer is — a delivery to a non-address burns an attempt and fails with a provider code
+     * that describes the refusal instead of the reason.
+     */
+    const cfpNotifications: CfpNotificationPort = {
+      async proposalSubmitted(fact) {
+        await recordLifecycle(fact.eventId, {
+          action: "cfp.proposal_submitted",
+          targetType: "proposal",
+          targetId: fact.proposalId,
+        });
+        const submitter = await identityDirectory.findRecipient(fact.submitterUserId);
+        if (!submitter?.email) {
+          logger.warn(
+            { eventId: fact.eventId, proposalId: fact.proposalId },
+            "lifecycle.notification.unaddressable",
+          );
+          return;
+        }
+        await notifyLifecycle(fact.eventId, { proposalId: fact.proposalId }, () => ({
+          // One confirmation per proposal, not per revision: a submitter who fixes a typo and saves
+          // again has not submitted a second proposal, and telling them twice would say they had.
+          idempotencyKey: `proposal-submitted:${fact.eventId}:${fact.proposalId}`,
+          triggerType: "proposal.submitted",
+          channel: "email",
+          recipientRef: submitter.email as string,
+          payload: {
+            submitterName: submitter.name,
+            // The proposal's own name, or a neutral stand-in: a form that asks for no title at all
+            // is a form an organizer may legitimately have published.
+            proposalTitle: fact.proposalTitle ?? "your proposal",
+          },
+          templateKey: "proposal-submitted",
+        }));
+      },
+    };
+    /*
+     * Constructed here rather than beside the other domain services, because it takes the port
+     * above and `notifyLifecycle` is defined in terms of the audit recorder and the events service.
+     * Every reader of `cfpService` — the public projection slice, the template slice, and the
+     * transport dependencies — is below this line.
+     */
+    const cfpService = new CfpService(
+      new D1CfpRepository(environment.DB),
+      () => crypto.randomUUID(),
+      now,
+      new D1SubmittedProposalAdapter(environment.DB),
+      cfpNotifications,
+    );
     /*
      * The AI suggestion port (#110), resolved once per request and never able to take review down.
      *

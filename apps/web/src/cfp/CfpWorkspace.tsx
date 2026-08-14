@@ -24,6 +24,7 @@ import {
   loadCfp,
   loadCfpRoutingStatuses,
   saveCfp,
+  saveCfpWindow,
 } from "../api/cfp";
 import "../styles/cfp.css";
 import { IconCheck, IconForm, IconGlobe, IconLink, IconPlus, IconWarning } from "../ui/icons";
@@ -35,17 +36,31 @@ import {
   describe,
   FIELD_TYPES,
   formatDate,
+  fromZonedInput,
   isNotFound,
   loadPublicSubmissionUrl,
   shape,
   starter,
+  toZonedInput,
   typeLabel,
 } from "./model";
 // This state-owning composer intentionally exceeds 400 lines. Its draft ordering, selected field,
 // preview, publication transition, and applicant answers are one lifecycle; the remaining long
 // sections are single-use render branches, which issue #70 explicitly says not to extract merely
 // for size. Reused controls and pure model operations live in controls.tsx and model.ts.
-export function CfpWorkspace({ eventId, organizer }: { eventId: string; organizer: boolean }) {
+export function CfpWorkspace({
+  eventId,
+  organizer,
+  /**
+   * The event's IANA zone. Every deadline in this composer is entered and shown in it — never in
+   * the operator's own, which is what an unconverted `datetime-local` would silently mean.
+   */
+  timezone,
+}: {
+  eventId: string;
+  organizer: boolean;
+  timezone: string;
+}) {
   const [form, setForm] = useState<CfpFormDto | null>(null);
   const [fields, setFields] = useState<CfpField[]>(starter);
   const [title, setTitle] = useState(DEFAULT_TITLE);
@@ -66,7 +81,10 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const [routingStatusReload, setRoutingStatusReload] = useState(0);
 
   const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [busy, setBusy] = useState<"save" | "publish" | "state" | null>(null);
+  const [busy, setBusy] = useState<"save" | "publish" | "state" | "window" | null>(null);
+  // Wall-clock strings in the event's zone, which is what a `datetime-local` input speaks.
+  const [opensAtInput, setOpensAtInput] = useState("");
+  const [closesAtInput, setClosesAtInput] = useState("");
   const [previewTab, setPreviewTab] = useState("draft");
 
   const feedback = useActionFeedback();
@@ -189,6 +207,18 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     };
   }, [eventId, organizer]);
 
+  /*
+   * The window inputs follow the server's answer rather than being edited free of it.
+   *
+   * Unlike the form's questions there is no "unsaved window" state to protect: the window is live
+   * state with one control, so whatever the API last returned is what the call actually has, and
+   * showing anything else would be the composer disagreeing with the public page.
+   */
+  useEffect(() => {
+    setOpensAtInput(toZonedInput(form?.opensAt ?? null, timezone));
+    setClosesAtInput(toZonedInput(form?.closesAt ?? null, timezone));
+  }, [form?.opensAt, form?.closesAt, timezone]);
+
   const draftShape = useMemo(
     () => shape({ title, description, fields, routing }),
     [title, description, fields, routing],
@@ -197,6 +227,15 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
 
   const dirty = baseline !== null && baseline !== draftShape;
   const liveStatus = form?.publishedStatus ?? null;
+  /*
+   * What applicants are actually in, which is not `liveStatus` once a window exists.
+   *
+   * The server computes it — a composer that decided from the operator's own clock would report
+   * an open call minutes after the deadline it published. `liveStatus` still decides what the
+   * close/reopen control does, because that control changes the organizer's half of the answer.
+   */
+  const effective = form?.effectiveStatus ?? liveStatus ?? "unpublished";
+  const deadlinePassed = effective === "closed" && liveStatus === "open";
   const divergesFromLive = publishedShape !== null && publishedShape !== draftShape;
   const absoluteUrl = publicUrl ? new URL(publicUrl, window.location.origin).toString() : null;
 
@@ -274,6 +313,30 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
       setBusy(null);
     }
   }, [announce, description, eventId, fields, form?.version, routing, title]);
+
+  const persistWindow = useCallback(
+    async (window: { opensAt: string | null; closesAt: string | null }) => {
+      setBusy("window");
+      try {
+        const saved = await saveCfpWindow(eventId, window);
+        setForm(saved);
+        announce(
+          "success",
+          window.closesAt
+            ? "Submission window saved. Applicants see the deadline on the public form."
+            : window.opensAt
+              ? "Submission window saved. The call opens at the time you set."
+              : "Submission window cleared. The call is bounded only by the open and closed controls.",
+        );
+      } catch (reason: unknown) {
+        // ERROR-INTENT: the announcement is the user-facing failure state for this control.
+        announce("error", describe(reason, "The submission window could not be saved."));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [announce, eventId],
+  );
 
   const transition = useCallback(
     async (state: "publish" | "close" | "reopen") => {
@@ -524,6 +587,83 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
             </p>
           )}
         </div>
+      </Card>
+
+      {/*
+        The scheduled window, and the precedence rule stated where the controls are.
+        Live state, like open and closed: saving it takes effect at once and publishes no form
+        edits. It is a separate card rather than a field of the composer for exactly that reason.
+      */}
+      <Card labelledBy="cfp-window" title="Submission window" tight>
+        <p className="cfp-window-rule">
+          Both gates have to allow a submission. The schedule cannot open a call you have closed,
+          and <strong>Reopen live CFP</strong> cannot open one whose deadline has passed — move or
+          clear the deadline to take submissions again. Times are {timezone}, the event&rsquo;s own
+          timezone.
+        </p>
+        <div className="form-row cfp-window-controls">
+          <div className="field">
+            <label htmlFor="cfp-opens-at">Opens</label>
+            <input
+              id="cfp-opens-at"
+              type="datetime-local"
+              value={opensAtInput}
+              onChange={(event) => setOpensAtInput(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cfp-closes-at">Deadline</label>
+            <input
+              id="cfp-closes-at"
+              type="datetime-local"
+              value={closesAtInput}
+              onChange={(event) => setClosesAtInput(event.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy !== null}
+            onClick={() => {
+              // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
+              void persistWindow({
+                opensAt: fromZonedInput(opensAtInput, timezone),
+                closesAt: fromZonedInput(closesAtInput, timezone),
+              });
+            }}
+          >
+            {busy === "window" ? "Saving…" : "Save window"}
+          </button>
+          {form?.opensAt || form?.closesAt ? (
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy !== null}
+              onClick={() => {
+                // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
+                void persistWindow({ opensAt: null, closesAt: null });
+              }}
+            >
+              Clear window
+            </button>
+          ) : null}
+        </div>
+        {/*
+          The one sentence that is not derivable from the two inputs: what applicants get right
+          now. Taken from the server's own answer, because a composer that decided from the
+          operator's clock would report an open call minutes after the deadline it published.
+        */}
+        <p className="cfp-window-state" role="status">
+          {effective === "open"
+            ? "Applicants can submit now."
+            : effective === "scheduled"
+              ? "Applicants see the opening date and no form."
+              : effective === "closed"
+                ? deadlinePassed
+                  ? "The deadline has passed, so applicants cannot submit even though the call is marked open."
+                  : "Applicants cannot submit."
+                : "Nothing is published, so applicants cannot reach this form at all."}
+        </p>
       </Card>
 
       {liveStatus && dirty ? (
