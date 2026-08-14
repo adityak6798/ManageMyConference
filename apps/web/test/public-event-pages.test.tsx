@@ -597,7 +597,8 @@ describe("what the public surface says about the call for proposals", () => {
     expect(side.textContent).toContain("Open");
     fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Open for submissions.");
+    expect(container.textContent).toContain("Submission form unavailable.");
+    expect(container.textContent).not.toContain("Open for submissions.");
     expect(await screen.findByRole("alert")).toHaveTextContent("programme loaded");
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
   });
@@ -653,7 +654,8 @@ describe("what the public surface says about the call for proposals", () => {
 
     fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Open for submissions.");
+    expect(container.textContent).toContain("Submission form unavailable.");
+    expect(container.textContent).not.toContain("Open for submissions.");
     // The reason is stated as a reading failure, not as a rejected submission.
     expect(await screen.findByRole("alert")).toHaveTextContent("The CFP is not published.");
     expect(container.textContent).not.toContain("Not submitted");

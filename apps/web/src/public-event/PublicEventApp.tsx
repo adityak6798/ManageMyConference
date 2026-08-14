@@ -335,11 +335,13 @@ export function PublicEventApp() {
   const cfpTitle = projection.cfp.title;
   const cfpDescription = projection.cfp.description;
   const cfpStatusLine =
-    cfpStatus === "open"
-      ? "Open for submissions."
-      : cfpStatus === "closed"
-        ? "Submissions closed."
-        : "Submissions closed.";
+    cfpStatus === "closed"
+      ? "Submissions closed."
+      : versionedCfp?.status === "open"
+        ? "Open for submissions."
+        : cfpUnavailable || liveCfp
+          ? "Submission form unavailable."
+          : "Checking submission availability…";
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
