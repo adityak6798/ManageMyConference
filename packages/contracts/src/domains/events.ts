@@ -257,7 +257,49 @@ export const templateApplicationPlanResponseSchema = z.object({
 export const templateApplicationResponseSchema = z.object({
   application: templateApplicationResultSchema,
 });
+/**
+ * One configuration category this event still owes, and the exact act that would settle it.
+ *
+ * Issue #203. `applications` above says what each *application* did; this says what the *event*
+ * is missing, folded across every application. The two disagree exactly where the issue said
+ * they would: a later clone naming a different template, or a narrower selection, is a newer
+ * application that may read `applied` while a category an earlier one could not write is still
+ * unconfigured.
+ *
+ * Everything a repair needs travels with the category, because a repair has to be the *same act*
+ * as the application it repairs — that version, that destination range, and this one category
+ * rather than the whole selection the original command named. Narrow by construction: the
+ * deciding application is the newest one that reached the category, so a category a later
+ * application configured is not outstanding and no repair offered here can revert one.
+ */
+export const outstandingConfigurationCategorySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  outcome: z.enum(["failed", "incompatible", "unauthorized"]),
+  reason: z.string(),
+  /** What the destination named in refusing — the same entries the result card renders. */
+  incompatible: z.array(sliceEntrySchema),
+  templateId: z.string().uuid(),
+  templateName: z.string(),
+  /** An archived template cannot be applied, so a surface offering the repair must know. */
+  templateState: z.enum(["active", "archived"]),
+  templateVersionId: z.string().uuid(),
+  version: z.number().int().positive(),
+  /** When the deciding application ran. The occurrence, for anything that keys on it. */
+  outstandingSince: z.string().datetime(),
+  destination: z.object({ startsOn: z.string(), endsOn: z.string() }),
+});
+export type OutstandingConfigurationCategoryDto = z.infer<
+  typeof outstandingConfigurationCategorySchema
+>;
+
 export const eventTemplateApplicationListResponseSchema = z.object({
   /** Newest first. Every version this event was configured from, not only the last one. */
   applications: z.array(eventTemplateApplicationSchema),
+  /**
+   * Answered beside the applications rather than on a route of its own, because every surface
+   * that wants one wants the other: the console lists what was applied *and* what is still
+   * owing, and one read of the same rows produces both.
+   */
+  outstanding: z.array(outstandingConfigurationCategorySchema),
 });

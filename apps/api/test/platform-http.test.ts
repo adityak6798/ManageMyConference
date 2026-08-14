@@ -33,6 +33,10 @@ const refuse = () => Promise.reject(new CapabilityDeniedError("Actor lacks the c
 function sources(overrides: Partial<PlatformSources> = {}): PlatformSources {
   return {
     events: { organizationOf: async () => ORGANIZATION },
+    // Composed like the rest, and empty: an event nothing has been cloned into owes nothing
+    // (issue #203). Absent instead, this category would correctly degrade to `failed` and log,
+    // which is the state the "answers every category" case asserts nothing does.
+    eventConfiguration: { outstandingConfiguration: async () => [] },
     content: {
       workspace: async () => ({
         sessions: [

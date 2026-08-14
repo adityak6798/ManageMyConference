@@ -19,15 +19,16 @@ import {
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { AgendaService } from "../src/application/agenda/agenda-service";
 import { ContentConflictError } from "../src/application/content/content-repository";
-import type { SpeakerProfile } from "../src/domain/content/content";
 import {
   ContentService,
   SpeakerChecklistTitleTakenError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
+import { CapabilityDeniedError } from "../src/application/identity/actor";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import { ProposalNotFoundError } from "../src/application/review/public";
 import { ReviewService } from "../src/application/review/review-service";
+import type { SpeakerProfile } from "../src/domain/content/content";
 import { createMigratedDatabase } from "./support/seeded-d1";
 
 const _statements = (sql: string) =>
@@ -310,11 +311,13 @@ describe("D1ContentRepository revisions", () => {
     const repository = new D1ContentRepository(database as ContentDatabasePort);
     const now = () => new Date("2026-08-10T12:00:00.000Z");
     // Each service gets its own id sequence, so a revision is traceable to the caller that
-    // wrote it even when two of them are in flight at once.
-    const service = (prefix: string) => {
+    // wrote it even when two of them are in flight at once. `over` takes the repository as a
+    // parameter so a test can hand it a port with a writer wedged into it and still exercise the
+    // real service.
+    const serviceOver = (store: D1ContentRepository, prefix: string) => {
       let id = 0;
       return new ContentService({
-        repository,
+        repository: store,
         assetStorage: new DeterministicAssetStorage(),
         proposals: {
           acceptedProposal: async () => {
@@ -331,11 +334,18 @@ describe("D1ContentRepository revisions", () => {
         now,
       });
     };
+    const service = (prefix: string) => serviceOver(repository, prefix);
     const revisions = async () =>
       ((await repository.workspace(eventId)).revisions ?? []).toSorted(
         (left, right) => left.revisionNumber - right.revisionNumber,
       );
-    return { database: database as ContentDatabasePort, repository, service, revisions };
+    return {
+      database: database as ContentDatabasePort,
+      repository,
+      service,
+      serviceOver,
+      revisions,
+    };
   }
 
   const draft = (id: string) => ({
@@ -343,6 +353,178 @@ describe("D1ContentRepository revisions", () => {
     eventId,
     actorId: "seed-organizer",
     createdAt: "2026-08-10T12:00:00.000Z",
+  });
+
+  /**
+   * The same seam as `withWriterBetweenReadAndWrite`, for the writers that do not batch.
+   *
+   * `updateProfilePhoto` and `updateAsset` are a single guarded `UPDATE` through `prepare().run()`,
+   * so there is no batch to hang the interleave off. This wraps the statement instead and lets
+   * one writer in immediately before the matching statement runs — the instant between the
+   * service's `findProfile`/`findAsset` and the write it decided to make.
+   */
+  function withWriterBeforeStatement(
+    database: ContentDatabasePort,
+    matches: string,
+    interleave: () => Promise<unknown>,
+  ): ContentDatabasePort {
+    let pending: (() => Promise<unknown>) | null = interleave;
+    return {
+      batch: (statements) => database.batch(statements),
+      prepare: (query) => {
+        const statement = database.prepare(query);
+        if (!query.includes(matches)) return statement;
+        const wrap = (bound: ReturnType<ContentDatabasePort["prepare"]>) => ({
+          bind: (...values: unknown[]) => wrap(bound.bind(...values)),
+          all: <T>() => bound.all<T>(),
+          run: async <T>() => {
+            const run = pending;
+            pending = null;
+            if (run) await run();
+            return bound.run<T>();
+          },
+        });
+        return wrap(statement);
+      },
+    };
+  }
+
+  /** Delete a row straight out from under whoever is mid-write, as another organizer would. */
+  const remove = (database: ContentDatabasePort, sql: string, ...values: unknown[]) =>
+    database
+      .prepare(sql)
+      .bind(...values)
+      .run();
+
+  /**
+   * Every remaining content writer refuses a write that matched no row (issue #202, `GAP-025`).
+   *
+   * #188 closed this for the three writers whose callers read the row first, and named four that
+   * still discarded the count. This is the other half, driven against real D1 because the count
+   * is what the driver reports and a memory repository has none: the row is genuinely deleted
+   * between the caller's read and its write, and the assertion is the refusal rather than the
+   * absence of a crash.
+   *
+   * Remove any one `changedRows(...) > 0` from `d1-content-repository.ts` and the corresponding
+   * assertion below fails — a `true` where the store did nothing, or a resolved promise where a
+   * person was told the save landed.
+   */
+  it("refuses every writer whose row went between the caller's read and the write", async () => {
+    const { database, repository, serviceOver } = await fixture("content-vanished-rows");
+    const organizer = await resolveSeededDemoActor("organizer");
+    const asset = {
+      id: "80000000-0000-4000-8000-0000000000a1",
+      eventId,
+      speakerProfileId: profileId,
+      name: "slides.pdf",
+      contentType: "application/pdf",
+      storageKey: "event/profile/slides",
+      visibility: "publishable" as const,
+      uploadedAt: "2026-08-10T12:00:00.000Z",
+      versionGroupId: "80000000-0000-4000-8000-0000000000a1",
+      versionNumber: 1,
+      isLatest: true,
+    };
+    await repository.addAsset(asset);
+
+    // `unpublishAsset`, the case the issue states outright: the service answers with the object
+    // it constructed, so before the count was read this returned 200 reporting an asset another
+    // organizer had already deleted as private. An asset that has gone now answers exactly as
+    // one that never existed does.
+    const unpublishing = new D1ContentRepository(
+      withWriterBeforeStatement(database, "UPDATE speaker_assets SET visibility", () =>
+        remove(database, "DELETE FROM speaker_assets WHERE id=?", asset.id),
+      ),
+    );
+    await expect(
+      serviceOver(unpublishing, "c").unpublishAsset(organizer, asset.id),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    expect(await repository.findAsset(asset.id)).toBeNull();
+
+    /*
+     * `setProfilePhoto`, the second case the issue states: the service falls back to
+     * `{ ...profile, photoAssetId }` when the re-read answers null, so a profile deleted
+     * mid-edit was reported with its headshot set.
+     *
+     * A profile of this test's own rather than the seeded one, and the reason is a boundary
+     * rather than tidiness. The seeded speaker is the destination of a converted CRM prospect,
+     * so deleting it means clearing `crm_prospects.speaker_id` — a write to a table the CRM
+     * domain owns, from a test the content domain owns, which `npm run context -- check`
+     * refuses and is right to. Nothing in the product deletes a speaker at all, which is exactly
+     * why this has to be driven at the store: what decides whether a writer reads its count is
+     * whether the count decides anything for its caller, not whether a delete path happens to
+     * exist yet. (Deliberately not stated as a rule — see the `write` docblock, where three
+     * attempts at one were each refuted.)
+     */
+    const strangerId = "10000000-0000-4000-8000-0000000000f1";
+    const headshotId = "80000000-0000-4000-8000-0000000000a2";
+    await remove(
+      database,
+      "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,workflow_status,logistics_json,custom_fields_json) VALUES (?,?,?,?,?,?,'','','','onboarding','{}','{}')",
+      strangerId,
+      eventId,
+      "seed-speaker",
+      "vanishing-person",
+      "Vanishing Speaker",
+      "vanishing@example.test",
+    );
+    await repository.addAsset({
+      ...asset,
+      id: headshotId,
+      speakerProfileId: strangerId,
+      name: "headshot.png",
+      contentType: "image/png",
+      versionGroupId: headshotId,
+    });
+    const naming = new D1ContentRepository(
+      withWriterBeforeStatement(
+        database,
+        "UPDATE speaker_profiles SET photo_asset_id",
+        async () => {
+          await remove(
+            database,
+            "DELETE FROM speaker_assets WHERE speaker_profile_id=?",
+            strangerId,
+          );
+          await remove(database, "DELETE FROM speaker_profiles WHERE id=?", strangerId);
+        },
+      ),
+    );
+    await expect(
+      serviceOver(naming, "d").setProfilePhoto(organizer, strangerId, headshotId),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+
+    // That profile is gone for the rest of this test, which is what the store-level assertions
+    // want: each writer addresses a row that is not there.
+    expect(await repository.findProfile(strangerId)).toBeNull();
+    await expect(repository.updateProfilePhoto(strangerId, headshotId)).resolves.toBe(false);
+    await expect(
+      repository.updateProfileWorkflow(strangerId, {
+        workflowStatus: "ready",
+        logistics: { hotel: "confirmed" },
+        customFields: {},
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      repository.updateAsset({ ...asset, id: asset.id, visibility: "private" }),
+    ).resolves.toBe(false);
+
+    // The import ledger, the mildest of the four and the only one nothing deletes today. It is
+    // still asserted, because "the row cannot vanish" is not the criterion that decides whether
+    // a writer reads its count.
+    await repository.beginSpeakerImport(eventId, "vanishing@example.test");
+    await expect(repository.completeSpeakerImport(eventId, "vanishing@example.test")).resolves.toBe(
+      true,
+    );
+    await remove(
+      database,
+      "DELETE FROM content_speaker_import_rows WHERE event_id=? AND normalized_email=?",
+      eventId,
+      "vanishing@example.test",
+    );
+    await expect(repository.completeSpeakerImport(eventId, "vanishing@example.test")).resolves.toBe(
+      false,
+    );
   });
 
   it("writes no revision when the canonical update is refused", async () => {

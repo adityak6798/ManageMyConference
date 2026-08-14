@@ -281,16 +281,26 @@ export const eventsRoutes: RouteModule = {
      * failure mode that closes is quiet: an application whose agenda category was refused looks
      * from every other surface exactly like one that landed whole, and the organizer who would
      * repair it is the one person who never hears about it again.
+     *
+     * `outstanding` rides along for issue #203, which is the half #175 left: the applications
+     * say what each *application* did, and the fold beside them says what the *event* still
+     * owes. They disagree exactly where the issue said they would — a later clone naming a
+     * different template is a newer application that may read `applied` while a category an
+     * earlier one could not write is still unconfigured. One read of the same rows answers both,
+     * which is why this is one route rather than two.
      */
     app.get("/api/events/:eventId/template-applications", async (context) => {
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success) return malformed(context, "Event ID is malformed.");
       requireEventCapability(context.get("actor"), params.data.eventId, "events:settings:read");
-      const applications = await templates().applications(
+      const { applications, outstanding } = await templates().configuration(
         context.get("actor"),
         params.data.eventId,
       );
-      return context.json({ applications: applications.map(eventTemplateApplicationToDto) });
+      return context.json({
+        applications: applications.map(eventTemplateApplicationToDto),
+        outstanding,
+      });
     });
     app.post("/api/events/:eventId/template-applications", async (context) => {
       const params = eventIdParamsSchema.safeParse(context.req.param());

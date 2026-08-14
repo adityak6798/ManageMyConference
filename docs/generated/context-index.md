@@ -81,6 +81,7 @@
 - `test` / `repository-fact`: [apps/api/test/d1-event-template-repository.integration.test.ts](../../apps/api/test/d1-event-template-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/event-templates-http.test.ts](../../apps/api/test/event-templates-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/event-templates.test.ts](../../apps/api/test/event-templates.test.ts)
+- `test` / `repository-fact`: [apps/api/test/outstanding-configuration.test.ts](../../apps/api/test/outstanding-configuration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/publishing-template-slice.test.ts](../../apps/api/test/publishing-template-slice.test.ts)
 - `test` / `repository-fact`: [apps/api/test/review-template-slice.test.ts](../../apps/api/test/review-template-slice.test.ts)
 - `test` / `repository-fact`: [apps/api/test/seeded-event-template.test.ts](../../apps/api/test/seeded-event-template.test.ts)
@@ -215,6 +216,7 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-REVIEW`
+- `test` / `repository-fact`: [apps/api/test/acceptance-latency.integration.test.ts](../../apps/api/test/acceptance-latency.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-review-repository.integration.test.ts](../../apps/api/test/d1-review-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/review-http.test.ts](../../apps/api/test/review-http.test.ts)
@@ -528,6 +530,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/publishing/template-slice.ts](../../apps/api/src/application/publishing/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/template-slice.ts](../../apps/api/src/application/review/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/events/event-template.ts](../../apps/api/src/domain/events/event-template.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/events/outstanding-configuration.ts](../../apps/api/src/domain/events/outstanding-configuration.ts)
 - `test` / `repository-fact`: [apps/api/test/seeded-event-template.test.ts](../../apps/api/test/seeded-event-template.test.ts)
 - `code` / `repository-fact`: [apps/web/src/api/event-templates.ts](../../apps/web/src/api/event-templates.ts)
 - `code` / `repository-fact`: [apps/web/src/content/ChecklistEditor.tsx](../../apps/web/src/content/ChecklistEditor.tsx)
@@ -639,11 +642,13 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-platform-repository.ts](../../apps/api/src/adapters/persistence/d1-platform-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/platform.ts](../../apps/api/src/adapters/persistence/schema/platform.ts)
 - `code` / `repository-fact`: [apps/api/src/application/platform/inbox-service.ts](../../apps/api/src/application/platform/inbox-service.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/events/outstanding-configuration.ts](../../apps/api/src/domain/events/outstanding-configuration.ts)
 - `code` / `repository-fact`: [apps/web/src/platform/InboxWorkspace.tsx](../../apps/web/src/platform/InboxWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/platform.tsx](../../apps/web/src/workspaces/platform.tsx)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)
 
 ### `PRD-OPS-003`
@@ -706,6 +711,7 @@
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/content.ts](../../packages/contracts/src/domains/content.ts)
 
 ### `PRD-SPK-002`

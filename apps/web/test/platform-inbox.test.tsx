@@ -3,7 +3,7 @@
  * The inbox surface, and specifically the two things a service test cannot see.
  *
  * Partial failure is a first-class criterion here rather than a nicety: one category that did
- * not answer must report itself and leave the other four usable, and the page must not blank.
+ * not answer must report itself and leave the other five usable, and the page must not blank.
  * And a dismissal has to round-trip through the surface — marked, still visible, and undoable —
  * because "dismissed" is a state of the item rather than a way of deleting it.
  */
@@ -20,6 +20,7 @@ const emptyCategories: InboxResponseDto["categories"] = {
   programme: { state: "ok", items: [] },
   deliveries: { state: "ok", items: [] },
   publication: { state: "ok", items: [] },
+  configuration: { state: "ok", items: [] },
 };
 
 const TASK_KEY = "speaker-task:task-1:2026-08-20T23:59:00.000Z";
@@ -125,6 +126,62 @@ describe("the operational inbox", () => {
     // An empty category says why it is empty rather than showing a bare heading.
     const reviews = within(screen.getByRole("region", { name: "Reviews outstanding" }));
     expect(reviews.getByText(/Every assignment has a completed evaluation/)).toBeInTheDocument();
+  });
+
+  /**
+   * The sixth category (issue #203), which has no browser assertion and cannot get one cheaply.
+   *
+   * `seed/reset.sql` deletes `event_template_applications`, so the seeded event owes nothing, and
+   * populating it in the browser would mean applying a template engineered to half-fail. That
+   * leaves this tier as the only place the rendered section is proven at all, which the
+   * `ACC-OPS` scorecard row now says outright rather than implying browser coverage it lacks.
+   */
+  it("renders configuration this event was cloned into and never received", async () => {
+    stubFetch([
+      answer({
+        configuration: {
+          state: "ok",
+          items: [
+            {
+              key: `template-category:${eventId}:agenda:2026-08-01T09:00:00.000Z`,
+              category: "configuration",
+              title:
+                "Rooms and time slots could not be configured from \u201cAnnual summit starter\u201d",
+              subtitle: "The destination has no room matching \u201cGrand Hall\u201d.",
+              priority: "high",
+              status: "open",
+              href: `/event-templates?event=${eventId}`,
+            },
+          ],
+        },
+      }),
+    ]);
+    render(<InboxWorkspace eventId={eventId} />);
+
+    const configuration = within(
+      (await screen.findByRole("region", { name: "Event configuration" })) as HTMLElement,
+    );
+    // The link goes where the repair lives, which is the whole point of raising it here: an
+    // operator who never opens Event templates is told, and taken there.
+    expect(
+      configuration.getByRole("link", {
+        name: /Rooms and time slots could not be configured/,
+      }),
+    ).toHaveAttribute("href", `/event-templates?event=${eventId}`);
+    expect(configuration.getByText(/no room matching/)).toBeInTheDocument();
+    expect(configuration.getByText("high")).toBeInTheDocument();
+  });
+
+  it("says an event nothing was cloned into owes nothing, rather than showing a bare heading", async () => {
+    stubFetch([withTask("open")]);
+    render(<InboxWorkspace eventId={eventId} />);
+
+    const configuration = within(
+      (await screen.findByRole("region", { name: "Event configuration" })) as HTMLElement,
+    );
+    expect(
+      configuration.getByText(/Every category this event was cloned from arrived/),
+    ).toBeInTheDocument();
   });
 
   it("reports the category that failed and keeps the others usable", async () => {

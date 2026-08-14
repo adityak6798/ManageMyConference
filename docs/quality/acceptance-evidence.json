@@ -9,7 +9,7 @@
   ],
   "freshness": {
     "rule": "commit",
-    "note": "A record counts only for the commit it names. Anything else \u2014 a record from an earlier commit, or none at all \u2014 fails the gate, because a suite that passed on other code is not evidence about this one. Uncommitted working-tree changes are not detected; the rule binds a record to HEAD, not to a tree hash."
+    "note": "A record counts only for the commit it names. Anything else — a record from an earlier commit, or none at all — fails the gate, because a suite that passed on other code is not evidence about this one. Uncommitted working-tree changes are not detected; the rule binds a record to HEAD, not to a tree hash."
   },
   "rows": {
     "ACC-HARNESS": {
@@ -75,7 +75,8 @@
         "apps/web/test/proposal-acceptance.test.tsx",
         "apps/web/test/review-suggestions.test.tsx",
         "apps/web/e2e/review-workflow.spec.ts",
-        "apps/web/e2e/lifecycle.spec.ts"
+        "apps/web/e2e/lifecycle.spec.ts",
+        "apps/api/test/acceptance-latency.integration.test.ts"
       ]
     },
     "ACC-CFP": {
@@ -189,7 +190,8 @@
         "apps/api/test/seeded-event-template.test.ts",
         "apps/web/test/event-templates.test.tsx",
         "apps/web/test/event-templates-result.test.tsx",
-        "apps/web/e2e/event-templates.spec.ts"
+        "apps/web/e2e/event-templates.spec.ts",
+        "apps/api/test/outstanding-configuration.test.ts"
       ]
     },
     "ACC-DEMO-SMOKE": {

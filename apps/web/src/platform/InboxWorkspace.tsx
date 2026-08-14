@@ -1,14 +1,14 @@
 /**
  * The operational inbox at `/inbox`.
  *
- * Five categories, each read from its owning domain on every load, so the page shows what is
+ * Six categories, each read from its owning domain on every load, so the page shows what is
  * true rather than what a queue last recorded. Two things it has to be careful about, and both
  * are visible in the code below.
  *
  * **A failed category must not blank the page.** Each category keeps the last value it was given
  * across a failed refresh and reports the failure beside it, following the `Panel<T>` shape
- * `OverviewPage` uses — a dashboard that goes blank because one of five reads failed is worse
- * than no dashboard, because it hides the four that worked.
+ * `OverviewPage` uses — a dashboard that goes blank because one of six reads failed is worse
+ * than no dashboard, because it hides the five that worked.
  *
  * **A dismissal is optimistic but never a lie.** Pressing Dismiss marks the row immediately and
  * reloads; if the write is refused, the reload puts the row back open and the refusal is shown.
@@ -27,6 +27,10 @@ import { Card, EmptyState, Notice, Pill, useActionFeedback } from "../ui/primiti
 type CategoryKey = keyof InboxResponseDto["categories"];
 
 const CATEGORY_ORDER: readonly CategoryKey[] = [
+  // Configuration first: an event cloned in part is wrong in a way none of the others describe,
+  // and unlike them it is invisible from every surface but the one an operator opens on purpose
+  // (issue #203).
+  "configuration",
   "programme",
   "speakerWork",
   "reviews",
@@ -35,6 +39,7 @@ const CATEGORY_ORDER: readonly CategoryKey[] = [
 ];
 
 const CATEGORY_LABELS: Readonly<Record<CategoryKey, string>> = {
+  configuration: "Event configuration",
   programme: "Programme",
   speakerWork: "Speaker work",
   reviews: "Reviews outstanding",
@@ -44,6 +49,7 @@ const CATEGORY_LABELS: Readonly<Record<CategoryKey, string>> = {
 
 /** What each category is *for*, so an empty one reads as good news rather than as a bug. */
 const CATEGORY_EMPTY: Readonly<Record<CategoryKey, string>> = {
+  configuration: "Every category this event was cloned from arrived.",
   programme: "Every session is placed and the board has no conflicts.",
   speakerWork: "No speaker has outstanding work.",
   reviews: "Every assignment has a completed evaluation.",

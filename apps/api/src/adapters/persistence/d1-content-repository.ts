@@ -24,6 +24,7 @@ import type {
   SpeakerTaskTemplate,
 } from "../../domain/content/content";
 import { changedRows, type D1WriteResult } from "./d1-write-result";
+
 interface D1Result<T = unknown> {
   results?: T[];
   success: boolean;
@@ -135,11 +136,12 @@ export class D1ContentRepository
     );
   }
   async completeSpeakerImport(eventId: string, email: string) {
-    await this.run(
+    const result = await this.write(
       "UPDATE content_speaker_import_rows SET status='complete' WHERE event_id=? AND normalized_email=?",
       eventId,
       email,
     );
+    return changedRows(result, "complete a speaker import row") > 0;
   }
   async listSchedulableSessions(eventId: string) {
     const sessions = await this.rows(
@@ -223,16 +225,46 @@ export class D1ContentRepository
    * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
    * row" from "no visible difference" rather than refusing an edit that changed nothing.
    *
-   * **Four unguarded writers still use `run` and do not read the count**, and it is worth naming
-   * them rather than claiming this is already the whole file's rule: `updateProfilePhoto`,
-   * `updateProfileWorkflow`, `updateAsset` and `completeSpeakerImport`. Each has the same
-   * read-then-write gap. `updateProfilePhoto` and `updateAsset` want the same answer as the
-   * writers here; `completeSpeakerImport` is the mildest, because nothing deletes the row it
-   * writes; and the one that keeps all four waiting is `updateProfileWorkflow`, the CSV import's
-   * writer, because what an import should do with a row that vanished mid-run is a product
-   * decision about imports rather than a repair to this rule. Recorded in `docs/quality/known-gaps.md` as `GAP-025` rather than
-   * half-done — with the two whole-row writers `content-repository.ts` documents as fixture-only
-   * explicitly outside it, since they have no production caller to mislead.
+   * **There is no one-line rule for which writers come through here, and three attempts at
+   * writing one were each wrong** (issue #202, the second filing of the same divergence).
+   * "Every conditional writer", "every writer that addresses one row by id" and "every writer
+   * whose caller reports success to a person" were all published in this comment and all refuted
+   * by review — the last two by the very list below them. So what follows is the file, by
+   * category, with the reason each is where it is. It is meant to be checked, not summarised.
+   *
+   * - **Reads the count and answers with it**: `updateProfilePhoto`, `updateProfileWorkflow`,
+   *   `updateTask`, `updateAsset`, `updateResource`, `updateTaskTemplate`, `completeSpeakerImport`.
+   *   Each is a single guarded `UPDATE` whose callers read the row first and then tell somebody
+   *   it saved. That combination is what the count is for. (`updateProfilePhoto` has one further
+   *   call site, inside asset deletion, that deliberately discards the answer and says so at that
+   *   line — the method still reads and returns it.)
+   * - **Reads the count and deliberately discards it**: `deleteSession`, `deleteResource`,
+   *   `deleteTaskTemplate`. A row already gone is the outcome the caller asked for, so zero is
+   *   not a failure — but a driver that cannot report a count still is, which is the half worth
+   *   keeping.
+   * - **Plain inserts**, whose failure mode is a raised constraint rather than a quiet zero, and
+   *   the two `ON CONFLICT DO UPDATE` upserts, which converge by design. `beginSpeakerImport` is
+   *   an `INSERT OR IGNORE` and so *does* converge on a quiet zero — deliberately: it claims the
+   *   ledger row, and a row another attempt already claimed is the same outcome. Its caller reads
+   *   the state back through `findSpeakerImport` rather than inferring it from a count.
+   * - **The batch paths, which read only `success`**: `accept` and `addTasks` are inserts.
+   *   `deleteAsset` carries a conditional promotion whose `WHERE id=(SELECT … LIMIT 1)` matches
+   *   nothing when there is no earlier version to promote, which is an ordinary state.
+   *   `replaceLatestAsset` is the interesting one: its demotion is `WHERE id=?` against the
+   *   version it means to replace, and a zero there would be a lost write. It is left without a
+   *   count because **storage refuses the batch instead** — `speaker_assets_latest_unique`
+   *   (migration `1403`) is a partial unique index on `version_group_id`
+   *   `WHERE version_group_id IS NOT NULL AND is_latest=1`, and the group is never null here
+   *   because the insert binds `versionGroupId ?? id` — so an insert that lands beside a row the
+   *   demotion failed to clear violates it and D1 **rejects the whole batch**, which was proven
+   *   against a real database rather than argued from the schema. A constraint that makes the
+   *   loss loud is a stronger guard than a count this method would have to interpret: it also
+   *   catches the case a count would miss, where the demotion matched its row but a competitor
+   *   had already inserted its own latest. This is a deliberate exception rather than an
+   *   oversight, and loosening that index would mean revisiting this line.
+   *   (The private `batch()` used by `revise` is separate: it reports each statement's count.)
+   * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
+   *   no production caller to mislead — stated here and in `content-repository.ts`.
    */
   private async write(query: string, ...values: unknown[]) {
     const result = await this.database
@@ -358,73 +390,91 @@ export class D1ContentRepository
         comments: [],
         revisions: [],
       };
-    const scoped = <T>(table: string, order: string, map: (row: Row) => T) =>
+    const scoped = (table: string, order: string) =>
       this.rows(
         `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND profile.user_id = ? ORDER BY ${order}`,
         eventId,
         userId,
-      ).then((rows) => rows.map(map));
-    const sessions = (
-      await this.rows(
+      );
+    /*
+     * The remaining seven reads are issued together rather than one after another (issue #207).
+     *
+     * Each is an independent `SELECT` over a different table; none reads a row another one
+     * writes, and nothing here writes at all. Awaited in sequence they cost seven round trips to
+     * D1 in a row, which locally is nothing and in the Worker is seven latencies — and this
+     * method runs **twice** on the acceptance path, which measured 65 sequential round trips
+     * before this change. Issued together they cost one wait.
+     *
+     * The profile read above stays first, and deliberately: the speaker projection returns early
+     * when a portal caller owns no profile on this event, and the six scoped queries below are
+     * meaningless before that is known.
+     *
+     * This buys no *less* consistency than before, and it is worth stating that way rather than
+     * claiming a snapshot: D1 gives no cross-statement isolation, so seven `prepare().all()`
+     * calls are seven independent reads whether they are issued serially or together — only
+     * `batch()` is one transaction. Ordering them against each other therefore never meant
+     * anything, because a concurrent writer could land between any two of them in the old
+     * arrangement just as easily.
+     */
+    const [sessionRows, taskRows, assetRows, messageRows, resourceRows, commentRows, revisionRows] =
+      await Promise.all([
+        this.rows(
+          userId
+            ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND profile.user_id = ? ORDER BY session.title"
+            : "SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title",
+          eventId,
+          ...(userId ? [userId] : []),
+        ),
         userId
-          ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND profile.user_id = ? ORDER BY session.title"
-          : "SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title",
-        eventId,
-        ...(userId ? [userId] : []),
-      )
-    ).map((row) => this.session(row));
-    const tasks = userId
-      ? await scoped("speaker_tasks", "due_at,title", (row) => this.task(row))
-      : (
-          await this.rows(
-            "SELECT * FROM speaker_tasks WHERE event_id = ? ORDER BY due_at,title",
-            eventId,
-          )
-        ).map((row) => this.task(row));
-    const assets = userId
-      ? await scoped("speaker_assets", "uploaded_at", (row) => this.asset(row))
-      : (
-          await this.rows(
-            "SELECT * FROM speaker_assets WHERE event_id = ? ORDER BY uploaded_at",
-            eventId,
-          )
-        ).map((row) => this.asset(row));
-    const messages = userId
-      ? await scoped("speaker_messages", "sent_at", (row) => this.message(row))
-      : (
-          await this.rows(
-            "SELECT * FROM speaker_messages WHERE event_id = ? ORDER BY sent_at",
-            eventId,
-          )
-        ).map((row) => this.message(row));
-    const resources = (
-      await this.rows(
-        `SELECT * FROM speaker_resources WHERE event_id = ?${userId ? " AND visibility = 'visible'" : ""} ORDER BY sort_order,title`,
-        eventId,
-      )
-    ).map((row) => this.resource(row));
-    const comments = (
-      await this.rows(
+          ? scoped("speaker_tasks", "due_at,title")
+          : this.rows(
+              "SELECT * FROM speaker_tasks WHERE event_id = ? ORDER BY due_at,title",
+              eventId,
+            ),
         userId
-          ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND profile.user_id=? ORDER BY comment.created_at"
-          : "SELECT * FROM content_asset_comments WHERE event_id=? ORDER BY created_at",
-        eventId,
-        ...(userId ? [userId] : []),
-      )
-    ).map((row) => this.comment(row));
-    const revisions = userId
-      ? []
-      : (
-          await this.rows(
-            // Timestamp first, then the entity's own numbering. Two revisions of one record can
-            // legitimately share an instant — a retried edit is stamped no earlier than the
-            // revision it follows — and SQLite's sort is not stable, so without the tiebreak the
-            // console could list revision 2 above revision 1 with both numbers on screen.
-            "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at,entity_type,entity_id,revision_number",
-            eventId,
-          )
-        ).map((row) => this.revision(row));
-    return { sessions, speakers, tasks, assets, messages, resources, comments, revisions };
+          ? scoped("speaker_assets", "uploaded_at")
+          : this.rows(
+              "SELECT * FROM speaker_assets WHERE event_id = ? ORDER BY uploaded_at",
+              eventId,
+            ),
+        userId
+          ? scoped("speaker_messages", "sent_at")
+          : this.rows(
+              "SELECT * FROM speaker_messages WHERE event_id = ? ORDER BY sent_at",
+              eventId,
+            ),
+        this.rows(
+          `SELECT * FROM speaker_resources WHERE event_id = ?${userId ? " AND visibility = 'visible'" : ""} ORDER BY sort_order,title`,
+          eventId,
+        ),
+        this.rows(
+          userId
+            ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND profile.user_id=? ORDER BY comment.created_at"
+            : "SELECT * FROM content_asset_comments WHERE event_id=? ORDER BY created_at",
+          eventId,
+          ...(userId ? [userId] : []),
+        ),
+        userId
+          ? Promise.resolve([] as Row[])
+          : this.rows(
+              // Timestamp first, then the entity's own numbering. Two revisions of one record can
+              // legitimately share an instant — a retried edit is stamped no earlier than the
+              // revision it follows — and SQLite's sort is not stable, so without the tiebreak the
+              // console could list revision 2 above revision 1 with both numbers on screen.
+              "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at,entity_type,entity_id,revision_number",
+              eventId,
+            ),
+      ]);
+    return {
+      sessions: sessionRows.map((row) => this.session(row)),
+      speakers,
+      tasks: taskRows.map((row) => this.task(row)),
+      assets: assetRows.map((row) => this.asset(row)),
+      messages: messageRows.map((row) => this.message(row)),
+      resources: resourceRows.map((row) => this.resource(row)),
+      comments: commentRows.map((row) => this.comment(row)),
+      revisions: revisionRows.map((row) => this.revision(row)),
+    };
   }
   private profileWrite(profile: SpeakerProfile, where?: RowGuard): D1Statement {
     return this.database
@@ -443,22 +493,34 @@ export class D1ContentRepository
         ...(where?.values ?? [profile.id]),
       );
   }
+  /**
+   * No count, because there is no caller to mislead: `ContentRepository` documents this as
+   * fixture-only, and a fixture asserting its own setup landed is the test's job rather than
+   * this adapter's. A production caller appearing here is a caller that has bypassed attributed
+   * history, and it should be given `reviseProfile` rather than a row count.
+   */
   async updateProfile(profile: SpeakerProfile) {
     const result = await this.profileWrite(profile).run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
   }
   async updateProfilePhoto(profileId: string, assetId: string | null) {
-    await this.run("UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?", assetId, profileId);
+    const result = await this.write(
+      "UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?",
+      assetId,
+      profileId,
+    );
+    return changedRows(result, "record a speaker headshot") > 0;
   }
   async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_profiles SET workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
       fields.workflowStatus,
       JSON.stringify(fields.logistics),
       JSON.stringify(fields.customFields),
       profileId,
     );
+    return changedRows(result, "write imported speaker workflow fields") > 0;
   }
   async updateTask(task: SpeakerTask) {
     const result = await this.write(
@@ -485,16 +547,23 @@ export class D1ContentRepository
         ...(where?.values ?? [session.id]),
       );
   }
+  /** Fixture-only, for the same reason as `updateProfile`; `reviseSession` is the real writer. */
   async updateSession(session: ContentSession) {
     const result = await this.sessionWrite(session).run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
   }
   async deleteSession(sessionId: string) {
-    await this.run("DELETE FROM content_sessions WHERE id=?", sessionId);
+    // The count is read but not returned: a session already gone is the outcome the caller
+    // asked for. A driver that cannot report one is still a failure rather than a silent
+    // success, which is the half of the rule that matters here.
+    changedRows(
+      await this.write("DELETE FROM content_sessions WHERE id=?", sessionId),
+      "delete a content session",
+    );
   }
   async updateAsset(asset: SpeakerAsset) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_assets SET visibility=?,task_id=?,session_id=?,version_group_id=?,version_number=?,is_latest=? WHERE id=?",
       asset.visibility,
       asset.taskId ?? null,
@@ -504,6 +573,7 @@ export class D1ContentRepository
       asset.isLatest === false ? 0 : 1,
       asset.id,
     );
+    return changedRows(result, "update a speaker asset") > 0;
   }
   async addAsset(asset: SpeakerAsset) {
     await this.run(
@@ -571,6 +641,25 @@ export class D1ContentRepository
     const results = await this.database.batch(statements);
     if (results.some((result) => !result.success))
       throw new Error("Content asset deletion batch failed");
+  }
+  async hasSpeakerWork(eventId: string, profileId: string) {
+    // `LIMIT 1` and no columns beyond the constant: the caller wants existence, and the index on
+    // `speaker_profile_id` answers it without reading a row's payload.
+    //
+    // The event predicate is redundant *today* — a `speaker_profiles` row belongs to exactly one
+    // event, so every task on a profile is on that profile's event — and it is here because
+    // `speaker_tasks.event_id` is an independent foreign key with nothing constraining it to the
+    // profile's own event. Without it the port's promise ("on this event") would be true by an
+    // invariant no column enforces, and the caller already holds the id.
+    return (
+      (
+        await this.rows(
+          "SELECT 1 FROM speaker_tasks WHERE event_id = ? AND speaker_profile_id = ? LIMIT 1",
+          eventId,
+          profileId,
+        )
+      ).length > 0
+    );
   }
   async addTask(task: SpeakerTask) {
     await this.run(
@@ -673,7 +762,14 @@ export class D1ContentRepository
     return changedRows(result, "update a speaker resource") > 0;
   }
   async deleteResource(resourceId: string) {
-    await this.run("DELETE FROM speaker_resources WHERE id=?", resourceId);
+    // The same reading as `deleteSession` and `deleteTaskTemplate`: a resource already gone is
+    // the outcome the caller asked for, so the count is read and discarded rather than returned.
+    // What that keeps is the other half — a driver that cannot report one is a failure here
+    // rather than a silent success. This was the one conditional delete #202 left out.
+    changedRows(
+      await this.write("DELETE FROM speaker_resources WHERE id=?", resourceId),
+      "delete a speaker resource",
+    );
   }
   async findResource(resourceId: string) {
     const row = (

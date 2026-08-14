@@ -9,15 +9,15 @@ import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic
 import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
 import { AgendaService } from "../src/application/agenda/agenda-service";
+import type {
+  ContentActorDirectoryPort,
+  SpeakerNotificationPort,
+} from "../src/application/content/content-service";
 import {
   ContentService,
   SpeakerChecklistTitleTakenError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
-} from "../src/application/content/content-service";
-import type {
-  ContentActorDirectoryPort,
-  SpeakerNotificationPort,
 } from "../src/application/content/content-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
@@ -1082,6 +1082,54 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
     });
   });
 
+  /**
+   * The invitation is announced before the work it explains, and this is the test that pins it.
+   *
+   * Issue #207 collapsed all three announcements into one `Promise.all` for the five round trips
+   * it saved. Review found the cost: a delivery's `created_at` is stamped inside its own enqueue
+   * and the sender claims deliveries ordered on exactly that column, so three chains in flight
+   * together are stamped in completion order and a speaker could be told to upload a headshot
+   * before being told they had been accepted.
+   *
+   * Asserted on the **order of the calls** rather than on stored timestamps, deliberately: every
+   * fixture in this repository freezes the clock, so four deliveries share one `created_at` and a
+   * timestamp assertion would pass against the very arrangement it is meant to refuse. The call
+   * order is the property the fix actually establishes.
+   *
+   * Re-collapse the two awaits in `acceptSession` into one `Promise.all` and this fails.
+   */
+  it("announces the acceptance before the work it explains", async () => {
+    const order: string[] = [];
+    const { service } = setup({
+      seedSpeaker: false,
+      speakerNotifications: {
+        async speakerAccepted() {
+          order.push("accepted");
+          // Yields, so a `Promise.all` over all three would interleave here and let a task
+          // notice reach the sink first. Without it the collapsed form passes by accident.
+          await Promise.resolve();
+          order.push("accepted:done");
+        },
+        async taskAssigned(fact) {
+          order.push(`task:${fact.taskTitle}`);
+        },
+      },
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.accept(organizer, command, correlationId);
+
+    // The invitation's chain completes before either task notice starts. Asserted as a boundary
+    // rather than as an exact array, because `acceptSession` says outright that nothing orders
+    // the two task notices against each other — pinning them here would refuse a change the
+    // design calls meaningless, and fail pointing at acceptance ordering.
+    expect(order.slice(0, 2)).toEqual(["accepted", "accepted:done"]);
+    expect(order.slice(2).toSorted()).toEqual([
+      "task:Complete your speaker profile",
+      "task:Upload a headshot",
+    ]);
+  });
+
   it("reports each onboarding task acceptance created, so the checklist is not silent", async () => {
     const notifications = recorder();
     const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
@@ -1305,8 +1353,12 @@ describe("speaker checklist authoring", () => {
    * nothing", so before the affected-row count was read these answered 200 and reported a save
    * over a projection that no longer contains the thing.
    *
-   * Four *other* unguarded writers in the same adapter still have the gap. `GAP-025` names them
-   * and says why one of them cannot be closed without a decision about import semantics.
+   * The four *other* writers this comment used to name as still unguarded are closed by issue
+   * #202: `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and
+   * `completeSpeakerImport` all read the count now, and their evidence lives in
+   * `d1-content-repository.integration.test.ts` and `content-csv-import.test.ts` — against real
+   * D1 for the three storage writers, because a row deleted out from under a caller is the
+   * subject and a memory repository has no row count to report.
    */
   it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
     const { repository, service } = setup();

@@ -160,9 +160,12 @@ test("the inbox states what is waiting on the seeded event, and a dismissal roun
 
 test("a brand-new event's inbox says its public page is not live", async ({ page }) => {
   /*
-   * The fifth category cannot be shown from the seed, and that is correct rather than a gap: the
-   * demo event is published and its draft matches its snapshot, so there is genuinely nothing
-   * awaiting publication. Driving it needs an event in that state, so this creates one — the
+   * Publication is one of the two categories the seed cannot show, and that is correct rather
+   * than a gap: the demo event is published and its draft matches its snapshot, so there is
+   * genuinely nothing awaiting publication. (The other is `configuration`, which the seed clears
+   * outright — `reset.sql` deletes `event_template_applications` — and which therefore has no
+   * browser assertion at all; the `ACC-OPS` scorecard row names that absence rather than
+   * implying coverage it lacks.) Driving it needs an event in that state, so this creates one — the
    * same thing `publishing.spec.ts` does, and for the same reason.
    */
   const name = `Greenroom Inbox Trial ${Date.now()}`;

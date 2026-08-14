@@ -7,11 +7,20 @@ import {
   type SubmittedProposal,
   type SubmittedProposalInterface,
 } from "../../application/cfp/submitted-proposal-interface";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 
 interface D1Result<T> {
   results?: T[];
   success: boolean;
   error?: string;
+  /**
+   * What the driver says the statement touched.
+   *
+   * Optional here because most reads never look at it; a *write* whose correctness depends on it
+   * goes through `changedRows`, which refuses a missing count rather than guessing. The contract
+   * is the repository's rather than this adapter's — see `d1-write-result.ts` (#133, then #202).
+   */
+  meta?: { changes?: number };
 }
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
@@ -284,6 +293,47 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
       throw new ProposalStatusConfigurationError("Choose a configured proposal status");
     if (results.some((result) => !result.success))
       throw new Error("Atomic proposal transition failed");
+    /*
+     * The affected-row count, on the same reading `d1-content-repository.ts` applies (#202).
+     *
+     * This method answers with `current` rewritten to the new status — objects it constructed,
+     * not rows it read back — so a statement that matched nothing would report every proposal
+     * transitioned and every audit row written. Both statements are conditional on
+     * `WHERE event_id = ? AND id = ?`, and both were built from a read that happened before the
+     * batch, so the gap is real even though nothing in the product deletes a submission: the
+     * `INSERT … SELECT` writes no audit row when its subject is not there, and a transition
+     * whose audit trail is missing is precisely the claim this domain must not make.
+     *
+     * **Be exact about what this refuses, because it is the report rather than the write.** The
+     * batch has already returned by the time this runs, so D1 has committed it — unlike every
+     * other throw in this method, which fires on a batch D1 rolled back. What is refused is the
+     * *answer*: over several proposals, one whose row vanished in the read-to-batch gap leaves
+     * the others durably transitioned, and this refuses to hand back a list claiming all of them
+     * moved.
+     *
+     * **A retry does not heal it, and an earlier draft of this comment said it did.** Two things
+     * stop it. `ReviewService.decide` and this method both re-read the proposals and refuse a
+     * missing one *before* the batch, so the same request answers "Proposal not found" rather
+     * than reaching the write. And `cfp_status_audit` carries no uniqueness beyond its own
+     * primary key while every call mints fresh `auditIds`, so a retry that did run would append
+     * a second audit row for one transition rather than converging on the first. This is
+     * therefore a report an operator has to act on, not a transient to retry, which is what the
+     * message says. Reachability is near zero — nothing in the product deletes a submission —
+     * and the alternative to refusing is answering with a list that claims a transition that did
+     * not happen, which is the whole of what #202 is about.
+     */
+    const changes = results.map((result, index) =>
+      changedRows(
+        result as D1WriteResult,
+        index % 2 === 0 ? "record a proposal status audit row" : "transition a proposal",
+      ),
+    );
+    if (changes.some((count) => count === 0))
+      throw new Error(
+        "A proposal in this transition matched no submission. The batch has committed, so the " +
+          "other proposals moved; this needs checking rather than retrying, because the retry " +
+          "refuses on the missing proposal before reaching the write.",
+      );
     return current.map((item) => ({ ...item, status: input.toStatus }));
   }
   async listAudit(eventId: string) {

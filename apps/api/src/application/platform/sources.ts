@@ -200,6 +200,36 @@ export interface CrmSource {
 }
 
 /**
+ * Configuration this event was cloned into and never finished receiving.
+ *
+ * Issue #203's third residual, and the one #188 deliberately left: a partial template
+ * application is surfaced in the templates workspace, which an organizer reaches on purpose, and
+ * an operator who never opens that page is told nothing. This is that decision taken — a sixth
+ * inbox category — and the shape is the reason it is cheap now. The events domain folds the
+ * answer itself (`outstandingConfiguration`), so platform declares one call and holds no
+ * knowledge of templates, versions or slices beyond what an item has to say.
+ *
+ * `events:settings:read` on the events side, which is narrower than the `events:read` the inbox
+ * itself needs — so this category degrades to `unauthorized` for a role that can open the inbox
+ * and may not read an event's settings, exactly as the other five degrade.
+ */
+export interface EventConfigurationSource {
+  outstandingConfiguration(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<
+    readonly {
+      readonly key: string;
+      readonly label: string;
+      readonly outcome: string;
+      readonly reason: string;
+      readonly templateName: string;
+      readonly outstandingSince: string;
+    }[]
+  >;
+}
+
+/**
  * Every source platform composes, by name.
  *
  * All but `events` are optional because a deployment or a test may compose only some of them; a
@@ -214,4 +244,5 @@ export interface PlatformSources {
   readonly publishing?: PublishingSource | undefined;
   readonly communications?: CommunicationsSource | undefined;
   readonly crm?: CrmSource | undefined;
+  readonly eventConfiguration?: EventConfigurationSource | undefined;
 }

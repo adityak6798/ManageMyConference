@@ -5,6 +5,10 @@ import type {
   EventTemplateVersion,
 } from "../../domain/events/event-template";
 import {
+  type OutstandingCategory,
+  outstandingConfiguration,
+} from "../../domain/events/outstanding-configuration";
+import {
   type Actor,
   type Capability,
   CapabilityDeniedError,
@@ -24,8 +28,8 @@ import {
   type SliceCaptureReport,
   type SliceContext,
   type SliceFault,
-  type SliceProvision,
   type SlicePreviewReport,
+  type SliceProvision,
   SliceRefusalError,
   type SliceResultReport,
   type TemplateApplicationPlan,
@@ -483,13 +487,61 @@ export class EventTemplateService {
     actor: Actor | null,
     eventId: string,
   ): Promise<readonly EventTemplateApplicationDetail[]> {
+    return (await this.configuration(actor, eventId)).applications;
+  }
+
+  /**
+   * Only the outstanding half, for a caller that wants nothing else.
+   *
+   * This is what platform's operational inbox binds to (`EventConfigurationSource`), and it is a
+   * separate entry point rather than the inbox picking a field off `configuration` so that the
+   * dependency platform declares is the narrow question rather than the wide answer. It skips
+   * the name resolution `configuration` performs, which is a read per distinct account and
+   * exists for a column the inbox does not render.
+   */
+  async outstandingConfiguration(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<readonly OutstandingCategory[]> {
+    requireEventCapability(actor, eventId, "events:settings:read");
+    return outstandingConfiguration(await this.dependencies.repository.listApplications(eventId));
+  }
+
+  /**
+   * What this event was configured from, **and** what it still owes.
+   *
+   * Two answers to two different questions, produced from one read of the same rows. Issue #175
+   * gave the first: what each *application* did. Issue #203 is the second: what the *event* is
+   * missing, folded across every application by `outstandingConfiguration`. They disagree
+   * exactly where #203 said they would — a later clone naming a different template, or a
+   * narrower selection, is a newer application that may read `applied` while a category an
+   * earlier one could not write is still unconfigured, and the surface then goes quiet about it.
+   *
+   * One method rather than two because every surface that wants one wants the other, and two
+   * would be two reads of one row set. That is not a micro-optimization: issue #207 measured
+   * exactly this shape — an independent read per question — as the reason an ordinary request
+   * costs a serialized chain of round trips to D1.
+   *
+   * `events:settings:read` for both, the same grant as previewing, because this says what has
+   * already been done to the event rather than doing anything to it.
+   */
+  async configuration(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<{
+    readonly applications: readonly EventTemplateApplicationDetail[];
+    readonly outstanding: readonly OutstandingCategory[];
+  }> {
     requireEventCapability(actor, eventId, "events:settings:read");
     const applications = await this.dependencies.repository.listApplications(eventId);
     const names = await this.resolveNames(applications.map(({ appliedBy }) => appliedBy));
-    return applications.map((application) => ({
-      ...application,
-      appliedByName: names.get(application.appliedBy) ?? null,
-    }));
+    return {
+      applications: applications.map((application) => ({
+        ...application,
+        appliedByName: names.get(application.appliedBy) ?? null,
+      })),
+      outstanding: outstandingConfiguration(applications),
+    };
   }
 
   /**

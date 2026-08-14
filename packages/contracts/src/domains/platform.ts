@@ -178,7 +178,14 @@ export const searchQuerySchema = z.object({
  */
 export const inboxItemSchema = z.object({
   key: z.string(),
-  category: z.enum(["reviews", "speakerWork", "programme", "deliveries", "publication"]),
+  category: z.enum([
+    "reviews",
+    "speakerWork",
+    "programme",
+    "deliveries",
+    "publication",
+    "configuration",
+  ]),
   title: z.string(),
   subtitle: z.string().optional(),
   priority: z.enum(["high", "normal", "low"]),
@@ -202,6 +209,15 @@ export const inboxCategoriesSchema = z.object({
   programme: inboxSectionSchema,
   deliveries: inboxSectionSchema,
   publication: inboxSectionSchema,
+  /**
+   * Configuration this event was cloned into and never finished receiving (issue #203).
+   *
+   * The sixth category, and the one #188 deliberately did not add: a partial template
+   * application was surfaced only in the templates workspace, so an operator who never opened
+   * that page was never told. What made it cheap to add here is that the events domain answers
+   * the question — platform declares one call and holds no knowledge of templates or slices.
+   */
+  configuration: inboxSectionSchema,
 });
 
 export const inboxResponseSchema = z.object({

@@ -602,7 +602,9 @@ holding a pointer at another domain's row.
 person silently remove work from a colleague's list. The primary key is
 `(event_id, item_key, actor_id)` for that reason, and the service suite asserts it.
 
-**Four of five categories populate from the seed, and the fifth honestly cannot.** The seeded event
+**Four of five categories populate from the seed, and the fifth honestly cannot.**
+(A sixth, `configuration`, was added by #203; it does not populate from the seed either, and
+the scorecard's `ACC-OPS` row now names both absences.) The seeded event
 is published and its draft matches its snapshot, so nothing is awaiting publication — which is the
 correct answer, not a missing fixture. #99 is not permitted to add a platform seed fragment, so
 rather than assert a row into existence the browser spec creates an event and reads its inbox,
@@ -962,3 +964,102 @@ exact habit the flag exists to prevent; migration-planted ids are now declared b
 owns the table. And the command's own ordering had no test: `main` takes its two Wrangler seams as
 parameters so a refusal can be shown to run nothing destructive, and so `--remote` on the count
 query is asserted rather than assumed.
+### Issues #202, #207 and #203 rulings — the review and content lane
+
+Three issues taken as one pull request, all three unfinished work from earlier lanes.
+
+**#191 was assigned to this lane and deliberately not taken**, at the requester's direction, and
+the reason is worth recording because the next lane will meet it. #191 is an epic rather than an
+issue: first-class review plans and rounds, reviewer pools, structured co-authors, blind-review
+projections, progress and reminders, export contents, AI evaluator personas, waitlist and
+request-revision dispositions, and per-plan reporting — with a second "private-set hardening"
+half at least as large again. Parts of it are also *externally* blocked rather than merely large:
+structured co-authors depend on the CFP lifecycle epic, and saved and scheduled cross-domain
+reports are #196's. Bundling it behind three finished repairs would have held all three out of
+review for it. **What this lane established about it, so the next one does not re-derive it:**
+rounds today are an integer column on `review_assignments` and `review_outcomes` (migration
+`1300`), per-reviewer caps per round are a table plus a trigger, deterministic distribution and
+`advanceRound` both ship, and one scorecard exists per *event* rather than per round. So the
+model work is real — named, date-bounded, lifecycle-stated rounds with their own scorecards and
+pools do not exist — while several capabilities the issue lists as missing are present and
+undiscovered, exactly as its own "Evaluator baseline" section warns.
+
+**#202 — the `meta.changes` divergence, filed twice.** `GAP-025` (content) is closed and the
+decision it was waiting on is made. **A CSV import refuses and reports a row whose speaker
+vanished mid-run**, rather than skipping it or failing the batch: the ledger is keyed on the
+normalized address, so the row stays `pending` and re-running the file converges on it. Skipping
+was what the code did — `if (profile)` fell through to `completeSpeakerImport` and `imported += 1`,
+so a deleted speaker was counted as imported and the ledger recorded a run that wrote nothing —
+and failing the batch would throw away every row that did land for one that did not.
+
+The sweep across every adapter that the issue demanded found **one sibling outside content**:
+`transitionAtomically` in `d1-submitted-proposal-adapter.ts` answered with the rows it had read,
+rewritten to the new status, from two conditional statements whose counts it discarded. Every
+other adapter is either already on `changedRows` or guarded by a **re-read** — `updateContact`,
+the prospect update, `enqueueCalendarInvite`, `normalizeCalendarInviteScheduleRef`, the event
+update and the itinerary save all answer from storage rather than from a constructed object, and
+`consumeLoginChallenge` and `consumeOauthAttempt` use `RETURNING`, where the rows *are* the count.
+Worth recording because "the count is not read here" is not the same finding as "this writer can
+report a save that did not happen", and only the second is a defect.
+
+**The register allocated `GAP-025` twice.** The webhook wrapping-key entry holds the id; the
+content entry that closed here is annotated with the collision rather than silently deleted.
+
+**#207 — the acceptance is measured, and the measurement is now a gate.**
+`apps/api/test/acceptance-latency.integration.test.ts` counts **sequential round trips to D1**,
+which is the unit that survives the trip to a deployment: locally D1 is a SQLite file and a
+statement costs microseconds, while in the Worker every statement is a request and a serialized
+chain costs its own length in latencies. One acceptance went from **65 sequential waits to 35**,
+with the phase table and the budgets in that file's footer.
+
+Four things moved it, none of them touching the decision/session atomicity the issue forbids
+weakening: `workspace()` issues its seven independent reads together instead of one after another;
+the "has this speaker any work yet" question is a one-row existence check rather than a read of
+the event's whole workspace; the composed route calls a new `ContentService.acceptSession` and so
+stops producing a projection it discarded; and the composition root memoizes "which organization
+runs this event" for the life of one request, where eight announcements each resolved it again.
+A perceptual change — announcing from the response and refreshing in the background — was
+built and **backed out**. Not awaiting the reload re-enables every control, and unguards the
+dialog, over a table that still shows the abstract undecided; the bulk dialog reaches `done`
+before the rows it annotates exist; and `useLoad`'s polite status speaks over the
+confirmation. The saving was one round trip against a request already cut by thirty.
+
+**Three costs were measured and deliberately not taken**, and the reason is the same in two of
+them: `decide` reads the statuses and the proposals twice because `transitionAtomically`
+re-validates both for its direct callers, and removing that means changing CFP's
+`SubmittedProposalInterface` from inside a review lane; `CommunicationsService.enqueue` inserts a
+delivery and reads it back four times per acceptance, and that file is communications'. The third
+is inherent and is reported as such: the speaker conversion's twelve sequential round trips are
+claim-then-read-who-won pairs, which is the mechanism that makes two concurrent conversions land
+on one speaker, and an ignored `INSERT OR IGNORE` returns nothing so the read-back cannot be
+folded in. It is also the cold path only — the repeat measurement is 14.
+
+**#203 — the partial application is answered per category, and all three residuals close.**
+`GAP-023` keeps only what it started as: applying is not atomic across domains. The fold is
+`outstandingConfiguration` in `apps/api/src/domain/events/outstanding-configuration.ts`, and the
+rule it encodes is the one #188's card comment said "nothing supports today": the deciding
+application for a category is the newest one that actually *reached* it, and the category is
+outstanding only when that application refused it.
+
+**The safety rule became structural rather than conventional, and that is the whole design.**
+#188 scoped its card to the newest application because offering an older one as a whole-clone
+repair writes its payload over whatever superseded it — every category converges on the payload
+it is given, so "re-apply version 1" against an event since configured from version 2 is a revert
+wearing the word repair. Folding per category has the same property by construction and none of
+the cost: if a later application had configured the category it would be the deciding one and the
+category would not be outstanding, so a repair offered here is one version and one category and
+cannot revert anything. **A `skipped` category is transparent**, which is the subtle half — a
+skip wrote nothing and refused nothing, and reading it as settling would let an organizer silence
+an outstanding category by cloning a template that says nothing about it.
+
+**The platform decision #188 deferred was taken.** `configuration` is a sixth inbox category, and
+it was cheap because the events domain answers the question: platform declares one call
+(`EventConfigurationSource`) and holds no knowledge of templates, versions or slices — the same
+inversion the other six sources use. The item key carries the deciding application's instant, so
+the inbox's existing dismissal mechanism closes the second residual for free: an organizer who
+repaired a category by hand says so in one click, and a *fresh* refusal writes a new row with a
+new instant and returns.
+
+**No migration and no table.** The answer is a fold over `outcome_json`, which #175 already
+stored and #188 already read back, so this lane took no number in the `1400` block and none in
+any other.

@@ -114,10 +114,13 @@ const build = ({
   });
   let remainingFailures = acceptanceFailures;
   class ComposedContentService extends ContentService {
-    override async accept(...args: Parameters<ContentService["accept"]>) {
+    // `acceptSession` rather than `accept`, because that is the seam the composed decision route
+    // calls: the two differ only in whether the event's whole content workspace is projected
+    // afterwards, and this route reads one session id (issue #207).
+    override async acceptSession(...args: Parameters<ContentService["acceptSession"]>) {
       if (remainingFailures-- > 0)
         throw acceptanceError ?? new ProposalSubmitterUnavailableError("Simulated content refusal");
-      return super.accept(...args);
+      return super.acceptSession(...args);
     }
   }
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

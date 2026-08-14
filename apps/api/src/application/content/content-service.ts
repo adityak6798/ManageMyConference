@@ -269,6 +269,15 @@ const CALENDAR_LINE_OCTETS = 75;
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 /**
+ * What a CSV import reports for a row whose speaker or ledger row was deleted while it ran.
+ *
+ * Distinct from the generic `Import failed; retry this row safely` on purpose: that one is any
+ * thrown fault, and this one is the specific outcome `PRD-SPK-001` decides — the row matched no
+ * row, so nothing was written, and the import says so instead of counting it.
+ */
+const VANISHED_MID_IMPORT = "Speaker record removed during import; retry this row";
+
+/**
  * RFC 5545 section 3.1 admits every character except CONTROL (%x00-08, %x0A-1F, %x7F) in a
  * TEXT value; HTAB is the one C0 character that survives. Line breaks are escaped before this
  * runs, so whatever is left is a control character no conforming parser would accept.
@@ -415,13 +424,24 @@ export class ContentService {
             idempotencyKey: `content-csv:${input.eventId}:${row.email}`,
           });
           const profile = await this.dependencies.repository.findProfile(speakerId);
-          if (profile) {
-            const parseFields = (value?: string) =>
-              value ? (JSON.parse(value) as Record<string, string>) : {};
-            // The three columns the import owns, and only those. Writing the whole row would
-            // carry a name, bio and headshot from the read above, so a long import could
-            // quietly revert an organizer editing the same speaker while it ran.
-            await this.dependencies.repository.updateProfileWorkflow(profile.id, {
+          const parseFields = (value?: string) =>
+            value ? (JSON.parse(value) as Record<string, string>) : {};
+          // The three columns the import owns, and only those. Writing the whole row would
+          // carry a name, bio and headshot from the read above, so a long import could
+          // quietly revert an organizer editing the same speaker while it ran.
+          //
+          // The decision issue #202 was waiting on, and it is stated in `PRD-SPK-001`: a row
+          // whose speaker vanished between `createOrLink` and this write is **refused and
+          // reported**, not skipped and not fatal to the rest of the file. Skipping is what
+          // this code used to do — `if (profile)` fell through to `completeSpeakerImport` and
+          // `imported += 1`, so a deleted speaker was counted as imported and the ledger
+          // recorded a run that wrote nothing. Failing the whole batch would throw away every
+          // row that did land for one that did not. Refusing one row loses nothing, because
+          // the ledger is keyed on the normalized address: it stays `pending`, so re-running
+          // the same file re-attempts exactly this row and converges.
+          const written =
+            profile !== null &&
+            (await this.dependencies.repository.updateProfileWorkflow(profile.id, {
               workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
                 row.workflowStatus ?? "",
               )
@@ -429,9 +449,16 @@ export class ContentService {
                 : "onboarding") as SpeakerWorkflowFields["workflowStatus"],
               logistics: parseFields(row.logistics),
               customFields: parseFields(row.customFields),
-            });
+            }));
+          // Same reading for the ledger's own row: a count of zero means the mark of completion
+          // landed on nothing, so this run may not claim the import finished.
+          if (
+            !written ||
+            !(await this.dependencies.repository.completeSpeakerImport(input.eventId, row.email))
+          ) {
+            row.errors.push(VANISHED_MID_IMPORT);
+            continue;
           }
-          await this.dependencies.repository.completeSpeakerImport(input.eventId, row.email);
           imported += 1;
         } catch {
           // ERROR-INTENT: imports are idempotent per normalized email; expose the failed row so a retry is explicit and safe.
@@ -913,17 +940,44 @@ export class ContentService {
   }
 
   /**
-   * Turn an accepted proposal into program content.
+   * Turn an accepted proposal into program content, and answer with the workspace it belongs to.
    *
    * Idempotent per `(eventId, proposalId)`: the session's unique constraint is the arbiter, and a
    * loser of that race retries and finds the winner's session. `ARC-FLOW-001`.
+   *
+   * This is the content workspace's own command — its route answers with the workspace, so the
+   * projection is the response. The composed acceptance route calls `acceptSession` instead,
+   * which does the same work and skips a projection that route discards; see there for why.
    */
   async accept(
     actor: Actor | null,
     command: AcceptContentCommand,
     correlationId: string,
-    conflictRetries = 2,
   ): Promise<ContentWorkspaceView> {
+    await this.acceptSession(actor, command, correlationId);
+    return this.projected(command.eventId);
+  }
+
+  /**
+   * `accept`, answering with the session's id instead of the whole event's workspace.
+   *
+   * Split out for issue #207. The composed decision route creates the session and then reads one
+   * field off the result — `workspace.sessions.find(…)?.id` — and threw the rest away. Producing
+   * that "rest" is nine table reads plus the agenda's published schedule and the identity
+   * directory's names, on the busiest write in the product, for a value nobody looked at.
+   *
+   * Nothing else changes: the same authorization, the same acceptance, the same batch, the same
+   * notifications in the same order. The decision and the session it creates are still written
+   * by one composed request whose failure between them leaves a repairable `decision_only` row
+   * — the atomicity issue #207 forbids weakening is a property of that composition, not of what
+   * this method returns.
+   */
+  async acceptSession(
+    actor: Actor | null,
+    command: AcceptContentCommand,
+    correlationId: string,
+    conflictRetries = 2,
+  ): Promise<string> {
     const authorized = requireEventCapability(actor, command.eventId, "content:manage");
     // Throws a typed 4xx for unknown, foreign, undecided, or identity-less proposals.
     const accepted = await this.dependencies.proposals.acceptedProposal(
@@ -934,62 +988,89 @@ export class ContentService {
       command.eventId,
       command.proposalId,
     );
-    if (!existing) {
-      const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
-      // The conversion port owns the profile row, so the onboarding checklist is keyed off the
-      // work already assigned to this person rather than off "did I just insert the profile".
-      const before = await this.dependencies.repository.workspace(command.eventId);
-      const isNew = !before.tasks.some(({ speakerProfileId }) => speakerProfileId === speaker.id);
-      const session: ContentSession = {
-        id: this.dependencies.newId(),
-        eventId: command.eventId,
-        proposalId: command.proposalId,
-        title: accepted.title,
-        abstract: accepted.abstract,
-        format: accepted.format,
-        speakerProfileIds: [speaker.id],
-        tags: [],
-        tracks: [],
-        publicationState: "draft",
-      };
-      const tasks: SpeakerTask[] = isNew
-        ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
-            id: this.dependencies.newId(),
-            eventId: command.eventId,
-            speakerProfileId: speaker.id,
-            title,
-            dueAt: this.dependencies.now().toISOString(),
-            status: "open",
-          }))
-        : [];
-      try {
-        await this.dependencies.repository.accept({
-          session,
-          // The speaker profile is already durable: `SpeakerConversionPort` provisions the user
-          // and the profile together, which is what keeps a client-named `userId` — and the
-          // foreign-key failure it used to cause — out of this path entirely.
-          speakers: [],
-          tasks,
-          messages: [],
-        });
-      } catch (error) {
-        if (error instanceof ContentConflictError && conflictRetries > 0)
-          return this.accept(actor, command, correlationId, conflictRetries - 1);
-        throw error;
-      }
-      // Told after the session is durable, so nobody is welcomed to a session that failed to
-      // commit. Inside the `!existing` branch because a re-accept of the same proposal is the
-      // same acceptance — the delivering domain deduplicates too, but not announcing it twice
-      // is cheaper than deduplicating it twice.
-      await this.dependencies.speakerNotifications?.speakerAccepted({
-        eventId: command.eventId,
-        profileId: speaker.id,
-        speakerName: speaker.name,
-        speakerEmail: speaker.email,
-        sessionTitle: session.title,
+    if (existing) return existing.id;
+    const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
+    // The conversion port owns the profile row, so the onboarding checklist is keyed off the
+    // work already assigned to this person rather than off "did I just insert the profile".
+    const isNew = !(await this.dependencies.repository.hasSpeakerWork(command.eventId, speaker.id));
+    const session: ContentSession = {
+      id: this.dependencies.newId(),
+      eventId: command.eventId,
+      proposalId: command.proposalId,
+      title: accepted.title,
+      abstract: accepted.abstract,
+      format: accepted.format,
+      speakerProfileIds: [speaker.id],
+      tags: [],
+      tracks: [],
+      publicationState: "draft",
+    };
+    const tasks: SpeakerTask[] = isNew
+      ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
+          id: this.dependencies.newId(),
+          eventId: command.eventId,
+          speakerProfileId: speaker.id,
+          title,
+          dueAt: this.dependencies.now().toISOString(),
+          status: "open",
+        }))
+      : [];
+    try {
+      await this.dependencies.repository.accept({
+        session,
+        // The speaker profile is already durable: `SpeakerConversionPort` provisions the user
+        // and the profile together, which is what keeps a client-named `userId` — and the
+        // foreign-key failure it used to cause — out of this path entirely.
+        speakers: [],
+        tasks,
+        messages: [],
       });
-      for (const task of tasks)
-        await this.dependencies.speakerNotifications?.taskAssigned({
+    } catch (error) {
+      if (error instanceof ContentConflictError && conflictRetries > 0)
+        return this.acceptSession(actor, command, correlationId, conflictRetries - 1);
+      throw error;
+    }
+    /*
+     * Told after the session is durable, so nobody is welcomed to a session that failed to
+     * commit. Inside the `!existing` branch because a re-accept of the same proposal is the same
+     * acceptance — the delivering domain deduplicates too, but not announcing it twice is
+     * cheaper than deduplicating it twice.
+     *
+     * **The invitation goes first, and the task notices go together after it** (issue #207).
+     *
+     * Every announcement resolves the owning organization, writes an audit record, reads a
+     * template, inserts a delivery and writes a second audit record, and three of those chains
+     * end to end was 21 of the acceptance path's 65 sequential round trips — so the obvious move
+     * was to issue all three at once. Review found what that costs, and it is not nothing. A
+     * delivery's `created_at` and `next_attempt_at` are stamped inside the enqueue, *after* its
+     * own reads, and the sender claims one delivery at a time ordered on exactly those two
+     * columns. Three chains in flight together are stamped in completion order rather than in
+     * acceptance order. Ties are worse rather than better: the sender's `ORDER BY` names only
+     * those two columns, so a tie has no order the schema specifies at all. A
+     * speaker could receive "Upload a headshot" before the invitation that explains what the
+     * tasks are for.
+     *
+     * Two waves rather than three keeps the ordering that carries meaning and most of the saving:
+     * nothing orders the two task notices against *each other* — they are two deliverables with
+     * their own dates — while the invitation genuinely precedes both.
+     *
+     * `Promise.all` rather than `allSettled` for the second wave: the port documents that an
+     * implementation must not throw, and the composition root's does not. Worth being exact about
+     * what that changes, because a chain of `await`s and a `Promise.all` are not the same on a
+     * rejection — sequential awaits meant the second task notice was never *invoked* if the first
+     * threw, where this invokes both and surfaces the first rejection. Unreachable through the
+     * bound port, and it is the port's contract rather than this line that makes it so.
+     */
+    await this.dependencies.speakerNotifications?.speakerAccepted({
+      eventId: command.eventId,
+      profileId: speaker.id,
+      speakerName: speaker.name,
+      speakerEmail: speaker.email,
+      sessionTitle: session.title,
+    });
+    await Promise.all(
+      tasks.map((task) =>
+        this.dependencies.speakerNotifications?.taskAssigned({
           eventId: command.eventId,
           profileId: speaker.id,
           taskId: task.id,
@@ -997,9 +1078,10 @@ export class ContentService {
           speakerEmail: speaker.email,
           taskTitle: task.title,
           dueAt: task.dueAt,
-        });
-    }
-    return this.projected(command.eventId);
+        }),
+      ),
+    );
+    return session.id;
   }
 
   /**
@@ -1165,7 +1247,13 @@ export class ContentService {
       throw new SpeakerPhotoInvalidError({
         assetId: [`“${asset.name}” is not an image. A profile photo must be a PNG or JPEG.`],
       });
-    await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id);
+    // No row matched: the profile went between `requireProfileSteward` reading it and this
+    // write, so the choice was recorded on nothing. Answered exactly as a profile that never
+    // existed is, because that is what it now is (`ARC-AUTH-001`) — and specifically not with
+    // the object this method could construct, which is how a 200 came to report a headshot on
+    // a deleted speaker (issue #202).
+    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id)))
+      throw new CapabilityDeniedError("Speaker profile access denied");
     // Answered from the store rather than from the copy read a moment ago. Now that this writes
     // one column, an organizer's edit landing alongside it survives — and a response assembled
     // from the earlier read would report the bio it replaced as though it were still there.
@@ -1187,7 +1275,10 @@ export class ContentService {
   async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
     const profile = await this.requireProfileSteward(actor, profileId);
     const { photoAssetId: _removed, ...withoutPhoto } = profile;
-    await this.dependencies.repository.updateProfilePhoto(profile.id, null);
+    // As in `setProfilePhoto`: withdrawing a choice from a profile that has gone is refused
+    // rather than reported as done.
+    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, null)))
+      throw new CapabilityDeniedError("Speaker profile access denied");
     return (await this.dependencies.repository.findProfile(profile.id)) ?? withoutPhoto;
   }
 
@@ -1412,7 +1503,13 @@ export class ContentService {
     if (!asset) throw new CapabilityDeniedError("Organizer asset access denied");
     requireEventCapability(actor, asset.eventId, "content:manage");
     const updated: SpeakerAsset = { ...asset, visibility };
-    await this.dependencies.repository.updateAsset(updated);
+    // The whole reason this method reads a count. It answers with the object it just built, so
+    // a write that matched nothing used to report an asset another organizer had already
+    // deleted as private — a 200 describing a row that is not there (issue #202). An asset that
+    // has gone answers identically to one that never existed, which is what `deleteAsset` and
+    // the read above already do.
+    if (!(await this.dependencies.repository.updateAsset(updated)))
+      throw new CapabilityDeniedError("Organizer asset access denied");
     return updated;
   }
 
@@ -1439,6 +1536,9 @@ export class ContentService {
     );
     if (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker asset access denied");
+    // The one caller that reads no count and should not: if the profile went between the read
+    // above and this write, the pointer at this asset went with it, which is the outcome this
+    // line exists to reach. Nothing is reported to the caller from it either way.
     if (profile?.photoAssetId === asset.id)
       await this.dependencies.repository.updateProfilePhoto(profile.id, null);
     await this.dependencies.assetStorage.delete(asset.storageKey);
