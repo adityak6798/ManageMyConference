@@ -356,10 +356,27 @@ export function OrganizerReviewWorkspace({
       `${proposalIds.length} abstracts distributed across the reviewer team.`,
     );
   };
+  /*
+   * A round is started *from* one status, so "All" is not a source and an event with no
+   * reviewers has nobody to assign to. Both conditions used to be spelled as `disabled`, which
+   * meant the button was permanently grey on the tab the workspace opens on and the sentence
+   * below — already written — could never be reached. Pressing it now says which of the two
+   * it is (#206; the same shape as #149).
+   */
   const startNextRound = () => {
     const fromStatus = data.statuses.find(({ key }) => key === activeTab)?.key;
     if (!fromStatus) {
-      feedback.announce("error", "Choose one status tab before starting the next round.");
+      feedback.announce(
+        "error",
+        "Choose one status tab before starting the next round — a round advances the abstracts in a single status.",
+      );
+      return;
+    }
+    if (!data.reviewers.length) {
+      feedback.announce(
+        "error",
+        "This event has no reviewers yet. Invite one from Members before starting a round.",
+      );
       return;
     }
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
@@ -574,6 +591,19 @@ export function OrganizerReviewWorkspace({
             <p className="triage-count">
               Showing {rows.length} of {data.proposals.length}
             </p>
+            {rows.length ? (
+              <label className="triage-select-all">
+                <input
+                  type="checkbox"
+                  aria-label="Select every abstract in this view"
+                  checked={allVisibleSelected}
+                  onChange={(event) =>
+                    setSelected(event.target.checked ? rows.map(({ id }) => id) : [])
+                  }
+                />
+                Select all
+              </label>
+            ) : null}
             <button
               type="button"
               className="secondary small"
@@ -587,7 +617,7 @@ export function OrganizerReviewWorkspace({
             <button
               type="button"
               className="secondary small"
-              disabled={busy || activeTab === "all" || !data.reviewers.length}
+              disabled={busy}
               onClick={startNextRound}
             >
               Start next round
@@ -679,15 +709,11 @@ export function OrganizerReviewWorkspace({
               <table className="data triage-table">
                 <thead>
                   <tr>
+                    {/* The control itself lives in the toolbar: below 780px the table becomes a
+                        stack of cards and this header row is hidden, which took the only
+                        select-all in the surface with it. */}
                     <th scope="col" className="select-cell">
-                      <input
-                        type="checkbox"
-                        aria-label="Select every abstract in this view"
-                        checked={allVisibleSelected}
-                        onChange={(event) =>
-                          setSelected(event.target.checked ? rows.map(({ id }) => id) : [])
-                        }
-                      />
+                      <span className="visually-hidden">Select</span>
                     </th>
                     <th scope="col">Abstract</th>
                     <th scope="col">Status</th>
