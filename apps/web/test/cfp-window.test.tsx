@@ -106,16 +106,27 @@ describe("the organizer's window controls", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save window" }));
 
-    await screen.findByText(/Submission window saved/);
+    /*
+     * Waited on the *request*, not on the notice.
+     *
+     * The subject of this test is the instant that goes over the wire; the notice is a rendering
+     * that follows it. Waiting on the notice with `findByText`'s one-second default made the test
+     * fail roughly two runs in ten when both workspaces' suites run at once — a timing flake in
+     * the assertion, reported as a defect in the deadline conversion it is nowhere near.
+     */
     // One write, to the window route only: extending a deadline must not publish the form.
-    expect(writes).toEqual([
-      {
-        url: `/api/events/${eventId}/cfp/window`,
-        method: "PUT",
-        body: { opensAt: null, closesAt: "2026-10-01T06:59:00.000Z" },
-      },
-    ]);
-    // And the control shows the instant back as the local time it was typed as.
+    await waitFor(() =>
+      expect(writes).toEqual([
+        {
+          url: `/api/events/${eventId}/cfp/window`,
+          method: "PUT",
+          body: { opensAt: null, closesAt: "2026-10-01T06:59:00.000Z" },
+        },
+      ]),
+    );
+    // The outcome is still reported, and the control shows the instant back as the local time it
+    // was typed as.
+    expect(await screen.findByText(/Submission window saved/)).toBeInTheDocument();
     expect(screen.getByLabelText("Deadline")).toHaveValue("2026-09-30T23:59");
   });
 
