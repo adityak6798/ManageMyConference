@@ -80,8 +80,10 @@ test("the pinned Wrangler bulk boundary supports explicit null deletion", () => 
 
 test("deployment writes secret files only for the command window and removes them afterwards", () => {
   const observed = [];
+  const environments = [];
   let directory;
-  main(environment, (_command, args) => {
+  main(environment, (_command, args, receivedEnvironment) => {
+    environments.push(receivedEnvironment);
     const reconcileAt = args.indexOf("secrets:reconcile");
     if (reconcileAt >= 0) {
       const secretPath = args.at(-1);
@@ -106,4 +108,6 @@ test("deployment writes secret files only for the command window and removes the
     },
   ]);
   assert.equal(existsSync(directory), false);
+  assert.ok(environments.length > 0);
+  assert.ok(environments.every((receivedEnvironment) => receivedEnvironment === environment));
 });

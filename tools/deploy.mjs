@@ -99,8 +99,8 @@ export function deploymentCommands(secretDirectory) {
   ];
 }
 
-const run = (command, args) => {
-  const result = spawnSync(command, args, { cwd: ROOT, env: process.env, stdio: "inherit" });
+const run = (command, args, environment = process.env) => {
+  const result = spawnSync(command, args, { cwd: ROOT, env: environment, stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0)
     throw new Error(`Deployment command ${command} ${args.slice(0, 3).join(" ")} failed.`);
@@ -121,9 +121,10 @@ export function main(environment = process.env, runner = run) {
     writeFileSync(path.join(secretDirectory, "api-webhooks.json"), JSON.stringify(secrets.api), {
       mode: 0o600,
     });
-    for (const [command, args] of deploymentCommands(secretDirectory)) runner(command, args);
-  } finally {
-    rmSync(secretDirectory, { recursive: true });
+      for (const [command, args] of deploymentCommands(secretDirectory))
+        runner(command, args, environment);
+    } finally {
+      rmSync(secretDirectory, { recursive: true, force: true });
   }
 }
 

@@ -19,4 +19,9 @@ jobs:
           WEBHOOK_EGRESS_ENDPOINT: ${{ vars.WEBHOOK_EGRESS_ENDPOINT }}
           WEBHOOK_EGRESS_TOKEN: ${{ secrets.WEBHOOK_EGRESS_TOKEN }}
           WEBHOOK_EGRESS_PROBE_TARGET: ${{ vars.WEBHOOK_EGRESS_PROBE_TARGET }}
-        run: node tools/probe-webhook-egress.mjs --monitor
+        run: |
+          if [ -z "$WEBHOOK_EGRESS_ENDPOINT" ] || [ -z "$WEBHOOK_EGRESS_PROBE_TARGET" ] || [ -z "$WEBHOOK_EGRESS_TOKEN" ]; then
+            echo "Webhook egress monitor is not configured; skipping."
+            exit 0
+          fi
+          node tools/probe-webhook-egress.mjs --monitor

@@ -66,12 +66,6 @@ test("keys are read whatever surrounds them", () => {
 test("deployed webhook configuration is overridden locally as one blank unit", () => {
   const existing = "SESSION_SECRET=abc\nWEBHOOK_EGRESS_TOKEN=developer-token\n";
   const { text, added } = withWebhookBindings(existing);
-  assert.deepEqual(added, [
-    "WEBHOOK_EGRESS_ENDPOINT",
-    "WEBHOOK_WRAPPING_KEY_VERSION",
-    "WEBHOOK_WRAPPING_KEYS",
-  ]);
-  assert.match(text, /^WEBHOOK_EGRESS_TOKEN=developer-token$/m);
-  for (const name of WEBHOOK.filter((value) => value !== "WEBHOOK_EGRESS_TOKEN"))
-    assert.match(text, new RegExp(`^${name}=$`, "m"));
+  assert.deepEqual(added, WEBHOOK);
+  for (const name of WEBHOOK) assert.match(text, new RegExp(`^${name}=$`, "m"));
 });
