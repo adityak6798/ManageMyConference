@@ -87,6 +87,16 @@ export interface CommunicationsRepository {
   latestTemplateVersion(organizationId: string, key: string): Promise<number>;
   /** The delivery already holding this key, if a previous enqueue wrote one. */
   findByIdempotencyKey(organizationId: string, idempotencyKey: string): Promise<Delivery | null>;
+  /**
+   * How many deliveries this event has already written to one address (issue #132).
+   *
+   * The durable half of the unverified-recipient cap. There is **no counter table**, for the same
+   * reason the reminder keys carry no bookkeeping: the deliveries *are* the record, they are the
+   * thing an organizer can already read and retry, and a count derived from them cannot drift
+   * from what was actually sent. Scoped to the event, because an address that agreed to hear from
+   * one conference has agreed to nothing about another.
+   */
+  countDeliveriesTo(organizationId: string, eventId: string, recipientRef: string): Promise<number>;
   enqueue(delivery: Delivery): Promise<Delivery>;
   /**
    * Enqueue many in one durable round trip, returning each stored row in request order.

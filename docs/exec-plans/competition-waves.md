@@ -1630,3 +1630,54 @@ handler — **is not committed**. It found three real defects (triage selection 
 permanently disabled "Start next round" whose explanation lived in unreachable code, and a demo
 persona's "Create API client" that was disabled *and* had no handler), and a lane that wants that
 class of defect caught again has to write the probe again.
+
+### Issues #217, #210, #211, #222 and #132 rulings — the communications-reality lane
+
+The owner's decision of 2026-08-14 is that **the demo and a real conference share one deployment**.
+Demo personas stay: an automated browser cannot complete Google OAuth, so removing them takes the
+evaluator's credential-optional workflow to zero. That decision has a consequence, and this lane is
+it — a real organization on this deployment could send **nothing**, for four independent reasons,
+and fixing any one of them alone left the outcome exactly where it started. They ship together for
+that reason and no other.
+
+**Migration numbers taken.** Communications `1706` (default lifecycle templates) and `1707`
+(`trigger_type` widened by `cfp.deadline_approaching` and `cfp.call_closed`, following `1705`'s
+four-table rebuild recipe). Identity `1005` (`identity_oauth_attempts.workspace_intent`). `1707` is
+the second worked example of the cross-domain rule in `apps/api/migrations/README.md`: the table is
+communications', and half the reason to change it is CFP's.
+
+**Where the four fixes drew their lines.**
+
+- **#217, provisioning.** A copy the organization owns, not a system-wide fallback row and not a
+  write at organization creation. `message_templates.organization_id` is `NOT NULL REFERENCES
+  organizations(id)` and a delivery's `template_id` is a foreign key into it, so a system row needs
+  a nullable column or a sentinel organization the `GAP-019` guard would read as real data. And
+  `SignupService` writes the organization *before* the identity batch precisely so it can discard
+  it when that batch fails (#164) — a template written at creation makes that `DELETE` fail on a
+  foreign key and leaves the orphan `GAP-019` refuses on for ever.
+- **The provider split.** Per channel, each channel still all-or-nothing, `demandHttpsUrl` intact.
+  An unconfigured channel is deterministic everywhere except a deployment naming itself production,
+  where it refuses each delivery instead. Refusing at *resolution* there was the other option and is
+  worse: it takes the whole drain down, so the channel the operator did configure stops sending too.
+- **The reset scoping.** Every cleanup names the ids the seed inserts, and `tools/compose-seed.mjs`
+  now refuses a bare `DELETE` in any fragment. `#208`'s guard is deliberately untouched — it reads
+  what the database holds, and a real organization on this deployment is still worth stopping for.
+  What changed is the cost of proceeding, which leaves `--destroy-real-data` overstating itself;
+  that is recorded in `GAP-019` rather than fixed by relaxing a guard on the strength of SQL
+  somebody could edit tomorrow.
+- **#132.** Shipped as a durable per-`(event, address)` cap on messages to an address nobody proved
+  they control, derived from the deliveries themselves rather than a counter. **Left open**, and
+  deliberately: the issue's outcome is an address somebody has *proven or confirmed*, and a cap is a
+  bound on amplification rather than a verification. Double opt-in — the issue's other mechanism —
+  does not close it either while the guest door must keep working, because the confirmation mail is
+  itself a send to an unverified address on an unauthenticated form, at one per submission rather
+  than one per decision. Stated in `GAP-027` rather than closed on a narrowing.
+
+**Two scope additions taken mid-lane rather than filed.** A public-call sign-in no longer provisions
+a conference workspace (a `GAP-027` residual of #190 that no lane owned), because the lane was
+already deciding what happens when an organization is created; and #222's post-mutation state
+convergence, because it is the same surface as #210 and #211.
+
+**What is still not proven.** No mail has ever left this codebase. Every provider test stubs
+`fetch`, and this lane adds none that do not — the per-channel split is verified against stubs and
+says so. `GAP-010` and `GAP-012` are unchanged in that respect.

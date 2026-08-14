@@ -40,6 +40,30 @@ export class MessageTemplateMissingError extends CommunicationsNotFoundError {
   }
 }
 
+/**
+ * This event has already sent as many messages as it may to one **unverified** address.
+ *
+ * Issue #132. A guest CFP proposal carries an address a form answer supplied and nobody proved
+ * control of, so a hundred guest proposals naming one victim would turn an organizer's decision
+ * run into a hundred messages to a stranger. The cap bounds that at `UNVERIFIED_RECIPIENT_CAP`
+ * per `(event, address)`.
+ *
+ * Its own type rather than a conflict, because the two callers want different things from it: the
+ * lifecycle path records it on the event's timeline so an organizer learns their decision message
+ * did not go out, and the transport answers `409`. **The action that caused it always succeeds**
+ * — a proposal is never refused because somebody else mail-bombed that address.
+ */
+export class UnverifiedRecipientCapError extends Error {
+  constructor(
+    readonly eventId: string,
+    readonly cap: number,
+  ) {
+    super(
+      `This event has already sent ${cap} messages to that address, and it is an address nobody has proved they control. Nothing further will be sent to it for this event.`,
+    );
+  }
+}
+
 /** The delivery exists but its current state does not permit the requested transition. */
 export class CommunicationsConflictError extends Error {}
 export class WebhookUnavailableError extends Error {}

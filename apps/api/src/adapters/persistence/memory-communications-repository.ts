@@ -89,6 +89,15 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     );
   }
 
+  async countDeliveriesTo(organizationId: string, eventId: string, recipientRef: string) {
+    return [...this.deliveries.values()].filter(
+      (item) =>
+        item.organizationId === organizationId &&
+        item.eventId === eventId &&
+        item.recipientRef === recipientRef,
+    ).length;
+  }
+
   async enqueueMany(deliveries: readonly Delivery[]): Promise<readonly Delivery[]> {
     const stored: Delivery[] = [];
     for (const delivery of deliveries) stored.push(await this.enqueue(delivery));

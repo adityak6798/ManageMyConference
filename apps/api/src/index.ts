@@ -58,6 +58,7 @@ import {
   CommunicationsService,
   lifecycleRecipientForAccount,
   MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./application/communications/public";
 import { enqueueCfpDeadlineNotices } from "./application/communications/cfp-deadline-notices";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
@@ -1091,6 +1092,32 @@ export default {
               targetId: error.templateKey,
             }),
           });
+        /*
+         * And the second class the catch would otherwise hide: a message refused because this
+         * event has reached its cap for an address nobody proved they control (issue #132).
+         *
+         * An organizer who records a decline and hears nothing has no way to tell "sent" from
+         * "refused because ninety-nine other proposals name that address". The subject the caller
+         * supplied identifies which action it was — a proposal id, a profile id — and the
+         * recipient is deliberately **not** in the key or the record: it is the address of
+         * somebody who did not ask to be here, and this timeline is read by every organizer on
+         * the event.
+         */
+        if (error instanceof UnverifiedRecipientCapError && organizationId) {
+          const subjectId = Object.values(subject)[0] ?? eventId;
+          await auditRecorder.record({
+            organizationId,
+            eventId,
+            action: "communications.recipient_cap_reached",
+            targetType: "delivery",
+            targetId: subjectId,
+            idempotencyKey: lifecycleAuditKey({
+              action: "communications.recipient_cap_reached",
+              eventId,
+              targetId: subjectId,
+            }),
+          });
+        }
       }
     };
     /**
@@ -1349,6 +1376,17 @@ export default {
           triggerType: "decision.recorded",
           channel: "email",
           recipientRef: recipient,
+          /*
+           * The one place in this file that sends to an address nobody proved they control
+           * (issue #132). `lifecycleRecipientForAccount` returns the account's address when there
+           * is an account and the form answer when there is not, so the absence of
+           * `submitterUserId` *is* the answer to "was this verified" — and it is passed on rather
+           * than re-derived inside communications, which has no way to know.
+           *
+           * `declared` puts this delivery under `UNVERIFIED_RECIPIENT_CAP`. It does not make the
+           * address verified: `DEBT-012` stands, bounded.
+           */
+          recipientTrust: fact.submitterUserId ? "account" : "declared",
           payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
           templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
         }));

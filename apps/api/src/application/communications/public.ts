@@ -59,6 +59,7 @@ export {
   CommunicationsInputError,
   CommunicationsNotFoundError,
   MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./errors";
 export type {
   DeliveryChannel,
@@ -95,6 +96,20 @@ export interface DeliveryRequest {
   readonly channel: DeliveryChannel;
   /** Who or what receives this: `speaker:{profileId}`, or the projected resource's reference. */
   readonly recipientRef: string;
+  /**
+   * How much this address is worth trusting, and it is the caller's answer rather than a guess
+   * (issue #132).
+   *
+   * `account` — the default — means the address came from an identity somebody signed in as, so
+   * they have proved they control it. `declared` means it came from a form answer nobody
+   * verified: a guest CFP proposal types an address, and anybody can type anybody's.
+   *
+   * A `declared` recipient is capped per `(event, address)` — see `UNVERIFIED_RECIPIENT_CAP`. The
+   * cap is what bounds an attacker who submits a hundred guest proposals naming one victim into
+   * an organizer's decision run: they receive a few messages rather than a hundred. It does not
+   * make the address verified, and nothing here claims it does.
+   */
+  readonly recipientTrust?: "account" | "declared" | undefined;
   /** The snapshot the template renders against. Retained as sent, never re-resolved on retry. */
   readonly payload: Readonly<Record<string, unknown>>;
   /** Required for `email`; resolves to the current version unless `templateVersion` pins one. */

@@ -23,6 +23,7 @@ import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
   MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./errors";
 import {
   type CommunicationsRepository,
@@ -133,11 +134,27 @@ export const MAX_BROADCAST_RECIPIENTS = 500;
  */
 export const TEMPLATE_ALLOCATION_ATTEMPTS = 5;
 
+/**
+ * How many messages one event may send to an address nobody has proved they control (issue #132).
+ *
+ * Three, and the number is chosen rather than defaulted. A guest applicant's whole legitimate
+ * traffic is a decision and its reversals: accept, then a decline if the organizer changes their
+ * mind, then a reinstatement. Three covers that with nothing to spare, and it is small enough
+ * that a hundred guest proposals naming one victim cost that victim three messages rather than a
+ * hundred.
+ *
+ * It is a bound on *amplification*, not a verification. An unverified address still receives up
+ * to three messages, and the only thing that would change is a confirmed address — see
+ * `DEBT-012` and the residual recorded in `GAP-027`.
+ */
+export const UNVERIFIED_RECIPIENT_CAP = 3;
+
 export {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
   MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./errors";
 
 const decodeCursor = (cursor: string) => {
@@ -748,6 +765,33 @@ export class CommunicationsService implements CommunicationsEnqueue {
       throw new CommunicationsInputError("Template channel does not match delivery channel");
     if (isProjectionChannel(input.channel) && input.projectionVersion === undefined)
       throw new CommunicationsInputError("Projection delivery requires a version");
+    /*
+     * The unverified-recipient cap (issue #132), and the ordering is the whole of its correctness.
+     *
+     * It is checked **after** the coherence rules and **only** for a `declared` recipient, and the
+     * count is asked for last so an ordinary account message costs no extra read at all.
+     *
+     * The idempotency key is consulted first, and that is not an optimisation: a retry of a
+     * decision that already has a delivery must converge on it rather than be refused. Without
+     * that line, the third message to an address would send, and its retry — the same key, the
+     * same message — would fail the cap and be reported to an organizer as an unsent decision that
+     * had in fact gone out.
+     */
+    if (input.recipientTrust === "declared") {
+      const existing = await this.dependencies.repository.findByIdempotencyKey(
+        input.organizationId,
+        input.idempotencyKey,
+      );
+      if (!existing) {
+        const already = await this.dependencies.repository.countDeliveriesTo(
+          input.organizationId,
+          input.eventId,
+          input.recipientRef,
+        );
+        if (already >= UNVERIFIED_RECIPIENT_CAP)
+          throw new UnverifiedRecipientCapError(input.eventId, UNVERIFIED_RECIPIENT_CAP);
+      }
+    }
     // Render once, here, so the delivery carries the message rather than the instructions for
     // reconstructing it. A projection has no template and therefore no message.
     let rendered: { subject: string | null; body: string } | null = null;

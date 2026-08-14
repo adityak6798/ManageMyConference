@@ -283,6 +283,17 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
     return (await this.byKeys(organizationId, [idempotencyKey])).get(idempotencyKey) ?? null;
   }
 
+  async countDeliveriesTo(organizationId: string, eventId: string, recipientRef: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT COUNT(*) AS tally FROM communication_deliveries WHERE organization_id = ? AND event_id = ? AND recipient_ref = ?",
+      )
+      .bind(organizationId, eventId, recipientRef)
+      .all<{ tally: number }>();
+    this.ensure(result, "count deliveries to a recipient");
+    return Number(result.results?.[0]?.tally ?? 0);
+  }
+
   /**
    * One batch, then one read, whatever the audience size.
    *
