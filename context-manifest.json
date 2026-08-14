@@ -685,6 +685,7 @@
         "apps/web/test/speaker-photo.test.tsx",
         "apps/web/test/session-withdrawal.test.tsx",
         "apps/web/e2e/speaker-portal.spec.ts",
+        "apps/web/e2e/speaker-checklist.spec.ts",
         "apps/api/src/transport/http/routes/content.ts",
         "apps/web/src/workspaces/content.tsx",
         "apps/api/test/calendar-invite.test.ts",
@@ -692,7 +693,9 @@
         "apps/web/test/calendar-links.test.ts",
         "apps/web/src/content/AccelEventsSync.tsx",
         "apps/web/test/accelevents-sync-panel.test.tsx",
-        "apps/web/test/content-operations.test.tsx"
+        "apps/web/test/content-operations.test.tsx",
+        "apps/web/src/content/ChecklistEditor.tsx",
+        "apps/web/test/speaker-checklist.test.tsx"
       ]
     },
     {

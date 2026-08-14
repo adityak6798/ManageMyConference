@@ -14,6 +14,7 @@ import type {
   SlicePreview,
   SliceProvision,
   SliceResult,
+  TemplateActorNamePort,
 } from "../src/application/events/public";
 import {
   EventTemplateNameTakenError,
@@ -87,6 +88,10 @@ async function setup(
      * the same reader an untrusted stored row would.
      */
     storedCfpPayload?: unknown;
+    /** Composed after the CFP slice, for tests about the orchestrator rather than about CFP. */
+    extraSlices?: readonly EventConfigurationSlice[];
+    /** Identity's answer to "what is this account called?", absent in most of these tests. */
+    actorNames?: TemplateActorNamePort;
   } = {},
 ) {
   let sequence = 0;
@@ -138,9 +143,11 @@ async function setup(
       "storedCfpPayload" in options
         ? { ...cfpSlice, export: async () => options.storedCfpPayload }
         : cfpSlice,
+      ...(options.extraSlices ?? []),
     ],
     newId,
     now,
+    ...(options.actorNames ? { actorNames: options.actorNames } : {}),
     ...(options.onSliceFault ? { onSliceFault: options.onSliceFault } : {}),
   });
   return { actor, cfp, cfpRepository, events, repository, templates, proposals };
@@ -327,15 +334,130 @@ describe("Event templates: apply", () => {
     await apply(templates, actor, template.id);
     await apply(templates, actor, template.id);
 
-    await expect(templates.applications(actor, DESTINATION)).resolves.toEqual([
-      {
-        templateId: template.id,
-        templateName: "Annual summit starter",
-        templateVersionId: expect.any(String),
-        version: 1,
-        appliedAt: "2026-08-12T10:00:00.000Z",
+    const applications = await templates.applications(actor, DESTINATION);
+    expect(applications).toHaveLength(1);
+    expect(applications[0]).toMatchObject({
+      templateId: template.id,
+      templateName: "Annual summit starter",
+      templateState: "active",
+      templateVersionId: expect.any(String),
+      version: 1,
+      appliedAt: "2026-08-12T10:00:00.000Z",
+      // The stored outcome, read back rather than only written (#175).
+      outcome: "applied",
+      destination: DESTINATION_RANGE,
+    });
+  });
+
+  /**
+   * Issue #175: a partial application survives the response that reported it.
+   *
+   * The failing slice fails once and then succeeds, which is the shape of every real repair
+   * here — a destination that was missing something, or an account that had not been granted
+   * something, at the moment the clone ran. What is asserted is the *stored* answer, because
+   * that is the only thing an organizer who closed the tab can still be told.
+   */
+  it("reports the event as configured in part afterwards, and clears on a second apply", async () => {
+    let attempts = 0;
+    const flaky: EventConfigurationSlice = {
+      key: "flaky",
+      label: "Agenda rooms, tracks and time slots",
+      export: async () => ({ rooms: ["Grand Hall"] }),
+      preview: async () => ({
+        outcome: "copies",
+        reason: "Would copy",
+        copies: [],
+        excludes: [],
+        incompatible: [],
+      }),
+      apply: async () => {
+        attempts += 1;
+        if (attempts === 1)
+          throw new SliceRefusalError("The destination has no room matching “Grand Hall”.");
+        return {
+          outcome: "applied",
+          reason: "Copied the board's shape.",
+          applied: [],
+          incompatible: [],
+        };
       },
+    };
+    const { actor, templates } = await setup({ extraSlices: [flaky] });
+    const { template } = await save(templates, actor);
+
+    const first = await apply(templates, actor, template.id);
+    expect(first.outcome).toBe("partial");
+
+    /*
+     * The response above is gone the moment the tab closes. This is what is left, and before
+     * this change it was written to `outcome_json` and read by nothing at all.
+     */
+    const configured = await templates.applications(actor, DESTINATION);
+    expect(configured).toHaveLength(1);
+    expect(configured[0]?.outcome).toBe("partial");
+    expect(
+      configured[0]?.slices
+        .filter(({ outcome }) => outcome !== "applied" && outcome !== "skipped")
+        .map(({ label, reason }) => [label, reason]),
+    ).toEqual([
+      ["Agenda rooms, tracks and time slots", "The destination has no room matching “Grand Hall”."],
     ]);
+    // The range the repair needs, which nothing else could reconstruct.
+    expect(configured[0]?.destination).toEqual(DESTINATION_RANGE);
+
+    await apply(templates, actor, template.id);
+
+    // One row still, and it now says the event carries everything the version holds.
+    const repaired = await templates.applications(actor, DESTINATION);
+    expect(repaired).toHaveLength(1);
+    expect(repaired[0]?.outcome).toBe("applied");
+    expect(repaired[0]?.slices.filter(({ outcome }) => outcome === "failed")).toEqual([]);
+  });
+
+  it("stores the categories the command named, so a repair repeats that request", async () => {
+    const { actor, templates } = await setup();
+    const { template } = await save(templates, actor);
+
+    await templates.apply(actor, DESTINATION, {
+      templateId: template.id,
+      version: 1,
+      destination: DESTINATION_RANGE,
+      slices: ["cfp"],
+    });
+
+    // Without this, re-applying a two-category clone would write every category the version
+    // carries — a wider act than the one being repaired.
+    expect((await templates.applications(actor, DESTINATION))[0]?.selection).toEqual(["cfp"]);
+  });
+
+  it("resolves the account that applied a version to a person, when identity knows one", async () => {
+    const { actor, templates } = await setup({
+      actorNames: {
+        findRecipient: async (id: string) =>
+          id === "seed-organizer" ? { id, name: "Olivia Organizer" } : null,
+      },
+    });
+    const { template } = await save(templates, actor);
+
+    await apply(templates, actor, template.id);
+
+    const [application] = await templates.applications(actor, DESTINATION);
+    expect(application?.appliedBy).toBe("seed-organizer");
+    expect(application?.appliedByName).toBe("Olivia Organizer");
+    // And a version's capturing account, which is the half issue #176 named.
+    expect((await templates.get(actor, template.id)).versions[0]?.createdByName).toBe(
+      "Olivia Organizer",
+    );
+  });
+
+  it("names an account it cannot resolve as an account rather than inventing a person", async () => {
+    const { actor, templates } = await setup({ actorNames: { findRecipient: async () => null } });
+    const { template } = await save(templates, actor);
+
+    await apply(templates, actor, template.id);
+
+    expect((await templates.applications(actor, DESTINATION))[0]?.appliedByName).toBeNull();
+    expect((await templates.get(actor, template.id)).versions[0]?.createdByName).toBeNull();
   });
 
   it("copies the rules the destination can accept and names the ones it cannot", async () => {

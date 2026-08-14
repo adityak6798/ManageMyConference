@@ -22,6 +22,7 @@ import { ContentConflictError } from "../src/application/content/content-reposit
 import type { SpeakerProfile } from "../src/domain/content/content";
 import {
   ContentService,
+  SpeakerChecklistTitleTakenError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
@@ -649,5 +650,121 @@ describe("D1ContentRepository template imports", () => {
     expect(stored.filter(({ title }) => title === template.title)).toEqual([
       { ...template, description: "PDF, 16:9, no video." },
     ]);
+  });
+
+  /**
+   * The authoring path, which addresses the row rather than the title (issue #176).
+   *
+   * The renaming half is what the re-import above cannot do, and the constraint it has to
+   * survive is the same `UNIQUE(event_id, title)` — so this asserts against real SQLite rather
+   * than against a double that could be more permissive than the column.
+   */
+  it("adds, renames and removes one checklist line, and refuses a duplicate title", async () => {
+    const store = await repository();
+    const line = {
+      id: "80000000-0000-4000-8000-000000000010",
+      eventId,
+      title: "Book your travel",
+      description: "Flights and hotel, through the events desk.",
+      sortOrder: 4,
+      dueOffsetDays: -30,
+      createdAt: "2026-08-12T10:00:00.000Z",
+    };
+    const other = {
+      ...line,
+      id: "80000000-0000-4000-8000-000000000011",
+      title: "Record a 30-second intro",
+    };
+    const mine = async () =>
+      (await store.listTaskTemplates(eventId)).filter(({ id }) => id.startsWith("80000000"));
+
+    await store.addTaskTemplate(line);
+    await store.addTaskTemplate(other);
+
+    await expect(store.findTaskTemplate(line.id)).resolves.toEqual(line);
+    // The rename, which is the whole point of addressing a line by id.
+    await store.updateTaskTemplate({
+      ...line,
+      title: "Book your travel and hotel",
+      dueOffsetDays: -21,
+    });
+    await expect(store.findTaskTemplate(line.id)).resolves.toEqual({
+      ...line,
+      title: "Book your travel and hotel",
+      dueOffsetDays: -21,
+    });
+
+    // The database is what refuses a duplicate title, on both write paths, so the service has a
+    // constraint violation to translate rather than a silent overwrite to explain.
+    await expect(
+      store.addTaskTemplate({ ...other, id: "80000000-0000-4000-8000-000000000012" }),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+    await expect(store.updateTaskTemplate({ ...line, title: other.title })).rejects.toThrow(
+      /UNIQUE constraint failed/,
+    );
+    expect(await mine()).toHaveLength(2);
+
+    // A row another writer removed first matches nothing, and says so rather than reporting a
+    // save. `success` alone cannot tell those apart; the affected-row count is what does.
+    await store.deleteTaskTemplate(line.id);
+    // Renamed onto a title the *sibling* still holds, which is the one shape the two possible
+    // orderings disagree about: `WHERE id=?` matching nothing never reaches the unique index, so
+    // D1 answers `false` where a store that checked the title first would raise a constraint.
+    await expect(store.updateTaskTemplate({ ...line, title: other.title })).resolves.toBe(false);
+    expect(await mine()).toEqual([other]);
+    await expect(store.findTaskTemplate(line.id)).resolves.toBeNull();
+  });
+
+  /**
+   * The 409 an organizer meets, driven through the real driver's own error text.
+   *
+   * `isTitleConflict` is a regex over a message SQLite composes, and every other test that
+   * reaches it runs against `MemoryContentRepository`, whose double throws a hand-written copy of
+   * the string the regex was written to match. That is a test of the copy. This one lets D1 write
+   * the message, so a change in its wording turns duplicate titles into 500s here rather than in
+   * front of somebody.
+   */
+  it("turns D1's own duplicate-title violation into the organizer's refusal", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "content-checklist-conflict",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const store = new D1ContentRepository(migrated.database as ContentDatabasePort);
+    let id = 0;
+    const service = new ContentService({
+      repository: store,
+      assetStorage: new DeterministicAssetStorage(),
+      proposals: {
+        acceptedProposal: async () => {
+          throw new ProposalNotFoundError("unused");
+        },
+      },
+      agenda: new AgendaService(
+        new D1AgendaRepository(migrated.database, () => new Date("2026-08-12T10:00:00.000Z")),
+        () => new Date("2026-08-12T10:00:00.000Z"),
+        store,
+      ),
+      speakerConversion: new D1SpeakerConversion(
+        migrated.database,
+        () => crypto.randomUUID(),
+        new D1IdentityDirectory(migrated.database),
+      ),
+      newId: () => `90000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+      now: () => new Date("2026-08-12T10:00:00.000Z"),
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+    const line = { title: "Book your travel", description: "", sortOrder: 9, dueOffsetDays: -30 };
+
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+
+    await expect(
+      service.createTaskTemplate(organizer, { eventId, ...line }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+    // And on the edit path, which reaches the same constraint from the other direction: the
+    // seed's own "Send your slides" is the title this rename collides with.
+    await expect(
+      service.updateTaskTemplate(organizer, created.id, { ...line, title: "Send your slides" }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
   });
 });

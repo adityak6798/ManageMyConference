@@ -12,7 +12,11 @@ import {
   requireEventCapability,
 } from "../identity/actor";
 import type { EventService } from "./event-service";
-import type { EventTemplateRepository } from "./event-template-repository";
+import type {
+  EventTemplateApplicationView,
+  EventTemplateRepository,
+  EventTemplateVersionDraft,
+} from "./event-template-repository";
 import {
   type DateRemap,
   declaredExclusions,
@@ -69,15 +73,45 @@ export interface TemplateApplicationCommand {
   readonly slices?: readonly string[] | undefined;
 }
 
+/**
+ * A stored version with the capturing account resolved to a name.
+ *
+ * The id stays: it is what storage holds and what an operator would grep for, and the name is
+ * an answer to a different question. Null when identity does not know the account or when no
+ * directory is composed — never a fabricated string, and never the id dressed up as a name.
+ */
+export interface EventTemplateVersionView extends EventTemplateVersion {
+  readonly createdByName: string | null;
+}
+
+export interface EventTemplateApplicationDetail extends EventTemplateApplicationView {
+  readonly appliedByName: string | null;
+}
+
 export interface EventTemplateCapture {
   readonly template: EventTemplate;
-  readonly version: EventTemplateVersion;
+  readonly version: EventTemplateVersionView;
   readonly slices: readonly SliceCaptureReport[];
 }
 
 export interface EventTemplateDetail {
   readonly template: EventTemplate;
-  readonly versions: readonly EventTemplateVersion[];
+  readonly versions: readonly EventTemplateVersionView[];
+}
+
+/**
+ * Identity's answer to "what is this account called?", narrowed to the one call events needs.
+ *
+ * Declared here rather than imported as a service, the way `ContentActorDirectoryPort` and the
+ * platform sources are: events resolves a display name and nothing else — no persona, no role,
+ * and deliberately not the address `findRecipient` also carries, which must not travel into an
+ * API payload as a side effect of wanting somebody's name.
+ *
+ * Optional. A composition without it renders the stored id, which is what every one of these
+ * surfaces printed before issue #176.
+ */
+export interface TemplateActorNamePort {
+  findRecipient(userId: string): Promise<{ id: string; name: string } | null>;
 }
 
 export interface EventTemplateServiceDependencies {
@@ -85,6 +119,8 @@ export interface EventTemplateServiceDependencies {
   /** The same domain's event service: identity, ownership, and the destination's timezone. */
   events: Pick<EventService, "get" | "belongsToOrganization">;
   slices: readonly EventConfigurationSlice[];
+  /** Who captured a version, and who applied one, as a name rather than an account id. */
+  actorNames?: TemplateActorNamePort | undefined;
   newId: () => string;
   now: () => Date;
   /**
@@ -116,7 +152,17 @@ function isCalendarDate(value: string): boolean {
 export class EventTemplateService {
   constructor(private readonly dependencies: EventTemplateServiceDependencies) {}
 
-  /** Capture a new template from an event, as version 1. */
+  /**
+   * Capture a new template from an event, as version 1.
+   *
+   * **Nothing is written until the capture is complete.** Reading the source is six cross-domain
+   * exports, and it used to run *between* the template write and the version write — the widest
+   * such window in this file. A failure inside it left an active template with no versions:
+   * listed in the console with an empty version select, refused for duplication, answering 404
+   * for every apply, and holding its name against the partial unique index (issue #177). Now the
+   * exports happen first and the pair lands in one transaction, so the two possible outcomes are
+   * a usable template or nothing at all.
+   */
   async saveFromEvent(
     actor: Actor | null,
     command: SaveTemplateCommand,
@@ -132,8 +178,17 @@ export class EventTemplateService {
       createdAt: at,
       updatedAt: at,
     };
-    await this.dependencies.repository.createTemplate(template);
-    return this.capture(authorized, template, command.sourceEventId);
+    const captured = await this.capture(authorized, template.id, command.sourceEventId);
+    const version = await this.dependencies.repository.createTemplateWithVersion(
+      template,
+      captured.draft,
+    );
+    // The capturing account is the request's own actor, so its name needs no lookup.
+    return {
+      template,
+      version: { ...captured.draft, version, createdByName: authorized.name },
+      slices: captured.reports,
+    };
   }
 
   /** Capture the same event, or a different one, as the template's next version. */
@@ -146,7 +201,16 @@ export class EventTemplateService {
     if (template.state === "archived")
       throw new EventTemplateStateError("Restore this template before capturing a new version");
     await this.requireSourceEvent(authorized, sourceEventId, template.organizationId);
-    return this.capture(authorized, template, sourceEventId);
+    const captured = await this.capture(authorized, template.id, sourceEventId);
+    // The number is storage's to allocate, not this service's to read and then hope for: two
+    // organizers capturing the same template at once both take one, and neither is refused.
+    const version = await this.dependencies.repository.createVersion(captured.draft);
+    // The capturing account is the request's own actor, so its name needs no lookup.
+    return {
+      template,
+      version: { ...captured.draft, version, createdByName: authorized.name },
+      slices: captured.reports,
+    };
   }
 
   async list(actor: Actor | null, organizationId: string): Promise<readonly EventTemplate[]> {
@@ -156,7 +220,15 @@ export class EventTemplateService {
 
   async get(actor: Actor | null, templateId: string): Promise<EventTemplateDetail> {
     const { template } = await this.loadTemplate(actor, templateId, "events:read");
-    return { template, versions: await this.dependencies.repository.listVersions(templateId) };
+    const versions = await this.dependencies.repository.listVersions(templateId);
+    const names = await this.resolveNames(versions.map(({ createdBy }) => createdBy));
+    return {
+      template,
+      versions: versions.map((version) => ({
+        ...version,
+        createdByName: names.get(version.createdBy) ?? null,
+      })),
+    };
   }
 
   rename(actor: Actor | null, templateId: string, name: string): Promise<EventTemplate> {
@@ -212,17 +284,22 @@ export class EventTemplateService {
       createdAt: at,
       updatedAt: at,
     };
-    await this.dependencies.repository.createTemplate(copy);
-    const version: EventTemplateVersion = {
+    const draft: EventTemplateVersionDraft = {
       id: this.dependencies.newId(),
       templateId: copy.id,
-      version: 1,
       sourceEventId: newest.sourceEventId,
       payload: newest.payload,
       createdAt: at,
       createdBy: authorized.id,
     };
-    await this.dependencies.repository.createVersion(version);
+    // One transaction, as in `saveFromEvent` and for the same reason: a copy with no version is
+    // a name held against a template nobody can use (issue #177).
+    const allocated = await this.dependencies.repository.createTemplateWithVersion(copy, draft);
+    const version: EventTemplateVersionView = {
+      ...draft,
+      version: allocated,
+      createdByName: authorized.name,
+    };
     return {
       template: copy,
       version,
@@ -381,22 +458,67 @@ export class EventTemplateService {
       templateVersionId: context.identity.versionId,
       appliedAt,
       appliedBy: context.authorized.id,
-      outcome: { outcome: result.outcome, slices: reported, destination: command.destination },
+      outcome: {
+        outcome: result.outcome,
+        slices: reported,
+        destination: command.destination,
+        // What the organizer asked for, so the repair repeats that request rather than a wider
+        // one. `undefined` is dropped by `JSON.stringify` and reads back as "none recorded".
+        selection: command.slices,
+      },
     });
     return result;
   }
 
-  /** Which template versions this event was configured from, newest first. */
-  async applications(actor: Actor | null, eventId: string) {
+  /**
+   * Which template versions this event was configured from, newest first, with what each one
+   * actually did.
+   *
+   * The stored per-category outcome travels back out here, which is what makes a `partial`
+   * application something an organizer can meet again after the response that reported it
+   * (issue #175). Reading it is `events:settings:read` — the same grant as previewing, because
+   * this says what has already been done to this event rather than doing anything to it.
+   */
+  async applications(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<readonly EventTemplateApplicationDetail[]> {
     requireEventCapability(actor, eventId, "events:settings:read");
-    return this.dependencies.repository.listApplications(eventId);
+    const applications = await this.dependencies.repository.listApplications(eventId);
+    const names = await this.resolveNames(applications.map(({ appliedBy }) => appliedBy));
+    return applications.map((application) => ({
+      ...application,
+      appliedByName: names.get(application.appliedBy) ?? null,
+    }));
   }
 
+  /**
+   * Account ids to display names, each id looked up once however often it appears.
+   *
+   * A composition with no directory answers an empty map rather than failing: the surfaces fall
+   * back to naming the id as an account, which is what they printed before.
+   */
+  private async resolveNames(ids: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const directory = this.dependencies.actorNames;
+    if (!directory) return new Map();
+    const unique = [...new Set(ids)];
+    const found = await Promise.all(unique.map((id) => directory.findRecipient(id)));
+    return new Map(found.flatMap((person) => (person ? [[person.id, person.name] as const] : [])));
+  }
+
+  /**
+   * Read the source event through every slice and build the version that would store it —
+   * **writing nothing**.
+   *
+   * Separated from the write so both callers can put the whole of this before their first
+   * statement. `saveFromEvent` needs it that way (issue #177); `captureVersion` gains the same
+   * property for free, and neither can leave a half-written capture behind.
+   */
   private async capture(
     actor: Actor,
-    template: EventTemplate,
+    templateId: string,
     sourceEventId: string,
-  ): Promise<EventTemplateCapture> {
+  ): Promise<{ draft: EventTemplateVersionDraft; reports: SliceCaptureReport[] }> {
     const source = await this.dependencies.events.get(actor, sourceEventId);
     if (!source) throw new EventTemplateNotFoundError("No such source event");
     const reports: SliceCaptureReport[] = [];
@@ -412,17 +534,17 @@ export class EventTemplateService {
       source: { eventId: source.id, eventName: source.name, timezone: source.timezone },
       slices,
     };
-    const version: EventTemplateVersion = {
-      id: this.dependencies.newId(),
-      templateId: template.id,
-      version: await this.dependencies.repository.nextVersion(template.id),
-      sourceEventId,
-      payload,
-      createdAt: at,
-      createdBy: actor.id,
+    return {
+      draft: {
+        id: this.dependencies.newId(),
+        templateId,
+        sourceEventId,
+        payload,
+        createdAt: at,
+        createdBy: actor.id,
+      },
+      reports,
     };
-    await this.dependencies.repository.createVersion(version);
-    return { template, version, slices: reports };
   }
 
   private async exportSlice(

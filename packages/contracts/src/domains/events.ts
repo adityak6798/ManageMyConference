@@ -72,6 +72,16 @@ export const eventTemplateVersionSchema = z.object({
   sourceEventName: z.string(),
   createdAt: z.string().datetime(),
   createdBy: z.string(),
+  /**
+   * What the capturing account is *called*, resolved through identity, or null when identity
+   * holds no such user — or when a deployment composes no directory for this service at all.
+   *
+   * The id stays beside it rather than being replaced. A console prints the name and falls back
+   * to naming the id as an account, which is what issue #154 established for content revisions
+   * and what issue #176 asked for here: "by account 7f3c-…" is a true sentence about a stored
+   * value, where "by 7f3c-…" reads as somebody's name.
+   */
+  createdByName: z.string().nullable(),
   /** The slice keys this version actually carries a payload for. */
   slices: z.array(z.string()),
 });
@@ -136,6 +146,43 @@ export const templateApplicationResultSchema = templateApplicationIdentitySchema
   outcome: z.enum(["applied", "partial", "failed", "skipped"]),
   slices: z.array(sliceResultSchema),
 });
+
+/**
+ * One application of one template version to one event, read back from storage.
+ *
+ * This is what closes issue #175. The per-category outcome was written to
+ * `event_template_applications.outcome_json` on every apply and no query ever selected it, so a
+ * category that did not land was reported once — in the response to the click — and never
+ * mentioned again. An organizer who closed the tab had no way to learn that their event was
+ * configured in part, and a partial application looks exactly like a complete one from every
+ * other surface.
+ *
+ * `destination` is carried because the repair needs it. The range is a parameter of the clone
+ * rather than a property of the event, so nothing else could reconstruct it, and re-applying is
+ * only "one action away" if the action does not begin by asking for two dates again.
+ */
+export const eventTemplateApplicationSchema = z.object({
+  templateId: z.string().uuid(),
+  templateName: z.string(),
+  /** An archived template cannot be applied, so a repair offered against one would 409. */
+  templateState: z.enum(["active", "archived"]),
+  templateVersionId: z.string().uuid(),
+  version: z.number().int().positive(),
+  appliedAt: z.string().datetime(),
+  appliedBy: z.string(),
+  /** Resolved through identity, null when unresolvable. Same rule as `createdByName`. */
+  appliedByName: z.string().nullable(),
+  outcome: z.enum(["applied", "partial", "failed", "skipped"]),
+  destination: z.object({ startsOn: z.string(), endsOn: z.string() }),
+  /**
+   * The categories the original command named. Absent when it named none, which means every
+   * category the version carries — so a repair repeats the request that was actually made
+   * rather than a wider one.
+   */
+  selection: z.array(z.string()).optional(),
+  slices: z.array(sliceResultSchema),
+});
+export type EventTemplateApplicationDto = z.infer<typeof eventTemplateApplicationSchema>;
 
 const templateNameSchema = z.string().trim().min(1, "Template name is required").max(120);
 
@@ -209,4 +256,8 @@ export const templateApplicationPlanResponseSchema = z.object({
 });
 export const templateApplicationResponseSchema = z.object({
   application: templateApplicationResultSchema,
+});
+export const eventTemplateApplicationListResponseSchema = z.object({
+  /** Newest first. Every version this event was configured from, not only the last one. */
+  applications: z.array(eventTemplateApplicationSchema),
 });

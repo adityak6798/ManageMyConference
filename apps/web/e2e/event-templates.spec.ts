@@ -196,6 +196,16 @@ test("an organizer creates an event, previews a template into it, applies it, an
   await openTemplates(page, destination.id);
   await expect(category(library(page), SEEDED_TEMPLATE)).toContainText("1 version");
 
+  /*
+   * Every category landed, so nothing is outstanding and the repair card stays away (#175).
+   * Asserted on this fresh load rather than on the result still on screen, because the card is
+   * built from what *storage* holds: a clean application that left a row saying "partial" would
+   * be invisible in the response above and would show here.
+   */
+  await expect(
+    page.getByRole("region", { name: `${destination.name} is configured in part` }),
+  ).toHaveCount(0);
+
   // ---- 390px: the breakdown stacks rather than scrolling sideways -------------
   await page.setViewportSize({ width: 390, height: 844 });
   await openTemplates(page, destination.id);
@@ -230,6 +240,10 @@ test("an organizer saves this event as a template, then archives it", async ({ p
   const saved = page.getByRole("region", { name, exact: true });
   await expect(saved.getByRole("heading", { name: "Version 1" })).toBeVisible();
   await expect(saved).toContainText(`Captured from ${DEMO_EVENT_NAME}`);
+  // A person, not the account id it is stored under (issue #176). The id is what storage holds
+  // and `seed-organizer` is not anybody's name; identity is what turns one into the other.
+  await expect(saved).toContainText("by Olivia Organizer");
+  await expect(saved).not.toContainText("seed-organizer");
   await expect(category(library(page), name)).toContainText("Active");
 
   const manage = page.getByRole("region", { name: "Manage this template" });

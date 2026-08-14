@@ -150,9 +150,12 @@ feature-by-feature verdict.
   Governing ID: `ENG-CI-001`, `API-PUBLIC-*`. Closure: issue #59 — the document served from a stable
   route with a rendered docs page, covered by a route test.
 - `GAP-017` **The local Worker runtime dies mid-run and takes the browser suite with it.** Three
-  times observed: once locally on 2026-08-11 after roughly 45 minutes of uptime, once in the
+  times observed here: once locally on 2026-08-11 after roughly 45 minutes of uptime, once in the
   `browser` job of hosted run `31498844956`, where `wrangler dev` printed a bare `✘ [ERROR]` with
-  no message and exited 38 seconds into the suite, and once more on 2026-08-13 (below). In that
+  no message and exited 38 seconds into the suite, and once more on 2026-08-13 (below). Two further
+  sightings are recorded in the [wave coordination ledger](../exec-plans/competition-waves.md),
+  where they were observed: the ephemeral-port measurement of 2026-08-12, and a second crash on
+  2026-08-13 carrying the same `Broken pipe` message as the one below. In that
   second case every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
@@ -280,18 +283,49 @@ feature-by-feature verdict.
   `partial` rather than `applied` when any category failed, and `ARC-FLOW-006` states the guarantee
   rather than implying a stronger one.
 
-  What is still missing is everything after the response. Re-applying is the repair and it is safe,
-  because every slice converges on a natural key — but nothing *prompts* it. No surface lists events
-  whose most recent application was `partial`, the recorded outcome in
-  `event_template_applications.outcome_json` is written and never read back by any query, and an
-  organizer who closes the tab before reading the summary has no way to learn that one category did
-  not land. The failure mode is quiet and shaped exactly like success: an event configured from a
-  template, missing one thing nobody mentioned again.
+  **The half that was missing is closed by issue #175.** The stored outcome is read back:
+  `EventTemplateService.applications` carries `event_template_applications.outcome_json` out through
+  `GET /api/events/{eventId}/template-applications`, and the event templates workspace leads with a
+  card when the event's **most recent** application reads `partial` or `failed`. It names the
+  categories that did not land with the destination's own reason for each, says who applied the
+  version and when, and its one button re-applies **that version, onto the stored destination range,
+  with the categories the original command named** — the row records the selection for exactly that
+  reason, so a repair repeats the request that was made rather than a wider one. The card is derived
+  from storage on every load and shows only that most recent application, which is a safety rule
+  rather than tidiness: an application row is keyed per version, so applying a newer version writes
+  its own row and leaves an older `partial` one where it was — and offering *that* as a repair
+  would write its payload over the configuration that superseded it, because every category
+  converges on the payload it is given. The card therefore clears when the version is applied
+  again, and also when any later application takes its place.
+  `event-templates.test.ts` drives a slice that fails once and then succeeds, asserts the event
+  still reports itself configured in part afterwards, and asserts the second apply clears it.
 
-  Owner: events. Governing ID: `PRD-EVT-002`. Closure: the stored per-slice outcome becomes readable
-  — a `partial` application is surfaced where the organizer will see it, with the re-apply that
-  repairs it one action away — and a test drives a failing slice through apply, asserts the event is
-  reported as partially configured afterwards, and asserts a second apply clears it.
+  What remains, and is the residual risk this entry now records — three things, largest first.
+
+  **A later application hides a partial it did not repair.** "Most recent" is the only reading that
+  cannot offer a revert, and it is not the same question as "is anything still missing": a second
+  application naming a *different* template, or the same one with a subset of categories, is newer
+  and may read `applied` while the category the first one could not write is still unconfigured. The
+  signal is then lost entirely rather than merely made inconvenient, which is this issue's own
+  failure mode in a narrower case. Answering it properly means asking whether a *category* is
+  outstanding rather than whether an *application* was — a per-category reading across applications
+  that nothing supports today, because `outcome_json` is a per-application document and no query
+  decomposes it.
+
+  **There is no dismissal**, so an
+  organizer who repairs the refused category by hand — creating the room a slot wanted, granting a
+  capability — keeps the card until they apply that version again; doing so is safe and converging,
+  but it is a step they would not otherwise have needed. And **the surface is the templates
+  workspace**, which an organizer reaches deliberately. A partial application is not raised on the
+  console's landing page or in the operational inbox, both of which are platform-owned surfaces
+  (`PRD-OPS-002`); an inbox category for it is the natural next home and is a decision about
+  platform's product surface rather than about events. Non-atomicity itself is unchanged and stays
+  documented rather than fixed.
+
+  Owner: events. Governing ID: `PRD-EVT-002`. Closure: outstanding work is answered per *category*
+  rather than per application, so a later clone cannot hide it, and an operator who never opens
+  Event templates is still told — which together mean a decomposed read of the stored outcome and an
+  inbox category over it.
 - `GAP-020` **Google sign-in has never exchanged a request with Google.** The adapter at
   `apps/api/src/adapters/identity/google-oauth-client.ts` is the entire boundary — one POST to the
   token endpoint, one GET for the key set — and its request shape comes from Google's documentation
@@ -486,3 +520,36 @@ feature-by-feature verdict.
   answer may legitimately be "forever" — in which case the closure is a documented statement to
   that effect plus a fixture that is reset by rebuilding rather than by deleting. The narrow failed-delivery query on communications' public interface closes the fifth, and
   its test is an inbox that shows a failure older than one page of history.
+
+- `GAP-025` **Four unguarded content writers do not read the affected-row count, and three of them report a save for a write that matched no row.**
+  `d1-content-repository.ts` reads the affected-row count on the unguarded `UPDATE`s a caller reads
+  a row for first, except four: `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and
+  `completeSpeakerImport`. (Two others — `updateProfile` and `updateSession` — also drop the count,
+  and are outside this entry because the port documents both as fixture-only with no production
+  caller. The batch writes and the two `ON CONFLICT DO UPDATE` upserts are conditional or
+  converging by design, where matching nothing is the correct answer rather than a lost one.)
+  Each has the same read-then-write gap the others closed, and the same consequence — a successful
+  statement that matched nothing is indistinguishable from one that landed, so the response is a
+  200 describing a change to a row that is not there. Concretely: unpublishing an asset another
+  organizer deleted a moment earlier answers 200 and reports it private; naming a headshot on a
+  profile deleted mid-edit reports the headshot set, because the service falls back to the object
+  it constructed rather than to what the store did.
+
+  `completeSpeakerImport` is the mildest of the four and is named rather than excused: nothing
+  deletes a `content_speaker_import_rows` row today, so its write cannot currently match nothing —
+  but neither does anything delete a `speaker_profiles` row, and two of the other three are profile
+  writers, so "the row cannot vanish" is not the criterion that separates them. What separates them
+  is that the other three have a caller who reports success to a person.
+
+  The four were left rather than swept up with the writers that were fixed because one of them
+  cannot be closed without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
+  writer, and what an import should do with a row that vanished mid-run — skip it, refuse the row,
+  fail the batch — is a product question about imports rather than a repair to the write rule. The
+  other two want the same answer as the writers that were fixed, and are held with the import so
+  that all four are decided together: a file that applies one rule to some of its writers and a
+  different rule to the rest is exactly the divergence this entry exists to end, and closing two of
+  four would recreate it in miniature.
+
+  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all four read
+  the count; the import's behaviour on a vanished row is decided and stated where the import is
+  documented; and a test per writer drives a row deleted between the read and the write.

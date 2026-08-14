@@ -871,6 +871,163 @@ describe("content HTTP transport", () => {
     ).resolves.toMatchObject({ templates: [{ title: "Upload a headshot" }, {}] });
   });
 
+  /**
+   * The console's authoring path, over HTTP (issue #176).
+   *
+   * The three verbs the bulk declaration above cannot offer: add one line, edit one including
+   * its title, and remove one. Every response is the whole checklist, because a reorder changes
+   * lines the request never named.
+   */
+  it("adds, renames and removes one checklist line at a time", async () => {
+    const api = app();
+    const organizer = await cookie("organizer");
+    const entries = `/api/events/${eventId}/speaker-task-template-entries`;
+    const line = {
+      title: "Upload a headshot",
+      description: "A square image.",
+      sortOrder: 0,
+      dueOffsetDays: -14,
+    };
+    const add = (headers: Record<string, string>, body: unknown = line) =>
+      api.request(entries, { method: "POST", headers, body: JSON.stringify(body) });
+
+    const added = await add(organizer);
+    expect(added.status).toBe(201);
+    const { templates } = (await added.json()) as { templates: { id: string; title: string }[] };
+    expect(templates).toMatchObject([{ title: "Upload a headshot" }]);
+    const id = templates[0]?.id;
+
+    // The rename. Through the bulk route a corrected title writes a second line and leaves the
+    // first, because that path converges on `(event_id, title)` and removes nothing.
+    const renamed = await api.request(`/api/speaker-task-templates/${id}`, {
+      method: "PATCH",
+      headers: organizer,
+      body: JSON.stringify({ ...line, title: "Upload a portrait" }),
+    });
+    expect(renamed.status).toBe(200);
+    await expect(renamed.json()).resolves.toMatchObject({
+      templates: [{ id, title: "Upload a portrait" }],
+    });
+
+    // A title another line already holds is a 409 naming the field the organizer retypes.
+    await add(organizer, { ...line, title: "Send your slides", sortOrder: 1 });
+    const clash = await add(organizer, { ...line, title: "Upload a portrait" });
+    expect(clash.status).toBe(409);
+    await expect(clash.json()).resolves.toMatchObject({
+      error: { code: "CONFLICT", fieldErrors: { title: [expect.stringContaining("already")] } },
+    });
+
+    const removed = await api.request(`/api/speaker-task-templates/${id}`, {
+      method: "DELETE",
+      headers: organizer,
+    });
+    expect(removed.status).toBe(200);
+    await expect(removed.json()).resolves.toMatchObject({
+      templates: [{ title: "Send your slides" }],
+    });
+
+    // None of the three is a speaker's or a reviewer's, and an anonymous caller is refused
+    // before any of that — the same rule the bulk declaration follows.
+    const listed = await api.request(`/api/events/${eventId}/speaker-task-templates`, {
+      headers: organizer,
+    });
+    const remaining = (await listed.json()) as { templates: { id: string }[] };
+    const otherId = remaining.templates[0]?.id;
+    for (const headers of [await cookie("speaker"), await cookie("reviewer")]) {
+      expect((await add(headers)).status).toBe(403);
+      expect(
+        (
+          await api.request(`/api/speaker-task-templates/${otherId}`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify(line),
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (await api.request(`/api/speaker-task-templates/${otherId}`, { method: "DELETE", headers }))
+          .status,
+      ).toBe(403);
+    }
+    expect((await add({ "content-type": "application/json" })).status).toBe(401);
+    // A malformed id and a malformed line are both the caller's to fix.
+    expect(
+      (
+        await api.request("/api/speaker-task-templates/not-a-uuid", {
+          method: "DELETE",
+          headers: organizer,
+        })
+      ).status,
+    ).toBe(400);
+    expect((await add(organizer, { ...line, title: "" })).status).toBe(400);
+    // And the checklist is exactly where the successful calls left it.
+    await expect(
+      (
+        await api.request(`/api/events/${eventId}/speaker-task-templates`, { headers: organizer })
+      ).json(),
+    ).resolves.toMatchObject({ templates: [{ title: "Send your slides" }] });
+  });
+
+  /**
+   * The anti-oracle property, asserted where a caller stands.
+   *
+   * `PATCH` and `DELETE /api/speaker-task-templates/:templateId` carry no route-level capability
+   * check by design — they take no event parameter, so the event is resolved from the stored row
+   * and one service call is the entire authorization on them. The two refusals that call can
+   * raise carry different internal messages ("no such line" from the read, "not yours" from the
+   * capability check), and the whole claim is that a caller cannot tell them apart. That is a
+   * statement about the response, so it is asserted on the response: byte for byte, correlation
+   * id aside.
+   */
+  it("answers for another event's checklist line exactly as for one that does not exist", async () => {
+    const store = new MemoryContentRepository({
+      sessions: [],
+      speakers: [samProfile],
+      tasks: [],
+      assets: [],
+      messages: [],
+    });
+    // A line this event's organizer has no standing over, written straight to the store.
+    await store.addTaskTemplate({
+      id: "00000000-0000-4000-8000-0000000000e1",
+      eventId: "00000000-0000-4000-8000-0000000000e0",
+      title: "Somebody else's line",
+      description: "",
+      sortOrder: 0,
+      dueOffsetDays: -7,
+      createdAt: "2026-08-10T12:00:00.000Z",
+    });
+    const api = app(undefined, undefined, undefined, store);
+    const organizer = await cookie("organizer");
+    const edit = { title: "Renamed", description: "", sortOrder: 0, dueOffsetDays: -7 };
+
+    const responses = await Promise.all(
+      ["0000000000e1", "0000000000e2"].flatMap((suffix) => {
+        const url = `/api/speaker-task-templates/00000000-0000-4000-8000-${suffix}`;
+        return [
+          api.request(url, { method: "PATCH", headers: organizer, body: JSON.stringify(edit) }),
+          api.request(url, { method: "DELETE", headers: organizer }),
+        ];
+      }),
+    );
+    const bodies = await Promise.all(
+      responses.map(async (response) => {
+        expect(response.status).toBe(403);
+        const envelope = (await response.json()) as { error: Record<string, unknown> };
+        // The correlation id is per request and is the one thing that must differ.
+        return JSON.stringify({ ...envelope.error, correlationId: undefined });
+      }),
+    );
+
+    // One distinct answer across all four: an id naming another event's line and an id naming
+    // nothing produce the same response.
+    expect(new Set(bodies).size).toBe(1);
+    // And nothing was written to the other event's checklist on the way past.
+    await expect(
+      store.findTaskTemplate("00000000-0000-4000-8000-0000000000e1"),
+    ).resolves.toMatchObject({ title: "Somebody else's line" });
+  });
+
   it("answers a profile edit that never wins the record with 409 CONFLICT", async () => {
     // The store refuses the way `D1ContentRepository` does after losing the revision number
     // five times running. What is under test is the transport: contention has to reach the

@@ -522,10 +522,11 @@ describe("Event templates: the agenda slice", () => {
     const { template, version } = await save(templates, actor);
     // `export` refuses to capture an empty board, so this is a row an operator wrote or edited —
     // and `configure` replaces all three lists, so applying it would delete the three above.
+    // The number is the store's to allocate (#177), so appending to a template holding version 1
+    // is what makes this version 2.
     await templateRepository.createVersion({
       ...version,
       id: "00000000-0000-4000-8000-0000000000fe",
-      version: 2,
       payload: { ...version.payload, slices: { agenda: { rooms: [], tracks: [], slots: [] } } },
     });
     const command = { templateId: template.id, version: 2, destination: DESTINATION_RANGE };
@@ -659,7 +660,6 @@ describe("Event templates: the agenda slice", () => {
     await templateRepository.createVersion({
       ...version,
       id: "00000000-0000-4000-8000-0000000000fd",
-      version: 2,
       payload: {
         ...version.payload,
         slices: {
@@ -723,7 +723,6 @@ describe("Event templates: the agenda slice", () => {
     await templateRepository.createVersion({
       ...version,
       id: "00000000-0000-4000-8000-0000000000ff",
-      version: 2,
       payload: {
         ...version.payload,
         slices: { agenda: { rooms: [{ id: "room-main" }], tracks: [], slots: [] } },

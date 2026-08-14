@@ -205,6 +205,17 @@ export interface ContentImportReport {
 /** The instantiation anchor was not an instant, so no due date could be derived from it. */
 export class SpeakerChecklistAnchorError extends Error {}
 
+/**
+ * Another line on this event already holds that title.
+ *
+ * A refusal rather than a convergence, and the distinction is the whole reason this error
+ * exists. `importTaskTemplates` writes at `(event_id, title)` because a *clone* has no other
+ * identity to converge on; an organizer typing a title into the console is naming a new line,
+ * and quietly rewriting the one that already had that title would replace work they can still
+ * see on the screen in front of them.
+ */
+export class SpeakerChecklistTitleTakenError extends Error {}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   /** Resolves the actor ids on revisions to the names an organizer recognises. */
@@ -564,7 +575,10 @@ export class ContentService {
           ? existing.embedHtml
           : this.dependencies.sanitizeResourceEmbed(input.embedHtml, embedAllowedHosts),
     };
-    await this.dependencies.repository.updateResource(resource);
+    // A resource another organizer deleted between the read above and this write matches no
+    // row, and is refused exactly as one that never existed rather than reported as saved.
+    if (!(await this.dependencies.repository.updateResource(resource)))
+      throw new CapabilityDeniedError("Speaker resource access denied");
     return resource;
   }
 
@@ -669,6 +683,112 @@ export class ContentService {
     if (!hasEventRole(authorized, eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker checklist access denied");
     return this.dependencies.repository.listTaskTemplates(eventId);
+  }
+
+  /**
+   * Author one checklist line, or edit one, from the console (issue #176).
+   *
+   * Addressed by **id**, not by title, which is what `importTaskTemplates` cannot offer and why
+   * this is a separate command rather than a wrapper around it. An import converges on the title
+   * because a clone arriving in another event has nothing else to converge on; an organizer who
+   * mistyped a title needs to change it, and doing that through the import path would leave the
+   * mistyped line behind as a second one that nothing could ever remove.
+   *
+   * @spec PRD-SPK-002 PRD-CNT-001
+   */
+  async createTaskTemplate(
+    actor: Actor | null,
+    input: SpeakerTaskTemplateImport & { eventId: string },
+  ): Promise<SpeakerTaskTemplate> {
+    requireEventCapability(actor, input.eventId, "content:manage");
+    return this.writeTaskTemplate(
+      {
+        id: this.dependencies.newId(),
+        eventId: input.eventId,
+        title: input.title,
+        description: input.description,
+        sortOrder: input.sortOrder,
+        dueOffsetDays: input.dueOffsetDays,
+        createdAt: this.dependencies.now().toISOString(),
+      },
+      false,
+    );
+  }
+
+  /**
+   * Edit one line, including its title.
+   *
+   * The event comes from the stored row rather than from the caller, exactly as `updateResource`
+   * takes it from the resource: a request that could name the event could name a different one
+   * from the row it edits, and then the capability check and the write would be about two
+   * different events.
+   */
+  async updateTaskTemplate(
+    actor: Actor | null,
+    templateId: string,
+    input: SpeakerTaskTemplateImport,
+  ): Promise<SpeakerTaskTemplate> {
+    const existing = await this.requireTaskTemplate(actor, templateId);
+    return this.writeTaskTemplate(
+      {
+        ...existing,
+        title: input.title,
+        description: input.description,
+        sortOrder: input.sortOrder,
+        dueOffsetDays: input.dueOffsetDays,
+      },
+      true,
+    );
+  }
+
+  /**
+   * Remove a line from the event's checklist, and answer the event it belonged to.
+   *
+   * Tasks already assigned from it stay where they are, and that is deliberate rather than an
+   * oversight: `speaker_tasks` holds no pointer back here, so once a line has been given to
+   * somebody the work is theirs. Deleting a line an organizer has stopped asking for must not
+   * quietly delete the homework of everybody who was already asked.
+   */
+  async deleteTaskTemplate(actor: Actor | null, templateId: string): Promise<string> {
+    const existing = await this.requireTaskTemplate(actor, templateId);
+    await this.dependencies.repository.deleteTaskTemplate(templateId);
+    return existing.eventId;
+  }
+
+  /** A line this actor may write, or the one refusal both "no such line" and "not yours" get. */
+  private async requireTaskTemplate(
+    actor: Actor | null,
+    templateId: string,
+  ): Promise<SpeakerTaskTemplate> {
+    const existing = await this.dependencies.repository.findTaskTemplate(templateId);
+    if (!existing) throw new CapabilityDeniedError("Speaker checklist access denied");
+    requireEventCapability(actor, existing.eventId, "content:manage");
+    return existing;
+  }
+
+  private async writeTaskTemplate(
+    template: SpeakerTaskTemplate,
+    editing: boolean,
+  ): Promise<SpeakerTaskTemplate> {
+    try {
+      // A matched row is what makes this a save. Another organizer can delete a line between the
+      // read above and this write, and reporting that as a success would announce "saved" over a
+      // checklist the same response shows the line missing from.
+      if (editing) {
+        if (!(await this.dependencies.repository.updateTaskTemplate(template)))
+          throw new CapabilityDeniedError("Speaker checklist access denied");
+      } else await this.dependencies.repository.addTaskTemplate(template);
+    } catch (error) {
+      // ERROR-INTENT: `UNIQUE(event_id, title)` is the checklist's own rule, so a violation is
+      // the organizer's answer and becomes a 409 naming the title. Every other failure keeps
+      // travelling untouched.
+      if (isTitleConflict(error))
+        throw new SpeakerChecklistTitleTakenError(
+          `Another line on this event is already called “${template.title}”`,
+        );
+      throw error;
+    }
+    return template;
   }
 
   /** `importSpeakerResources` for checklist lines, whose identity in an event is their title. */
@@ -1101,11 +1221,16 @@ export class ContentService {
     const workspace = await this.dependencies.repository.workspace(eventId, authorized.id);
     const task = workspace.tasks.find(({ id }) => id === taskId);
     if (!task) throw new CapabilityDeniedError("Speaker task access denied");
-    await this.dependencies.repository.updateTask({
-      ...task,
-      status: "complete",
-      completedAt: this.dependencies.now().toISOString(),
-    });
+    // Same rule: a task withdrawn while the speaker had the portal open matches nothing, and
+    // answering "completed" over work that is gone is the report this count exists to prevent.
+    if (
+      !(await this.dependencies.repository.updateTask({
+        ...task,
+        status: "complete",
+        completedAt: this.dependencies.now().toISOString(),
+      }))
+    )
+      throw new CapabilityDeniedError("Speaker task access denied");
     return this.workspace(actor, eventId);
   }
 
@@ -1617,4 +1742,20 @@ export class ContentService {
       .map(foldCalendarLine)
       .join("\r\n");
   }
+}
+
+/**
+ * Whether a driver error is the checklist's own uniqueness rule rather than anything else.
+ *
+ * `1405` declares the uniqueness as a table constraint, so SQLite names the columns:
+ * `UNIQUE constraint failed: speaker_task_templates.event_id, speaker_task_templates.title`.
+ * The table and one of its two columns are both required, because the generic phrase alone is
+ * not enough — a violation on `speaker_tasks`, or on this table's primary key, must not be
+ * reported to an organizer as a duplicate checklist title.
+ */
+function isTitleConflict(reason: unknown): boolean {
+  const text = reason instanceof Error ? reason.message : String(reason ?? "");
+  return (
+    /UNIQUE constraint failed/i.test(text) && /speaker_task_templates\.(event_id|title)/i.test(text)
+  );
 }

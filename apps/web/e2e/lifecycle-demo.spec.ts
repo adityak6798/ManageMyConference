@@ -226,11 +226,12 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     await expect(page.getByRole("banner")).toHaveCount(1);
     // A closed <details> renders nothing, and axe skips what is not rendered. #144 moved seven
     // tools — the CSV import form, the Accelevents controls, the workflow selects and textareas,
-    // the bulk-assignment list, the deliverables inputs, the edit-history table and the whole
+    // the bulk-assignment list, the deliverables inputs, the edit-history table, the speaker
+    // checklist editor (#176) and the whole
     // resource editor — into closed panels, which would have quietly narrowed this audit to the
     // dashboard while the scorecard still called the destination clean. They are opened first so
     // the sweep covers at least what it covered when they were expanded Cards.
-    await openEveryToolPanel(page, destination.href.startsWith("/sessions") ? 7 : undefined);
+    await openEveryToolPanel(page, destination.href.startsWith("/sessions") ? 8 : undefined);
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 

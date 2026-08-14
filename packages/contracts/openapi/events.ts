@@ -12,6 +12,7 @@ import {
   duplicateEventTemplateInputSchema,
   eventIdParamsSchema,
   eventListResponseSchema,
+  eventTemplateApplicationListResponseSchema,
   eventTemplateCaptureResponseSchema,
   eventTemplateDetailResponseSchema,
   eventTemplateIdParamsSchema,
@@ -248,6 +249,23 @@ export const eventsPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/template-applications",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description:
+            "Every template version this event was configured from, newest first, with the stored per-category outcome of each application. This is where a `partial` application is found again after the response that reported it: the categories that did not land are named, and `destination` carries the range to re-apply onto",
+          content: json(eventTemplateApplicationListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
         500: errorResponse,
       },
     });

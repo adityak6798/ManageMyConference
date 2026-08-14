@@ -1,6 +1,7 @@
 import type {
   CreateEventInput,
   EventDto,
+  EventTemplateApplicationDto,
   EventTemplateDto,
   EventTemplateVersionDto,
   UpdateEventInput,
@@ -11,7 +12,8 @@ import type {
 } from "../../application/events/event-service";
 import type {
   EventTemplate,
-  EventTemplateVersion,
+  EventTemplateApplicationDetail,
+  EventTemplateVersionView,
   EventView,
 } from "../../application/events/public";
 
@@ -35,7 +37,7 @@ export const eventTemplateToDto = (template: EventTemplate): EventTemplateDto =>
  * holds and where it came from, so that is what it gets.
  */
 export const eventTemplateVersionToDto = (
-  version: EventTemplateVersion,
+  version: EventTemplateVersionView,
 ): EventTemplateVersionDto => ({
   id: version.id,
   version: version.version,
@@ -43,8 +45,40 @@ export const eventTemplateVersionToDto = (
   sourceEventName: version.payload.source.eventName,
   createdAt: version.createdAt,
   createdBy: version.createdBy,
+  createdByName: version.createdByName,
   slices: Object.entries(version.payload.slices)
     .filter(([, payload]) => payload != null)
     .map(([key]) => key)
     .sort(),
+});
+
+/**
+ * One past application, as the console reads it back.
+ *
+ * Mapped field by field rather than spread, so a field added to the stored outcome for one
+ * domain's benefit does not become part of an API payload by accident — which is the same rule
+ * `eventTemplateVersionToDto` follows about the slice payloads themselves.
+ */
+export const eventTemplateApplicationToDto = (
+  application: EventTemplateApplicationDetail,
+): EventTemplateApplicationDto => ({
+  templateId: application.templateId,
+  templateName: application.templateName,
+  templateState: application.templateState,
+  templateVersionId: application.templateVersionId,
+  version: application.version,
+  appliedAt: application.appliedAt,
+  appliedBy: application.appliedBy,
+  appliedByName: application.appliedByName,
+  outcome: application.outcome,
+  destination: application.destination,
+  ...(application.selection === undefined ? {} : { selection: [...application.selection] }),
+  slices: application.slices.map((slice) => ({
+    key: slice.key,
+    label: slice.label,
+    outcome: slice.outcome,
+    reason: slice.reason,
+    applied: slice.applied.map(({ id, label }) => ({ id, label })),
+    incompatible: slice.incompatible.map(({ id, label }) => ({ id, label })),
+  })),
 });

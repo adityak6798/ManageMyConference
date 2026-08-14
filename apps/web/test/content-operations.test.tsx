@@ -97,20 +97,23 @@ const run = async (action: () => Promise<unknown>) => {
 };
 
 /**
- * Mount the panels with the Accelevents status served, because one of them reads it on mount.
- * Nothing here asserts on that panel — its own suite does — but leaving the read unanswered
- * would make every test depend on a rejected promise settling.
+ * Mount the panels with the two reads their children take on mount already answered: the
+ * Accelevents status, and the event's speaker checklist. Nothing here asserts on either panel —
+ * each has its own suite — but leaving a read unanswered would make every test depend on a
+ * rejected promise settling, and would put a failure notice inside a panel about something else.
  */
 function mount(value: Workspace) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(
-      async () =>
-        new Response(JSON.stringify({ mode: "fixture", direction: "inbound", lastRun: null }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    ),
+    vi.fn(async (input: RequestInfo | URL) => {
+      const body = String(input).endsWith("/speaker-task-templates")
+        ? { templates: [] }
+        : { mode: "fixture", direction: "inbound", lastRun: null };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
   );
   return render(<ContentOperations eventId={eventId} workspace={value} busy={false} run={run} />);
 }

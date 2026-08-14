@@ -20,6 +20,8 @@ import {
   requestSpeakerTaskInputSchema,
   restoreContentRevisionInputSchema,
   saveSpeakerTaskTemplatesInputSchema,
+  speakerTaskTemplateIdParamsSchema,
+  speakerTaskTemplateInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
   speakerCsvImportInputSchema,
@@ -35,6 +37,7 @@ import { ContentConflictError } from "../../../application/content/content-repos
 import {
   ResourceEmbedDeniedError,
   SpeakerChecklistAnchorError,
+  SpeakerChecklistTitleTakenError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../../../application/content/content-service";
@@ -62,6 +65,9 @@ const routes = [
   "POST /api/events/:eventId/speaker-calendar-invites",
   "GET /api/events/:eventId/speaker-task-templates",
   "POST /api/events/:eventId/speaker-task-templates",
+  "POST /api/events/:eventId/speaker-task-template-entries",
+  "PATCH /api/speaker-task-templates/:templateId",
+  "DELETE /api/speaker-task-templates/:templateId",
   "POST /api/events/:eventId/speaker-checklist-assignments",
   "POST /api/speaker-resources",
   "PATCH /api/speaker-resources/:resourceId",
@@ -522,6 +528,107 @@ export const contentRoutes: RouteModule = {
       });
     });
     /*
+     * One line at a time, addressed by its own id — the console's authoring path (issue #176).
+     *
+     * The bulk route above declares a whole checklist at `(event_id, title)`, which is right for
+     * a clone and wrong for a person: an organizer who mistyped a title cannot correct it that
+     * way, because the corrected title writes a *second* line and nothing there removes the
+     * first. So authoring gets its own three verbs, and every one of them answers with the whole
+     * checklist rather than with the row it touched — a reorder changes rows the request never
+     * named, and a console reconstructing that from a single row would show a stale order.
+     */
+    app.post("/api/events/:eventId/speaker-task-template-entries", async (context) => {
+      const params = eventContentParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "content:manage");
+      const parsed = speakerTaskTemplateInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Checklist line is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      await content.createTaskTemplate(context.get("actor"), {
+        eventId: params.data.eventId,
+        ...parsed.data,
+      });
+      return context.json(
+        { templates: await content.taskTemplates(context.get("actor"), params.data.eventId) },
+        201,
+      );
+    });
+    app.patch("/api/speaker-task-templates/:templateId", async (context) => {
+      const params = speakerTaskTemplateIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Template ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      const parsed = speakerTaskTemplateInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Checklist line is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      /*
+       * The event is resolved from the stored line rather than taken from the request, so this
+       * route has no event parameter to disagree with the row it edits. The service authorizes
+       * against that event and answers the same denial for a line on an event this actor cannot
+       * write as for one that does not exist — and, for the same reason, for a line another
+       * organizer has deleted since this form was opened. A 403 here is as likely to mean "that
+       * line is gone" as "not yours", which is the price of not being an oracle for other
+       * organizations' ids.
+       */
+      const saved = await content.updateTaskTemplate(
+        context.get("actor"),
+        params.data.templateId,
+        parsed.data,
+      );
+      return context.json({
+        templates: await content.taskTemplates(context.get("actor"), saved.eventId),
+      });
+    });
+    app.delete("/api/speaker-task-templates/:templateId", async (context) => {
+      const params = speakerTaskTemplateIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Template ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      /*
+       * The event comes back from the delete, which is the only thing that still knows it.
+       *
+       * A repeat of this request — a retry, a double click that got through — answers 403 rather
+       * than 200, because a line that is already gone is refused exactly as one that never
+       * existed. That single refusal is deliberate (it is what stops this route being an oracle
+       * for another organization's ids) and the consequence is worth naming here: a 403 on the
+       * second attempt is not a permission problem, it is the first attempt having succeeded.
+       */
+      const eventId = await content.deleteTaskTemplate(
+        context.get("actor"),
+        params.data.templateId,
+      );
+      return context.json({
+        templates: await content.taskTemplates(context.get("actor"), eventId),
+      });
+    });
+    /*
      * Turn the checklist into real work for named speakers.
      *
      * A separate, deliberate command rather than a consequence of declaring the lines: this is
@@ -761,6 +868,18 @@ export const contentRoutes: RouteModule = {
         message: error.message,
         status: 400 as const,
         fields: { anchorAt: [error.message] },
+      };
+    /*
+     * A title another line already holds. 409 rather than 400: the request is well formed and
+     * the checklist's state is what refuses it, which is also the state the organizer can see
+     * and act on. Named against `title`, because that is the box they retype.
+     */
+    if (error instanceof SpeakerChecklistTitleTakenError)
+      return {
+        code: "CONFLICT" as const,
+        message: error.message,
+        status: 409 as const,
+        fields: { title: [error.message] },
       };
     if (error instanceof ResourceEmbedDeniedError)
       return {

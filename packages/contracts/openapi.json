@@ -7405,6 +7405,10 @@
                           "createdBy": {
                             "type": "string"
                           },
+                          "createdByName": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "slices": {
                             "type": "array",
                             "items": {
@@ -7419,6 +7423,7 @@
                           "sourceEventName",
                           "createdAt",
                           "createdBy",
+                          "createdByName",
                           "slices"
                         ]
                       }
@@ -8239,6 +8244,10 @@
                         "createdBy": {
                           "type": "string"
                         },
+                        "createdByName": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "slices": {
                           "type": "array",
                           "items": {
@@ -8253,6 +8262,7 @@
                         "sourceEventName",
                         "createdAt",
                         "createdBy",
+                        "createdByName",
                         "slices"
                       ]
                     },
@@ -8735,6 +8745,10 @@
                         "createdBy": {
                           "type": "string"
                         },
+                        "createdByName": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "slices": {
                           "type": "array",
                           "items": {
@@ -8749,6 +8763,7 @@
                         "sourceEventName",
                         "createdAt",
                         "createdBy",
+                        "createdByName",
                         "slices"
                       ]
                     },
@@ -33858,6 +33873,395 @@
         }
       }
     },
+    "/api/events/{eventId}/speaker-task-template-entries": {
+      "post": {
+        "description": "Adds one checklist line. Refuses a title another line on this event already holds, rather than converging on it the way the bulk declaration does: an organizer typing a title is naming a new line, and quietly rewriting the existing one would replace work still on their screen. Answers the whole checklist.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "default": ""
+                  },
+                  "sortOrder": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "dueOffsetDays": {
+                    "type": "integer",
+                    "minimum": -3650,
+                    "maximum": 3650
+                  }
+                },
+                "required": [
+                  "title",
+                  "sortOrder",
+                  "dueOffsetDays"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The event's checklist after the line was added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "dueOffsetDays": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "title",
+                          "description",
+                          "sortOrder",
+                          "dueOffsetDays",
+                          "createdAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "templates"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/events/{eventId}/speaker-task-templates": {
       "get": {
         "description": "The event's reusable speaker checklist: the lines every speaker is asked for, held as event configuration rather than as anybody's work. Organizer-only — a speaker holds `content:read` for their own portal, and a line nobody has been assigned yet is not part of it.",
@@ -35770,6 +36174,416 @@
       }
     },
     "/api/events/{eventId}/template-applications": {
+      "get": {
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "eventId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every template version this event was configured from, newest first, with the stored per-category outcome of each application. This is where a `partial` application is found again after the response that reported it: the categories that did not land are named, and `destination` carries the range to re-apply onto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "applications": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "templateId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "templateName": {
+                            "type": "string"
+                          },
+                          "templateState": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "archived"
+                            ]
+                          },
+                          "templateVersionId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "appliedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "appliedBy": {
+                            "type": "string"
+                          },
+                          "appliedByName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "applied",
+                              "partial",
+                              "failed",
+                              "skipped"
+                            ]
+                          },
+                          "destination": {
+                            "type": "object",
+                            "properties": {
+                              "startsOn": {
+                                "type": "string"
+                              },
+                              "endsOn": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "startsOn",
+                              "endsOn"
+                            ]
+                          },
+                          "selection": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "slices": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "outcome": {
+                                  "type": "string",
+                                  "enum": [
+                                    "applied",
+                                    "skipped",
+                                    "incompatible",
+                                    "unauthorized",
+                                    "failed"
+                                  ]
+                                },
+                                "reason": {
+                                  "type": "string"
+                                },
+                                "applied": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "label": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "label"
+                                    ]
+                                  }
+                                },
+                                "incompatible": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "label": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "label"
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "label",
+                                "outcome",
+                                "reason",
+                                "applied",
+                                "incompatible"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "templateId",
+                          "templateName",
+                          "templateState",
+                          "templateVersionId",
+                          "version",
+                          "appliedAt",
+                          "appliedBy",
+                          "appliedByName",
+                          "outcome",
+                          "destination",
+                          "slices"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "applications"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "security": [
           {
@@ -44623,6 +45437,10 @@
                         "createdBy": {
                           "type": "string"
                         },
+                        "createdByName": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "slices": {
                           "type": "array",
                           "items": {
@@ -44637,6 +45455,7 @@
                         "sourceEventName",
                         "createdAt",
                         "createdBy",
+                        "createdByName",
                         "slices"
                       ]
                     },
@@ -56229,6 +57048,691 @@
         "responses": {
           "204": {
             "description": "Resource deleted"
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/speaker-task-templates/{templateId}": {
+      "patch": {
+        "description": "Edits one checklist line, including its title. The event is resolved from the stored line rather than named by the caller, so the capability check and the write cannot be about two different events. Tasks already assigned from this line are untouched — they are keyed by the title they were given, and are the speaker's work once assigned.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "templateId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "default": ""
+                  },
+                  "sortOrder": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "dueOffsetDays": {
+                    "type": "integer",
+                    "minimum": -3650,
+                    "maximum": 3650
+                  }
+                },
+                "required": [
+                  "title",
+                  "sortOrder",
+                  "dueOffsetDays"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The event's checklist after the edit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "dueOffsetDays": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "title",
+                          "description",
+                          "sortOrder",
+                          "dueOffsetDays",
+                          "createdAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "templates"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Removes one line from the event's checklist. Tasks already assigned from it stay where they are: `speaker_tasks` holds no pointer back here, so once a line has been given to somebody the work is theirs, and dropping a line an organizer has stopped asking for must not delete anybody's homework.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "eventBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "templateId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The event's checklist after the removal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "dueOffsetDays": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "title",
+                          "description",
+                          "sortOrder",
+                          "dueOffsetDays",
+                          "createdAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "templates"
+                  ]
+                }
+              }
+            }
           },
           "400": {
             "description": "Standard error envelope",

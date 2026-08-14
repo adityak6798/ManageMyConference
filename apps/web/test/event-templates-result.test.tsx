@@ -36,6 +36,8 @@ const version = {
   sourceEventName: "Greenroom Demo Summit",
   createdAt: "2026-08-01T09:00:00.000Z",
   createdBy: "seed-organizer",
+  // Null so the fallback stays under test: the resolved-name path has its own case.
+  createdByName: null,
   slices: ["review", "cfp", "agenda", "publishing", "content-resources", "content-checklists"],
 };
 
@@ -104,11 +106,17 @@ function stubTemplates(
   application: unknown,
   listed: EventTemplateDto = template,
   held: readonly EventTemplateVersionDto[] = [version],
+  applications: readonly unknown[] = [],
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/template-application-previews")) return jsonResponse({ plan });
-    if (url.endsWith("/template-applications")) return jsonResponse({ application });
+    // GET and POST share this URL: one reads what has already been applied to the event, the
+    // other applies. Answering the read with the write's body would decode as a schema failure.
+    if (url.endsWith("/template-applications"))
+      return _init?.method === "POST"
+        ? jsonResponse({ application })
+        : jsonResponse({ applications });
     if (url.endsWith(`/event-templates/${templateId}`))
       return jsonResponse({ template: listed, versions: held });
     return jsonResponse({ templates: [listed] });
@@ -167,6 +175,18 @@ describe("event templates, in the organizer's words", () => {
     expect(screen.getByRole("region", { name: "Annual summit starter" }).textContent).toContain(
       "by account seed-organizer",
     );
+  });
+
+  it("names the person once identity can resolve the account", async () => {
+    // Issue #176's second half: the API resolves the id through identity, so the card says who.
+    stubTemplates(refusedInside, template, [{ ...version, createdByName: "Olivia Organizer" }]);
+    renderWorkspace();
+    fireEvent.click(await screen.findByRole("button", { name: "Annual summit starter" }));
+
+    const versions = screen.getByRole("region", { name: "Annual summit starter" });
+    expect(versions.textContent).toContain("by Olivia Organizer");
+    // And the id is gone from the sentence rather than printed beside the name.
+    expect(versions.textContent).not.toContain("seed-organizer");
   });
 
   it("titles the result from the categories below it, not from the envelope", async () => {

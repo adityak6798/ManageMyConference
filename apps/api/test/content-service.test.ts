@@ -11,6 +11,7 @@ import type { PublishedSchedule } from "../src/application/agenda/agenda-reposit
 import { AgendaService } from "../src/application/agenda/agenda-service";
 import {
   ContentService,
+  SpeakerChecklistTitleTakenError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
@@ -1143,5 +1144,307 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
     const workspace = await service.accept(organizer, command, correlationId);
 
     expect(workspace.sessions).toHaveLength(1);
+  });
+});
+
+/**
+ * The console's authoring path for the event's speaker checklist (issue #176).
+ *
+ * `importTaskTemplates` writes at `(event_id, title)`, which is right for a clone and wrong for
+ * a person: it cannot rename a line and cannot remove one. These three commands are what the
+ * console actually uses, and what they refuse matters as much as what they write.
+ */
+describe("speaker checklist authoring", () => {
+  const line = {
+    title: "Upload a headshot",
+    description: "Square, at least 800px.",
+    sortOrder: 0,
+    dueOffsetDays: -30,
+  };
+
+  it("adds a line, edits it including its title, and removes it", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    expect(await service.taskTemplates(organizer, eventId)).toMatchObject([{ title: line.title }]);
+
+    /*
+     * The rename is the whole reason this command exists. Through the import path the corrected
+     * title would write a *second* line and leave the mistyped one behind for ever, since
+     * nothing there removes anything.
+     */
+    await service.updateTaskTemplate(organizer, created.id, {
+      ...line,
+      title: "Upload a portrait",
+      dueOffsetDays: -21,
+    });
+    expect(await service.taskTemplates(organizer, eventId)).toMatchObject([
+      { id: created.id, title: "Upload a portrait", dueOffsetDays: -21 },
+    ]);
+
+    await service.deleteTaskTemplate(organizer, created.id);
+    expect(await service.taskTemplates(organizer, eventId)).toEqual([]);
+  });
+
+  it("refuses a title another line already holds rather than overwriting it", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.createTaskTemplate(organizer, { eventId, ...line });
+    const second = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+      title: "Send slides",
+      sortOrder: 1,
+    });
+
+    // Converging here — which is what the import path does — would replace a line the organizer
+    // can still see on the screen in front of them with the one they are typing.
+    await expect(
+      service.createTaskTemplate(organizer, { eventId, ...line }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+    await expect(
+      service.updateTaskTemplate(organizer, second.id, { ...line, sortOrder: 1 }),
+    ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
+    expect(await service.taskTemplates(organizer, eventId)).toHaveLength(2);
+  });
+
+  /**
+   * Instantiating the checklist tells the speakers, and `PRD-SPK-002` says so.
+   *
+   * The specification's own sentence a paragraph later — "these records create no notification or
+   * delivery effect" — is about the *content records* it lists there, not about this command; the
+   * distinction is the difference between recording a message and asking for one to be sent. A
+   * claim in a normative document with no assertion behind it is how the two drift, so this pins
+   * it: one notification per task actually created, and none for a line the speaker already held.
+   */
+  it("tells each speaker about the work this assignment created, and only that", async () => {
+    const told: Parameters<SpeakerNotificationPort["taskAssigned"]>[0][] = [];
+    const { service } = setup({
+      speakerNotifications: {
+        async speakerAccepted(fact) {
+          // Recorded rather than ignored: this test asserts what was told *and* what was not, so
+          // an acceptance leaking into this path has to be visible rather than swallowed.
+          told.push({ ...fact, taskId: "unexpected-acceptance", taskTitle: "", dueAt: "" });
+        },
+        async taskAssigned(fact) {
+          told.push(fact);
+        },
+      },
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.createTaskTemplate(organizer, { eventId, ...line });
+    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+
+    expect(told).toMatchObject([
+      { eventId, profileId: samProfile.id, speakerName: "Sam Speaker", taskTitle: line.title },
+    ]);
+
+    // Idempotent, and so is the telling: a second run assigns nothing and announces nothing,
+    // which is what makes "run it again when somebody joins" safe rather than a way to nag.
+    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+    expect(told).toHaveLength(1);
+  });
+
+  it("keeps the declaration date through an edit", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+
+    await service.updateTaskTemplate(organizer, created.id, { ...line, description: "800px." });
+
+    // A line was declared when it was declared; rewording it is not a new declaration.
+    expect((await service.taskTemplates(organizer, eventId))[0]?.createdAt).toBe(created.createdAt);
+  });
+
+  it("leaves work already assigned from a line alone when the line goes", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+
+    await service.deleteTaskTemplate(organizer, created.id);
+
+    /*
+     * `speaker_tasks` holds no pointer back to the line, deliberately: once assigned, the work
+     * is that speaker's. Deleting a line an organizer has stopped asking for must not delete
+     * the homework of everybody who was already asked for it.
+     */
+    const workspace = await service.workspace(organizer, eventId);
+    expect(workspace.tasks.map(({ title }) => title)).toEqual([line.title]);
+  });
+
+  it("refuses a line to an actor who does not administer its event, as one that does not exist", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const speaker = await resolveSeededDemoActor("speaker");
+
+    await expect(
+      service.createTaskTemplate(speaker, { eventId, ...line, title: "Something else" }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(service.updateTaskTemplate(speaker, created.id, line)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    await expect(service.deleteTaskTemplate(speaker, created.id)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // The same refusal for an id that names nothing, so this is not an existence oracle either.
+    await expect(
+      service.deleteTaskTemplate(organizer, "00000000-0000-4000-8000-0000000000ff"),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    expect(await service.taskTemplates(organizer, eventId)).toHaveLength(1);
+  });
+
+  /**
+   * A write that matched no row is refused, rather than announced as a save.
+   *
+   * Three writers a caller reads a row for first — a checklist line, a portal resource, a
+   * speaker's task — have the same gap between that read and the write, and it is where another
+   * organizer's delete lands. `success` alone cannot tell "rewrote the row" from "matched
+   * nothing", so before the affected-row count was read these answered 200 and reported a save
+   * over a projection that no longer contains the thing.
+   *
+   * Four *other* unguarded writers in the same adapter still have the gap. `GAP-025` names them
+   * and says why one of them cannot be closed without a decision about import semantics.
+   */
+  it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
+    const { repository, service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+
+    // The row goes out from under its caller between the read and the write.
+    await repository.deleteTaskTemplate(created.id);
+
+    await expect(
+      service.updateTaskTemplate(organizer, created.id, { ...line, description: "Changed" }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+
+    /*
+     * The same rule at the store, for the two writers that reach it the same way. Asserted here
+     * rather than through their services because the point is the contract every one of them now
+     * shares: a matched row is what makes an update an update.
+     */
+    await expect(
+      repository.updateResource({
+        id: "00000000-0000-4000-8000-00000000ff01",
+        eventId,
+        title: "Gone",
+        slug: "gone",
+        bodyHtml: "",
+        embedHtml: "",
+        visibility: "hidden",
+        sortOrder: 0,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      repository.updateTask({
+        id: "00000000-0000-4000-8000-00000000ff02",
+        eventId,
+        speakerProfileId: samProfile.id,
+        title: "Gone",
+        dueAt: "2026-09-01T00:00:00.000Z",
+        status: "complete",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  /**
+   * A line on an event this organizer does not administer, refused as one that does not exist.
+   *
+   * This is the **whole** authorization on `PATCH` and `DELETE /api/speaker-task-templates/:id`.
+   * Neither route carries a capability check of its own, deliberately: they take no event
+   * parameter, so the event is resolved from the stored row and `requireTaskTemplate` is the only
+   * thing between a caller and another organization's checklist. A route whose entire
+   * authorization is one service call needs that call asserted — and so does the byte-identical
+   * refusal both route comments claim, or "not an oracle for other organizations' ids" is a
+   * sentence rather than a behaviour.
+   */
+  it("refuses another event's line exactly as it refuses one that does not exist", async () => {
+    const { repository, service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    // Written straight to the store: the point is a row this actor cannot reach, and the command
+    // that would create one refuses for the same reason this test is about.
+    const elsewhere = {
+      id: "00000000-0000-4000-8000-0000000000e1",
+      eventId: "00000000-0000-4000-8000-0000000000e0",
+      title: "Somebody else's line",
+      description: "",
+      sortOrder: 0,
+      dueOffsetDays: -7,
+      createdAt: "2026-08-10T12:00:00.000Z",
+    };
+    await repository.addTaskTemplate(elsewhere);
+    const unknown = "00000000-0000-4000-8000-0000000000e2";
+
+    /**
+     * The refusal a call raised, as a value.
+     *
+     * ERROR-INTENT: the refusals are this test's subject rather than an incident in it, and they
+     * are compared with *each other* — a `rejects` matcher per call asserts each alone and says
+     * nothing about the property under test, which is that all four are indistinguishable. Every
+     * captured value is asserted below, and a call that does not refuse fails on the first
+     * assertion rather than passing quietly.
+     */
+    const refusalOf = async (work: Promise<unknown>): Promise<unknown> => {
+      try {
+        await work;
+        return "no refusal was raised";
+      } catch (refusal) {
+        // ERROR-INTENT: returned to the caller, which asserts on it. Nothing is discarded — this
+        // is the value the whole test compares, and a call that raised nothing is reported as
+        // such above rather than silently reading as a refusal.
+        return refusal;
+      }
+    };
+    const refusals = await Promise.all(
+      [elsewhere.id, unknown].flatMap((id) => [
+        refusalOf(service.updateTaskTemplate(organizer, id, { ...line, title: "Renamed" })),
+        refusalOf(service.deleteTaskTemplate(organizer, id)),
+      ]),
+    );
+
+    /*
+     * Four refusals of one type. The *messages* differ — "no such line" comes from the row read,
+     * "not yours" from the capability check — and that is fine precisely because they never
+     * travel: `transport/http/app.ts` answers every `CapabilityDeniedError` with one 403 and one
+     * sentence. Asserting the messages equal here would pin an internal detail; the property that
+     * matters is observable, so it is asserted where a caller stands, in `content-http.test.ts`.
+     */
+    for (const refusal of refusals) expect(refusal).toBeInstanceOf(CapabilityDeniedError);
+    // And nothing was written to the other event's checklist on the way past.
+    await expect(repository.findTaskTemplate(elsewhere.id)).resolves.toEqual(elsewhere);
+  });
+
+  /**
+   * The **store** resolves existence before the title rule, which is the order D1 resolves them in.
+   *
+   * Driven straight at the repository, and that is the whole point: the service reads the row
+   * first, so a vanished line never reaches the write at all and a test that went through
+   * `updateTaskTemplate` would assert the service's read order while claiming to assert the
+   * store's. This renames a *vanished* line onto a title a **sibling** still holds — the one
+   * shape the two orderings disagree about. A double that checked the title first throws "that
+   * title is taken" about a row that is not there; D1 matches nothing and answers `false`, and a
+   * service test written against the permissive double would pass through the wrong refusal.
+   */
+  it("answers a vanished line as gone rather than as a duplicate title", async () => {
+    const { repository, service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const survivor = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const doomed = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+      title: "Send your slides",
+      sortOrder: 1,
+    });
+    await repository.deleteTaskTemplate(doomed.id);
+
+    await expect(repository.updateTaskTemplate({ ...doomed, title: survivor.title })).resolves.toBe(
+      false,
+    );
+    // And through the service, where the read refuses before the write is reached at all.
+    await expect(
+      service.updateTaskTemplate(organizer, doomed.id, { ...line, title: survivor.title }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
   });
 });

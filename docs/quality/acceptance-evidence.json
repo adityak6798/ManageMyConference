@@ -97,7 +97,9 @@
         "apps/web/e2e/lifecycle.spec.ts",
         "apps/api/test/calendar-invite.test.ts",
         "apps/api/test/speaker-calendar-invites.test.ts",
-        "apps/web/test/calendar-links.test.ts"
+        "apps/web/test/calendar-links.test.ts",
+        "apps/web/test/speaker-checklist.test.tsx",
+        "apps/web/e2e/speaker-checklist.spec.ts"
       ]
     },
     "ACC-CRM": {

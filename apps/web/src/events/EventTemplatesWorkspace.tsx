@@ -22,6 +22,13 @@
  * summary states exactly that and names re-applying as the repair, because every category
  * converges rather than duplicating (`ARC-FLOW-006`).
  *
+ * That last one used to be true only for the length of one response. The per-category outcome
+ * was stored on every apply and read back by nothing, so an organizer who closed the tab — or
+ * who inherited the event from the colleague who ran the clone — met an event that was
+ * configured in part and said nothing about it. The first card on this page is now that state,
+ * read from storage: it names the categories that did not land, and its button re-applies the
+ * same version onto the same range, which is the repair (issue #175).
+ *
  * @spec PRD-EVT-002 ARC-FLOW-006
  */
 
@@ -32,9 +39,11 @@ import {
   captureEventTemplateVersion,
   duplicateEventTemplate,
   EventTemplateApiError,
+  type EventTemplateApplicationDto,
   type EventTemplateDetailDto,
   getEventTemplate,
   listEventTemplates,
+  listTemplateApplications,
   previewTemplateApplication,
   type SlicePreviewDto,
   type SliceResultDto,
@@ -135,19 +144,29 @@ const carriedCategories = (keys: readonly string[]) => {
 };
 
 /**
+ * The two readings of a result's categories, named once and shared by everything that counts
+ * them — the verdict heading, the announcement after an apply, and the repair card.
+ *
+ * A `skipped` category is deliberately in neither list. It is not a refusal: it is a category
+ * this template carries nothing for, so it neither qualifies a success nor counts as a write.
+ */
+const writtenCategories = (slices: readonly SliceResultDto[]) =>
+  slices.filter(({ outcome }) => outcome === "applied");
+
+/** Categories the destination refused, the account may not write, or that faulted. */
+const refusedCategories = (slices: readonly SliceResultDto[]) =>
+  slices.filter(({ outcome }) => outcome !== "applied" && outcome !== "skipped");
+
+/**
  * The heading and tone the categories below the card actually support.
  *
  * Read from the per-category outcomes rather than from the envelope's own word: "Applied" over a
  * category reading "Incompatible" is a claim the list underneath it contradicts, and the
- * envelope's vocabulary belongs to the server, which may widen it. A `skipped` category is not a
- * refusal — it is one this template carries nothing for — so it neither qualifies the success nor
- * counts as a write.
+ * envelope's vocabulary belongs to the server, which may widen it.
  */
 function verdict(slices: readonly SliceResultDto[]) {
-  const written = slices.filter(({ outcome }) => outcome === "applied").length;
-  const refused = slices.filter(
-    ({ outcome }) => outcome !== "applied" && outcome !== "skipped",
-  ).length;
+  const written = writtenCategories(slices).length;
+  const refused = refusedCategories(slices).length;
   if (written && !refused) return { title: "Applied", tone: "success" as const };
   if (written) return { title: "Applied in part", tone: "warn" as const };
   return { title: "Not applied", tone: "warn" as const };
@@ -229,10 +248,21 @@ export function EventTemplatesWorkspace({
   const [endsOn, setEndsOn] = useState("");
   const [reviewed, setReviewed] = useState<ReviewedPlan | null>(null);
   const [result, setResult] = useState<TemplateApplicationResultDto | null>(null);
+  /**
+   * What this event has already been configured from, and how each of those went.
+   *
+   * Kept beside the templates rather than folded into them, because it answers a different
+   * question: the library is what this organization *could* clone, and this is what has already
+   * happened to the event in front of the organizer.
+   */
+  const [applications, setApplications] = useState<EventTemplateApplicationDto[]>([]);
+  /** A history this page could not read, reported in place of the card rather than everywhere. */
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const libraryFeedback = useActionFeedback();
   const manageFeedback = useActionFeedback();
   const applyFeedback = useActionFeedback();
+  const repairFeedback = useActionFeedback();
 
   const reload = useCallback(async () => {
     const generation = ++run.current;
@@ -256,12 +286,39 @@ export function EventTemplatesWorkspace({
     setRows(loaded);
   }, [organizationId]);
 
+  /**
+   * What has already been applied to this event, read on its own.
+   *
+   * Separate from `reload` on purpose, and not only for tidiness: reloading the library mints
+   * new row objects, which re-arms the per-template controls and clears the result card. An
+   * apply has to refresh this list — it is what the repair card reads — and must not throw away
+   * the breakdown the organizer is looking at while doing so.
+   */
+  const readApplications = useCallback(async () => {
+    const generation = run.current;
+    /*
+     * ERROR-INTENT: caught rather than allowed to reject, so a history this page could not read
+     * reports itself in its own card instead of replacing the whole workspace. Nothing is
+     * discarded — the reason is rendered — and the distinction is real: not knowing what has
+     * already been applied says nothing about whether a template can be applied now.
+     */
+    const configured = await listTemplateApplications(eventId).then(
+      (found) => ({ found }),
+      (reason: unknown) => ({
+        failure: describe(reason, "This event's template history could not be read."),
+      }),
+    );
+    if (generation !== run.current) return;
+    setApplications("found" in configured ? configured.found : []);
+    setHistoryError("failure" in configured ? configured.failure : null);
+  }, [eventId]);
+
   /** The load, with its two outcomes rendered in place of the surface rather than beside it. */
   const load = useCallback(
     (isActive: () => boolean = () => true) => {
       setError(null);
       setLoading(true);
-      return reload()
+      return Promise.all([reload(), readApplications()])
         .catch((reason: unknown) => {
           if (isActive()) setError(describe(reason, "The templates could not be loaded."));
         })
@@ -269,7 +326,7 @@ export function EventTemplatesWorkspace({
           if (isActive()) setLoading(false);
         });
     },
-    [reload],
+    [readApplications, reload],
   );
 
   useEffect(() => {
@@ -298,6 +355,43 @@ export function EventTemplatesWorkspace({
   const isArchived = selected?.template.state === "archived";
   /** What the categories in the result support, which is all the card above them may claim. */
   const resultVerdict = result ? verdict(result.slices) : null;
+  /*
+   * The **most recent** application, and only when it left this event configured in part.
+   *
+   * Read from the stored envelope word rather than recomputed from the categories, because the
+   * server is what decided it and the row is what an operator would query. `failed` is here too:
+   * an application where nothing landed is not a lesser problem than one where half did — it is
+   * a clone the organizer believes happened.
+   *
+   * **Newest only, and it is a safety rule with a cost — both halves worth stating.**
+   *
+   * An application row is keyed per version, so applying a newer version, or a different
+   * template, writes its own row and leaves an older `partial` one exactly where it was.
+   * Offering that older one as a repair would write its payload over the configuration that
+   * replaced it: every slice converges on the payload it is given, so "re-apply version 1"
+   * against an event since configured from version 2 is a revert wearing the word repair. The
+   * newest application is the only one whose payload is still the state the organizer chose, so
+   * it is the only one this card may offer — which is also what the issue asked for, "events
+   * whose most recent application was `partial`".
+   *
+   * The cost: a later application naming a *different* template, or a subset of categories, is
+   * newer and may read `applied` while the category the earlier one could not write is still
+   * unconfigured — and the card then goes quiet about it. Answering that properly means asking
+   * whether a *category* is outstanding rather than whether an *application* was, which nothing
+   * supports today because `outcome_json` is a per-application document. Recorded as the largest
+   * of `GAP-023`'s three residuals rather than left for the next reader to rediscover here.
+   */
+  const incomplete = useMemo(() => {
+    // Newest first, as the route promises; re-sorted here rather than trusted, because the whole
+    // point of this value is which one is last and a client that assumed wrong would revert.
+    // Named `last`, not `newest`: `newest` is already the selected template's newest *version*
+    // a few lines above, and two live bindings of one word in one component is one careless edit
+    // away from a card about the wrong thing.
+    const last = [...applications].sort((left, right) =>
+      right.appliedAt.localeCompare(left.appliedAt),
+    )[0];
+    return last && (last.outcome === "partial" || last.outcome === "failed") ? [last] : [];
+  }, [applications]);
 
   // Opening a template arms its own controls: the rename box holds the current name, the apply
   // form offers its newest version, and a plan built against the previous template is dropped.
@@ -418,16 +512,44 @@ export function EventTemplatesWorkspace({
       setResult(applied);
       // The result is the answer to the click and it renders below the fold on a long preview.
       requestAnimationFrame(() => resultRef.current?.focus({ preventScroll: false }));
+      // The repair card reads this list, and this apply has just changed what it says. The
+      // library is deliberately not reloaded: doing so re-arms the controls and clears the very
+      // breakdown this click produced.
+      await readApplications();
       // Counted the way the card below is titled, so the announcement cannot call an application
       // complete while the breakdown it points at names a category the destination refused.
-      const written = applied.slices.filter(({ outcome }) => outcome === "applied").length;
-      const refused = applied.slices.filter(
-        ({ outcome }) => outcome !== "applied" && outcome !== "skipped",
-      ).length;
+      const written = writtenCategories(applied.slices).length;
+      const refused = refusedCategories(applied.slices).length;
       return refused
         ? `Version ${applied.version} applied in part: ${countLabel(written, "category", "categories")} written, ${countLabel(refused, "category", "categories")} not. The written ones stand.`
         : `Version ${applied.version} applied: ${countLabel(written, "category", "categories")} written.`;
     }, applyFeedback);
+  }
+
+  /**
+   * Apply the same version, onto the same days, with the same categories selected.
+   *
+   * The command is rebuilt from what was *stored*, not from the controls on this page: the
+   * repair has to be the same act as the application it repairs, or it is a different clone
+   * wearing its name. Every category converges, so the ones that already landed are written
+   * back identically and the ones that did not get another attempt (`ARC-FLOW-006`).
+   */
+  async function repair(application: EventTemplateApplicationDto) {
+    await guard(async () => {
+      const applied = await applyEventTemplate(eventId, {
+        templateId: application.templateId,
+        version: application.version,
+        destination: application.destination,
+        ...(application.selection ? { slices: [...application.selection] } : {}),
+      });
+      setReviewed(null);
+      setResult(applied);
+      await readApplications();
+      const refused = refusedCategories(applied.slices);
+      return refused.length
+        ? `Version ${applied.version} re-applied, and ${countLabel(refused.length, "category", "categories")} still did not land: ${refused.map(({ label }) => label).join(", ")}.`
+        : `Version ${applied.version} re-applied in full. ${eventName} now carries every category this version holds.`;
+    }, repairFeedback);
   }
 
   if (loading)
@@ -470,6 +592,97 @@ export function EventTemplatesWorkspace({
 
   return (
     <>
+      {historyError ? (
+        <Card labelledBy="event-template-history-unavailable" title="Template history unavailable">
+          <Notice tone="error">{historyError}</Notice>
+          <p className="template-note">
+            The templates below are unaffected — this is only the record of what has already been
+            applied to {eventName}, so a clone made now would still be reported in full.
+          </p>
+        </Card>
+      ) : null}
+
+      {incomplete.length ? (
+        <Card
+          labelledBy="event-template-incomplete"
+          title={`${eventName} is configured in part`}
+          hint="The last template applied to this event did not land in full, and nothing else in the console says so. Re-applying that version is the repair: every category converges rather than duplicating what it already wrote. If you have since fixed the category by hand, applying again is still safe and is what clears this."
+        >
+          <div className="template-stack">
+            {incomplete.map((application) => {
+              const missing = refusedCategories(application.slices);
+              const archived = application.templateState === "archived";
+              return (
+                <div className="template-stack" key={application.templateVersionId}>
+                  <Notice tone="warn">
+                    <IconWarning size={15} />
+                    <span>
+                      Version {application.version} of “{application.templateName}” was applied on{" "}
+                      {stampedTime(application.appliedAt)}
+                      {application.appliedByName
+                        ? ` by ${application.appliedByName}`
+                        : ` by account ${application.appliedBy}`}
+                      , onto {stampedCalendarDay(application.destination.startsOn)} –{" "}
+                      {stampedCalendarDay(application.destination.endsOn)}.{" "}
+                      {countLabel(missing.length, "category", "categories")} did not land, and the
+                      ones that did are still in place.
+                    </span>
+                  </Notice>
+                  <ul className="plain-list">
+                    {missing.map((slice) => (
+                      <li key={slice.key}>
+                        <div className="section-heading">
+                          <h3>{slice.label}</h3>
+                          <Pill tone={TONES[slice.outcome] ?? "neutral"}>
+                            {RESULT_WORDS[slice.outcome]}
+                          </Pill>
+                        </div>
+                        <span className="sub">{slice.reason}</span>
+                        <SliceEntries
+                          title={`${eventName} would not accept`}
+                          entries={slice.incompatible}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="toolbar">
+                    <button
+                      type="button"
+                      disabled={busy || !canApply || archived}
+                      onClick={() => {
+                        // ERROR-INTENT: handlers cannot await; repair announces both outcomes.
+                        void repair(application);
+                      }}
+                    >
+                      Re-apply version {application.version} to {eventName}
+                    </button>
+                  </div>
+                  {canApply ? null : (
+                    <p className="template-note">
+                      Your role on {eventName} can see what is missing but not apply a template, so
+                      this repair belongs to an organizer who can.
+                    </p>
+                  )}
+                  {archived ? (
+                    <p className="template-note">
+                      “{application.templateName}” has been archived since, and an archived template
+                      cannot be applied. Restoring it is what makes this repair available.
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      ) : null}
+      {/*
+        Outside the card, and deliberately: the repair's own announcement is "that worked", and
+        a card whose whole condition is "something is still missing" is gone by the time it is
+        true. `useActionFeedback` also wants one element that is never remounted, which a node
+        living inside a conditional card is not.
+      */}
+      {repairFeedback.node}
+
       <Card
         labelledBy="event-templates-library"
         title="Templates"
@@ -577,14 +790,14 @@ export function EventTemplatesWorkspace({
                     </Pill>
                   </div>
                   {/*
-                   * The capture is stamped with the account that took it and nothing else: this
-                   * route reports an id and resolves no name for it, the way content revisions
-                   * were resolved in issue #154. Naming it as an account is what the value is,
-                   * where presenting it after "by" alone reads as a person's name.
+                   * The capturing account resolved to a person, the way content revisions were
+                   * resolved in issue #154 and as issue #176 asked for here. The fallback still
+                   * says "account", because that is what the value is when identity holds no
+                   * user for it — an id printed after a bare "by" reads as somebody's name.
                    */}
                   <span className="sub">
-                    Captured from {held.sourceEventName} on {stampedDay(held.createdAt)}, by account{" "}
-                    {held.createdBy}
+                    Captured from {held.sourceEventName} on {stampedDay(held.createdAt)}, by{" "}
+                    {held.createdByName ?? `account ${held.createdBy}`}
                     {held.slices.length
                       ? ` · carries ${carriedCategories(held.slices)}`
                       : " · carries nothing, so applying it would write nothing"}

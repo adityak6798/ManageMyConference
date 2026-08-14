@@ -87,7 +87,8 @@ export interface ContentRepository {
    * that landed in between. A speaker choosing a picture should write the picture.
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<void>;
-  updateTask(task: SpeakerTask): Promise<void>;
+  /** `false` when no row matched — the task has gone since the caller read it. */
+  updateTask(task: SpeakerTask): Promise<boolean>;
   /**
    * Write a session with no revision and no guard.
    *
@@ -111,7 +112,8 @@ export interface ContentRepository {
   findAsset(assetId: string): Promise<SpeakerAsset | null>;
   findProfileBySource(eventId: string, sourcePersonId: string): Promise<SpeakerProfile | null>;
   addResource(resource: SpeakerResource): Promise<void>;
-  updateResource(resource: SpeakerResource): Promise<void>;
+  /** `false` when no row matched — the resource has gone since the caller read it. */
+  updateResource(resource: SpeakerResource): Promise<boolean>;
   deleteResource(resourceId: string): Promise<void>;
   findResource(resourceId: string): Promise<SpeakerResource | null>;
   /**
@@ -131,6 +133,28 @@ export interface ContentRepository {
   listTaskTemplates(eventId: string): Promise<readonly SpeakerTaskTemplate[]>;
   /** `upsertResourceBySlug` for a checklist line, whose identity is `(event_id, title)`. */
   upsertTaskTemplateByTitle(template: SpeakerTaskTemplate): Promise<void>;
+  /**
+   * One line by its own id, which is what the authoring surface edits and deletes.
+   *
+   * Deliberately separate from `upsertTaskTemplateByTitle`. That one converges a *clone* on the
+   * title, which is a line's identity across events; this one addresses the row, which is the
+   * only way to rename a line rather than leave the old title behind as a second one.
+   */
+  findTaskTemplate(templateId: string): Promise<SpeakerTaskTemplate | null>;
+  addTaskTemplate(template: SpeakerTaskTemplate): Promise<void>;
+  /**
+   * `false` when no row matched, which the caller turns into the same refusal a line that does
+   * not exist gets. A conditional write that matched nothing and one that landed are both a
+   * successful statement; only the affected-row count separates them.
+   */
+  updateTaskTemplate(template: SpeakerTaskTemplate): Promise<boolean>;
+  /**
+   * Remove a line from the checklist. Tasks already assigned from it are untouched, because a
+   * task is keyed by its title rather than by a pointer here: once assigned, the work is that
+   * speaker's, and deleting a line an organizer no longer plans to give out must not delete
+   * somebody's homework.
+   */
+  deleteTaskTemplate(templateId: string): Promise<void>;
   addComment(comment: ContentComment): Promise<void>;
   /**
    * Record what the profile was and write what it becomes, as one indivisible operation.

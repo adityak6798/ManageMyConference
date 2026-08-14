@@ -209,12 +209,39 @@ export class D1ContentRepository
     return result.results ?? [];
   }
   private async run(query: string, ...values: unknown[]) {
+    await this.write(query, ...values);
+  }
+  /**
+   * `run`, for the writers whose correctness depends on how many rows they touched.
+   *
+   * A conditional write matching no row and a write that landed are both `success: true`; only
+   * `meta.changes` separates them, and a driver that omits the count is refused rather than read
+   * as either (`d1-write-result.ts`). The gap between a caller's read and its write is where
+   * another organizer's delete lands, and without the count, editing something that has gone
+   * answers 200 and announces "saved" over a projection that does not contain it.
+   *
+   * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
+   * row" from "no visible difference" rather than refusing an edit that changed nothing.
+   *
+   * **Four unguarded writers still use `run` and do not read the count**, and it is worth naming
+   * them rather than claiming this is already the whole file's rule: `updateProfilePhoto`,
+   * `updateProfileWorkflow`, `updateAsset` and `completeSpeakerImport`. Each has the same
+   * read-then-write gap. `updateProfilePhoto` and `updateAsset` want the same answer as the
+   * writers here; `completeSpeakerImport` is the mildest, because nothing deletes the row it
+   * writes; and the one that keeps all four waiting is `updateProfileWorkflow`, the CSV import's
+   * writer, because what an import should do with a row that vanished mid-run is a product
+   * decision about imports rather than a repair to this rule. Recorded in `docs/quality/known-gaps.md` as `GAP-025` rather than
+   * half-done — with the two whole-row writers `content-repository.ts` documents as fixture-only
+   * explicitly outside it, since they have no production caller to mislead.
+   */
+  private async write(query: string, ...values: unknown[]) {
     const result = await this.database
       .prepare(query)
       .bind(...values)
       .run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
+    return result;
   }
   async findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null> {
     const row = (
@@ -434,12 +461,13 @@ export class D1ContentRepository
     );
   }
   async updateTask(task: SpeakerTask) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_tasks SET status=?,completed_at=? WHERE id=?",
       task.status,
       task.completedAt ?? null,
       task.id,
     );
+    return changedRows(result, "update a speaker task") > 0;
   }
   private sessionWrite(session: ContentSession, where?: RowGuard): D1Statement {
     return this.database
@@ -632,7 +660,7 @@ export class D1ContentRepository
     );
   }
   async updateResource(resource: SpeakerResource) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_resources SET title=?,slug=?,body_html=?,embed_html=?,visibility=?,sort_order=? WHERE id=?",
       resource.title,
       resource.slug,
@@ -642,6 +670,7 @@ export class D1ContentRepository
       resource.sortOrder,
       resource.id,
     );
+    return changedRows(result, "update a speaker resource") > 0;
   }
   async deleteResource(resourceId: string) {
     await this.run("DELETE FROM speaker_resources WHERE id=?", resourceId);
@@ -692,6 +721,47 @@ export class D1ContentRepository
       template.dueOffsetDays,
       template.createdAt,
     );
+  }
+  async findTaskTemplate(templateId: string) {
+    const row = (
+      await this.rows("SELECT * FROM speaker_task_templates WHERE id = ? LIMIT 1", templateId)
+    )[0];
+    return row ? this.taskTemplate(row) : null;
+  }
+  async addTaskTemplate(template: SpeakerTaskTemplate) {
+    // No `ON CONFLICT`: a title this event already uses is the organizer's answer, and the
+    // service turns the constraint into one. Converging here would silently overwrite the line
+    // they meant to add beside the existing one.
+    await this.run(
+      "INSERT INTO speaker_task_templates (id,event_id,title,description,sort_order,due_offset_days,created_at) VALUES (?,?,?,?,?,?,?)",
+      template.id,
+      template.eventId,
+      template.title,
+      template.description,
+      template.sortOrder,
+      template.dueOffsetDays,
+      template.createdAt,
+    );
+  }
+  async updateTaskTemplate(template: SpeakerTaskTemplate) {
+    // `created_at` is not in the SET list: a line was declared when it was declared, and editing
+    // its wording is not a new declaration.
+    const result = await this.write(
+      "UPDATE speaker_task_templates SET title=?,description=?,sort_order=?,due_offset_days=? WHERE id=?",
+      template.title,
+      template.description,
+      template.sortOrder,
+      template.dueOffsetDays,
+      template.id,
+    );
+    return changedRows(result, "update a speaker checklist line") > 0;
+  }
+  async deleteTaskTemplate(templateId: string) {
+    const result = await this.write("DELETE FROM speaker_task_templates WHERE id = ?", templateId);
+    // Zero is the row having gone between the caller's read and this statement, which is the
+    // outcome the caller asked for. The count is still *read*, so a driver that cannot report
+    // one is a failure here rather than a silent success.
+    changedRows(result, "delete a speaker checklist line");
   }
   async addComment(comment: ContentComment) {
     await this.run(

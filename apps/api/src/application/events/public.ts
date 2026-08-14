@@ -9,9 +9,12 @@ export type {
 export { EventService } from "./event-service";
 export type { EventTemplateRepository } from "./event-template-repository";
 export type {
+  EventTemplateApplicationDetail,
   EventTemplateCapture,
   EventTemplateDetail,
+  EventTemplateVersionView,
   SaveTemplateCommand,
+  TemplateActorNamePort,
   TemplateApplicationCommand,
 } from "./event-template-service";
 export {

@@ -115,7 +115,37 @@ const unreachable = (what: string) => () => {
   throw new Error(`${what} is not reachable while applying a template`);
 };
 
-function compose(database: D1DatabasePort) {
+/**
+ * The same database, with the version insert bound to a source event that does not exist.
+ *
+ * A referential failure at *execution* time rather than a rejected `prepare`, because that is
+ * what the property under test needs: the template insert has already run inside the batch when
+ * this one fails, so only a real rollback can leave the table empty. Nothing else is intercepted
+ * — every other statement, including the template insert itself, goes straight through.
+ */
+const NO_SUCH_EVENT = "00000000-0000-4000-8000-0000000dead0";
+
+function withFailingVersionWrite(database: D1DatabasePort): D1DatabasePort {
+  return {
+    prepare(query: string) {
+      const statement = database.prepare(query);
+      if (!query.startsWith("INSERT INTO event_template_versions")) return statement;
+      return {
+        // The fourth binding is `source_event_id`, which the migration declares
+        // `REFERENCES events(id)`.
+        bind: (...values: unknown[]) =>
+          statement.bind(...values.map((value, index) => (index === 3 ? NO_SUCH_EVENT : value))),
+        run: <T>() => statement.run<T>(),
+        all: <T>() => statement.all<T>(),
+      };
+    },
+    batch<T>(statements: Parameters<D1DatabasePort["batch"]>[0]) {
+      return database.batch<T>(statements);
+    },
+  };
+}
+
+function compose(database: D1DatabasePort, templateDatabase: D1DatabasePort = database) {
   // Offset past the seed's own id space, so a generated event never lands on a seeded one.
   const newId = () => `00000000-0000-4000-8000-${String(1000 + ++sequence).padStart(12, "0")}`;
   const now = () => new Date("2026-08-12T10:00:00.000Z");
@@ -222,7 +252,7 @@ function compose(database: D1DatabasePort) {
     content: contentRepository,
     schedule: (eventId) => agenda.published(eventId),
   });
-  const repository = new D1EventTemplateRepository(database);
+  const repository = new D1EventTemplateRepository(templateDatabase);
   return {
     agenda,
     cfp,
@@ -286,6 +316,15 @@ async function eventScopedTables(database: D1DatabasePort, tables: readonly stri
   return scoped;
 }
 
+/** One `COUNT(*)`, for the questions that are about rows rather than about a projection. */
+async function counted(database: D1DatabasePort, query: string, bindings: readonly unknown[]) {
+  const result = await database
+    .prepare(query)
+    .bind(...bindings)
+    .all<{ total: number }>();
+  return result.results?.[0]?.total ?? 0;
+}
+
 async function countForEvent(database: D1DatabasePort, table: string, eventId: string) {
   const counted = await database
     .prepare(`SELECT COUNT(*) AS total FROM "${table}" WHERE event_id = ?`)
@@ -303,14 +342,16 @@ describe("D1EventTemplateRepository", () => {
    * `EventService.create` + `grantOrganizer` path the Worker composes — so "nothing arrived
    * here" is a statement about the clone rather than about a hand-written fixture row.
    */
-  async function seeded() {
+  async function seeded(interpose: (base: D1DatabasePort) => D1DatabasePort = (base) => base) {
     const migrated = await createMigratedDatabase({
       label: "greenroom-event-templates",
       seed: true,
     });
     runtime = migrated.runtime;
     const database = migrated.database as unknown as D1DatabasePort;
-    const composed = compose(database);
+    // Only the template repository is interposed on: the slices read and write the real handle,
+    // so a fault injected here is a fault in the template store rather than in the whole world.
+    const composed = compose(database, interpose(database));
     const destination = await composed.events.create(actorFor([SOURCE]), {
       organizationId: ORGANIZATION,
       name: "Greenroom Demo Summit 2027",
@@ -332,7 +373,11 @@ describe("D1EventTemplateRepository", () => {
       name: "Regional summit starter",
       sourceEventId: SOURCE,
     });
-    await templates.captureVersion(actor, template.id, SOURCE);
+    // The number storage allocated, reported back rather than assumed: `createVersion` has no
+    // parameter for it, so this is the only place a caller can learn it (#177).
+    await expect(templates.captureVersion(actor, template.id, SOURCE)).resolves.toMatchObject({
+      version: { version: 2 },
+    });
     await templates.apply(actor, destinationId, {
       templateId: template.id,
       version: 1,
@@ -344,18 +389,32 @@ describe("D1EventTemplateRepository", () => {
       name: "Regional summit starter",
       state: "active",
     });
-    await expect(repository.nextVersion(template.id)).resolves.toBe(3);
     const versions = await repository.listVersions(template.id);
     expect(versions.map(({ version }) => version)).toEqual([2, 1]);
     expect(versions[0]?.payload.source.eventName).toBe("Greenroom Demo Summit");
-    await expect(repository.listApplications(destinationId)).resolves.toEqual([
-      {
-        templateId: template.id,
-        templateName: "Regional summit starter",
-        templateVersionId: versions[1]?.id,
-        version: 1,
-        appliedAt: "2026-08-12T10:00:00.000Z",
-      },
+    /*
+     * The stored `outcome_json` read back, which nothing did before issue #175: it was written
+     * on every apply and no query ever selected it, so a category that did not land was reported
+     * once in the response and never again. The destination range is part of it because the
+     * range is a parameter of the clone rather than a property of the event — it is the one
+     * thing a repair could not reconstruct from anywhere else.
+     */
+    const applications = await repository.listApplications(destinationId);
+    expect(applications).toHaveLength(1);
+    expect(applications[0]).toMatchObject({
+      templateId: template.id,
+      templateName: "Regional summit starter",
+      templateState: "active",
+      templateVersionId: versions[1]?.id,
+      version: 1,
+      appliedAt: "2026-08-12T10:00:00.000Z",
+      appliedBy: "seed-organizer",
+      outcome: "applied",
+      destination: DESTINATION_RANGE,
+    });
+    expect(applications[0]?.slices.map(({ key }) => key)).toEqual([
+      ...SLICE_KEYS,
+      "communications",
     ]);
     // The stored payload survives the `json_valid` CHECK and is queryable as the slice's shape.
     const stored = await database
@@ -365,6 +424,106 @@ describe("D1EventTemplateRepository", () => {
       .bind(template.id)
       .all<{ title: string }>();
     expect(stored.results?.[0]?.title).toBe("Share your conference story");
+  });
+
+  /**
+   * Issue #177: the template and its first version commit together or not at all.
+   *
+   * The failure is injected into the *version* write, which is the second statement of the
+   * batch, so the template insert has already run when it happens. What the assertion is really
+   * about is what survives: before this change `saveFromEvent` wrote the template, ran six
+   * cross-domain exports, and wrote the version — so a failure in the second write left an
+   * active template row with no versions, holding its name against the partial unique index.
+   *
+   * This test discriminates. Removing the batch and writing the two rows in sequence leaves the
+   * husk behind and fails on the very first expectation, which was confirmed by doing it.
+   */
+  it("leaves no template behind when its first version cannot be written", async () => {
+    const { actor, database, templates } = await seeded(withFailingVersionWrite);
+    const save = () =>
+      templates.saveFromEvent(actor, {
+        organizationId: ORGANIZATION,
+        name: "Regional summit starter",
+        sourceEventId: SOURCE,
+      });
+
+    await expect(save()).rejects.toThrow();
+
+    await expect(
+      counted(database, "SELECT COUNT(*) AS total FROM event_templates WHERE name = ?", [
+        "Regional summit starter",
+      ]),
+    ).resolves.toBe(0);
+    await expect(
+      counted(
+        database,
+        "SELECT COUNT(*) AS total FROM event_template_versions WHERE source_event_id = ?",
+        [NO_SUCH_EVENT],
+      ),
+    ).resolves.toBe(0);
+    /*
+     * And the name is genuinely free afterwards, which is the half an organizer actually meets.
+     * A husk would hold it: the partial unique index covers active rows, so saving again under
+     * the same name answers 409 until somebody finds and archives a template that never worked.
+     * The retry goes through a repository with nothing broken, against the same database.
+     */
+    await expect(
+      compose(database).templates.saveFromEvent(actor, {
+        organizationId: ORGANIZATION,
+        name: "Regional summit starter",
+        sourceEventId: SOURCE,
+      }),
+    ).resolves.toMatchObject({ template: { name: "Regional summit starter" }, version: {} });
+  });
+
+  /**
+   * A stored outcome this adapter cannot read is a fault here, not three layers away.
+   *
+   * `outcome_json` carries a `json_valid` CHECK and nothing else, so shape is unconstrained by
+   * storage. The words are the part worth pinning: both the envelope's and each category's are
+   * closed sets in the contract, and the client decodes against it — so a word outside them that
+   * this reader waves through is not a tolerated oddity, it is a 200 whose body the browser
+   * refuses. Each mutation below is written straight into the row, which is the only way a shape
+   * nothing in this system writes can be produced.
+   */
+  it("refuses a stored outcome whose words are not the ones the contract publishes", async () => {
+    const { actor, database, destinationId, repository, templates } = await seeded();
+    const { template } = await templates.saveFromEvent(actor, {
+      organizationId: ORGANIZATION,
+      name: "Regional summit starter",
+      sourceEventId: SOURCE,
+    });
+    await templates.apply(actor, destinationId, {
+      templateId: template.id,
+      version: 1,
+      destination: DESTINATION_RANGE,
+    });
+    const stored = (await repository.listApplications(destinationId))[0];
+    expect(stored).toBeDefined();
+    const rewrite = async (outcome: unknown) => {
+      await database
+        .prepare("UPDATE event_template_applications SET outcome_json = ? WHERE event_id = ?")
+        .bind(JSON.stringify(outcome), destinationId)
+        .run();
+      return repository.listApplications(destinationId);
+    };
+    const readable = {
+      outcome: stored?.outcome,
+      destination: stored?.destination,
+      slices: stored?.slices,
+    };
+
+    // The row as written reads back, so the refusals below are about the mutation and not about
+    // the check being unsatisfiable.
+    await expect(rewrite(readable)).resolves.toHaveLength(1);
+
+    for (const broken of [
+      { ...readable, outcome: "mostly" },
+      { ...readable, slices: [{ ...readable.slices?.[0], outcome: "sort of" }] },
+      { ...readable, destination: { startsOn: "2027-05-10" } },
+      { ...readable, slices: [{ ...readable.slices?.[0], applied: [null] }] },
+    ])
+      await expect(rewrite(broken)).rejects.toThrow(/unreadable outcome/);
   });
 
   it("lets the database, not a read-then-write race, decide that a name is taken", async () => {

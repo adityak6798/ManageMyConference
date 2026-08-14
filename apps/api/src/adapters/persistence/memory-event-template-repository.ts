@@ -2,7 +2,7 @@ import type {
   EventTemplateApplicationRecord,
   EventTemplateApplicationView,
   EventTemplateRepository,
-  EventTemplateVersionRecord,
+  EventTemplateVersionDraft,
 } from "../../application/events/event-template-repository";
 import { EventTemplateNameTakenError } from "../../application/events/event-template-service";
 import type {
@@ -14,18 +14,29 @@ import type {
 /**
  * The in-memory twin of `D1EventTemplateRepository`, for service-level tests.
  *
- * It enforces the same two invariants the migration does — one active name per organization,
- * one row per `(event, template version)` — because a double that accepts what the database
- * refuses turns a real defect into a green test.
+ * It enforces the same invariants the migration and the adapter do — one active name per
+ * organization, one row per `(event, template version)`, a version number allocated by the store
+ * rather than by its caller, and no template without a first version — because a double that
+ * accepts what the database refuses turns a real defect into a green test.
  */
 export class MemoryEventTemplateRepository implements EventTemplateRepository {
   private readonly templates = new Map<string, EventTemplate>();
   private readonly versions: EventTemplateVersion[] = [];
   private readonly applications = new Map<string, EventTemplateApplicationRecord>();
 
-  async createTemplate(template: EventTemplate): Promise<void> {
+  /**
+   * Both rows or neither, which is what D1's batch gives the real adapter.
+   *
+   * The name check is the only thing that can refuse here and it runs before either write, so a
+   * refused save leaves no husk behind — the property issue #177 is about.
+   */
+  async createTemplateWithVersion(
+    template: EventTemplate,
+    version: EventTemplateVersionDraft,
+  ): Promise<number> {
     this.assertNameFree(template.organizationId, template.name, template.id);
     this.templates.set(template.id, template);
+    return this.appendVersion(version);
   }
 
   async findTemplate(templateId: string): Promise<EventTemplate | null> {
@@ -55,25 +66,27 @@ export class MemoryEventTemplateRepository implements EventTemplateRepository {
     return true;
   }
 
-  async nextVersion(templateId: string): Promise<number> {
-    return (
-      this.versions
-        .filter((version) => version.templateId === templateId)
-        .reduce((highest, version) => Math.max(highest, version.version), 0) + 1
-    );
+  async createVersion(version: EventTemplateVersionDraft): Promise<number> {
+    // The adapter's `WHERE EXISTS` guard, stated the way this store can state it: no version
+    // without the template it points at.
+    if (!this.templates.has(version.templateId))
+      throw new Error(`No template ${version.templateId} to append a version to`);
+    return this.appendVersion(version);
   }
 
-  async createVersion(version: EventTemplateVersionRecord): Promise<void> {
-    if (
-      this.versions.some(
-        (existing) =>
-          existing.templateId === version.templateId && existing.version === version.version,
-      )
-    )
-      throw new Error(`Template ${version.templateId} already has version ${version.version}`);
+  private appendVersion(version: EventTemplateVersionDraft): number {
+    const allocated =
+      this.versions
+        .filter((existing) => existing.templateId === version.templateId)
+        .reduce((highest, existing) => Math.max(highest, existing.version), 0) + 1;
     // Round-tripped so a caller cannot mutate a stored payload through the object it passed in,
     // which the database would never allow either.
-    this.versions.push({ ...version, payload: JSON.parse(JSON.stringify(version.payload)) });
+    this.versions.push({
+      ...version,
+      version: allocated,
+      payload: JSON.parse(JSON.stringify(version.payload)),
+    });
+    return allocated;
   }
 
   async findVersion(templateId: string, version: number): Promise<EventTemplateVersion | null> {
@@ -106,9 +119,12 @@ export class MemoryEventTemplateRepository implements EventTemplateRepository {
               {
                 templateId: template.id,
                 templateName: template.name,
+                templateState: template.state,
                 templateVersionId: version.id,
                 version: version.version,
                 appliedAt: application.appliedAt,
+                appliedBy: application.appliedBy,
+                ...application.outcome,
               },
             ]
           : [];

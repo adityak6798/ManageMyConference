@@ -1,8 +1,9 @@
 import type {
+  EventTemplateApplicationOutcome,
   EventTemplateApplicationRecord,
   EventTemplateApplicationView,
   EventTemplateRepository,
-  EventTemplateVersionRecord,
+  EventTemplateVersionDraft,
 } from "../../application/events/event-template-repository";
 import { EventTemplateNameTakenError } from "../../application/events/event-template-service";
 import type {
@@ -11,8 +12,8 @@ import type {
   EventTemplateState,
   EventTemplateVersion,
 } from "../../domain/events/event-template";
-import type { D1DatabasePort } from "./d1-event-repository";
-import { changedRows } from "./d1-write-result";
+import type { D1DatabasePort, D1PreparedStatement } from "./d1-event-repository";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 
 interface TemplateRow {
   id: string;
@@ -36,9 +37,12 @@ interface VersionRow {
 interface ApplicationRow {
   template_id: string;
   template_name: string;
+  template_state: string;
   template_version_id: string;
   version: number;
   applied_at: string;
+  applied_by: string;
+  outcome_json: string;
 }
 
 /** The state column is a CHECK-constrained pair; anything else means the row was written by hand. */
@@ -90,38 +94,177 @@ function rowToVersion(row: VersionRow): EventTemplateVersion {
   };
 }
 
+/**
+ * A stored application outcome, refused rather than trusted, exactly as `rowToPayload` is.
+ *
+ * `outcome_json` carries a `json_valid` CHECK and nothing more, so shape is unconstrained. A row
+ * this adapter cannot read is a fault here rather than an `undefined.map` in the console, and
+ * `slices` is required because it is the whole reason the surface reads this back: an outcome
+ * word with no categories under it would render "applied in part" over an empty list.
+ */
+function rowToOutcome(row: ApplicationRow): EventTemplateApplicationOutcome {
+  const parsed: unknown = JSON.parse(row.outcome_json);
+  const refuse = () => {
+    throw new Error(
+      `Event template application for version ${row.template_version_id} has an unreadable outcome`,
+    );
+  };
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("outcome" in parsed) ||
+    // The envelope word, against the set the contract publishes rather than "is a string": an
+    // unknown word here reaches the DTO intact and fails the *client's* decode, turning a row
+    // this adapter could have refused into a 200 the browser cannot read.
+    !APPLICATION_OUTCOMES.has((parsed as { outcome: unknown }).outcome as string) ||
+    !("slices" in parsed) ||
+    !Array.isArray((parsed as { slices: unknown }).slices) ||
+    !("destination" in parsed)
+  )
+    refuse();
+  /*
+   * The two fields beside `slices`, to the depth their readers reach.
+   *
+   * The card renders `destination.startsOn` and `.endsOn`, and the mapper spreads `selection`.
+   * Checking that the keys are merely *present* left both a `TypeError` one layer out, which is
+   * the failure this function claims to convert into a named fault.
+   */
+  const shape = parsed as { destination?: unknown; selection?: unknown };
+  const destination = shape.destination as { startsOn?: unknown; endsOn?: unknown } | null;
+  if (
+    typeof destination !== "object" ||
+    destination === null ||
+    typeof destination.startsOn !== "string" ||
+    typeof destination.endsOn !== "string" ||
+    // Absent is the honest reading of a row written before the selection was stored; present and
+    // not a list of strings is a row nothing in this system wrote.
+    (shape.selection !== undefined &&
+      (!Array.isArray(shape.selection) || !shape.selection.every((key) => typeof key === "string")))
+  )
+    refuse();
+  const outcome = parsed as EventTemplateApplicationOutcome;
+  /*
+   * Each category, not just the array around them.
+   *
+   * The transport maps `applied` and `incompatible` entry by entry, so a row whose `slices` hold
+   * `[{}]` — hand-written, or written by a shape this code no longer speaks — would be an
+   * `undefined.map` three layers away, which is the exact failure the check above exists to
+   * prevent. Refusing here is what makes the promise in this comment true rather than aspirational.
+   */
+  for (const slice of outcome.slices)
+    if (
+      typeof slice !== "object" ||
+      slice === null ||
+      typeof slice.key !== "string" ||
+      typeof slice.label !== "string" ||
+      // Same closed set, per category, for the same reason.
+      !SLICE_OUTCOMES.has(slice.outcome as string) ||
+      typeof slice.reason !== "string" ||
+      !Array.isArray(slice.applied) ||
+      !Array.isArray(slice.incompatible) ||
+      // The mapper destructures `{ id, label }` per entry, so the entries are checked too — a
+      // stored `applied: [null]` is otherwise the same `undefined.map` one level further in.
+      ![...slice.applied, ...slice.incompatible].every(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof entry.id === "string" &&
+          typeof entry.label === "string",
+      )
+    )
+      refuse();
+  return outcome;
+}
+
+/**
+ * The two closed sets a stored outcome is written from, checked rather than assumed.
+ *
+ * The contract pins both (`templateApplicationResultSchema`, `sliceResultSchema`), and the client
+ * decodes against it — so a word outside them is a 200 whose body the browser refuses, which is a
+ * worse failure than the refusal this adapter exists to raise. Kept next to the reader that uses
+ * them so a widened vocabulary is a compile-adjacent edit rather than a silent divergence.
+ */
+const APPLICATION_OUTCOMES = new Set(["applied", "partial", "failed", "skipped"]);
+const SLICE_OUTCOMES = new Set(["applied", "skipped", "incompatible", "unauthorized", "failed"]);
+
 const TEMPLATE_COLUMNS = "id, organization_id, name, state, created_at, updated_at";
 const VERSION_COLUMNS =
   "id, template_id, version, source_event_id, payload_json, created_at, created_by";
+
+/**
+ * The version insert, which allocates its own number and refuses to land without its template.
+ *
+ * Two properties, both structural rather than conventional:
+ *
+ * - **The number comes from the same statement**, so two organizers capturing one template at
+ *   once cannot both read the same `MAX(version) + 1` and race each other into
+ *   `UNIQUE (template_id, version)`. `RETURNING` is what lets the caller learn the allocated
+ *   value without a second read another writer could interleave with.
+ * - **`WHERE EXISTS` is the compare-and-swap half**: no version row is written unless its
+ *   template row is there to be pointed at. Inside `createTemplateWithVersion` that template is
+ *   the batch's own first statement, so the guard reads what the transaction has already done;
+ *   used on its own it is what turns "the template was archived away under me" into zero rows
+ *   changed instead of a foreign-key fault, and zero changed rows is refused by the caller.
+ */
+const VERSION_INSERT =
+  `INSERT INTO event_template_versions (${VERSION_COLUMNS})` +
+  " SELECT ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM event_template_versions WHERE template_id = ?), ?, ?, ?, ?" +
+  " WHERE EXISTS (SELECT 1 FROM event_templates WHERE id = ?)" +
+  " RETURNING version";
 
 // @spec PRD-EVT-002
 export class D1EventTemplateRepository implements EventTemplateRepository {
   constructor(private readonly database: D1DatabasePort) {}
 
-  async createTemplate(template: EventTemplate): Promise<void> {
-    const result = await this.database
-      .prepare(`INSERT INTO event_templates (${TEMPLATE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?)`)
-      .bind(
-        template.id,
-        template.organizationId,
-        template.name,
-        template.state,
-        template.createdAt,
-        template.updatedAt,
-      )
-      .run()
+  /**
+   * The template and its first version, in one `batch` — which D1 runs as one transaction.
+   *
+   * This is the fix for issue #177, and the shape is the one issue #116 used in content. Before
+   * it, `saveFromEvent` wrote the template, then ran six cross-domain slice exports, then wrote
+   * the version; a failure anywhere in that window left an active template with no versions —
+   * a row the console lists with an empty version select, that duplicating answers 409 for, that
+   * every apply answers 404 for, and whose name is still held against the partial unique index.
+   * Neither row can now outlive the other: the version insert carries `WHERE EXISTS` on the
+   * template, and a template insert the index refuses takes the version down with it.
+   *
+   * The name-conflict mapping had to be re-established for the batch, and that is the reason
+   * this was not a mechanical lift. A batch reports a bad statement two ways — a rejected
+   * promise or an unsuccessful result — so both are read, and both answer 409 rather than a 500
+   * describing an index by name.
+   */
+  async createTemplateWithVersion(
+    template: EventTemplate,
+    version: EventTemplateVersionDraft,
+  ): Promise<number> {
+    const results = await this.database
+      .batch<{ version: number }>([
+        this.database
+          .prepare(`INSERT INTO event_templates (${TEMPLATE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?)`)
+          .bind(
+            template.id,
+            template.organizationId,
+            template.name,
+            template.state,
+            template.createdAt,
+            template.updatedAt,
+          ),
+        this.versionStatement(version),
+      ])
       .catch((error: unknown) => {
         // ERROR-INTENT: The partial unique index over active rows is the name rule; a violation
-        // is the organizer's answer, not a fault. Every other driver error is rethrown below.
+        // is the organizer's answer, not a fault. Every other driver error is rethrown.
         if (isNameConflict(error)) throw new EventTemplateNameTakenError(NAME_TAKEN);
         throw error;
       });
-    if (!result.success) {
-      if (isNameConflict(result.error)) throw new EventTemplateNameTakenError(NAME_TAKEN);
-      throw new Error(`D1 failed to create event template: ${result.error ?? "unknown error"}`);
+    const failed = results.find((result) => !result.success);
+    if (failed) {
+      if (isNameConflict(failed.error)) throw new EventTemplateNameTakenError(NAME_TAKEN);
+      throw new Error(`D1 failed to create event template: ${failed.error ?? "unknown error"}`);
     }
-    if (changedRows(result, "create an event template") !== 1)
+    const [created, versioned] = results;
+    if (!created || changedRows(created, "create an event template") !== 1)
       throw new Error("D1 reported no inserted row while creating an event template");
+    return this.allocated(versioned, "create an event template version");
   }
 
   async findTemplate(templateId: string): Promise<EventTemplate | null> {
@@ -182,41 +325,50 @@ export class D1EventTemplateRepository implements EventTemplateRepository {
     return changedRows(result, "update an event template") > 0;
   }
 
-  async nextVersion(templateId: string): Promise<number> {
-    const result = await this.database
-      .prepare(
-        "SELECT COALESCE(MAX(version), 0) + 1 AS next FROM event_template_versions WHERE template_id = ?",
-      )
-      .bind(templateId)
-      .all<{ next: number }>();
-    if (!result.success)
-      throw new Error(
-        `D1 failed to read the next template version: ${result.error ?? "unknown error"}`,
-      );
-    return result.results?.[0]?.next ?? 1;
-  }
-
-  async createVersion(version: EventTemplateVersionRecord): Promise<void> {
-    const result = await this.database
-      .prepare(
-        `INSERT INTO event_template_versions (${VERSION_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        version.id,
-        version.templateId,
-        version.version,
-        version.sourceEventId,
-        JSON.stringify(version.payload),
-        version.createdAt,
-        version.createdBy,
-      )
-      .run();
+  async createVersion(version: EventTemplateVersionDraft): Promise<number> {
+    const result = await this.versionStatement(version).run<{ version: number }>();
     if (!result.success)
       throw new Error(
         `D1 failed to create an event template version: ${result.error ?? "unknown error"}`,
       );
-    if (changedRows(result, "create an event template version") !== 1)
-      throw new Error("D1 reported no inserted row while creating an event template version");
+    return this.allocated(result, "create an event template version");
+  }
+
+  private versionStatement(version: EventTemplateVersionDraft): D1PreparedStatement {
+    return this.database
+      .prepare(VERSION_INSERT)
+      .bind(
+        version.id,
+        version.templateId,
+        version.templateId,
+        version.sourceEventId,
+        JSON.stringify(version.payload),
+        version.createdAt,
+        version.createdBy,
+        version.templateId,
+      );
+  }
+
+  /**
+   * The version number storage allocated, or a refusal — never a guess.
+   *
+   * Zero changed rows is the `WHERE EXISTS` guard refusing: the template is not there, so no
+   * version was written and the caller must not be told one was. A driver that wrote the row but
+   * cannot say which number it chose is refused for the same reason `d1-write-result.ts` refuses
+   * a missing `meta.changes` — reading silence as "1" would report the wrong version back to an
+   * organizer and store it in the application record that says what they cloned.
+   */
+  private allocated(
+    result: (D1WriteResult & { results?: { version: number }[] }) | undefined,
+    operation: string,
+  ): number {
+    if (!result) throw new Error(`D1 reported no result while attempting to ${operation}`);
+    if (changedRows(result, operation) !== 1)
+      throw new Error(`D1 reported no inserted row while attempting to ${operation}`);
+    const version = result.results?.[0]?.version;
+    if (typeof version !== "number")
+      throw new Error(`D1 reported no version number while attempting to ${operation}`);
+    return version;
   }
 
   async findVersion(templateId: string, version: number): Promise<EventTemplateVersion | null> {
@@ -277,8 +429,10 @@ export class D1EventTemplateRepository implements EventTemplateRepository {
     const result = await this.database
       .prepare(
         "SELECT versions.template_id AS template_id, templates.name AS template_name," +
+          " templates.state AS template_state," +
           " applications.template_version_id AS template_version_id, versions.version AS version," +
-          " applications.applied_at AS applied_at" +
+          " applications.applied_at AS applied_at, applications.applied_by AS applied_by," +
+          " applications.outcome_json AS outcome_json" +
           " FROM event_template_applications AS applications" +
           " JOIN event_template_versions AS versions ON versions.id = applications.template_version_id" +
           " JOIN event_templates AS templates ON templates.id = versions.template_id" +
@@ -293,9 +447,12 @@ export class D1EventTemplateRepository implements EventTemplateRepository {
     return (result.results ?? []).map((row) => ({
       templateId: row.template_id,
       templateName: row.template_name,
+      templateState: rowToState(row.template_state, row.template_id),
       templateVersionId: row.template_version_id,
       version: row.version,
       appliedAt: row.applied_at,
+      appliedBy: row.applied_by,
+      ...rowToOutcome(row),
     }));
   }
 }

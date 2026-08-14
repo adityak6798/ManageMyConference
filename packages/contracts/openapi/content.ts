@@ -33,6 +33,9 @@ import {
   speakerResourceParamsSchema,
   speakerResourceSchema,
   speakerTaskSchema,
+  speakerTaskTemplateIdParamsSchema,
+  speakerTaskTemplateInputSchema,
+  speakerTaskTemplateListResponseSchema,
   speakerTaskTemplateSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
@@ -476,6 +479,76 @@ export const contentPaths: OpenApiFragment = {
         200: {
           description: "The event's checklist after the declaration",
           content: json(z.object({ templates: z.array(speakerTaskTemplateSchema) })),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    /*
+     * The console's authoring path, addressed by row rather than by title (issue #176).
+     *
+     * The bulk declaration above cannot rename a line — a corrected title writes a second line
+     * and leaves the mistyped one, since nothing there removes anything — and it cannot remove
+     * one at all. Every verb here answers with the whole checklist, because a reorder changes
+     * rows the request never named.
+     */
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/speaker-task-template-entries",
+      description:
+        "Adds one checklist line. Refuses a title another line on this event already holds, rather than converging on it the way the bulk declaration does: an organizer typing a title is naming a new line, and quietly rewriting the existing one would replace work still on their screen. Answers the whole checklist.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: eventContentParamsSchema,
+        body: { required: true, content: json(speakerTaskTemplateInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "The event's checklist after the line was added",
+          content: json(speakerTaskTemplateListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/speaker-task-templates/{templateId}",
+      description:
+        "Edits one checklist line, including its title. The event is resolved from the stored line rather than named by the caller, so the capability check and the write cannot be about two different events. Tasks already assigned from this line are untouched — they are keyed by the title they were given, and are the speaker's work once assigned.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: speakerTaskTemplateIdParamsSchema,
+        body: { required: true, content: json(speakerTaskTemplateInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "The event's checklist after the edit",
+          content: json(speakerTaskTemplateListResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/speaker-task-templates/{templateId}",
+      description:
+        "Removes one line from the event's checklist. Tasks already assigned from it stay where they are: `speaker_tasks` holds no pointer back here, so once a line has been given to somebody the work is theirs, and dropping a line an organizer has stopped asking for must not delete anybody's homework.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: speakerTaskTemplateIdParamsSchema },
+      responses: {
+        200: {
+          description: "The event's checklist after the removal",
+          content: json(speakerTaskTemplateListResponseSchema),
         },
         400: errorResponse,
         401: errorResponse,

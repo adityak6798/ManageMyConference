@@ -324,6 +324,46 @@ export const saveSpeakerTaskTemplatesInputSchema = z.object({
 });
 export type SaveSpeakerTaskTemplatesInput = z.infer<typeof saveSpeakerTaskTemplatesInputSchema>;
 /**
+ * One line, authored or edited from the console (issue #176).
+ *
+ * Separate from the bulk declaration above because it addresses the row rather than the title.
+ * That is what lets an organizer *rename* a line: through the `(event_id, title)` path a
+ * corrected title would create a second line and leave the mistyped one in the checklist for
+ * ever, since nothing there removes anything.
+ *
+ * The bounds are the same as the bulk schema's, deliberately — one command must not accept a
+ * line the other would refuse, or the two ways into the same table disagree about what a line
+ * may be.
+ */
+export const speakerTaskTemplateInputSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(4000).default(""),
+  sortOrder: z.number().int().min(0).max(10_000),
+  dueOffsetDays: z.number().int().min(-3650).max(3650),
+});
+export type SpeakerTaskTemplateInput = z.infer<typeof speakerTaskTemplateInputSchema>;
+export const speakerTaskTemplateIdParamsSchema = z.object({
+  templateId: z.string().uuid(),
+});
+/**
+ * The whole checklist, which is what every write here answers with.
+ *
+ * A write answers with the list rather than with the row it touched, so the console never has to
+ * reconstruct the order a reorder produced from a response describing one line.
+ */
+export const speakerTaskTemplateListResponseSchema = z.object({
+  templates: z.array(speakerTaskTemplateSchema),
+});
+/**
+ * The tasks an assignment created, and only those.
+ *
+ * An empty list is the honest answer to "everybody already has every line", which is what
+ * running this a second time means — not a failure, and not nothing having happened before.
+ */
+export const speakerChecklistAssignmentResponseSchema = z.object({
+  tasks: z.array(speakerTaskSchema),
+});
+/**
  * Turn the event's checklist into real work for named speakers.
  *
  * The speakers are named one by one rather than implied. Instantiating a checklist puts dated

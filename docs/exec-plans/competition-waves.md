@@ -290,6 +290,27 @@ deterministic (a second `gate:d1` failed 24 again but on a partly different set)
 dies during reset still leaves a record — my failing run overwrote `.evidence/d1.json` with
 `exitCode 1`, which is harmless only because `.evidence/` is gitignored.
 
+**A second crash on 2026-08-13, on a different run, corroborates the stdout-pipe mechanism.** The
+platform lane's occurrence — hosted run `31747167652`, now written up in `GAP-017` itself — is the
+one that names the cause: `workerd` died *writing to its own stdout*, the pipe Playwright's
+`webServer` capture holds, after fourteen minutes of logging a `request.denied` line per
+unauthenticated poll. This is a separate run with the same signature, and it is recorded because
+two independent sightings hours apart are worth more than one.
+
+`gate:browser` on PR #188 at `86662d3` failed 2 of 70 — both in `speaker-portal.spec.ts`, which is
+simply what was running when the Worker exited. `workerd` raised
+`kj/async-io-unix.c++:186: disconnected: ::write(...): Broken pipe` repeatedly, `wrangler dev exited
+with status 1`, and every later request is `connect ECONNREFUSED`. The same suite had passed locally
+at the same commit minutes earlier, and a re-run of the unchanged job passed.
+
+Two things it adds to the write-up in `GAP-017`. **It reached a single-tenant GitHub runner**, one
+checkout and one suite, so for the runtime dying mid-run concurrent worktrees are not a necessary
+condition. And it says nothing about the ephemeral-port occurrence below, which measured something
+different — `EADDRNAVAIL` inside `npm run reset`, before the suite started, under seven `workerd`
+and ten `vite` processes. That is exhaustion rather than a crash, and nothing here shows it can
+happen without the concurrency that produced it. Two symptoms, one entry; whoever fixes this should
+not assume one cause.
+
 **`GAP-015` is closed.** W3-quality took the relay: #84's t=0 gate now proves the seeded Overview
 table names Sam Speaker, their open task and its due date, before any spec mutation. The
 traceability row for brief feature 6 was updated with it; the summary sentence beneath that table
@@ -640,3 +661,55 @@ separator maintained by hand, in the wrong file, that stops working the moment t
 is reordered. The composer now trims both ends and joins with one blank line, so every boundary
 looks the same. `apps/api/seed/reset.sql` was also added to `tools/review-risk.mjs`'s `GENERATED`
 list, which it always belonged in and which its new header now makes checkable.
+
+### Issues #177, #175 and #176 rulings
+
+The three minors #102's own lane split out, worked as one pull request in that order. Five
+decisions a later reader would otherwise re-derive from the diff.
+
+**`createTemplate` is gone from the repository port, replaced by `createTemplateWithVersion`.**
+The narrow fix for #177 was a batch inside `saveFromEvent`; the fix taken removes the shape
+instead. A template with no versions is not a lesser template, it is a husk — listed with an
+empty version select, refused for duplication, answering 404 for every apply, and holding its
+name against the partial unique index — so the port now offers no way to write one. That forced
+the capture to move *before* the first write, which is the real content of the fix: the six
+cross-domain slice exports used to run between the two writes and were the widest window in the
+file. The name-conflict mapping had to be re-established for the batch, both from a rejected
+promise and from an unsuccessful result, which is why the issue called this not a mechanical
+lift.
+
+**The version number is allocated inside the insert, and `nextVersion` is gone with it.** Not
+scope creep but the same defect: `nextVersion` then `createVersion` is a read-then-write race, so
+two organizers capturing one template at once both read the same number and the loser tripped
+`UNIQUE (template_id, version)` — a 500 describing a constraint for a request with nothing wrong
+with it. `INSERT … SELECT … RETURNING version` decides it in one statement, exactly as `1311`
+does for a decision's revision. Three test call sites lost an explicit `version: 2` that the
+store now allocates.
+
+**#175 is surfaced in the templates workspace and deliberately not in the platform inbox.** The
+issue's closure condition is that a `partial` application is surfaced where the organizer will
+see it with the repair one action away, and the workspace is where applying already lives. An
+inbox category would reach an organizer who never opens that page, and it is the better home —
+but it is a sixth category on **platform's** product surface, needing a new port in
+`application/platform/sources.ts`, a key in `inbox-service.ts`, a binding, contracts and the
+inbox web surface. That is a product decision about platform, not about events, so `GAP-023` was
+narrowed to record it as the residual rather than filed as a new issue: the issue it belongs to
+is closed by what shipped.
+
+**The stored outcome gained a `selection` field.** A repair has to be the same act as the
+application it repairs. `outcome_json` recorded the categories' results and the destination range
+but not which categories the command *named*, so re-applying a two-category clone would have
+written all six. Absent on rows written before this, where it reads as "no selection recorded",
+which is the honest reading of a row that never stored one.
+
+**#176 added three content commands rather than reusing `importTaskTemplates`.** The bulk
+declaration writes at `(event_id, title)`, which is right for a clone — a checklist arriving in
+another event has nothing else to converge on — and a trap for a person: an organizer who
+mistyped a title cannot correct it that way, because the corrected title writes a second line and
+nothing there removes the first. Authoring therefore addresses the row. A console surface where
+a typo is permanent is not a console surface, so the delete and the rename are part of closing
+the issue rather than an expansion of it.
+
+**And one shared file: `apps/web/src/styles/content.css`.** The checklist editor shares the
+resource editor's selectors rather than copying them, so the two panels cannot drift into looking
+like different products. A lane editing that file should expect the roster rules to name both.
