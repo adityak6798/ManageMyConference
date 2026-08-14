@@ -373,15 +373,26 @@ export function PublicCfpView({
     const current =
       editing?.id === proposal.id && editing.revision >= proposal.revision ? editing : proposal;
     /*
-     * Pressing the button on the proposal **already open in the form** used to reload the stored
-     * copy over whatever had been typed, and say only "Editing …. Change what you need" — the one
-     * path on this surface where the applicant's typing was discarded with no statement at all
-     * (issue #211). `PRD-CFP-004` requires the opposite: a drop is stated before the save that
-     * makes it permanent, not discovered afterwards.
+     * Pressing a button in the list used to reload a stored copy over whatever had been typed and
+     * say only "Editing …. Change what you need" — the applicant's work discarded with no
+     * statement at all (issue #211), on a surface whose spec is emphatic about the opposite:
+     * `PRD-CFP-004` requires a drop to be stated before the save that makes it permanent, not
+     * discovered afterwards.
      *
-     * So typing wins. The rebind still happens — `editing` moves to whichever copy is newer, so
-     * the escape from a conflict raised by another tab survives — but the answers on screen are
-     * left alone and the notice says both halves of what that means.
+     * **Both directions of that, because they are one defect.** The first repair covered
+     * re-opening the proposal already in the form and asserted, wrongly, that this was "the one
+     * path" — a review pass then walked one click sideways and found the same loss switching to a
+     * *different* proposal, which is the same class on the same screen. `GAP-025` exists because a
+     * lane repaired three of four siblings and filed the fourth.
+     *
+     * So typing always wins over a reload it did not ask for:
+     *
+     * - **Same proposal**: nothing is loaded over the typing, and `editing` still moves to
+     *   whichever copy is newer so the escape from a conflict raised by another tab survives.
+     * - **Different proposal**: the switch is *refused* rather than silently taken, and the notice
+     *   says what to do about it. Rebinding while keeping the answers would be worse than either
+     *   option — it sends one proposal's text under another's id, which is the exact corruption
+     *   the in-flight-write guard elsewhere on this page exists to prevent.
      *
      * "Typed something" is measured against the copy the form was **bound** to, never against the
      * newer one in the list: an applicant who has typed nothing while another tab saved has no
@@ -389,8 +400,14 @@ export function PublicCfpView({
      * take the reload path exactly as before, and it costs them nothing.
      */
     const unsaved =
-      editing?.id === proposal.id &&
-      !sameAnswers(answers, answersTheFormStillAccepts(editing.answers));
+      editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers));
+    if (unsaved && editing?.id !== proposal.id) {
+      setNotice({
+        tone: "error",
+        text: `You have unsaved changes to ${editing?.title ?? "the proposal you are editing"}. Save or submit it before opening ${proposal.title ?? "another proposal"}, or press Start another proposal to leave it as it was.`,
+      });
+      return;
+    }
     if (unsaved) {
       setEditing(current);
       setFieldErrors({});
@@ -419,11 +436,31 @@ export function PublicCfpView({
         : `Editing ${current.title ?? "your proposal"}. Change what you need, then save or submit it.`,
     });
   };
+  /**
+   * Leave the proposal in the form and start an empty one.
+   *
+   * This is the deliberate discard, and it is the only control on the page that is. It **says** so
+   * when there is typing to lose rather than clearing the form and setting no notice at all: the
+   * applicant asked for an empty form and gets one, and is told what left with it, which is the
+   * `PRD-CFP-004` rule applied to a loss the applicant chose. The refusal to switch proposals
+   * above names this control as the way out for exactly that reason.
+   */
   const startFresh = () => {
+    const abandoned =
+      editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers))
+        ? editing
+        : null;
     setEditing(null);
     setAnswers({});
     setFieldErrors({});
-    setNotice(null);
+    setNotice(
+      abandoned
+        ? {
+            tone: "ok",
+            text: `Started a new proposal. Your unsaved changes to ${abandoned.title ?? "the previous proposal"} were not saved; it is unchanged, and you can open it again from the list.`,
+          }
+        : null,
+    );
   };
 
   function onFormSubmit(event: FormEvent) {

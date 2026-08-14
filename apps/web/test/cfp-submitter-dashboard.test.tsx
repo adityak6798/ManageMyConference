@@ -783,6 +783,52 @@ describe("the signed-in applicant's proposals", () => {
     );
   });
 
+  it("refuses to switch to another proposal while typing is unsaved, and says why", async () => {
+    /*
+     * The sibling of #211 that the first repair missed, found one click sideways by a review pass:
+     * the same silent discard, reached by pressing a *different* proposal's button. The comment in
+     * `openForEditing` claimed the same-proposal path was "the one path on this surface" — it was
+     * not, and `GAP-025` is in this repository because a lane once repaired three of four siblings.
+     *
+     * Rebinding while keeping the answers would be worse than either option: it sends one
+     * proposal's text under another's id.
+     */
+    const test = mount({
+      proposals: [
+        proposal({ id: "50000000-0000-4000-8000-00000000000a", title: "Alpha" }),
+        proposal({ id: "50000000-0000-4000-8000-00000000000b", title: "Beta" }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "My version" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue Beta/ }));
+
+    // The typing is still there, and the form is still bound to Alpha.
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("My version");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You have unsaved changes to Alpha");
+    // The way out is named rather than left to be guessed at.
+    expect(screen.getByRole("alert")).toHaveTextContent("Start another proposal");
+    // And nothing was written: a refused switch is not a save.
+    expect(test.calls.filter(({ method }) => method !== "GET")).toHaveLength(0);
+  });
+
+  it("says what it discarded when the applicant chooses an empty form", async () => {
+    // `Start another proposal` is the one control that is *meant* to discard. It still says so,
+    // because the applicant choosing the loss is not a reason to leave them guessing whether the
+    // previous proposal was saved.
+    mount({ proposals: [proposal({ title: "Half an idea" })] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Half an idea/ }));
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "My version" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start another proposal" }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Your unsaved changes to Half an idea were not saved",
+    );
+  });
+
   it("reloads the newer stored copy when the same row is re-opened untouched", async () => {
     /*
      * The other half of #211's fix, and the reason it is measured against the *bound* copy: an
