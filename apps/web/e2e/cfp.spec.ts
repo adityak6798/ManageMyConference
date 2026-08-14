@@ -178,6 +178,9 @@ test("a call for proposals that cannot be read blocks editing instead of offerin
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click establishes the demo session asynchronously. Wait for the authenticated shell
+  // before navigating, or the next document can win the race and bounce back to sign-in.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
 
   // A malformed payload used to collapse into "Something went wrong" and leave the
   // starter template in the editor, one Save away from overwriting the real form.

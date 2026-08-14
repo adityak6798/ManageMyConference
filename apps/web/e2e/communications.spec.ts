@@ -177,7 +177,17 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   expect(enqueued.status(), await enqueued.text()).toBe(202);
 
   await drain(page);
-  await page.reload();
+  await expect
+    .poll(async () => {
+      const delivery = (await outbox(page)).find(
+        ({ delivery: candidate }) => candidate.recipientRef === recipient,
+      )?.delivery;
+      return delivery?.state;
+    })
+    .toBe("terminal");
+  // Refresh through the organizer's control so the row is read after the scheduled handler's
+  // transaction is visible, instead of racing a document reload against the outbox drain.
+  await page.getByRole("button", { name: "Refresh outbox" }).click();
 
   const rows = page.getByRole("table").locator("tbody tr");
   const row = rows.filter({ hasText: recipient });
