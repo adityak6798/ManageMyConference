@@ -215,21 +215,33 @@ feature-by-feature verdict.
   passed `agenda.spec.ts` alone and the full 79-test suite twice locally against a freshly reset
   fixture, immediately before and after.
 
-  **The rerun of that same commit failed too, and that is the useful part.** It failed on a
-  *different pair* of specs — two in `communications.spec.ts` rather than two in `agenda.spec.ts` —
-  and this time the runtime did not merely stumble: `npm error Lifecycle script 'dev' failed`,
-  `Error: socket hang up`, and then `connect ECONNREFUSED 127.0.0.1:20336` repeated for the rest of
-  the run. Two runs of one commit, two disjoint sets of red specs, the worker dying in both, and
-  the same commit green locally four times over. A regression cannot select a different pair of
-  tests each time; a dying runtime can, and does.
+  **The rerun failed too, and so did the run after it — each on a different set of specs.** That
+  is what makes this sighting worth more than the four before it. Four consecutive hosted runs of
+  the same branch, listed because the shape only shows up across them:
+
+  | run | commit | red specs | runtime |
+  |---|---|---|---|
+  | `31835694674` | `67e138d` | `agenda.spec.ts` ×2 | `Broken pipe` ×dozens |
+  | rerun of the same | `67e138d` | `communications.spec.ts` ×2 | `dev` exited: `socket hang up`, then `ECONNREFUSED` |
+  | `31838103299` | `a170c6f` | `00-seed-state.spec.ts` ×1 | same exit |
+  | `31840188399` | `9bc7e52` | none — green | survived |
+
+  Three failures, three disjoint sets of red specs, the worker dying in all three, one green run,
+  and the same suite green locally on every one of those commits against a freshly reset fixture.
+  A regression cannot select a different spec set each time; a dying runtime can, and does.
 
   So the earlier sightings' advice — "rerun and it will be green" — does not hold, and this entry
-  no longer says it. What the rerun buys is not a green job but a *second sample*: if the same
-  specs fail twice, suspect the change; if different ones do, suspect this gap. Recorded because
-  the pattern now has a name and a discriminator, and because a lane can currently be unable to
-  show a green `browser` job on CI through no fault of its change — which is a stronger statement
-  than the four earlier sightings supported, and one that raises this from an annoyance to
-  something that blocks the branch-protection work `GAP-003` describes.
+  no longer says it: here it took three attempts. What a rerun buys is not a green job but another
+  *sample*, and the samples are the diagnosis: **if the same specs fail twice, suspect the change;
+  if different ones do, suspect this gap.** Note the third run's failure was a single spec in
+  `00-seed-state.spec.ts` — the file every other spec's fixture assumptions rest on — which is the
+  most misleading shape of all, because a red seed-state check reads as a broken fixture rather
+  than as a dead worker.
+
+  Recorded at this length because a lane can currently be unable to show a green `browser` job
+  through no fault of its change, which is a stronger statement than the four earlier sightings
+  supported, and one that blocks the branch-protection work `GAP-003` describes: making a job
+  required that fails roughly half the time for environmental reasons would stop every merge.
 
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
