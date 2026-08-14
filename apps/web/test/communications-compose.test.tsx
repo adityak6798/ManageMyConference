@@ -51,8 +51,19 @@ const recipients = [
 /** The server's name for the audience above; the panel sends it back with a broadcast. */
 const audience = "3-fixture";
 
+const reachable = recipients.filter((recipient) => recipient.address !== null);
+
 const json = (body: unknown, status = 200) =>
   Promise.resolve(new Response(JSON.stringify(body), { status }));
+
+/**
+ * The substitution the server does, done here too.
+ *
+ * The fixture renders rather than echoing the template because the preview's whole claim is that
+ * what the organizer approves is the message: a stub that returned `{{speakerName}}` unresolved
+ * would let a panel that previewed the instructions instead of the mail keep passing.
+ */
+const renderBody = (body: string, name: string) => body.replaceAll("{{speakerName}}", name);
 
 interface HarnessOptions {
   templates?: (typeof template)[];
@@ -85,6 +96,36 @@ function harness({ templates = [template], sendFails }: HarnessOptions = {}) {
     if (url.includes("/api/communications/templates")) return json({ templates: stored });
     if (url.includes("/api/communications/recipients"))
       return json({ recipients, audienceVersion: audience });
+    if (url.includes("/api/communications/merge-fields"))
+      return json({ fields: [{ token: "speakerName", describes: "The speaker's own name" }] });
+    /*
+     * The preview the Send control asks for before it offers a confirmation.
+     *
+     * Answered before the send branch below, which it would otherwise match: the preview's path
+     * extends the broadcast's, so a fixture that tested the shorter one first would count every
+     * preview as a send and report a delivery nobody confirmed.
+     */
+    if (url.includes("/api/communications/broadcasts/preview")) {
+      const body = JSON.parse(String(init?.body));
+      const held =
+        stored.find(
+          (candidate) =>
+            candidate.key === body.templateKey && candidate.version === body.templateVersion,
+        ) ?? template;
+      const chosen = body.recipientIds
+        ? reachable.filter((recipient) => body.recipientIds.includes(recipient.userId))
+        : reachable;
+      return json({
+        entries: chosen.map((recipient) => ({
+          userId: recipient.userId,
+          name: recipient.name,
+          address: recipient.address,
+          subject: held.subject,
+          body: renderBody(held.body, recipient.name),
+        })),
+        audienceVersion: audience,
+      });
+    }
     if (url.includes("/api/communications/broadcasts")) {
       if (sendFails) return json({ error: { code: "VALIDATION_FAILED", ...sendFails } }, 400);
       sends.push(JSON.parse(String(init?.body)));
@@ -163,11 +204,18 @@ describe("sending a message to speakers from the console", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Send to 2 speakers" }));
 
+    // The confirmation waits on the server rendering each message, so it is not on screen the
+    // instant the button is pressed.
+    const confirmation = await screen.findByRole("group", { name: "Confirm send" });
     // Nothing has been sent yet: the confirmation names the template version and the count.
     expect(sends).toHaveLength(0);
-    const confirmation = screen.getByRole("group", { name: "Confirm send" });
     expect(confirmation).toHaveTextContent("speaker-welcome");
     expect(confirmation).toHaveTextContent("2 speakers");
+    // And what is being approved is the message rather than the template it came from: the
+    // placeholder is already filled in, per recipient, by the code that will send it.
+    expect(screen.getByRole("article", { name: "Message for Ada Lovelace" })).toHaveTextContent(
+      "Hi Ada Lovelace, your session is confirmed.",
+    );
 
     fireEvent.click(within(confirmation).getByRole("button", { name: /^Yes, send/ }));
 
@@ -187,7 +235,7 @@ describe("sending a message to speakers from the console", () => {
     harness();
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Send to 2 speakers" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Yes, send/ }));
 
     const compose = screen.getByRole("region", { name: "Send to speakers" });
     await waitFor(() =>
@@ -196,16 +244,22 @@ describe("sending a message to speakers from the console", () => {
       ),
     );
     // The outbox beside it re-reads, so the delivery the organizer just created is on screen
-    // rather than waiting for a manual refresh.
-    expect(await screen.findByText("ada@example.test")).toBeInTheDocument();
+    // rather than waiting for a manual refresh. Scoped to the outbox because the same address
+    // is listed in the audience above, where it names somebody this send *would* reach rather
+    // than a delivery it made.
+    const outbox = screen.getByRole("region", { name: "Delivery history" });
+    expect(await within(outbox).findByText("ada@example.test")).toBeInTheDocument();
   });
 
   it("shows the message a speaker actually received, not just the template it came from", async () => {
     harness();
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Send to 2 speakers" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
-    await screen.findByText("ada@example.test");
+    fireEvent.click(await screen.findByRole("button", { name: /^Yes, send/ }));
+    // The outbox's copy of the address, not the audience list's, is what says the send landed.
+    await within(screen.getByRole("region", { name: "Delivery history" })).findByText(
+      "ada@example.test",
+    );
 
     fireEvent.click(
       await screen.findByRole("button", { name: /attempt history for ada@example.test/ }),
@@ -254,7 +308,7 @@ describe("sending a message to speakers from the console", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Send to 2 speakers" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Yes, send/ }));
 
     // The placeholder that could not be filled is named, so the organizer can fix the template
     // rather than guess why nothing sent.
@@ -267,12 +321,12 @@ describe("sending a message to speakers from the console", () => {
     render(<App />);
     // First send queues; the second writes nothing because the idempotency key is the same.
     fireEvent.click(await screen.findByRole("button", { name: "Send to 2 speakers" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Yes, send/ }));
     const compose = screen.getByRole("region", { name: "Send to speakers" });
     await waitFor(() => expect(within(compose).getByRole("status")).toHaveTextContent("Queued 2"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Send to 2 speakers" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Yes, send/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send to 2 speakers" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Yes, send/ }));
 
     // Not "Queued 2 deliveries". Nothing was written and nothing will be sent; saying otherwise
     // promises mail that never goes, to an organizer who pressed Send because they were unsure.
@@ -302,6 +356,9 @@ describe("sending a message to speakers from the console", () => {
           500,
         );
       if (url.includes("/api/communications/templates")) return json({ templates: [] });
+      // Answered, so the recipients read is the only one that failed and the reference below
+      // cannot be whichever of two failures happened to reject first.
+      if (url.includes("/api/communications/merge-fields")) return json({ fields: [] });
       return json({ error: { code: "NOT_FOUND", message: "no", correlationId: "x" } }, 404);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -328,6 +385,7 @@ describe("sending a message to speakers from the console", () => {
         });
       if (url.includes("/api/communications/history"))
         return json({ history: [], nextCursor: null });
+      if (url.includes("/api/communications/merge-fields")) return json({ fields: [] });
       return json({ error: { code: "NOT_FOUND", message: "no", correlationId: "x" } }, 404);
     });
     vi.stubGlobal("fetch", fetchMock);

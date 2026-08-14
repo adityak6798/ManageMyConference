@@ -3,9 +3,12 @@ import {
   acceptContentInputSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
+  inviteSpeakersInputSchema,
+  inviteSpeakersResponseSchema,
   remindSpeakerTasksInputSchema,
   remindSpeakerTasksResponseSchema,
   setSpeakerPhotoInputSchema,
+  type SpeakerInvitationOutcomeDto,
   type SpeakerReminderOutcomeDto,
   speakerCalendarInviteResultSchema,
   speakerChecklistAssignmentResponseSchema,
@@ -297,6 +300,13 @@ export async function updateSpeakerWorkflow(
   });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
+/**
+ * Assign one dated task to several speakers at once.
+ *
+ * `sessionId` binds a file request to the talk it is about, and is omitted rather than sent empty
+ * when the organizer chose no session: the schema takes an absent field as "not about a session"
+ * and would refuse `""` as a malformed id.
+ */
 export async function bulkRequestSpeakerTasks(
   input: {
     profileIds: string[];
@@ -304,6 +314,7 @@ export async function bulkRequestSpeakerTasks(
     dueAt: string;
     type: "general" | "file-request";
     instructions: string;
+    sessionId?: string;
   },
   fetcher: typeof fetch = fetch,
 ) {
@@ -369,6 +380,27 @@ export async function remindSpeakerTasks(
     fetcher,
   );
   return [...remindSpeakerTasksResponseSchema.parse(await response.json()).reminders];
+}
+
+/**
+ * Invite a chosen set of speakers into the portal, again if need be.
+ *
+ * The response is per speaker, including the ones nothing was sent for, because "2 invitations
+ * queued" and "1 speaker has no address" are different things for the organizer to do next. Each
+ * invitation carries the `occurrence` it was sent as, which is what makes a second invitation a
+ * second delivery rather than one deduplicated into the welcome sent at acceptance.
+ */
+export async function inviteSpeakers(
+  eventId: string,
+  profileIds: string[],
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerInvitationOutcomeDto[]> {
+  const response = await contentMutation(
+    "/api/speaker-invitations",
+    inviteSpeakersInputSchema.parse({ eventId, profileIds }),
+    fetcher,
+  );
+  return [...inviteSpeakersResponseSchema.parse(await response.json()).invitations];
 }
 
 export async function publishSpeakerAsset(

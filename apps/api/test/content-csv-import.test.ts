@@ -1,7 +1,10 @@
 // @acceptance ACC-SPEAKER
 import { describe, expect, it } from "vitest";
 import { parseSpeakerCsv } from "../src/adapters/content/parse-speaker-csv";
-import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
+import {
+  MemoryContentRepository,
+  MemorySpeakerConversion,
+} from "../src/adapters/persistence/memory-content-repository";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
 import { ContentService } from "../src/application/content/content-service";
 import type { Actor } from "../src/application/identity/actor";
@@ -256,5 +259,198 @@ describe("a CSV import whose speaker vanishes mid-run", () => {
     );
     expect(result.imported).toBe(1);
     expect((await repository.findProfile(profileId))?.workflowStatus).toBe("ready");
+  });
+});
+
+/**
+ * What an organizer gets back from a roster they exported from somewhere else.
+ *
+ * A real spreadsheet arrives with a blank name, a typo where an address should be, and the same
+ * person twice — and the organizer has to be able to fix those rows and re-upload the same file.
+ * The three properties that make that safe are that valid rows land, that every rejected row is
+ * *named* rather than dropped, and that a second run of the same file converges rather than
+ * doubling the roster (#189).
+ */
+describe("speaker CSV import outcomes", () => {
+  const eventId = "00000000-0000-4000-8000-000000000002";
+  const correlationId = "csv-import-correlation";
+  const organizer: Actor = {
+    id: "organizer",
+    name: "Ona Organizer",
+    persona: "organizer",
+    organizations: [],
+    capabilities: new Set(["content:manage"]),
+    eventAccess: [{ eventId, role: "organizer", capabilities: new Set(["content:manage"]) }],
+  };
+  /*
+   * One valid row, one missing a name, one whose address is not an address, and the same person
+   * twice under different capitalisation — the four dispositions the preview screen has to be
+   * able to tell apart, in one file.
+   */
+  const csv = [
+    "name,email,workflowStatus",
+    "Sam,SAM@example.test,ready",
+    "Ada,ada@example.test,onboarding",
+    ",blank@example.test,ready",
+    "Bad,not-an-email,ready",
+    "Sam Again,sam@example.test,ready",
+  ].join("\n");
+
+  function fixture() {
+    const repository = new MemoryContentRepository({
+      sessions: [],
+      speakers: [],
+      tasks: [],
+      assets: [],
+      messages: [],
+    });
+    let sequence = 0;
+    const newId = () => `90000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`;
+    const service = new ContentService({
+      repository,
+      assetStorage: new DeterministicAssetStorage(),
+      proposals: {
+        acceptedProposal: async () => {
+          throw new Error("unused");
+        },
+      },
+      agenda: {
+        publishedSessionSchedules: async () => new Map(),
+        unscheduleSession: async () => undefined,
+      },
+      // The real conversion contract — one profile per event per address, whichever door it
+      // arrives through — because "does a second import create a second Sam?" is a question
+      // about that rule and a stub that always minted a profile would answer it for us.
+      speakerConversion: new MemorySpeakerConversion(repository, newId),
+      newId,
+      now: () => new Date("2026-08-11T12:00:00.000Z"),
+      parseSpeakerCsv,
+    });
+    const roster = async () =>
+      (await repository.workspace(eventId)).speakers.map(({ name, email, workflowStatus }) => [
+        name,
+        email,
+        workflowStatus,
+      ]);
+    return { repository, service, roster };
+  }
+
+  it("creates the valid speakers and names every row it refused", async () => {
+    const { service, roster } = fixture();
+
+    const report = await service.importSpeakers(
+      organizer,
+      { eventId, csv, commit: true },
+      correlationId,
+    );
+
+    expect(report).toMatchObject({
+      preview: false,
+      total: 5,
+      valid: 2,
+      imported: 2,
+      invalid: 2,
+      duplicates: 1,
+    });
+    /*
+     * Each refusal carries the line number it came from and what is wrong with it, because the
+     * organizer's next move is to open the file and fix that line. A count of failures without
+     * the lines is a spreadsheet-wide hunt, and a row dropped silently is a speaker who never
+     * finds out they were expected.
+     */
+    expect(
+      report.rows.filter(({ errors }) => errors.length > 0).map(({ row, errors }) => [row, errors]),
+    ).toEqual([
+      [4, ["Name is required"]],
+      [5, ["Valid email is required"]],
+      // Row 2 wrote `SAM@example.test`: the same person, and the import says so rather than
+      // creating a second profile that differs only in capitalisation.
+      [6, ["Duplicate email"]],
+    ]);
+    expect(await roster()).toEqual([
+      ["Ada", "ada@example.test", "onboarding"],
+      ["Sam", "sam@example.test", "ready"],
+    ]);
+  });
+
+  it("converges when the same file is imported again", async () => {
+    const { service, repository, roster } = fixture();
+    await service.importSpeakers(organizer, { eventId, csv, commit: true }, correlationId);
+    const created = (await repository.workspace(eventId)).speakers;
+
+    const again = await service.importSpeakers(
+      organizer,
+      { eventId, csv, commit: true },
+      correlationId,
+    );
+
+    /*
+     * Re-uploading is what an organizer does after fixing two rows, and it must not cost them a
+     * duplicate of everybody else. Convergence is on the *same* profiles, ids included: a second
+     * Sam merged back into one would still have detached whatever the first one owned.
+     */
+    expect(again.imported).toBe(0);
+    expect((await repository.workspace(eventId)).speakers).toEqual(created);
+    expect(await roster()).toEqual([
+      ["Ada", "ada@example.test", "onboarding"],
+      ["Sam", "sam@example.test", "ready"],
+    ]);
+    // And the second run explains itself: three rows naming two people the event already has.
+    expect(again.duplicates).toBe(3);
+    expect(again.rows.map(({ errors }) => errors)).toEqual([
+      ["Duplicate email"],
+      ["Duplicate email"],
+      ["Name is required"],
+      ["Valid email is required"],
+      ["Duplicate email"],
+    ]);
+  });
+
+  it("writes nothing on a preview, and still imports when the organizer commits it", async () => {
+    const { service, roster } = fixture();
+
+    const preview = await service.importSpeakers(
+      organizer,
+      { eventId, csv, commit: false },
+      correlationId,
+    );
+
+    expect(preview).toMatchObject({
+      preview: true,
+      total: 5,
+      valid: 2,
+      imported: 0,
+      duplicates: 1,
+    });
+    expect(await roster()).toEqual([]);
+    // The preview must not consume the per-address import claim it never used, or the organizer
+    // would be shown two importable rows and then get an empty import when they said yes.
+    const committed = await service.importSpeakers(
+      organizer,
+      { eventId, csv, commit: true },
+      correlationId,
+    );
+    expect(committed.imported).toBe(2);
+    expect(await roster()).toHaveLength(2);
+  });
+
+  it("refuses an import from a caller without content:manage on this event", async () => {
+    const { service, roster } = fixture();
+    const outsider: Actor = {
+      ...organizer,
+      id: "other-organizer",
+      eventAccess: [
+        {
+          eventId: "00000000-0000-4000-8000-000000000009",
+          role: "organizer",
+          capabilities: new Set(["content:manage"]),
+        },
+      ],
+    };
+
+    await expect(
+      service.importSpeakers(outsider, { eventId, csv, commit: true }, correlationId),
+    ).rejects.toThrow();
+    expect(await roster()).toEqual([]);
   });
 });

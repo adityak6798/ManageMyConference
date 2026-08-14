@@ -8,11 +8,13 @@ const eventId = "00000000-0000-4000-8000-000000000001";
 const secondEventId = "00000000-0000-4000-8000-000000000002";
 
 /**
- * The compose panel's two reads, which every test in this file mounts but none is about.
+ * The compose panel's three reads, which every test in this file mounts but none is about.
  *
  * Answered rather than left to 404 on purpose: a failed read there renders its own error and a
  * second "Try again" control, which would make these outbox assertions ambiguous about which
- * failure they are looking at.
+ * failure they are looking at. The panel loads all three together, so leaving any one of them to
+ * the 404 below fails the other two with it — which is what put a compose failure in front of
+ * every outbox assertion here when the merge-field read was added.
  */
 const composeFixture = (url: string): Promise<Response> | null => {
   if (url.includes("/api/communications/templates"))
@@ -21,6 +23,8 @@ const composeFixture = (url: string): Promise<Response> | null => {
     return Promise.resolve(
       new Response(JSON.stringify({ recipients: [], audienceVersion: "0-empty" })),
     );
+  if (url.includes("/api/communications/merge-fields"))
+    return Promise.resolve(new Response(JSON.stringify({ fields: [] })));
   return null;
 };
 

@@ -63,6 +63,17 @@ export interface SpeakerProfile {
   readonly logistics?: Readonly<Record<string, string>> | undefined;
   readonly customFields?: Readonly<Record<string, string>> | undefined;
   readonly socialLinks?: SpeakerSocialLinks | undefined;
+  /**
+   * How many portal invitations an organizer has deliberately asked for (`1408`).
+   *
+   * The profile's own count, not the mailbox's: it advances when an organizer claims an
+   * invitation occurrence, which is what makes a second invitation a second delivery instead of
+   * one the fixed acceptance key would suppress. It does not count the welcome acceptance sends,
+   * so `0` still means "written to once" for a speaker whose proposal was accepted.
+   *
+   * Optional because a fixture may build a profile without one; absent reads as none.
+   */
+  readonly invitationsSent?: number | undefined;
 }
 
 export interface SpeakerTask {

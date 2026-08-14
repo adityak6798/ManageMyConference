@@ -280,15 +280,26 @@ export class CommunicationsService implements CommunicationsEnqueue {
   ): Promise<{ entries: readonly BroadcastPreviewEntry[]; audienceVersion: string }> {
     const { template, chosen, recipients } = await this.resolveBroadcast(actor, input);
     const payloads = await this.mergePayloads(input.eventId, chosen);
-    return {
-      entries: chosen.map((recipient, index) => ({
-        userId: recipient.userId,
-        name: recipient.name,
-        address: recipient.address,
-        ...renderTemplate(template, payloads[index] ?? {}),
-      })),
-      audienceVersion: audienceVersion(recipients),
-    };
+    try {
+      return {
+        entries: chosen.map((recipient, index) => ({
+          userId: recipient.userId,
+          name: recipient.name,
+          address: recipient.address,
+          ...renderTemplate(template, payloads[index] ?? {}),
+        })),
+        audienceVersion: audienceVersion(recipients),
+      };
+    } catch (error) {
+      // ERROR-INTENT: translated exactly as `prepare` translates it, and for a sharper reason
+      // here. This surface exists so an unfilled placeholder is refused on the screen showing
+      // the message — and it was answering 500 "Something went wrong" while the *send* answered
+      // 400 naming the key, so the preview was the one path that could not tell an author what
+      // was wrong with their template. Found by driving it, not by reading it.
+      if (error instanceof TemplatePlaceholderError || error instanceof TemplateValueError)
+        throw new CommunicationsInputError(error.message);
+      throw error;
+    }
   }
 
   /**
@@ -343,15 +354,18 @@ export class CommunicationsService implements CommunicationsEnqueue {
     if (input.recipientIds) {
       const wanted = [...new Set(input.recipientIds)];
       const byId = new Map(recipients.map((recipient) => [recipient.userId, recipient]));
+      // Both refusals count against the *chosen* set rather than the roster, and both say what
+      // did not happen: an organizer who is told "1 of the 1" has to work out that means all of
+      // them, and one told nothing at all assumes the rest went.
       const missing = wanted.filter((id) => !byId.has(id));
       if (missing.length)
         throw new CommunicationsInputError(
-          `${missing.length} of the ${wanted.length} chosen ${wanted.length === 1 ? "recipient is" : "recipients are"} no longer a speaker on this event. Nothing was sent.`,
+          `${missing.length === wanted.length ? (wanted.length === 1 ? "The speaker you chose is" : `All ${wanted.length} speakers you chose are`) : `${missing.length} of the ${wanted.length} speakers you chose ${missing.length === 1 ? "is" : "are"}`} no longer on this event. Nothing was sent.`,
         );
       const withoutAddress = wanted.filter((id) => byId.get(id)?.address === null);
       if (withoutAddress.length)
         throw new CommunicationsInputError(
-          `${withoutAddress.length} of the chosen recipients have no email address. Nothing was sent.`,
+          `${withoutAddress.length === 1 ? "One of the speakers you chose has" : `${withoutAddress.length} of the speakers you chose have`} no email address. Nothing was sent.`,
         );
       const order = new Set(wanted);
       chosen = reachable.filter((recipient) => order.has(recipient.userId));

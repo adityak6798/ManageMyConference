@@ -272,11 +272,11 @@ export class D1ContentRepository
    * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
    *   no production caller to mislead — stated here and in `content-repository.ts`.
    */
-  private async write(query: string, ...values: unknown[]) {
+  private async write<T = unknown>(query: string, ...values: unknown[]) {
     const result = await this.database
       .prepare(query)
       .bind(...values)
-      .run();
+      .run<T>();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
     return result;
@@ -519,6 +519,36 @@ export class D1ContentRepository
       profileId,
     );
     return changedRows(result, "record a speaker headshot") > 0;
+  }
+  /**
+   * Allocate the occurrence inside the statement that spends it.
+   *
+   * `invitations_sent + 1 ... RETURNING` rather than a `SELECT` followed by an `UPDATE`: the
+   * read-then-write version is one two organizers pressing Invite together resolve identically,
+   * and the loser's invitation then converges into the winner's delivery and reports "already
+   * invited" for a message that organizer never sent. This is the shape `saveDecision` uses for a
+   * decision's revision and `replaceLatestAsset` uses for a version number.
+   *
+   * Not in `PROFILE_WRITTEN_COLUMNS`, deliberately: this column is not one `profileWrite`
+   * rewrites, so a claim landing between an attributed edit's read and its write must not make
+   * that edit's compare-and-swap lose a race it did not have.
+   */
+  async claimInvitationOccurrence(profileId: string) {
+    const result = await this.write<{ invitationsSent: number }>(
+      "UPDATE speaker_profiles SET invitations_sent = invitations_sent + 1 WHERE id=? RETURNING invitations_sent AS invitationsSent",
+      profileId,
+    );
+    // Zero rows is the profile having gone since the caller read it, which the caller reports as
+    // a refusal for that speaker. The count is still read through the shared contract, so a
+    // driver that cannot report one is a failure here rather than read as "no such profile".
+    if (changedRows(result, "claim a speaker invitation occurrence") === 0) return null;
+    const claimed = result.results?.[0]?.invitationsSent;
+    // A driver that reports the write but not the number it allocated must not be read as 1:
+    // that is the one value that would collide with a real first invitation, so two organizers
+    // would key their invitations identically and one of them would silently send nothing.
+    if (typeof claimed !== "number")
+      throw new Error("D1 reported no occurrence while claiming a speaker invitation");
+    return Number(claimed);
   }
   async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
     const result = await this.write(
@@ -1133,6 +1163,9 @@ export class D1ContentRepository
       logistics: parse<Record<string, string>>(row.logistics_json ?? "{}"),
       customFields: parse<Record<string, string>>(row.custom_fields_json ?? "{}"),
       socialLinks: parse<SpeakerSocialLinks>(row.social_links_json ?? "{}"),
+      // A row written before `1408` reads 0 through the column default, which is what it is:
+      // nobody has explicitly invited this speaker yet.
+      invitationsSent: Number(row.invitations_sent ?? 0),
     };
   }
   private task(row: Row): SpeakerTask {

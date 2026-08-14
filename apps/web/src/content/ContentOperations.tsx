@@ -95,6 +95,7 @@ export function ContentOperations({
   function tasks(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const sessionId = String(data.get("sessionId") ?? "");
     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(() =>
       bulkRequestSpeakerTasks({
@@ -103,6 +104,9 @@ export function ContentOperations({
         dueAt: new Date(String(data.get("dueAt"))).toISOString(),
         type: data.get("type") === "file-request" ? "file-request" : "general",
         instructions: String(data.get("instructions")),
+        // Omitted rather than sent empty: "" is not a session id, and the schema would refuse
+        // the whole request over a box the organizer deliberately left alone.
+        ...(sessionId ? { sessionId } : {}),
       }),
     );
   }
@@ -396,6 +400,29 @@ export function ContentOperations({
             <select name="type">
               <option value="general">General</option>
               <option value="file-request">File request</option>
+            </select>
+          </label>
+          {/*
+           * Which talk the request is about, when it is about one.
+           *
+           * `speaker_tasks.session_id` and `speaker_assets.session_id` both existed and nothing
+           * in the product ever wrote either, so "the slides for the keynote" and "a headshot"
+           * were the same shape of request and an organizer could only tell them apart by
+           * reading the title. Choosing it here is what carries the session onto the upload the
+           * speaker files against the task (#189).
+           *
+           * Optional on purpose: most requested work — a bio, a travel form — belongs to the
+           * person rather than to a talk.
+           */}
+          <label>
+            Session
+            <select name="sessionId" defaultValue="">
+              <option value="">Not about a session</option>
+              {workspace.sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title}
+                </option>
+              ))}
             </select>
           </label>
           <label>

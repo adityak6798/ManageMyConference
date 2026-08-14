@@ -16,6 +16,7 @@ import {
   contentSessionParamsSchema,
   createSpeakerResourceInputSchema,
   eventContentParamsSchema,
+  inviteSpeakersInputSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
@@ -82,6 +83,7 @@ const routes = [
   "POST /api/content-revisions/restore",
   "POST /api/content-deliverables/bulk-download",
   "POST /api/content-task-reminders",
+  "POST /api/speaker-invitations",
 ] as const;
 
 export const contentRoutes: RouteModule = {
@@ -837,6 +839,53 @@ export const contentRoutes: RouteModule = {
         // Configuration rather than a bad request: no delivering domain bound, or an event with
         // no owning organization. The closed error vocabulary already has the member for "a
         // thing this request depends on is not answering", so it is reused rather than widened.
+        if (error instanceof SpeakerRemindersUnavailableError)
+          return context.json(
+            envelope("UPSTREAM_UNAVAILABLE", error.message, context.get("correlationId")),
+            503,
+          );
+        throw error;
+      }
+    });
+    /*
+     * Invite a chosen set of speakers into the portal, again if need be.
+     *
+     * Deliberately *not* the delivery key acceptance's welcome uses. That one names the person
+     * and never moves, which is why a speaker who lost the mail could not be invited a second
+     * time by anybody; each invitation here claims its own occurrence and is keyed on that, so a
+     * re-invitation is a delivery the organizer can see. Every speaker named comes back in the
+     * response, including the ones nothing was sent for, for the reason the reminder route gives
+     * above (`PRD-SPK-002`).
+     */
+    app.post("/api/speaker-invitations", async (context) => {
+      const parsed = inviteSpeakersInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Invitation selection is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      try {
+        return context.json({
+          invitations: await content.inviteSpeakers(
+            context.get("actor"),
+            parsed.data.eventId,
+            parsed.data.profileIds,
+          ),
+        });
+      } catch (error) {
+        if (error instanceof ContentNotFoundError)
+          return context.json(
+            envelope("NOT_FOUND", error.message, context.get("correlationId")),
+            404,
+          );
+        // The same configuration failure the reminder route reports, and the same code: no
+        // delivering domain bound, or an event with no owning organization.
         if (error instanceof SpeakerRemindersUnavailableError)
           return context.json(
             envelope("UPSTREAM_UNAVAILABLE", error.message, context.get("correlationId")),

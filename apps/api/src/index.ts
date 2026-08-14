@@ -1456,6 +1456,41 @@ export default {
             throw error;
           }
         },
+        /*
+         * An organizer inviting a speaker into the portal deliberately, and again if need be.
+         *
+         * `speaker.invited` rather than `speaker.task_reminder`: the trigger is this domain's
+         * vocabulary, and it is the whole reason content declares two methods instead of one
+         * generalised `send`. An invitation filed under the reminder trigger would be invisible
+         * to anybody reading the delivery log for "what have we sent this person".
+         *
+         * The key is content's own (`speakerInvitationKey`), and carries the occurrence the
+         * profile claimed, so pressing Invite again is a second delivery rather than one
+         * deduplicated into the welcome `speakerAccepted` sent when the proposal was accepted —
+         * whose unnumbered key is untouched above and stays exactly as idempotent as it was.
+         */
+        async invite(invitation) {
+          try {
+            const delivery = await communications.enqueue({
+              organizationId: invitation.organizationId,
+              eventId: invitation.eventId,
+              idempotencyKey: invitation.idempotencyKey,
+              triggerType: "speaker.invited",
+              channel: "email",
+              recipientRef: invitation.recipientRef,
+              payload: invitation.payload,
+              templateKey: invitation.templateKey,
+            });
+            return { deliveryId: delivery.id, created: delivery.created };
+          } catch (error) {
+            if (
+              error instanceof CommunicationsInputError ||
+              error instanceof CommunicationsNotFoundError
+            )
+              throw new SpeakerReminderRejectedError(error.message);
+            throw error;
+          }
+        },
       },
       // Events owns which organization runs an event; content asks rather than joining.
       organizationOf: (eventId) => service.organizationOf(eventId),

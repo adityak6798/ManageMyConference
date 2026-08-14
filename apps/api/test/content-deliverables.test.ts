@@ -12,7 +12,10 @@ import {
   type ContentServiceDependencies,
   SpeakerRemindersUnavailableError,
 } from "../src/application/content/content-service";
-import { SpeakerReminderRejectedError } from "../src/application/content/reminder-dispatch";
+import {
+  type SpeakerReminderDispatchPort,
+  SpeakerReminderRejectedError,
+} from "../src/application/content/reminder-dispatch";
 import type { Actor } from "../src/application/identity/actor";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -86,6 +89,63 @@ function fixture() {
     createDeliverablesZip,
   });
   return { repository, service };
+}
+
+/**
+ * A dispatch port that behaves like the delivering domain: idempotent on the key.
+ *
+ * One log for both methods, because the delivering domain has one outbox: an invitation and a
+ * reminder that somehow claimed the same key would collide there, so a double that kept two
+ * lists would hide exactly the collision the keys are designed to avoid.
+ */
+function dispatcher() {
+  const sent: { key: string; recipient: string; payload: unknown }[] = [];
+  const enqueue = (message: {
+    idempotencyKey: string;
+    recipientRef: string;
+    payload: Readonly<Record<string, unknown>>;
+  }) => {
+    const existing = sent.findIndex(({ key }) => key === message.idempotencyKey);
+    if (existing >= 0) return { deliveryId: `d${existing}`, created: false };
+    sent.push({
+      key: message.idempotencyKey,
+      recipient: message.recipientRef,
+      payload: message.payload,
+    });
+    return { deliveryId: `d${sent.length - 1}`, created: true };
+  };
+  // Typed against the port rather than structurally, so a method added to the interface fails
+  // here instead of leaving this double silently answering an older contract.
+  const port: SpeakerReminderDispatchPort = {
+    async send(reminder) {
+      return enqueue(reminder);
+    },
+    async invite(invitation) {
+      return enqueue(invitation);
+    },
+  };
+  return { sent, port };
+}
+
+/**
+ * The same fixture, with a delivering domain bound and an owning organization.
+ *
+ * Shared by the reminder and invitation suites rather than built twice: both commands refuse
+ * identically without a bound port, and a second copy of this wiring is a second place for the
+ * two to drift apart.
+ */
+function remindable(overrides: Partial<ContentServiceDependencies> = {}) {
+  const { repository, service } = fixture();
+  const dispatch = dispatcher();
+  const dependencies = (service as unknown as { dependencies: ContentServiceDependencies })
+    .dependencies;
+  const withReminders = new ContentService({
+    ...dependencies,
+    reminders: dispatch.port,
+    organizationOf: async () => "00000000-0000-4000-8000-000000000010",
+    ...overrides,
+  });
+  return { repository, service: withReminders, dispatch };
 }
 
 describe("versioned and discussable deliverables", () => {
@@ -402,45 +462,6 @@ describe("speaker social links", () => {
 describe("speaker task reminders", () => {
   const taskId = "30000000-0000-4000-8000-000000000001";
 
-  /** A dispatch port that behaves like the delivering domain: idempotent on the key. */
-  function dispatcher() {
-    const sent: { key: string; recipient: string; payload: unknown }[] = [];
-    return {
-      sent,
-      port: {
-        async send(reminder: {
-          idempotencyKey: string;
-          recipientRef: string;
-          payload: Readonly<Record<string, unknown>>;
-        }) {
-          const existing = sent.findIndex(({ key }) => key === reminder.idempotencyKey);
-          if (existing >= 0) return { deliveryId: `d${existing}`, created: false };
-          sent.push({
-            key: reminder.idempotencyKey,
-            recipient: reminder.recipientRef,
-            payload: reminder.payload,
-          });
-          return { deliveryId: `d${sent.length - 1}`, created: true };
-        },
-      },
-    };
-  }
-
-  /** The same fixture, with a delivering domain bound and an owning organization. */
-  function remindable(overrides: Partial<ContentServiceDependencies> = {}) {
-    const { repository, service } = fixture();
-    const dispatch = dispatcher();
-    const dependencies = (service as unknown as { dependencies: ContentServiceDependencies })
-      .dependencies;
-    const withReminders = new ContentService({
-      ...dependencies,
-      reminders: dispatch.port,
-      organizationOf: async () => "00000000-0000-4000-8000-000000000010",
-      ...overrides,
-    });
-    return { repository, service: withReminders, dispatch };
-  }
-
   it("queues once, then converges on the delivery that deadline already had", async () => {
     const { service, dispatch } = remindable();
     const first = await service.remindTasks(organizer, eventId, [taskId]);
@@ -506,6 +527,9 @@ describe("speaker task reminders", () => {
             throw new SpeakerReminderRejectedError("Template speaker-task-reminder was not found");
           return { deliveryId: "d0", created: true };
         },
+        async invite() {
+          return { deliveryId: "d0", created: true };
+        },
       },
     });
     await repository.addTasks([
@@ -540,5 +564,287 @@ describe("speaker task reminders", () => {
   it("refuses a caller without content:manage on this event", async () => {
     const { service } = remindable();
     await expect(service.remindTasks(speaker, eventId, [taskId])).rejects.toThrow();
+  });
+});
+
+/**
+ * Explicit portal invitations, and the occurrence that makes a second one possible.
+ *
+ * The property under test is again the *key*. Acceptance sends one welcome under
+ * `speaker-invite:{eventId}:{profileId}`, and that key never moves — so before #189 every later
+ * invitation to the same person deduplicated into a message sent when their proposal was
+ * accepted, and a speaker who lost it was locked out of the portal with no control anywhere in
+ * the product to let them back in. Each invitation now claims an occurrence on the profile and is
+ * keyed on it, so a second invitation is a second delivery, while an enqueue retried at the same
+ * occurrence still converges on one message.
+ */
+describe("speaker portal invitations", () => {
+  const acceptanceKey = `speaker-invite:${eventId}:${profileId}`;
+  const organizationId = "00000000-0000-4000-8000-000000000010";
+
+  /** One delivery already in the outbox, the way the delivering domain would hold it. */
+  const alreadyDelivered = (dispatch: ReturnType<typeof dispatcher>, idempotencyKey: string) =>
+    dispatch.port.invite({
+      organizationId,
+      eventId,
+      idempotencyKey,
+      recipientRef: "sam@example.test",
+      templateKey: "speaker-invite",
+      payload: {},
+    });
+
+  it("makes a second invitation a new delivery while a retry at one occurrence converges", async () => {
+    const { repository, service, dispatch } = remindable();
+    const first = await service.inviteSpeakers(organizer, eventId, [profileId]);
+    expect(first).toEqual([
+      {
+        profileId,
+        speakerName: "Sam",
+        email: "sam@example.test",
+        occurrence: 1,
+        outcome: "queued",
+        reason: "",
+      },
+    ]);
+    // The whole point: pressing Invite again reaches the speaker rather than being suppressed.
+    const second = await service.inviteSpeakers(organizer, eventId, [profileId]);
+    expect(second[0]).toMatchObject({ occurrence: 2, outcome: "queued" });
+    expect(dispatch.sent.map(({ key }) => key)).toEqual([
+      `${acceptanceKey}:n1`,
+      `${acceptanceKey}:n2`,
+    ]);
+    // The count on the profile is the delivery history the console shows.
+    expect((await repository.findProfile(profileId))?.invitationsSent).toBe(2);
+
+    // A retry is an enqueue at an occurrence that already produced a delivery — a lost response,
+    // a replayed claim — and it must write one message and say so, not mail Sam a third time.
+    const retry = await alreadyDelivered(dispatch, `${acceptanceKey}:n2`);
+    expect(retry.created).toBe(false);
+    expect(dispatch.sent).toHaveLength(2);
+  });
+
+  it("never converges into the welcome acceptance already sent", async () => {
+    const { service, dispatch } = remindable();
+    await alreadyDelivered(dispatch, acceptanceKey);
+    const outcomes = await service.inviteSpeakers(organizer, eventId, [profileId]);
+    // The failure this whole feature exists to remove: an explicit invitation reported as
+    // "already sent" because that speaker was welcomed months ago under a key that never moves.
+    expect(outcomes[0]).toMatchObject({ occurrence: 1, outcome: "queued" });
+    expect(dispatch.sent).toHaveLength(2);
+  });
+
+  it("reports an occurrence the delivering domain already holds as already-sent", async () => {
+    const { service, dispatch } = remindable();
+    await alreadyDelivered(dispatch, `${acceptanceKey}:n1`);
+    const outcomes = await service.inviteSpeakers(organizer, eventId, [profileId]);
+    expect(outcomes[0]).toMatchObject({ occurrence: 1, outcome: "already-sent", reason: "" });
+    expect(dispatch.sent).toHaveLength(1);
+  });
+
+  it("names a speaker with no address instead of silently skipping them", async () => {
+    const { repository, service, dispatch } = remindable();
+    const profile = await repository.findProfile(profileId);
+    if (!profile) throw new Error("Seeded profile is missing");
+    await repository.updateProfile({ ...profile, email: "" });
+    const outcomes = await service.inviteSpeakers(organizer, eventId, [profileId]);
+    expect(outcomes[0]).toMatchObject({
+      profileId,
+      speakerName: "Sam",
+      outcome: "unreachable",
+      reason: "no email address",
+    });
+    expect(dispatch.sent).toHaveLength(0);
+    // Nobody was written to, so no occurrence was spent: fixing the address and inviting again
+    // is still this speaker's first invitation rather than their second. Absent and zero are the
+    // same reading here, which is what the column's default says on a row written before `1408`.
+    expect((await repository.findProfile(profileId))?.invitationsSent ?? 0).toBe(0);
+  });
+
+  it("keeps one refusal from taking the rest of the selection down", async () => {
+    const { repository, service } = remindable({
+      reminders: {
+        async send() {
+          return { deliveryId: "d0", created: true };
+        },
+        async invite(invitation) {
+          if (invitation.recipientRef === "sam@example.test")
+            throw new SpeakerReminderRejectedError("Template speaker-invite was not found");
+          return { deliveryId: "d1", created: true };
+        },
+      },
+    });
+    const secondProfileId = "10000000-0000-4000-8000-000000000002";
+    await repository.addProfile({
+      id: secondProfileId,
+      eventId,
+      userId: "other-user",
+      sourcePersonId: "source-2",
+      name: "Ada",
+      email: "ada@example.test",
+      bio: "",
+      pronouns: "",
+      organization: "",
+    });
+    const outcomes = await service.inviteSpeakers(organizer, eventId, [profileId, secondProfileId]);
+    expect(outcomes.map(({ outcome }) => outcome)).toEqual(["refused", "queued"]);
+    expect(outcomes[0]?.reason).toContain("was not found");
+  });
+
+  it("invites a speaker named twice once, rather than twice", async () => {
+    const { repository, service, dispatch } = remindable();
+    const outcomes = await service.inviteSpeakers(organizer, eventId, [profileId, profileId]);
+    expect(outcomes).toHaveLength(1);
+    expect(dispatch.sent).toHaveLength(1);
+    // One occurrence spent, so the duplicate did not quietly cost this speaker a number.
+    expect(await repository.findProfile(profileId)).toMatchObject({ invitationsSent: 1 });
+  });
+
+  it("refuses a speaker this event does not carry rather than silently inviting fewer", async () => {
+    const { service } = remindable();
+    await expect(
+      service.inviteSpeakers(organizer, eventId, [
+        profileId,
+        "10000000-0000-4000-8000-000000000999",
+      ]),
+    ).rejects.toBeInstanceOf(ContentNotFoundError);
+  });
+
+  it("says so when the deployment cannot send speaker mail at all", async () => {
+    const { service } = fixture();
+    await expect(service.inviteSpeakers(organizer, eventId, [profileId])).rejects.toBeInstanceOf(
+      SpeakerRemindersUnavailableError,
+    );
+  });
+
+  it("refuses a caller without content:manage on this event", async () => {
+    const { service } = remindable();
+    await expect(service.inviteSpeakers(speaker, eventId, [profileId])).rejects.toThrow();
+  });
+});
+
+/**
+ * A file request bound to a session, and the upload that records it.
+ *
+ * `speaker_tasks.session_id` and `speaker_assets.session_id` both existed and nothing in the
+ * product ever wrote either, so "the slides for the keynote" and "a headshot" stored identically
+ * and an organizer could only tell them apart by reading the title. The property under test is
+ * that the association survives the round trip *without the portal being trusted to send it*: a
+ * speaker may be asked for a session's handout without being one of that session's speakers, and
+ * a client-supplied `sessionId` is checked against the sessions they are on (#189).
+ */
+describe("session-bound file requests", () => {
+  const sessionId = "20000000-0000-4000-8000-000000000001";
+
+  /** The fixture plus one session — one Sam is deliberately not a speaker of. */
+  async function withSession() {
+    const { repository, service } = fixture();
+    await repository.accept({
+      session: {
+        id: sessionId,
+        eventId,
+        proposalId: "proposal-1",
+        title: "Designing the calm conference",
+        abstract: "",
+        format: "talk",
+        speakerProfileIds: [],
+        tags: [],
+        tracks: [],
+        publicationState: "draft",
+      },
+      speakers: [],
+      tasks: [],
+      messages: [],
+    });
+    return { repository, service };
+  }
+
+  it("carries a requested task's session onto the upload that answers it", async () => {
+    const { repository, service } = await withSession();
+    const [task] = await service.requestTasks(organizer, {
+      profileIds: [profileId],
+      title: "Workshop handout",
+      dueAt: "2026-09-01T00:00:00.000Z",
+      type: "file-request",
+      instructions: "PDF please",
+      sessionId,
+    });
+    if (!task) throw new Error("The request created no task");
+    expect(task).toMatchObject({ type: "file-request", sessionId });
+
+    const asset = await service.upload(speaker, {
+      profileId,
+      name: "handout.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+      taskId: task.id,
+    });
+    // Read off the task by the server. Sam is not one of this session's speakers, so an upload
+    // naming the session itself would be refused — which is exactly why the portal does not.
+    expect(asset.sessionId).toBe(sessionId);
+    expect((await repository.findAsset(asset.id))?.sessionId).toBe(sessionId);
+  });
+
+  it("carries the session onto a later version of the same deliverable", async () => {
+    const { service } = await withSession();
+    const [task] = await service.requestTasks(organizer, {
+      profileIds: [profileId],
+      title: "Workshop handout",
+      dueAt: "2026-09-01T00:00:00.000Z",
+      type: "file-request",
+      instructions: "",
+      sessionId,
+    });
+    if (!task) throw new Error("The request created no task");
+    const first = await service.upload(speaker, {
+      profileId,
+      name: "handout.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+      taskId: task.id,
+    });
+    // A continuation naming only the chain must not silently detach the deliverable from the
+    // session that asked for it, which is the state an organizer filters the tracker by.
+    const second = await service.upload(speaker, {
+      profileId,
+      name: "handout-final.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([2]),
+      versionGroupId: first.versionGroupId,
+    });
+    expect(second).toMatchObject({ versionNumber: 2, sessionId, taskId: task.id });
+  });
+
+  it("leaves an unbound request's upload with no session rather than guessing one", async () => {
+    const { service } = await withSession();
+    const [task] = await service.requestTasks(organizer, {
+      profileIds: [profileId],
+      title: "Headshot",
+      dueAt: "2026-09-01T00:00:00.000Z",
+      type: "file-request",
+      instructions: "",
+    });
+    if (!task) throw new Error("The request created no task");
+    const asset = await service.upload(speaker, {
+      profileId,
+      name: "portrait.png",
+      contentType: "image/png",
+      bytes: new Uint8Array([1]),
+      taskId: task.id,
+    });
+    expect(asset.sessionId).toBeUndefined();
+  });
+
+  it("refuses a request bound to a session this event does not carry", async () => {
+    const { service } = await withSession();
+    await expect(
+      service.requestTasks(organizer, {
+        profileIds: [profileId],
+        title: "Workshop handout",
+        dueAt: "2026-09-01T00:00:00.000Z",
+        type: "file-request",
+        instructions: "",
+        sessionId: "20000000-0000-4000-8000-000000000999",
+      }),
+    ).rejects.toThrow();
   });
 });

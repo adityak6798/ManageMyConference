@@ -181,9 +181,7 @@ export const communicationsRoutes: RouteModule = {
           ),
           400,
         );
-      return context.json(
-        await communications.previewBroadcast(context.get("actor"), parsed.data),
-      );
+      return context.json(await communications.previewBroadcast(context.get("actor"), parsed.data));
     });
     /**
      * The tokens a speaker template may use.

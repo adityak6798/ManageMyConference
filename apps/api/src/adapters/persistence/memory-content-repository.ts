@@ -256,6 +256,22 @@ export class MemoryContentRepository
     );
     return true;
   }
+  /**
+   * The same allocation D1 performs, and the same answer for a profile that is not there.
+   *
+   * Decided here rather than by the caller for the reason `replaceLatestAsset` is: the property
+   * the D1 statement exists to hold is that the number comes from the row, and a double that let
+   * a caller pass one would pass a test the real adapter's version of fails.
+   */
+  async claimInvitationOccurrence(profileId: string) {
+    const profile = this.speakers.find(({ id }) => id === profileId);
+    if (!profile) return null;
+    const invitationsSent = (profile.invitationsSent ?? 0) + 1;
+    this.speakers = this.speakers.map((item) =>
+      item.id === profileId ? { ...item, invitationsSent } : item,
+    );
+    return invitationsSent;
+  }
   async updateProfilePhoto(profileId: string, assetId: string | null) {
     if (!this.speakers.some(({ id }) => id === profileId)) return false;
     this.speakers = this.speakers.map((item) => {

@@ -17,6 +17,8 @@ import {
   contentWorkspaceSchema,
   createSpeakerResourceInputSchema,
   eventContentParamsSchema,
+  inviteSpeakersInputSchema,
+  inviteSpeakersResponseSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
   requestSpeakerTaskInputSchema,
@@ -161,6 +163,26 @@ export const contentPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         409: revisionConflictResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/speaker-invitations",
+      description:
+        "Invites the named speakers into the portal, and may be pressed again for the same person. Each invitation claims an occurrence on the profile and is keyed on it, so a re-invitation is a new delivery rather than one deduplicated into the welcome sent when the proposal was accepted, while an enqueue retried at the same occurrence converges and reports `already-sent`. Every speaker named comes back, including the ones nothing was sent for: `unreachable` is a speaker with no address, and `refused` carries the delivering domain's own words. 503 means the deployment cannot send speaker mail at all.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(inviteSpeakersInputSchema) } },
+      responses: {
+        200: {
+          description: "Per-speaker invitation outcomes, in the order the request named them",
+          content: json(inviteSpeakersResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        503: errorResponse,
         500: errorResponse,
       },
     });

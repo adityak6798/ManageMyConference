@@ -66,6 +66,16 @@ export function defineContentSchema(references: {
       customFieldsJson: text("custom_fields_json").notNull().default("{}"),
       /** A closed set of platform keys the application validates (`1407`). */
       socialLinksJson: text("social_links_json").notNull().default("{}"),
+      /**
+       * How many portal invitations an organizer has deliberately asked for (`1408`).
+       *
+       * The occurrence a re-invitation is keyed on, allocated inside the UPDATE that claims it
+       * so two organizers pressing Invite at once take two numbers rather than one. Not written
+       * by `profileWrite`, and deliberately absent from `PROFILE_WRITTEN_COLUMNS`: an invitation
+       * claim changes no column an attributed edit rewrites, so it must not make that edit's
+       * compare-and-swap lose.
+       */
+      invitationsSent: integer("invitations_sent").notNull().default(0),
     },
     (table) => [
       unique("speaker_profiles_event_id_source_person_id_unique").on(

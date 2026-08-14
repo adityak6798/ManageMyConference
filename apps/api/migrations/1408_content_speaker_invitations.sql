@@ -1,0 +1,33 @@
+-- @spec PRD-SPK-002 PRD-COM-001
+--
+-- How many portal invitations an organizer has deliberately asked for on this profile.
+--
+-- The automatic welcome sent when a proposal is accepted is keyed
+-- `speaker-invite:{eventId}:{profileId}`, and that key never moves. Deduplication then does
+-- exactly what it was built to do and refuses every later invitation to the same person, so a
+-- speaker who deleted the mail, changed jobs, or never received it at all could not be invited
+-- again by anyone (#189). The fix is not to weaken the deduplication — a key that stops
+-- deduplicating is a key that mails somebody twice for one action — but to give the invitation an
+-- *occurrence* the key can name, exactly as `1311` gave a decision its revision.
+--
+-- A counter rather than a timestamp, and the difference is not stylistic:
+--
+--   * A timestamp is the clock's fact about the send, not the invitation's own. Two organizers
+--     pressing Invite in the same millisecond derive the same key, so one of their invitations
+--     silently converges into the other's delivery and the organizer who pressed second is told
+--     the speaker "has already been invited" about a message they never asked for. A counter
+--     allocated inside the UPDATE hands each press a number nobody else can hold, which is why
+--     the write below is `invitations_sent + 1 ... RETURNING` rather than a read followed by a
+--     write of `now()`.
+--   * A timestamp cannot be re-derived. Reconstructing which delivery an invitation produced
+--     means knowing the instant it was stamped with; the number is stable and stays true however
+--     the clock is read afterwards.
+--   * The count is also the answer the console needs. "Invited twice" is the visible delivery
+--     history #189 asks for, and `last_invited_at` alone cannot say whether that was one chase or
+--     five.
+--
+-- Existing rows read 0, which is what they are: no organizer has explicitly invited anybody yet.
+-- It is a count of deliberate invitations, not a schema version, and specifically does not count
+-- the acceptance welcome — that message belongs to acceptance and keeps its own key, so a
+-- profile at 0 has still been written to once if its proposal was accepted.
+ALTER TABLE speaker_profiles ADD COLUMN invitations_sent INTEGER NOT NULL DEFAULT 0;

@@ -96,6 +96,21 @@ export interface ContentRepository {
    * rather than answer with the object it constructed.
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<boolean>;
+  /**
+   * Take the next portal-invitation occurrence for one profile, and answer the number it took.
+   *
+   * The number is allocated *inside* the write, never read and then written back. Two organizers
+   * pressing Invite on the same speaker at the same moment both read `invitations_sent = 1` if
+   * they are allowed to read it, both key their invitation on occurrence 2, and the second one
+   * deduplicates into the first's delivery — so one organizer is told the speaker has already
+   * been invited about a message they never asked to send. Incrementing in the statement and
+   * returning what the row took gives each of them a number nobody else holds, which is the same
+   * reason `revisionNumber` is absent from `ContentRevisionDraft` (`1408`, and `1311` before it).
+   *
+   * `null` when no row matched — the profile has gone since the caller read it — so a claim that
+   * landed on nothing is refused rather than reported as invitation zero.
+   */
+  claimInvitationOccurrence(profileId: string): Promise<number | null>;
   /** `false` when no row matched — the task has gone since the caller read it. */
   updateTask(task: SpeakerTask): Promise<boolean>;
   /**

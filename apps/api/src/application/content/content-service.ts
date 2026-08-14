@@ -12,9 +12,11 @@ import {
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import {
+  SPEAKER_INVITE_TEMPLATE_KEY,
   SPEAKER_REMINDER_TEMPLATE_KEY,
   type SpeakerReminderDispatchPort,
   SpeakerReminderRejectedError,
+  speakerInvitationKey,
   taskReminderKey,
 } from "./reminder-dispatch";
 import {
@@ -224,11 +226,17 @@ export class SpeakerChecklistTitleTakenError extends Error {}
 export class ContentNotFoundError extends Error {}
 
 /**
- * Reminders were asked for in a deployment that cannot send them.
+ * Speaker mail — a reminder or a portal invitation — was asked for in a deployment that cannot
+ * send it.
  *
  * A composition with no delivering domain bound, or an event with no owning organization. Both
  * are configuration rather than a bad request, and both must say so — a reminder action that
- * quietly reported "0 sent" would look exactly like a roster with nothing due.
+ * quietly reported "0 sent" would look exactly like a roster with nothing due, and an invite
+ * action that did would look exactly like everybody already being invited.
+ *
+ * Shared by both commands rather than split in two: the condition, the cause and the 503 the
+ * transport already maps it to are identical, and the message each throws with names which
+ * action the organizer pressed.
  */
 export class SpeakerRemindersUnavailableError extends Error {}
 
@@ -292,6 +300,26 @@ export interface SpeakerReminderOutcome {
   readonly title: string;
   readonly dueAt: string;
   /** `queued` wrote a delivery; `already-sent` converged on one this deadline already had. */
+  readonly outcome: "queued" | "already-sent" | "unreachable" | "refused";
+  /** Why, for the two outcomes that are not a send. Empty otherwise. */
+  readonly reason: string;
+}
+
+/**
+ * One speaker an invitation was asked for, and what happened to them.
+ *
+ * The same four outcomes `SpeakerReminderOutcome` carries, because the organizer has the same
+ * four things to do next, and `occurrence` besides: it is which invitation this was for this
+ * speaker, so the console can say "second invitation sent" rather than a bare "sent" that a
+ * speaker chasing an organizer about a mail they never got cannot be answered with.
+ */
+export interface SpeakerInvitationOutcome {
+  readonly profileId: string;
+  readonly speakerName: string;
+  readonly email: string;
+  /** Which invitation this is: 1 is the first an organizer asked for. 0 when none was claimed. */
+  readonly occurrence: number;
+  /** `queued` wrote a delivery; `already-sent` converged on one this occurrence already had. */
   readonly outcome: "queued" | "already-sent" | "unreachable" | "refused";
   /** Why, for the two outcomes that are not a send. Empty otherwise. */
   readonly reason: string;
@@ -1651,7 +1679,21 @@ export class ContentService {
     // A continuation inherits the chain's task and session, so a later version does not silently
     // detach the deliverable from the work that requested it.
     const taskId = input.taskId ?? named?.taskId;
-    const sessionId = input.sessionId ?? named?.sessionId;
+    /*
+     * A file request bound to a session hands the upload that session, and the *server* reads it
+     * off the task rather than trusting the portal to send it.
+     *
+     * The client could send it, and then could not: the check above admits a session only when
+     * this speaker is one of its speakers, which a file request about somebody else's session
+     * legitimately is not — an organizer may ask a workshop's co-presenter for the room's
+     * handout. Refusing that upload, or widening the check so any named session is accepted,
+     * are both worse than reading the association from a task this speaker already owns and the
+     * request already proved is theirs. An explicit `sessionId` still wins, because a speaker
+     * filing a general upload against one of their own sessions is saying something the task
+     * cannot say for them.
+     */
+    const requested = taskId ? workspace.tasks.find((task) => task.id === taskId) : undefined;
+    const sessionId = input.sessionId ?? requested?.sessionId ?? named?.sessionId;
     const asset: SpeakerAsset = {
       id,
       eventId: profile.eventId,
@@ -1800,6 +1842,122 @@ export class ContentService {
         // turned into a failure for the whole request.
         outcomes.push({
           ...describe,
+          outcome: "refused",
+          reason:
+            error instanceof SpeakerReminderRejectedError ? error.message : "could not be queued",
+        });
+      }
+    }
+    return outcomes;
+  }
+
+  /**
+   * Invite a chosen set of speakers into the portal, deliberately and again if need be.
+   *
+   * The counterpart to acceptance's automatic welcome, and deliberately *not* the same delivery
+   * key. Acceptance sends `speaker-invite:{eventId}:{profileId}` once, which is right for the
+   * fact it announces and is why nobody could ever be invited a second time: the key names the
+   * person, so every later invitation to them deduplicated into a message sent months ago
+   * (#189). This claims an occurrence per invitation (`claimInvitationOccurrence`) and keys the
+   * delivery on it (`speakerInvitationKey`), so a re-invitation is a second delivery an organizer
+   * can see rather than a suppressed duplicate — while a retried enqueue at the same occurrence
+   * still converges on one message and says so.
+   *
+   * Every speaker is reported, including the ones nothing was sent for, for exactly the reason
+   * `remindTasks` reports every task: a speaker with no address is a real state the roster
+   * carries, and an organizer who is not told keeps waiting for somebody to sign in who was never
+   * written to. A single refusal does not take the others down with it.
+   *
+   * The occurrence is claimed only for a speaker who is actually going to be written to, so a
+   * roster half of which has no address does not burn half the numbering on people nobody mailed.
+   *
+   * @spec PRD-SPK-002 PRD-COM-001
+   */
+  async inviteSpeakers(
+    actor: Actor | null,
+    eventId: string,
+    profileIds: readonly string[],
+  ): Promise<readonly SpeakerInvitationOutcome[]> {
+    requireEventCapability(actor, eventId, "content:manage");
+    const dispatch = this.dependencies.reminders;
+    if (!dispatch)
+      throw new SpeakerRemindersUnavailableError("Speaker invitations are not enabled");
+    const organizationId = await this.dependencies.organizationOf?.(eventId);
+    if (!organizationId)
+      throw new SpeakerRemindersUnavailableError("This event has no owning organization");
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    // Deduplicated before anything is claimed: a request naming one speaker twice is one
+    // invitation, not two occurrences and two messages to the same person.
+    const unique = [...new Set(profileIds)];
+    const chosen = unique.map((profileId) =>
+      workspace.speakers.find((profile) => profile.id === profileId),
+    );
+    // A profile this event does not carry is refused before anything is sent, rather than
+    // skipped — the caller named somebody who is not on this roster and should hear so.
+    if (chosen.some((profile) => !profile))
+      throw new ContentNotFoundError("Speaker profile not found");
+
+    const outcomes: SpeakerInvitationOutcome[] = [];
+    for (const profile of chosen) {
+      if (!profile) continue;
+      const describe = { profileId: profile.id, speakerName: profile.name, email: profile.email };
+      if (!profile.email) {
+        outcomes.push({
+          ...describe,
+          occurrence: 0,
+          outcome: "unreachable",
+          reason: "no email address",
+        });
+        continue;
+      }
+      const occurrence = await this.dependencies.repository.claimInvitationOccurrence(profile.id);
+      // The profile was withdrawn between the roster read above and this claim. Reported against
+      // this speaker rather than raised, so the rest of the selection is still invited.
+      if (occurrence === null) {
+        outcomes.push({
+          ...describe,
+          occurrence: 0,
+          outcome: "refused",
+          reason: "this speaker is no longer on the event",
+        });
+        continue;
+      }
+      try {
+        const delivery = await dispatch.invite({
+          organizationId,
+          eventId,
+          idempotencyKey: speakerInvitationKey(eventId, profile.id, occurrence),
+          recipientRef: profile.email,
+          templateKey: SPEAKER_INVITE_TEMPLATE_KEY,
+          /*
+           * What an invitation is about, and deliberately no session.
+           *
+           * Acceptance's welcome carries a `sessionTitle` because it announces one talk; this
+           * announces the portal, and a speaker with three sessions has no single one to name.
+           * `invitationNumber` rides along so the retained payload says which invitation the
+           * delivery was — the delivering domain keeps the snapshot as sent, so that is where
+           * the history is readable months later.
+           *
+           * A template that grows a placeholder content does not supply is refused by name, and
+           * that refusal lands in this speaker's own row rather than being swallowed.
+           */
+          payload: { speakerName: profile.name, invitationNumber: occurrence },
+        });
+        outcomes.push({
+          ...describe,
+          occurrence,
+          outcome: delivery.created ? "queued" : "already-sent",
+          reason: "",
+        });
+      } catch (error) {
+        // ERROR-INTENT: one speaker's invitation failing — an unknown template, a payload the
+        // template cannot fill — must not stop the rest of the selection. It is reported in this
+        // speaker's own row, which is where the organizer can act on it, rather than discarded or
+        // turned into a failure for the whole request. The occurrence stays spent: the next
+        // attempt is a genuinely new invitation, which is what a refusal should produce.
+        outcomes.push({
+          ...describe,
+          occurrence,
           outcome: "refused",
           reason:
             error instanceof SpeakerReminderRejectedError ? error.message : "could not be queued",
