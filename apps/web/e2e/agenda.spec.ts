@@ -114,7 +114,15 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
     .getByRole("button", { name: "Unschedule" })
     .click();
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
-  await expect(page.getByRole("region", { name: "Unscheduled" })).toBeVisible();
+  const unscheduledRail = page.getByRole("region", { name: "Unscheduled" });
+  await expect(unscheduledRail).toBeVisible();
+  // Unscheduling removes a row and changes the panel's height, so compare both boxes from the
+  // settled layout rather than comparing the new rail with the panel's pre-mutation bounds.
+  const stackedListBounds = await listPanel.boundingBox();
+  const railBounds = await unscheduledRail.boundingBox();
+  expect(railBounds?.y).toBeGreaterThanOrEqual(
+    (stackedListBounds?.y ?? 0) + (stackedListBounds?.height ?? 0),
+  );
 
   await page.getByRole("tab", { name: /^Room/ }).click();
   const card = page.getByRole("button", { name: /Designing the calm conference\. Not scheduled/ });
