@@ -25,6 +25,9 @@ const CAPABILITIES = [
   "review:manage",
   "review:evaluate",
   "identity:manage",
+  // `1006_reports_pii_capability.sql` admits it on a client scope, so withholding it here would
+  // leave a grantable capability nobody can grant.
+  "reports:pii",
 ] as const;
 
 const describe = (reason: unknown) =>

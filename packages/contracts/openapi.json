@@ -52272,11 +52272,12 @@
                         "content:manage",
                         "review:manage",
                         "review:evaluate",
-                        "identity:manage"
+                        "identity:manage",
+                        "reports:pii"
                       ]
                     },
                     "minItems": 1,
-                    "maxItems": 12
+                    "maxItems": 16
                   },
                   "eventIds": {
                     "type": "array",
@@ -52359,7 +52360,8 @@
                               "content:manage",
                               "review:manage",
                               "review:evaluate",
-                              "identity:manage"
+                              "identity:manage",
+                              "reports:pii"
                             ]
                           }
                         },
@@ -52721,7 +52723,8 @@
                                 "content:manage",
                                 "review:manage",
                                 "review:evaluate",
-                                "identity:manage"
+                                "identity:manage",
+                                "reports:pii"
                               ]
                             }
                           },
@@ -62319,7 +62322,8 @@
                                 "content:manage",
                                 "review:manage",
                                 "review:evaluate",
-                                "identity:manage"
+                                "identity:manage",
+                                "reports:pii"
                               ]
                             }
                           },
@@ -62479,7 +62483,8 @@
                                 "content:manage",
                                 "review:manage",
                                 "review:evaluate",
-                                "identity:manage"
+                                "identity:manage",
+                                "reports:pii"
                               ]
                             }
                           },
@@ -62581,7 +62586,8 @@
                           "content:manage",
                           "review:manage",
                           "review:evaluate",
-                          "identity:manage"
+                          "identity:manage",
+                          "reports:pii"
                         ]
                       }
                     }
@@ -62912,11 +62918,12 @@
                         "content:manage",
                         "review:manage",
                         "review:evaluate",
-                        "identity:manage"
+                        "identity:manage",
+                        "reports:pii"
                       ]
                     },
                     "minItems": 1,
-                    "maxItems": 12
+                    "maxItems": 16
                   },
                   "fieldPolicies": {
                     "type": "array",
@@ -63020,7 +63027,8 @@
                               "content:manage",
                               "review:manage",
                               "review:evaluate",
-                              "identity:manage"
+                              "identity:manage",
+                              "reports:pii"
                             ]
                           }
                         },
@@ -63540,11 +63548,12 @@
                         "content:manage",
                         "review:manage",
                         "review:evaluate",
-                        "identity:manage"
+                        "identity:manage",
+                        "reports:pii"
                       ]
                     },
                     "minItems": 1,
-                    "maxItems": 12
+                    "maxItems": 16
                   },
                   "fieldPolicies": {
                     "type": "array",
@@ -63653,7 +63662,8 @@
                               "content:manage",
                               "review:manage",
                               "review:evaluate",
-                              "identity:manage"
+                              "identity:manage",
+                              "reports:pii"
                             ]
                           }
                         },
@@ -65234,7 +65244,8 @@
                               "content:manage",
                               "review:manage",
                               "review:evaluate",
-                              "identity:manage"
+                              "identity:manage",
+                              "reports:pii"
                             ]
                           }
                         },
@@ -65317,7 +65328,8 @@
                           "content:manage",
                           "review:manage",
                           "review:evaluate",
-                          "identity:manage"
+                          "identity:manage",
+                          "reports:pii"
                         ]
                       }
                     },
@@ -85732,7 +85744,8 @@
                                 "content:manage",
                                 "review:manage",
                                 "review:evaluate",
-                                "identity:manage"
+                                "identity:manage",
+                                "reports:pii"
                               ]
                             }
                           },
@@ -85810,7 +85823,8 @@
                           "content:manage",
                           "review:manage",
                           "review:evaluate",
-                          "identity:manage"
+                          "identity:manage",
+                          "reports:pii"
                         ]
                       }
                     },

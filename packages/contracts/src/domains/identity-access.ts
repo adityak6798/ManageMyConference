@@ -174,12 +174,21 @@ export const capabilitySchema = z.enum([
   "review:manage",
   "review:evaluate",
   "identity:manage",
+  /*
+   * Reading a report's personal columns unmasked (issue #196).
+   *
+   * It belongs in this enum for a reason worth stating: the organizer role grants it, so it
+   * appears in `/api/session` for every organizer — and a capability the *server* issues and the
+   * *browser's* schema does not know is a session the console cannot decode at all. That is not a
+   * degraded report screen; it is a console that will not load.
+   */
+  "reports:pii",
 ]);
 
 /** Organization-scoped machine credentials. Plaintext credentials exist only in create/rotate. */
 export const createApiClientSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  scopes: z.array(capabilitySchema).min(1).max(12),
+  scopes: z.array(capabilitySchema).min(1).max(16),
   eventIds: z.array(z.string().uuid()).min(1).max(100),
   expiresAt: z.string().datetime().optional(),
 });
@@ -247,7 +256,7 @@ export const customRoleDraftSchema = z.object({
   name: z.string().min(1).max(80),
   description: z.string().max(400).optional(),
   template: customRoleTemplateKeySchema,
-  capabilities: z.array(capabilitySchema).min(1).max(12),
+  capabilities: z.array(capabilitySchema).min(1).max(16),
   fieldPolicies: z.array(fieldPolicyEntrySchema).max(60),
 });
 export const customRoleUpdateSchema = customRoleDraftSchema.extend({
