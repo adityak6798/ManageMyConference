@@ -36435,6 +36435,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "400": {
@@ -36489,6 +36494,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -36545,6 +36555,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "403": {
@@ -36599,6 +36614,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -36655,6 +36675,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "500": {
@@ -36709,6 +36734,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           }
@@ -38939,6 +38969,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "400": {
@@ -38993,6 +39028,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -39049,6 +39089,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "403": {
@@ -39104,6 +39149,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "500": {
@@ -39158,6 +39208,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           }
@@ -66436,6 +66491,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "400": {
@@ -66490,6 +66550,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -66546,6 +66611,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "403": {
@@ -66600,6 +66670,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -66656,6 +66731,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "500": {
@@ -66710,6 +66790,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           }
@@ -66791,6 +66876,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "400": {
@@ -66845,6 +66935,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -66901,6 +66996,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "403": {
@@ -66956,6 +67056,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "500": {
@@ -67010,6 +67115,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           }

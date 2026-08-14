@@ -215,7 +215,7 @@ export function createHttpAppFrom(
       retainedHeaders: [
         ...RETAINED_304_HEADERS,
         "x-correlation-id",
-        API_VERSION_HEADER,
+        API_VERSION_HEADER.toLowerCase(),
         "access-control-allow-origin",
         "access-control-expose-headers",
       ],
