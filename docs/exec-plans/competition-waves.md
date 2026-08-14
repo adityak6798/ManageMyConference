@@ -1063,3 +1063,82 @@ new instant and returns.
 **No migration and no table.** The answer is a fold over `outcome_json`, which #175 already
 stored and #188 already read back, so this lane took no number in the `1400` block and none in
 any other.
+### Issue #190 rulings
+
+The account-bound CFP lifecycle, worked as one pull request. Seven decisions a later reader would
+otherwise have to re-derive from the diff.
+
+**The public CFP keeps one address, and publication stays its precondition.** The lane brief asked
+whether an account-bound flow needs its own address, since `/events/:slug/cfp` is only reachable once
+the event site is published. It does not, and the reason is that the slug *is* the event's public
+identity: publishing is the act that creates one, the site is publishable with an empty programme —
+which is exactly what a conference does when it opens a call months early — and inventing a second
+public address would give one call two URLs that get shared, ranked and bookmarked independently. The
+submitter's dashboard therefore lives on that same page rather than at a new route, which also keeps
+`main.tsx`'s public/console split and the workspace registry untouched. What this costs is stated
+rather than hidden: a call cannot be opened before the event site is published, and the composer
+already says so where the public link would be.
+
+**The window is live state, not form content.** `opens_at` and `closes_at` are columns on
+`cfp_forms`, deliberately absent from `published_json`, with their own `PUT .../cfp/window`. The
+alternative — fields of `saveCfpInputSchema` — means extending a deadline republishes whatever
+unrelated draft edits are sitting in the composer, and closing early needs a republish at all. That
+is the same reason `close` and `reopen` are not fields of `save`, and this follows it.
+
+**Both gates must permit, and Reopen refuses rather than no-ops.** `cfpEffectiveState` is one
+function: the schedule cannot open a call an organizer has closed, and reopening a call whose
+deadline has passed is a `400` naming the deadline as the thing to move. A `200` there would report
+"Published · open" over a form that refuses every submission — a column changed and nothing an
+applicant can see. A *future* `opensAt` is deliberately not refused, because reopening and then
+scheduling an opening is a real intention.
+
+**The deadline is stored as an instant and edited as a wall clock.** An announced deadline must not
+move because somebody later corrected the event's timezone, so storage holds an instant;
+`<input type="datetime-local">` carries no zone at all, so the conversion happens in
+`apps/web/src/cfp/model.ts` against the *event's* zone rather than the operator's — two passes, so a
+deadline an hour either side of a daylight-saving change lands on the time that was typed. The
+storage guards then compare those columns as **text**, which is only chronological while every value
+has the canonical `toISOString()` shape; `CfpService` normalises through `Date` before writing, and
+that agreement is pinned in both the service and the D1 suite.
+
+**Ownership is a nullable column, and that is the whole guest rule.** An anonymous submission records
+no `submitter_user_id`, so it reaches no dashboard, cannot be edited, and cannot be claimed — a
+trigger refuses any `UPDATE` that changes the column, so "claiming" is not a code path that was left
+unwritten but one the database refuses. The demo fixture's own proposals are all anonymous, including
+the accepted one whose *answers* name a seeded speaker, which makes the seed evidence for the rule
+rather than a contradiction of it. A submitter is authorized by owning the row rather than by an
+event capability; [authorization](../architecture/authorization.md#a-submitter-is-authorized-by-ownership-not-by-a-capability)
+states why, because that is where the next reader will look for the missing capability check.
+
+**A draft is separated by `lifecycle`, and the `status` value is defence in depth.** `lifecycle` is
+what all four read paths of `D1SubmittedProposalAdapter` filter on. A draft row *additionally* carries
+`status = 'draft'`, which no event configures — so a status-keyed triage read cannot reach one even if
+a fifth read path is added later without the predicate, and a draft cannot pin a configured status
+against deletion through `cfp_status_delete_rejects_in_use`. The two are held in agreement by a
+trigger pair rather than by convention, and `d1-cfp-account-binding.integration.test.ts` enumerates
+the read paths so a leak fails a test rather than appearing in somebody's queue.
+
+**Migration `1705` is cross-domain, and it is the piece `D5` was waiting for.** Decision `D5` deferred
+the submission confirmation because the only address available was an unverified form field. Account
+binding answers that — the recipient is resolved from the *session* through identity's directory, so
+nothing a request carries can direct it — but the message still needed a trigger value, and
+`communication_deliveries.trigger_type` is a pinned `CHECK` on a communications-owned table with two
+child tables. So `1705` repeats `1703`'s rebuild ordering exactly, takes its number from the
+communications block per `migrations/README.md`, and is replayed over the seeded fixture in the same
+file `1703`'s replay lives in. `proposal.submitted` is deliberately **absent** from
+`requestTriggerTypeSchema`: an organizer authoring one to an arbitrary address would hand back
+precisely the primitive the binding removed.
+
+**What this does not do: `#132` narrows and stays open.** The anonymous door is unchanged and still
+accepts an address nobody verified, so the exposure `#132` describes still exists for the one message
+that addresses it — a decision notification for an anonymous proposal, still carrying only the fact of
+a decision (`D6`). What narrowed is real and worth stating in three parts: the *new* message queues
+only to a session-derived address, so the account-bound path adds no exposure at all; a decision is
+now readable on the submitter's own dashboard, so the product no longer *depends* on mail to
+communicate one; and an address in a form now buys ownership of nothing, enforced by a trigger. The
+per-`(event, recipient)` cap or double opt-in that `#132` actually asks for is still a product
+decision plus storage, and was not taken here.
+
+`GAP-027` records the three residuals: nothing announces a deadline before it passes, this deployment
+offers a submitter one sign-in door and it is a seeded persona, and no confirmation has reached a real
+mailbox.

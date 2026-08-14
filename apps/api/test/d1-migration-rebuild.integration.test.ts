@@ -27,6 +27,7 @@ const rebuildCoverage = {
   "1300_review_rounds.sql": "unsafe deployed history corrected forward by 1301",
   "1301_review_rounds_safe_rebuild.sql": "seeded replay in the review D1 integration suite",
   "1703_delivery_domain_event_triggers.sql": "seeded replay below",
+  "1705_delivery_proposal_submitted_trigger.sql": "seeded replay below",
   "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
 } as const;
 
@@ -91,6 +92,58 @@ describe("communication_deliveries rebuild", () => {
     ).rejects.toThrow();
 
     // The indexes the outbox leases through have to come back, or every drain degrades to a scan.
+    const indexes = await migrated.database
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? ORDER BY name")
+      .bind("communication_deliveries")
+      .all<{ name: string }>();
+    expect((indexes.results ?? []).map((index: { name: string }) => index.name)).toEqual(
+      expect.arrayContaining([
+        "communication_deliveries_event_idx",
+        "communication_deliveries_worker_idx",
+      ]),
+    );
+  });
+
+  /*
+   * Migration `1705` is the same rebuild one value wider, from the CFP lane rather than a
+   * communications one (issue #190). It gets its own replay for the reason the case above exists at
+   * all: the ordering is what makes a rebuild survive a populated database, and a second migration
+   * that copies the recipe is a second chance to get the ordering wrong.
+   */
+  it("widens the trigger vocabulary again over a populated database", async () => {
+    const migrated = await createMigratedDatabase({ label: "rebuild-1705", seed: true });
+    runtime = migrated.runtime;
+
+    const counts = () =>
+      migrated.database
+        .prepare(
+          "SELECT (SELECT COUNT(*) FROM communication_deliveries) AS deliveries, (SELECT COUNT(*) FROM communication_attempts) AS attempts, (SELECT COUNT(*) FROM outbound_projection_state) AS projections, (SELECT COUNT(*) FROM communication_attempts a JOIN communication_deliveries d ON d.id = a.delivery_id) AS joined",
+        )
+        .all<{ deliveries: number; attempts: number; projections: number; joined: number }>();
+    const before = await counts();
+    expect(before.results?.[0]?.attempts).toBeGreaterThan(0);
+    expect(before.results?.[0]?.projections).toBeGreaterThan(0);
+
+    await applyMigrationFile(migrated.database, "1705_delivery_proposal_submitted_trigger.sql");
+
+    const after = await counts();
+    expect(after.results?.[0]).toEqual(before.results?.[0]);
+
+    // The value the CFP lane came for, and no widening beyond it.
+    const submitted = await migrated.database
+      .prepare(
+        "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at, rendered_subject, rendered_body) VALUES ('rebuild-proposal', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'rebuild:proposal', 'proposal.submitted', 'email', NULL, NULL, 'pat@example.test', '{}', NULL, 'queued', 0, '2026-08-13T09:00:00.000Z', NULL, '2026-08-13T09:00:00.000Z', '2026-08-13T09:00:00.000Z', 'Subject', 'Body')",
+      )
+      .run();
+    expect(submitted.success).toBe(true);
+    await expect(
+      migrated.database
+        .prepare(
+          "INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at, rendered_subject, rendered_body) VALUES ('rebuild-proposal-bogus', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'rebuild:proposal-bogus', 'proposal.withdrawn', 'email', NULL, NULL, 'pat@example.test', '{}', NULL, 'queued', 0, '2026-08-13T09:00:00.000Z', NULL, '2026-08-13T09:00:00.000Z', '2026-08-13T09:00:00.000Z', 'Subject', 'Body')",
+        )
+        .run(),
+    ).rejects.toThrow();
+
     const indexes = await migrated.database
       .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? ORDER BY name")
       .bind("communication_deliveries")

@@ -1904,7 +1904,8 @@
                               "speaker.task_assigned",
                               "speaker.task_reminder",
                               "speaker.calendar_invite",
-                              "decision.recorded"
+                              "decision.recorded",
+                              "proposal.submitted"
                             ]
                           },
                           "channel": {
@@ -2450,7 +2451,8 @@
                             "speaker.task_assigned",
                             "speaker.task_reminder",
                             "speaker.calendar_invite",
-                            "decision.recorded"
+                            "decision.recorded",
+                            "proposal.submitted"
                           ]
                         },
                         "channel": {
@@ -2930,7 +2932,8 @@
                             "speaker.task_assigned",
                             "speaker.task_reminder",
                             "speaker.calendar_invite",
-                            "decision.recorded"
+                            "decision.recorded",
+                            "proposal.submitted"
                           ]
                         },
                         "channel": {
@@ -3496,7 +3499,8 @@
                                   "speaker.task_assigned",
                                   "speaker.task_reminder",
                                   "speaker.calendar_invite",
-                                  "decision.recorded"
+                                  "decision.recorded",
+                                  "proposal.submitted"
                                 ]
                               },
                               "channel": {

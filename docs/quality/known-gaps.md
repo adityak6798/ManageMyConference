@@ -577,3 +577,17 @@ feature-by-feature verdict.
   recorded here rather than silently resolved by the deletion.
 
   Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`.
+
+- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard and a confirmation whose recipient comes from the session. Three limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain.
+
+  **Nothing announces the deadline before it passes.** The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
+
+  **A submitter can only sign in through a door this deployment offers, and it offers one.** `DEMO_MODE=true` turns emailed-code sign-in off and no Google client is configured (`GAP-019`, `GAP-020`), so the only identities that exist here are the four seeded personas — which is what the public call's sign-in card offers, and why the browser journey signs in as `Sam Speaker`. A real submitter creating a *new* account is the Identity lane's outcome-3 path (`SignupService.signInWithGoogle`), which today provisions an organization and a "Your first event" alongside the person's proposals. Nothing in this lane makes that worse and nothing in it fixes it.
+
+  **The confirmation reaches no mailbox.** `COMMUNICATIONS_PROVIDERS` is unset, so `DeterministicProvider` marks every delivery sent. The confirmation's recipient and rendered body are asserted against delivery history, which is the strongest claim available without a provider, and it is not the claim "a submitter received an email".
+
+  Owner: cfp, with the first limit shared with communications-integrations. Governing ID:
+  `PRD-CFP-003`, `PRD-CFP-004`, `PRD-COM-001`, `ACC-CFP`. Closure: a scheduled deadline reminder
+  whose trigger and consent rule are decided by communications; a real sign-in door on a deployment
+  where a submitter's first sign-in provisions nothing but their own identity; and one confirmation
+  observed arriving in a real inbox from a staged provider.

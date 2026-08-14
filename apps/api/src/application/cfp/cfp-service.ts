@@ -509,14 +509,17 @@ export class CfpService {
       requireComplete: existing.lifecycle !== "draft",
     });
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
+    // One reading of the clock for both fields. Two calls could straddle a millisecond and record
+    // a row whose `updated_at` is not the instant its window guard was judged against.
+    const at = this.now().toISOString();
     const write: ProposalOwnerWrite = {
       eventId,
       proposalId,
       submitterUserId: submitter.id,
       answers,
       expectedRevision,
-      updatedAt: this.now().toISOString(),
-      at: this.now().toISOString(),
+      updatedAt: at,
+      at,
     };
     if (!(await this.repository.saveProposalAnswers(write)))
       await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);

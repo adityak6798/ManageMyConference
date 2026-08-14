@@ -25,3 +25,11 @@ so the two lanes cannot collide.
 Migrations `0001`–`0022` predate this allocation and keep their current names. A cross-domain
 migration uses the block of the domain that owns the table being changed; split changes across
 blocks when more than one domain owns the affected tables.
+
+`1705_delivery_proposal_submitted_trigger.sql` is the worked example of that last rule, and it is
+recorded here because the number is in a block its author's lane does not own. It widens
+`communication_deliveries.trigger_type` by one value so the CFP domain can queue a submission
+confirmation (issue #190); the table is communications', the reason is CFP's, and the number
+therefore comes from the communications block. It is announced in
+[the wave ledger](../../../docs/exec-plans/competition-waves.md#issue-190-rulings) so a concurrent
+communications lane meets the number rather than the conflict.

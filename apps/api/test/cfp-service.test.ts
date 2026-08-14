@@ -4,9 +4,7 @@ import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repo
 import {
   CfpClosedError,
   CfpDraftConflictError,
-  CfpProposalNotFoundError,
   CfpService,
-  CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
 } from "../src/application/cfp/cfp-service";

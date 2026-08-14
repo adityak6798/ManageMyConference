@@ -847,6 +847,23 @@ img.pub-avatar {
   gap: var(--s-3);
   align-items: center;
 }
+.pub-signed-in {
+  margin-top: 0;
+}
+/* A button, because it performs an action; typographically a link, because that is what it is. */
+.pub-linklike {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.pub-linklike:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 /* ------------------------------- embed ------------------------------- */
 

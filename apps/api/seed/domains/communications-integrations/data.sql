@@ -22,7 +22,7 @@ INSERT INTO message_templates (id, organization_id, template_key, version, chann
   -- The submission confirmation (issue #190). It says only that the proposal arrived and where to
   -- read its state; it carries no reviewer material and no scores, which is the boundary decision
   -- `D6` drew for decision notifications and this message stays well inside.
-  ('template-proposal-submitted-v1', '00000000-0000-4000-8000-000000000010', 'proposal-submitted', 1, 'email', 'We have your proposal', 'Hello {{submitterName}}, thank you — "{{proposalTitle}}" is with the programme team. You can review or revise it from your proposals page while the call is open, and its decision will appear there.', '2026-08-10T12:00:00.000Z');
+  ('template-proposal-submitted-v1', '00000000-0000-4000-8000-000000000010', 'proposal-submitted', 1, 'email', 'We have your proposal', 'Hello {{submitterName}}, thank you — "{{proposalTitle}}" is with the programme team. You can read or revise it from your proposals page while the call is open, and its decision will appear there.', '2026-08-10T12:00:00.000Z');
 
 -- Delivery history for the demo, shaped exactly as the lifecycle triggers now write it.
 --

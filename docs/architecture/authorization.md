@@ -30,6 +30,30 @@ development.
 
 CI proves positive organizer access, scoped reviewer/speaker event reads, public private-route denial/navigation, organization creation denial, cross-event isolation, unauthenticated and unauthorized outcomes, and production demo-mode rejection. Published public reads remain owned by `ACC-PUBLIC`. Every future capability requires corresponding positive/negative tests.
 
+## A submitter is authorized by ownership, not by a capability
+
+A person proposing a talk holds no role on the conference — that is what a public call for
+proposals means — so the CFP's account-bound routes are the one place in this API where an
+authenticated caller is authorized by **owning the row** rather than by holding a capability on the
+event. `requireEventCapability` would be the wrong instrument twice over: it refuses everybody who
+has not been staffed, and the alternative — granting an event role to anyone who opens a form —
+would hand a capability model's guarantees away to strangers.
+
+What replaces it is narrower rather than weaker, and it is enforced in three places at once.
+`CfpService` requires a session at all (`submitterFor`); every read is scoped to
+`(event_id, id, submitter_user_id)`; and every write puts that triple *and* the expected revision
+*and* the open-window condition in its own `WHERE` clause, so a write naming another account's
+proposal matches no row rather than being refused after a check. A proposal belonging to somebody
+else answers exactly as one that does not exist — the same indistinguishability rule the rest of
+this document states for cross-tenant lookups — so proposal ids cannot be enumerated from any
+account. Migration `1201` adds the fourth place: a trigger refuses any `UPDATE` that changes
+`submitter_user_id`, so no write path can move a proposal onto another dashboard or claim an
+anonymous one.
+
+The submitter view is also *narrower than the organizer's data*: it reports `draft`,
+`under consideration`, `accepted` or `not accepted` and never the configured triage status, because
+an event may configure statuses that describe the inside of a review process.
+
 The `crm:manage` capability is granted only to organizers with an assigned event role. CRM application entrypoints require both the actor-level capability and matching event access before any lookup or mutation, so inaccessible prospect identifiers are never enumerated. Reviewer, speaker, public, unauthenticated, and cross-event requests are denied before CRM persistence is invoked.
 
 ## Google sign-in is a second door onto the same session

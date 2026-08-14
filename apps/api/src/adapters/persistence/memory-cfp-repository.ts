@@ -130,7 +130,7 @@ export class MemoryCfpRepository implements CfpRepository {
   }
   submitProposal(write: ProposalSubmitWrite) {
     const entry = this.ownedFor(write);
-    if (!entry || entry.proposal.lifecycle !== "draft") return Promise.resolve(false);
+    if (entry?.proposal.lifecycle !== "draft") return Promise.resolve(false);
     this.submissions.set(entry.key, {
       ...entry.proposal,
       answers: { ...write.answers },

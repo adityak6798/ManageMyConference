@@ -24,6 +24,7 @@ import {
 import {
   type AuthDoors,
   probeIdentity,
+  signOut,
   startDemoSession,
   describeIdentityFailure,
 } from "../api/identity";
@@ -208,7 +209,12 @@ export function PublicCfpView({
     setEditing(proposal);
     setAnswers({ ...proposal.answers });
     setFieldErrors({});
-    setNotice(null);
+    // Announced rather than only rendered: the form below has just changed underneath somebody who
+    // pressed a button in the list above it, and that is not visible to a screen reader.
+    setNotice({
+      tone: "ok",
+      text: `Editing ${proposal.title ?? "your proposal"}. Change what you need, then save or submit it.`,
+    });
   };
   const startFresh = () => {
     setEditing(null);
@@ -272,6 +278,31 @@ export function PublicCfpView({
               </button>
             ) : null}
           </div>
+          {/*
+            Who this is, and the way out.
+            An applicant may well be on a shared or borrowed machine — this page is reached from a
+            public link, not from a console somebody signed into on purpose — so the identity their
+            proposals are being filed under is named, and leaving is one click rather than a trip
+            through the organizer console they cannot open.
+          */}
+          <p className="pub-note pub-signed-in">
+            Signed in as {session?.actor.name ?? "your account"}.{" "}
+            <button
+              type="button"
+              className="pub-linklike"
+              disabled={submitting}
+              onClick={() => {
+                // ERROR-INTENT: handlers cannot await; `guarded` renders the failure and the
+                // reload is what re-reads this page's identity from the API.
+                void guarded(async () => {
+                  await signOut();
+                  window.location.reload();
+                }, "Signing out did not work. Close the browser to be sure.");
+              }}
+            >
+              Sign out
+            </button>
+          </p>
           {proposals.length === 0 ? (
             <p className="pub-note">
               Nothing yet. Fill in the form below and save it as a draft, or submit it straight away
@@ -371,8 +402,14 @@ export function PublicCfpView({
 
       {formOpen ? (
         <form className="pub-form" onSubmit={onFormSubmit}>
+          {/*
+            Which proposal the form is bound to. Deliberately *not* a live region: the notice at the
+            bottom is the one, and two of them competing means a screen reader announces whichever
+            React happened to update second. Opening a proposal for editing announces itself
+            through that notice instead.
+          */}
           {editing ? (
-            <p className="pub-note" role="status">
+            <p className="pub-note">
               Editing {editing.title ?? "your proposal"} ·{" "}
               {editing.lifecycle === "draft" ? "draft" : "already submitted"}
             </p>

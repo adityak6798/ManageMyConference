@@ -652,8 +652,12 @@ export function CfpWorkspace({
           The one sentence that is not derivable from the two inputs: what applicants get right
           now. Taken from the server's own answer, because a composer that decided from the
           operator's clock would report an open call minutes after the deadline it published.
+
+          Not a live region. This workspace has exactly one — `useActionFeedback`'s, beside the
+          toolbar — and saving the window announces through it; a second would mean a screen reader
+          gets whichever of the two React updated last.
         */}
-        <p className="cfp-window-state" role="status">
+        <p className="cfp-window-state">
           {effective === "open"
             ? "Applicants can submit now."
             : effective === "scheduled"
