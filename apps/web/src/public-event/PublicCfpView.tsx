@@ -167,7 +167,7 @@ export function PublicCfpView({
     }, "The proposal could not be submitted.");
 
   /**
-   * Save without submitting.
+   * Save without submitting — a new draft, a revision to one, or a revision to a submitted proposal.
    *
    * A draft the applicant has not created yet is created here rather than on page load: a visitor
    * who opens the form and leaves should not have left a half-empty proposal behind on their own
@@ -181,8 +181,17 @@ export function PublicCfpView({
       setEditing(saved);
       setSubmissionKey(crypto.randomUUID());
       await refreshProposals();
-      setNotice({ tone: "ok", text: "Saved. You can come back to this proposal any time." });
-    }, "The draft could not be saved.");
+      setNotice({
+        tone: "ok",
+        // Two different things happened, so two different sentences: a revision to something the
+        // organizers already hold is *with them* now, and saying "come back any time" about it
+        // would suggest it is still private.
+        text:
+          saved.lifecycle === "submitted"
+            ? "Saved. The organizers see this revision."
+            : "Saved. You can come back to this proposal any time.",
+      });
+    }, "The proposal could not be saved.");
 
   /**
    * Submit, as the signed-in owner.
@@ -463,27 +472,51 @@ export function PublicCfpView({
                 </div>
               );
             })}
+          {/*
+            Two shapes, decided by what is on the form rather than by what the API would accept.
+
+            A proposal that has already been submitted cannot be submitted again — the service
+            refuses it — so offering "Submit proposal" over one would be a button whose only outcome
+            is an error message. Editing one offers a save and nothing else; everything unsubmitted
+            offers both, with the submit as the primary action.
+          */}
           <div className="pub-form-actions">
-            <button className="primary" type="submit" disabled={submitting}>
-              {submitting ? "Submitting…" : "Submit proposal"}
-            </button>
-            {/*
-              A draft needs an owner, so this control exists only for a signed-in applicant.
-              Offering it to everybody and refusing on press would be a button that lies.
-            */}
-            {signedIn ? (
+            {editing?.lifecycle === "submitted" ? (
               <button
+                className="primary"
                 type="button"
-                className="pub-button"
                 disabled={submitting}
                 onClick={() => {
                   // ERROR-INTENT: handlers cannot await; saveDraft renders its own outcome.
                   void saveDraft();
                 }}
               >
-                Save draft
+                {submitting ? "Saving…" : "Save changes"}
               </button>
-            ) : null}
+            ) : (
+              <>
+                <button className="primary" type="submit" disabled={submitting}>
+                  {submitting ? "Submitting…" : "Submit proposal"}
+                </button>
+                {/*
+                  A draft needs an owner, so this control exists only for a signed-in applicant.
+                  Offering it to everybody and refusing on press would be a button that lies.
+                */}
+                {signedIn ? (
+                  <button
+                    type="button"
+                    className="pub-button"
+                    disabled={submitting}
+                    onClick={() => {
+                      // ERROR-INTENT: handlers cannot await; saveDraft renders its own outcome.
+                      void saveDraft();
+                    }}
+                  >
+                    Save draft
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         </form>
       ) : status === "unknown" ? null : (

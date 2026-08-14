@@ -217,6 +217,41 @@ describe("the signed-in applicant's proposals", () => {
     expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
   });
 
+  it("offers a save and no submit when the proposal it is editing is already submitted", async () => {
+    const submitted = proposal({
+      lifecycle: "submitted",
+      state: "under_consideration",
+      title: "Already with the organizers",
+      revision: 3,
+      submittedAt: "2026-08-11T12:00:00.000Z",
+    });
+    const harness = mount({
+      proposals: [submitted],
+      write: (url, init) =>
+        url === `${proposalsPath}/${submitted.id}` && init.method === "PUT"
+          ? jsonResponse({ proposal: { ...submitted, revision: 4 } })
+          : undefined,
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Edit Already with the organizers/ }),
+    );
+
+    // Submitting a submitted proposal is refused by the service, so a "Submit proposal" button here
+    // would have exactly one outcome: an error message. It is not offered.
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    // And the revision the edit names back is the one the dashboard listed, not 1.
+    await waitFor(() => expect(harness.calls).toHaveLength(1));
+    expect(harness.calls[0]).toMatchObject({
+      url: `${proposalsPath}/${submitted.id}`,
+      method: "PUT",
+      body: { expectedRevision: 3 },
+    });
+    // A revision to something the organizers already hold is not still private, and does not say so.
+    expect(await screen.findByText(/The organizers see this revision/)).toBeVisible();
+  });
+
   it("reports a stale second tab and keeps the answers on screen", async () => {
     const existing = proposal();
     mount({
