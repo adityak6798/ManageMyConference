@@ -120,6 +120,8 @@ export type RuntimeAuthConfig =
         expiresAt: number;
       }) => Promise<void>;
       consumeLoginChallenge: (id: string, codeProof: string, now: number) => Promise<string | null>;
+      /** Resolve the distinct `grn_` machine-credential grammar against durable D1 state. */
+      resolveApiClient?: ((credential: string) => Promise<Actor | null>) | undefined;
       google?: GoogleAuthProvider;
     };
 
@@ -176,10 +178,10 @@ export async function readJson(request: { json(): Promise<unknown> }): Promise<u
 export interface ErrorTranslation {
   code: ApiErrorEnvelope["error"]["code"];
   message: string;
-  // 502 is here for a refusal that is nobody in this conversation's fault: a third-party system
-  // the request had to read was unreachable. Every other member is a 4xx because every other
-  // translated error is something the caller can act on.
-  status: 400 | 401 | 403 | 404 | 409 | 502;
+  // 502 and 503 are refusals that are nobody in this conversation's fault: either a third-party
+  // system was unreachable or a fail-closed optional capability is not configured. Every other
+  // member is a 4xx because every other translated error is something the caller can act on.
+  status: 400 | 401 | 403 | 404 | 409 | 502 | 503;
   fields?: Record<string, string[]>;
 }
 

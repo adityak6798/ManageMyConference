@@ -1,5 +1,47 @@
 import { z } from "zod";
 
+/**
+ * The version of Greenroom's public HTTP contract.
+ *
+ * URLs remain unversioned; this value is the one source used by both the generated OpenAPI
+ * document and the response header emitted by the Worker. See `docs/interfaces/api-compatibility.md`.
+ */
+export const API_CONTRACT_VERSION = "0.1.0";
+export const API_VERSION_HEADER = "Greenroom-API-Version";
+
+/** Shared bounds and coercion for an opaque cursor page query. */
+export const cursorPageParams = ({
+  max,
+  default: defaultLimit,
+}: {
+  max: number;
+  default: number;
+}) =>
+  z.object({
+    limit: z.coerce.number().int().min(1).max(max).default(defaultLimit),
+    cursor: z.string().min(1).max(500).optional(),
+  });
+
+/**
+ * Shared cursor-page response envelope.
+ *
+ * `collection` defaults to `items`; the optional name lets an established endpoint adopt the
+ * contract without a breaking rename of its existing collection field.
+ */
+export const cursorPage = <Item extends z.ZodTypeAny, Collection extends string = "items">(
+  itemSchema: Item,
+  collection = "items" as Collection,
+) => {
+  type Shape = { [Key in Collection]: z.ZodArray<Item> } & {
+    nextCursor: z.ZodNullable<z.ZodString>;
+  };
+  const shape = {
+    [collection]: z.array(itemSchema),
+    nextCursor: z.string().nullable(),
+  } as Shape;
+  return z.object(shape);
+};
+
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),
   checks: z.object({
@@ -39,6 +81,7 @@ export const apiErrorCodeSchema = z.enum([
   // our bug and not the caller's mistake, and telling an organizer "internal error" sends them
   // to the wrong place. Carries a normalized code, never the upstream's own message.
   "UPSTREAM_UNAVAILABLE",
+  "WEBHOOK_UNAVAILABLE",
   "INTERNAL_ERROR",
 ]);
 

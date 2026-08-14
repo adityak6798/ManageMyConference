@@ -15,6 +15,11 @@ DELETE FROM public_event_projections;
 -- sync makes every later `npm run reset` fail with FOREIGN KEY constraint failed, and the demo the
 -- reset exists to restore stays broken until someone deletes the row by hand.
 DELETE FROM accelevents_sync_runs;
+DELETE FROM webhook_delivery_attempts;
+DELETE FROM webhook_idempotency_records;
+DELETE FROM webhook_deliveries;
+DELETE FROM webhook_subscription_event_types;
+DELETE FROM webhook_subscriptions;
 DELETE FROM calendar_invite_states;
 DELETE FROM outbound_projection_state;
 DELETE FROM communication_attempts;
@@ -76,6 +81,9 @@ DELETE FROM cfp_forms;
 -- cannot be relied on and a row left behind is a live acceptance link pointing at an
 -- organization the next reset has already replaced.
 DELETE FROM identity_invitations;
+DELETE FROM api_client_events;
+DELETE FROM api_client_scopes;
+DELETE FROM api_clients;
 DELETE FROM event_roles;
 DELETE FROM organization_memberships;
 

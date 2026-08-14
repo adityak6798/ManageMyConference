@@ -23,6 +23,7 @@ import {
 
 const rebuildCoverage = {
   "0002_identity_event_foundation.sql": "foundational rename drops its private old table",
+  "1004_api_clients.sql": "populated identity audit replay below",
   "1300_review_rounds.sql": "unsafe deployed history corrected forward by 1301",
   "1301_review_rounds_safe_rebuild.sql": "seeded replay in the review D1 integration suite",
   "1703_delivery_domain_event_triggers.sql": "seeded replay below",

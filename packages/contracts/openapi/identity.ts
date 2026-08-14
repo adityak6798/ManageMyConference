@@ -7,15 +7,18 @@
 import {
   acceptInvitationResponseSchema,
   acceptInvitationSchema,
+  apiClientsResponseSchema,
+  apiClientOrganizationParamsSchema,
+  apiClientParamsSchema,
   auditEventsResponseSchema,
   authConfigResponseSchema,
+  createApiClientResponseSchema,
+  createApiClientSchema,
   createInvitationResponseSchema,
   createInvitationSchema,
-  eventRoleSchema,
-  membershipChangeResponseSchema,
-  organizationMembersResponseSchema,
   demoSessionInputSchema,
   demoSessionResponseSchema,
+  eventRoleSchema,
   eventTokenRequestSchema,
   eventTokenResponseSchema,
   googleCallbackQuerySchema,
@@ -23,7 +26,10 @@ import {
   loginCodeRequestSchema,
   loginCodeVerifyResponseSchema,
   loginCodeVerifySchema,
+  membershipChangeResponseSchema,
+  organizationMembersResponseSchema,
   revokeAllSessionsResponseSchema,
+  rotateApiClientResponseSchema,
   sessionResponseSchema,
   signOutResponseSchema,
 } from "../src/index";
@@ -265,6 +271,73 @@ export const identityPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/organizations/{organizationId}/api-clients",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Create an organization-scoped machine credential. Requires a real organizer session; " +
+        "an API client cannot mint another client. The plaintext credential is returned once.",
+      request: {
+        params: apiClientOrganizationParamsSchema,
+        body: { required: true, content: json(createApiClientSchema) },
+      },
+      responses: {
+        201: { description: "API client created", content: json(createApiClientResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/organizations/{organizationId}/api-clients",
+      security: [{ sessionCookie: [] }],
+      description: "List API clients without current, previous, or hashed secrets.",
+      request: { params: apiClientOrganizationParamsSchema },
+      responses: {
+        200: { description: "API clients", content: json(apiClientsResponseSchema) },
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/organizations/{organizationId}/api-clients/{clientId}/rotate",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Replace the credential and return it once. The previous credential remains valid for " +
+        "24 hours so a running integration can move without downtime.",
+      request: { params: apiClientParamsSchema },
+      responses: {
+        200: {
+          description: "Credential rotated",
+          content: json(rotateApiClientResponseSchema),
+        },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/organizations/{organizationId}/api-clients/{clientId}",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Revoke a client. Revocation takes effect on its next request, and replaying the " +
+        "operation converges on the same revoked state.",
+      request: { params: apiClientParamsSchema },
+      responses: {
+        204: { description: "API client revoked" },
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
         500: errorResponse,
       },
     });

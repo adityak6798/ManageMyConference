@@ -17,7 +17,7 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { z, type ZodType } from "zod";
 import { openApiFragments } from "../openapi/registry";
-import { apiErrorEnvelopeSchema } from "../src/index";
+import { API_CONTRACT_VERSION, API_VERSION_HEADER, apiErrorEnvelopeSchema } from "../src/index";
 
 extendZodWithOpenApi(z);
 
@@ -35,7 +35,11 @@ registry.registerComponent("securitySchemes", "sessionCookie", {
 registry.registerComponent("securitySchemes", "eventBearer", {
   type: "http",
   scheme: "bearer",
-  bearerFormat: "Greenroom event token",
+  bearerFormat: "Greenroom event token or grn_ API-client credential",
+});
+const apiVersionHeader = registry.registerComponent("headers", "GreenroomApiVersion", {
+  description: "The version of the Greenroom HTTP contract implemented by this deployment.",
+  schema: { type: "string", enum: [API_CONTRACT_VERSION] },
 });
 
 // A path claimed by two fragments would silently produce one merged entry, so the domains
@@ -62,8 +66,31 @@ for (const fragment of openApiFragments) {
 
 const document = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: "3.0.3",
-  info: { title: "Project Greenroom API", version: "0.1.0" },
+  info: { title: "Project Greenroom API", version: API_CONTRACT_VERSION },
 });
+
+// The version belongs to every HTTP response, not to any one domain. Adding it after domain
+// composition keeps that invariant exhaustive as routes and statuses are added, while the shared
+// component leaves one declared shape for generators and human readers to inspect.
+for (const path of Object.values(document.paths)) {
+  for (const operation of Object.values(path)) {
+    if (!operation || !("responses" in operation)) continue;
+    const responses = operation.responses as Record<
+      string,
+      { $ref?: string; headers?: Record<string, unknown> }
+    >;
+    for (const response of Object.values(responses)) {
+      if (response.$ref)
+        throw new Error(
+          "A referenced OpenAPI response cannot receive the required API version header",
+        );
+      response.headers = {
+        ...response.headers,
+        [API_VERSION_HEADER]: apiVersionHeader.ref,
+      };
+    }
+  }
+}
 const patchOperation = document.paths["/api/events/{eventId}/prospects/{prospectId}"]?.patch as
   | { requestBody?: { content?: Record<string, { schema?: { minProperties?: number } }> } }
   | undefined;

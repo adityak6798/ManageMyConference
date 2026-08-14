@@ -23,12 +23,29 @@ import {
   templateResponseSchema,
   eventIdParamsSchema,
   triggerDeliveryInputSchema,
+  createWebhookInputSchema,
+  createWebhookResponseSchema,
+  organizationWebhookParamsSchema,
+  rotateWebhookResponseSchema,
+  schedulePublishedWebhookPayloadSchema,
+  updateWebhookInputSchema,
+  webhookDeliveryParamsSchema,
+  webhookDeliveryResponseSchema,
+  webhookHistoryParamsSchema,
+  webhookHistoryResponseSchema,
+  webhookIdempotencyHeaderSchema,
+  webhookParamsSchema,
+  webhookPayloadSchema,
+  webhookResponseSchema,
+  webhooksResponseSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
 export const communicationsPaths: OpenApiFragment = {
   domain: "communications-integrations",
   register(registry, { json, errorResponse }) {
+    registry.register("WebhookPayloadV1", webhookPayloadSchema);
+    registry.register("SchedulePublishedWebhookPayloadV1", schedulePublishedWebhookPayloadSchema);
     registry.registerPath({
       method: "post",
       path: "/api/communications/templates",
@@ -39,6 +56,145 @@ export const communicationsPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    const webhookDescription =
+      "Outbound bodies use the registered WebhookPayloadV1 components. Delivery is signed with Greenroom-Signature over the exact body bytes; rotation emits both current and previous v1 signatures for 24 hours.";
+    registry.registerPath({
+      method: "post",
+      path: "/api/organizations/{organizationId}/webhooks",
+      description: webhookDescription,
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: organizationWebhookParamsSchema,
+        headers: webhookIdempotencyHeaderSchema,
+        body: { required: true, content: json(createWebhookInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "Subscription and its one-time secret",
+          content: json(createWebhookResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
+        503: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/organizations/{organizationId}/webhooks",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: organizationWebhookParamsSchema },
+      responses: {
+        200: {
+          description: "Webhook subscriptions without secrets",
+          content: json(webhooksResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        503: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "patch",
+      path: "/api/organizations/{organizationId}/webhooks/{subscriptionId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: webhookParamsSchema,
+        headers: webhookIdempotencyHeaderSchema,
+        body: { required: true, content: json(updateWebhookInputSchema) },
+      },
+      responses: {
+        200: { description: "Updated webhook subscription", content: json(webhookResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        503: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/organizations/{organizationId}/webhooks/{subscriptionId}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: webhookParamsSchema, headers: webhookIdempotencyHeaderSchema },
+      responses: {
+        204: { description: "Webhook disabled" },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
+        503: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/organizations/{organizationId}/webhooks/{subscriptionId}/rotate-secret",
+      description:
+        "Returns the new secret once. Deliveries carry signatures for both secrets during the 24-hour overlap.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: webhookParamsSchema, headers: webhookIdempotencyHeaderSchema },
+      responses: {
+        200: {
+          description: "One-time replacement secret",
+          content: json(rotateWebhookResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        503: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/organizations/{organizationId}/webhooks/{subscriptionId}/deliveries",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: webhookParamsSchema,
+        query: webhookHistoryParamsSchema.omit({ organizationId: true, subscriptionId: true }),
+      },
+      responses: {
+        200: {
+          description: "Keyset-paginated immutable webhook attempts",
+          content: json(webhookHistoryResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        503: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/organizations/{organizationId}/webhook-deliveries/{deliveryId}/replay",
+      description:
+        "Queues the delivery again and appends an attempt naming the requesting actor; prior history is never changed.",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: webhookDeliveryParamsSchema, headers: webhookIdempotencyHeaderSchema },
+      responses: {
+        200: {
+          description: "Requeued webhook delivery",
+          content: json(webhookDeliveryResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        409: errorResponse,
+        503: errorResponse,
         500: errorResponse,
       },
     });

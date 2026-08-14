@@ -1,12 +1,16 @@
 # Interface catalog
 
-Status: canonical | Owner: architecture | Last verified: 2026-08-12
+Status: canonical | Owner: architecture | Last verified: 2026-08-13
 
 Shared Zod schemas own every current request and response shape: event mutations/lists/basic metadata, agenda draft/placement/publication/public projection, current session/capabilities, demo session, health, and the standard error envelope. They generate [`packages/contracts/openapi.json`](../../packages/contracts/openapi.json), and CI rejects drift. The OpenAPI document covers health, the internal demo-cookie route, session, event, agenda, and public-schedule routes, cookie security, and implemented success/error statuses. Domain types own business semantics. Drizzle declares intended storage, immutable SQL migrations own deployed history, and the D1 adapter owns persistence behavior. Explicit tested mappers connect transport, domain, and storage models.
 
+The canonical [API compatibility policy](api-compatibility.md) versions the contract rather than
+the URL, defines additive and breaking changes, sets the deprecation procedure, and owns the
+shared cursor-pagination and public `Idempotency-Key` rulings.
+
 ## Route groups
 
-- `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration.
+- `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration, and organization API clients.
 - `API-ORG-*`, `API-EVENT-*`: organization/event commands and queries.
 - `API-CFP-*`, `API-REVIEW-*`: forms, submissions, assignments, evaluations.
 - `API-CONTENT-*`, `API-CRM-*`: speakers, sessions, tasks/assets, prospects/activity/conversion.
@@ -28,7 +32,16 @@ CRM routes come in two scopes, and the addressing is the boundary rather than a 
 POST /api/auth/code returns the same response and sends the same fixed-content mail whether or not
 an address is registered; POST /api/auth/verify establishes a production signed cookie only for a
 linked identity. POST /api/auth/tokens mints a bearer identity reduced to
-one authorized event. GET /api/auth/config reports which doors this deployment actually offers —
+one authorized event. Organization API clients use the distinct
+`Authorization: Bearer grn_<prefix>.<secret>` grammar and are administered at
+`/api/organizations/{organizationId}/api-clients`. Create, list, rotate, and revoke require a
+real organizer session; listing never returns a secret or digest. Creation and rotation return
+the plaintext once, rotation accepts the previous credential for 24 hours, and revocation is
+observed on the next request. A client resolves to exactly its owning organization and the
+intersection of its declared capability/event grants with its creator's current access. Tenant
+identity does not widen event reads beyond the allowlist; the organization-level `events:create`
+scope grants the resulting organizer role to the human who created the client.
+GET /api/auth/config reports which doors this deployment actually offers —
 `demoMode` and `google` — so a sign-in surface renders what can complete rather than what exists in
 the codebase. GET /api/auth/google/start is a plain 302 to Google rather than a JSON endpoint the
 client follows, so the button is an ordinary link with no script and no preflight; it sets a
@@ -107,6 +120,8 @@ Events are versioned facts with organization/event scope, event ID, occurrence t
 Provider ports and semantics are defined in [integrations](../architecture/integrations.md). Generated OpenAPI is linked above and checked for drift in CI.
 
 ## Communications and integration routes
+
+Organization webhook routes create, list, update, disable, rotate, inspect and replay subscriptions below `/api/organizations/{organizationId}/webhooks`. Until all four security bindings described in [webhook egress operations](../engineering/webhook-egress.md) are configured, these declared routes return `503 WEBHOOK_UNAVAILABLE`. Creation and rotation return a random secret once; list/history never return it. Create, update, disable, rotate, and manual replay require `Idempotency-Key`: identical reuse returns the original response (including the same one-time secret), while reuse for another operation or body is `409 CONFLICT`. Records live with retained subscription history so a delayed retry cannot rotate twice or append a second replay attempt. `eventTypes` must be unique and is canonicalized before hashing, so ordering does not create a second intent. `schedule.published` payloads are versioned components in the generated OpenAPI document and carry only identifiers plus the publication version. Delivery sends `Greenroom-Signature: t=<seconds>,v1=<hex-hmac>` over `"<t>.<raw body>"`, event/delivery headers, and `x-correlation-id`; receivers reject timestamps more than 300 seconds away. During the 24-hour rotation overlap the signature header carries two `v1` values. Recoverable HMAC keys and secret-bearing idempotency responses are stored only as versioned AES-GCM envelopes; the wrapping-key keyring is a Worker secret and old versions remain configured through rotation. History uses the communications cursor contract (maximum 50, default 25), and manual replay appends an actor-attributed attempt without deleting prior history.
 
 - `POST /api/communications/templates` creates an immutable, organization-scoped template version.
 - `GET /api/communications/templates?organizationId={organizationId}` returns every version of every template, grouped by key and newest version first within each key. Versions are immutable, so correcting a message publishes the next version of the same key and the earlier one stays readable — a delivery names the version it used.

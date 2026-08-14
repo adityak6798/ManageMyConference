@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cursorPage, cursorPageParams } from "./platform";
 
 // @spec PRD-COM-001 PRD-INT-001
 /**
@@ -112,11 +113,9 @@ export const triggerDeliveryInputSchema = z
         message: "Projection delivery requires a version",
       });
   });
-export const communicationsHistoryParamsSchema = z.object({
+export const communicationsHistoryParamsSchema = cursorPageParams({ max: 50, default: 25 }).extend({
   organizationId: z.string().uuid(),
   eventId: z.string().uuid(),
-  limit: z.coerce.number().int().min(1).max(50).default(25),
-  cursor: z.string().min(1).max(500).optional(),
 });
 export const retryDeliveryInputSchema = z.object({ organizationId: z.string().uuid() });
 export const templateListParamsSchema = z.object({ organizationId: z.string().uuid() });
@@ -205,12 +204,10 @@ export const broadcastResponseSchema = z.object({
   deliveries: z.array(deliverySchema),
 });
 export const deliveryResponseSchema = z.object({ delivery: deliverySchema });
-export const communicationsHistoryResponseSchema = z.object({
-  history: z.array(
-    z.object({ delivery: deliverySchema, attempts: z.array(deliveryAttemptSchema) }),
-  ),
-  nextCursor: z.string().nullable(),
-});
+export const communicationsHistoryResponseSchema = cursorPage(
+  z.object({ delivery: deliverySchema, attempts: z.array(deliveryAttemptSchema) }),
+  "history",
+);
 export type CreateTemplateInput = z.infer<typeof createTemplateInputSchema>;
 export type MessageTemplateDto = z.infer<typeof messageTemplateSchema>;
 export type BroadcastInput = z.infer<typeof broadcastInputSchema>;
@@ -263,3 +260,111 @@ export const accelEventsIntegrationSchema = z.object({
 export const accelEventsSyncInputSchema = z.object({ commit: z.boolean() });
 export type AccelEventsSyncReportDto = z.infer<typeof accelEventsSyncReportSchema>;
 export type AccelEventsIntegrationDto = z.infer<typeof accelEventsIntegrationSchema>;
+
+// Versioned outbound webhook contracts. Payloads intentionally carry identifiers and the fact,
+// never speaker, proposal, reviewer, or CFP content.
+export const webhookEventTypeSchema = z.enum(["schedule.published"]);
+export const webhookIdempotencyHeaderSchema = z.object({
+  "idempotency-key": z.string().trim().min(1).max(200),
+});
+export const webhookPayloadSchema = z.object({
+  id: z.string(),
+  type: webhookEventTypeSchema,
+  version: z.literal(1),
+  occurredAt: z.string().datetime(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  data: z.record(z.unknown()),
+});
+export const schedulePublishedWebhookPayloadSchema = webhookPayloadSchema.extend({
+  type: z.literal("schedule.published"),
+  data: z.object({ publicationVersion: z.number().int().positive() }),
+});
+export const organizationWebhookParamsSchema = z.object({ organizationId: z.string().uuid() });
+export const webhookParamsSchema = organizationWebhookParamsSchema.extend({
+  subscriptionId: z.string().min(1),
+});
+export const webhookDeliveryParamsSchema = organizationWebhookParamsSchema.extend({
+  deliveryId: z.string().min(1),
+});
+export const createWebhookInputSchema = z.object({
+  eventId: z.string().uuid().nullable().optional(),
+  url: z.string().url().max(2_000),
+  eventTypes: z
+    .array(webhookEventTypeSchema)
+    .min(1)
+    .max(10)
+    .refine((values) => new Set(values).size === values.length, "Event types must be unique"),
+});
+export const updateWebhookInputSchema = z
+  .object({
+    eventId: z.string().uuid().nullable().optional(),
+    url: z.string().url().max(2_000).optional(),
+    eventTypes: z
+      .array(webhookEventTypeSchema)
+      .min(1)
+      .max(10)
+      .refine((values) => new Set(values).size === values.length, "Event types must be unique")
+      .optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+export const webhookSubscriptionSchema = z.object({
+  id: z.string(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid().nullable(),
+  url: z.string().url(),
+  eventTypes: z.array(webhookEventTypeSchema),
+  state: z.enum(["active", "disabled"]),
+  createdAt: z.string().datetime(),
+  disabledAt: z.string().datetime().nullable(),
+  disabledReason: z.string().nullable(),
+});
+export const createWebhookResponseSchema = z.object({
+  subscription: webhookSubscriptionSchema,
+  secret: z.string().min(32),
+});
+export const webhooksResponseSchema = z.object({
+  subscriptions: z.array(webhookSubscriptionSchema),
+});
+export const webhookResponseSchema = z.object({ subscription: webhookSubscriptionSchema });
+export const rotateWebhookResponseSchema = z.object({
+  secret: z.string().min(32),
+  overlapExpiresAt: z.string().datetime(),
+});
+export const webhookDeliverySchema = z.object({
+  id: z.string(),
+  subscriptionId: z.string(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid().nullable(),
+  eventRecordId: z.string(),
+  eventType: webhookEventTypeSchema,
+  idempotencyKey: z.string(),
+  payload: webhookPayloadSchema,
+  state: z.enum(["queued", "retrying", "succeeded", "terminal"]),
+  attemptCount: z.number().int().nonnegative(),
+  nextAttemptAt: z.string().datetime(),
+  leaseToken: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export const webhookDeliveryAttemptSchema = z.object({
+  id: z.string(),
+  deliveryId: z.string(),
+  sequence: z.number().int().positive(),
+  startedAt: z.string().datetime(),
+  completedAt: z.string().datetime(),
+  outcome: z.enum(["succeeded", "retryable_failure", "terminal_failure"]),
+  errorCode: z.string().nullable(),
+  requestedBy: z.string().nullable(),
+});
+export const webhookHistoryParamsSchema = webhookParamsSchema.extend({
+  limit: z.coerce.number().int().min(1).max(50).default(25),
+  cursor: z.string().min(1).max(500).optional(),
+});
+export const webhookHistoryResponseSchema = z.object({
+  history: z.array(
+    z.object({ delivery: webhookDeliverySchema, attempts: z.array(webhookDeliveryAttemptSchema) }),
+  ),
+  nextCursor: z.string().nullable(),
+});
+export const webhookDeliveryResponseSchema = z.object({ delivery: webhookDeliverySchema });

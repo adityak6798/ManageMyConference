@@ -73,6 +73,9 @@ export const schema = {
 };
 
 export const {
+  apiClientEvents,
+  apiClientScopes,
+  apiClients,
   accelEventsSyncRuns,
   calendarInviteStates,
   agendaDrafts,
@@ -138,4 +141,9 @@ export const {
   speakerTasks,
   speakerTaskTemplates,
   users,
+  webhookSubscriptions,
+  webhookSubscriptionEventTypes,
+  webhookDeliveries,
+  webhookDeliveryAttempts,
+  webhookIdempotencyRecords,
 } = schema;

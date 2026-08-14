@@ -9,6 +9,11 @@
   "architecture": {
     "publicApplicationEntryPoints": [
       {
+        "path": "packages/contracts/src/domains/platform.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The platform-owned HTTP contract vocabulary: every response shares its declared API version and collection domains reuse its cursor-page schemas instead of drifting transport mechanics. It contains no business-domain nouns or behavior."
+      },
+      {
         "path": "apps/api/src/adapters/persistence/d1-write-result.ts",
         "governing": "ARC-003",
         "reason": "The transport-wide D1 write-result contract. Persistence adapters share its required affected-row count and refusal helper so a missing driver count has one meaning, while the module contains no domain logic or table knowledge."
@@ -62,6 +67,11 @@
         "path": "apps/api/src/application/identity/identity-directory.ts",
         "governing": "PRD-IAM-002",
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
+      },
+      {
+        "path": "apps/api/src/application/identity/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "Identity-access's declared machine-credential application surface. The transport composition contract depends on the service type through this module while credential policy, hashing, resolution, and persistence stay inside identity-access."
       },
       {
         "path": "apps/api/src/application/communications/public.ts",
@@ -352,6 +362,7 @@
         "apps/web/src/api/overview.ts",
         "apps/api/test/http.test.ts",
         "apps/api/test/api-docs.test.ts",
+        "apps/api/test/api-compatibility.test.ts",
         "apps/api/test/runtime-auth.test.ts",
         "apps/api/vitest.config.ts",
         "apps/api/vitest.integration.config.ts",
@@ -459,7 +470,19 @@
         "apps/api/src/adapters/persistence/identity-revocation-statements.mjs",
         "apps/web/src/AcceptInvitationPage.tsx",
         "apps/web/test/accept-invitation.test.tsx",
-        "apps/web/test/members-workspace.test.tsx"
+        "apps/web/test/members-workspace.test.tsx",
+        "apps/api/migrations/1004_api_clients.sql",
+        "apps/api/src/application/identity/api-clients.ts",
+        "apps/api/src/application/identity/public.ts",
+        "apps/api/src/adapters/persistence/d1-api-clients.ts",
+        "apps/api/test/api-clients.test.ts",
+        "apps/api/test/d1-api-clients.test.ts",
+        "apps/api/test/d1-api-clients.integration.test.ts",
+        "apps/web/src/api/api-clients.ts",
+        "apps/web/test/api-clients-api.test.ts",
+        "apps/web/src/workspaces/api-clients.tsx",
+        "apps/web/test/api-clients-workspace.test.tsx",
+        "apps/web/e2e/api-clients.spec.ts"
       ]
     },
     {
@@ -807,6 +830,9 @@
         "apps/api/src/application/communications",
         "apps/api/src/adapters/providers",
         "apps/api/src/adapters/persistence/d1-communications-repository.ts",
+        "apps/api/src/adapters/persistence/d1-webhooks.ts",
+        "apps/api/src/adapters/persistence/webhook-secret-protector.ts",
+        "apps/api/src/adapters/providers/trusted-webhook-egress.ts",
         "apps/api/src/adapters/persistence/memory-communications-repository.ts",
         "apps/api/test/communications-http.test.ts",
         "apps/api/test/communications-public.test.ts",
@@ -815,9 +841,13 @@
         "apps/api/test/deterministic-provider.test.ts",
         "apps/api/test/provider-configuration.test.ts",
         "docs/engineering/communications-providers.md",
+        "docs/engineering/webhook-egress.md",
         "apps/api/test/communications-service.test.ts",
         "apps/api/test/communications-lifecycle.test.ts",
         "apps/api/test/d1-communications-repository.integration.test.ts",
+        "apps/api/migrations/1752_webhook_subscriptions.sql",
+        "apps/api/test/d1-webhooks.integration.test.ts",
+        "apps/api/test/webhook-security.test.ts",
         "apps/api/migrations/0019_communications_outbox.sql",
         "apps/api/migrations/1700_delivery_rendered_message.sql",
         "apps/api/migrations/1703_delivery_domain_event_triggers.sql",

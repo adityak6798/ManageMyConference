@@ -179,6 +179,45 @@ describe("EventService", () => {
     await expect(service.get(outsider, "123e4567-e89b-12d3-a456-426614174000")).resolves.toBeNull();
   });
 
+  it("does not widen an API client's event allowlist through its tenant identity", async () => {
+    const repository = new MemoryEventRepository();
+    const service = new EventService({
+      repository,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    const allowedId = "123e4567-e89b-12d3-a456-426614174010";
+    const deniedId = "123e4567-e89b-12d3-a456-426614174020";
+    for (const [id, name] of [
+      [allowedId, "Allowed"],
+      [deniedId, "Not allowlisted"],
+    ] as const)
+      await repository.create({
+        id,
+        organizationId: organizer.organizations[0]?.id ?? "",
+        name,
+        timezone: "UTC",
+        createdAt: "2026-08-13T12:00:00.000Z",
+      });
+    const client: Actor = {
+      ...organizer,
+      id: "api-client",
+      eventAccess: [
+        {
+          eventId: allowedId,
+          role: "organizer",
+          capabilities: new Set(["events:read"]),
+        },
+      ],
+      capabilities: new Set(["events:read"]),
+      organizationAccess: [{ id: organizer.organizations[0]?.id ?? "", capabilities: new Set() }],
+      roleGrantSubjectId: "seed-organizer",
+    };
+
+    await expect(service.list(client)).resolves.toMatchObject([{ id: allowedId }]);
+    await expect(service.get(client, deniedId)).resolves.toBeNull();
+  });
+
   it("denies creation in an organization the organizer does not belong to", async () => {
     const service = new EventService({
       repository: new MemoryEventRepository(),

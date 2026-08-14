@@ -1,4 +1,5 @@
 // @acceptance ACC-CFP
+import { API_CONTRACT_VERSION, API_VERSION_HEADER } from "@greenroom/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { submissionThrottle } from "../src/transport/http/throttle";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
@@ -345,6 +346,7 @@ describe("CFP HTTP journey", () => {
     // The saving is here: an unchanged form costs a bodyless 304 on every read.
     expect(revalidated.headers.get("cache-control")).toBe("public, no-cache");
     expect(revalidated.headers.get("access-control-allow-origin")).toBe("*");
+    expect(revalidated.headers.get(API_VERSION_HEADER)).toBe(API_CONTRACT_VERSION);
     // The correlation id survives the 304, or a caller could not report a bad response.
     expect(revalidated.headers.get("x-correlation-id")).toBe("cfp-revalidation");
 

@@ -11,6 +11,7 @@
  * @spec ARC-001 ARC-DOM-001
  */
 import { agendaWorkspace } from "./agenda";
+import { apiClientsWorkspace } from "./api-clients";
 import { cfpWorkspace } from "./cfp";
 import { communicationsWorkspace } from "./communications";
 import { portalWorkspace, sessionsWorkspace } from "./content";
@@ -30,6 +31,7 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   crmWorkspace,
   crmDirectoryWorkspace,
   membersWorkspace,
+  apiClientsWorkspace,
   communicationsWorkspace,
   publishingWorkspace,
   reviewsWorkspace,

@@ -157,7 +157,7 @@ export function defineIdentityAccessSchema(references: {
     (table) => [
       check(
         "identity_audit_events_action",
-        sql`${table.action} IN ('session.issued', 'session.signed_out', 'session.revoked_all', 'membership.invited', 'membership.invitation_revoked', 'membership.accepted', 'membership.removed', 'membership.role_changed', 'event_role.granted', 'event_role.revoked')`,
+        sql`${table.action} IN ('session.issued', 'session.signed_out', 'session.revoked_all', 'membership.invited', 'membership.invitation_revoked', 'membership.accepted', 'membership.removed', 'membership.role_changed', 'event_role.granted', 'event_role.revoked', 'api_client.created', 'api_client.rotated', 'api_client.revoked')`,
       ),
       check("identity_audit_events_outcome", sql`${table.outcome} IN ('succeeded', 'refused')`),
       check("identity_audit_events_source", sql`${table.source} IN ('human', 'api', 'system')`),
@@ -227,6 +227,68 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
+  const apiClients = sqliteTable(
+    "api_clients",
+    {
+      id: text("id").primaryKey().notNull(),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => references.organizationsId, { onDelete: "cascade" }),
+      name: text("name").notNull(),
+      keyPrefix: text("key_prefix").notNull().unique(),
+      secretHash: text("secret_hash").notNull(),
+      previousSecretHash: text("previous_secret_hash"),
+      previousSecretExpiresAt: integer("previous_secret_expires_at"),
+      createdBy: text("created_by")
+        .notNull()
+        .references(() => users.id),
+      createdAt: integer("created_at").notNull(),
+      expiresAt: integer("expires_at"),
+      revokedAt: integer("revoked_at"),
+    },
+    (table) => [
+      check(
+        "api_clients_previous_secret_pair",
+        sql`(${table.previousSecretHash} IS NULL) = (${table.previousSecretExpiresAt} IS NULL)`,
+      ),
+      index("api_clients_key_prefix_idx").on(table.keyPrefix),
+      index("api_clients_organization_idx").on(table.organizationId, table.createdAt, table.id),
+    ],
+  );
+
+  const apiClientScopes = sqliteTable(
+    "api_client_scopes",
+    {
+      clientId: text("client_id")
+        .notNull()
+        .references(() => apiClients.id, { onDelete: "cascade" }),
+      capability: text("capability").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.clientId, table.capability] }),
+      check(
+        "api_client_scopes_capability",
+        sql`${table.capability} IN ('events:read', 'events:create', 'events:settings:read', 'events:settings:update', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'identity:manage')`,
+      ),
+    ],
+  );
+
+  const apiClientEvents = sqliteTable(
+    "api_client_events",
+    {
+      clientId: text("client_id")
+        .notNull()
+        .references(() => apiClients.id, { onDelete: "cascade" }),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+    },
+    (table) => [
+      primaryKey({ columns: [table.clientId, table.eventId] }),
+      index("api_client_events_event_idx").on(table.eventId, table.clientId),
+    ],
+  );
+
   return {
     users,
     identityEmails,
@@ -238,5 +300,8 @@ export function defineIdentityAccessSchema(references: {
     identityInvitations,
     organizationMemberships,
     eventRoles,
+    apiClients,
+    apiClientScopes,
+    apiClientEvents,
   };
 }

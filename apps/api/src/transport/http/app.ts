@@ -12,6 +12,7 @@
  *
  * @spec PRD-IAM-001 PRD-IAM-002 PRD-EVT-001 ARC-001 ARC-DOM-001
  */
+import { API_CONTRACT_VERSION, API_VERSION_HEADER } from "@greenroom/contracts";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { cors } from "hono/cors";
@@ -83,6 +84,7 @@ export function createHttpAppFrom(
     const correlationId =
       supplied && correlationPattern.test(supplied) ? supplied : crypto.randomUUID();
     context.set("correlationId", correlationId);
+    context.header(API_VERSION_HEADER, API_CONTRACT_VERSION);
     const authorization = context.req.header("authorization");
     const bearer = authorization?.match(/^Bearer (\S+)$/i)?.[1];
     const cookie = getCookie(context, "greenroom_session");
@@ -128,9 +130,15 @@ export function createHttpAppFrom(
     } else if (auth.sessionSecret) {
       if (authorization) {
         resolved = bearer
-          ? await resolveEventToken(bearer, auth.sessionSecret, at, auth.resolveActor, (id, now) =>
-              auth.sessions.find(id, now),
-            )
+          ? bearer.startsWith("grn_")
+            ? await (auth.resolveApiClient?.(bearer) ?? Promise.resolve(null))
+            : await resolveEventToken(
+                bearer,
+                auth.sessionSecret,
+                at,
+                auth.resolveActor,
+                (id, now) => auth.sessions.find(id, now),
+              )
           : null;
         kind = "bearer";
       } else {
@@ -191,7 +199,7 @@ export function createHttpAppFrom(
       origin: "*",
       allowMethods: ["GET", "HEAD", "POST", "OPTIONS"],
       allowHeaders: ["content-type", "if-none-match", "x-correlation-id"],
-      exposeHeaders: ["etag", "x-correlation-id"],
+      exposeHeaders: ["etag", "x-correlation-id", API_VERSION_HEADER],
       maxAge: 86_400,
     }),
   );
@@ -207,6 +215,7 @@ export function createHttpAppFrom(
       retainedHeaders: [
         ...RETAINED_304_HEADERS,
         "x-correlation-id",
+        API_VERSION_HEADER.toLowerCase(),
         "access-control-allow-origin",
         "access-control-expose-headers",
       ],

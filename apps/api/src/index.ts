@@ -8,6 +8,7 @@ import {
 import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
+import { D1ApiClientRepository } from "./adapters/persistence/d1-api-clients";
 import {
   D1AuditRecordStore,
   preparedAuditWriter,
@@ -25,11 +26,14 @@ import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-director
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
+import { D1WebhookRepository } from "./adapters/persistence/d1-webhooks";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
 import { resolveProviders, resolveRegistrationSource } from "./adapters/providers/configuration";
+import { TrustedWebhookEgress } from "./adapters/providers/trusted-webhook-egress";
+import { AesGcmWebhookSecretProtector } from "./adapters/persistence/webhook-secret-protector";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
@@ -46,6 +50,16 @@ import {
 } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
+import {
+  FanoutDomainEventConsumer,
+  WebhookFanoutConsumer,
+  WebhookService,
+  WebhookWorker,
+} from "./application/communications/webhooks";
+import type {
+  WebhookEgress,
+  WebhookSecretProtector,
+} from "./application/communications/webhook-security";
 import type { SpeakerNotificationPort } from "./application/content/content-service";
 import { ContentService } from "./application/content/content-service";
 import {
@@ -65,6 +79,11 @@ import {
   stateProof,
 } from "./application/identity/google-oauth";
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
+import {
+  ApiClientResolver,
+  ApiClientService,
+  mintApiClientCredential,
+} from "./application/identity/api-clients";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
 import {
@@ -142,6 +161,14 @@ export interface Environment {
    * `wrangler.toml` to a reserved `.invalid` address.
    */
   CALENDAR_ORGANIZER_EMAIL?: string;
+  /** HTTPS SSRF-enforcement service. Both bindings are required to enable webhook mutations. */
+  WEBHOOK_EGRESS_ENDPOINT?: string;
+  /** Worker secret used only to authenticate Greenroom to `WEBHOOK_EGRESS_ENDPOINT`. */
+  WEBHOOK_EGRESS_TOKEN?: string;
+  /** Current AES-GCM envelope key version; non-secret metadata. */
+  WEBHOOK_WRAPPING_KEY_VERSION?: string;
+  /** Worker secret: JSON object mapping versions to base64-encoded 32-byte AES keys. */
+  WEBHOOK_WRAPPING_KEYS?: string;
   /**
    * Supplied by `tools/local-wrangler.mjs` when it starts a development Worker, so `/health`
    * can say which checkout and commit it belongs to. Absent in a deployment.
@@ -238,6 +265,37 @@ const communicationsRepository = (environment: Environment) =>
   new D1CommunicationsRepository(
     environment.DB as ConstructorParameters<typeof D1CommunicationsRepository>[0],
   );
+interface WebhookRuntime {
+  repository: D1WebhookRepository;
+  egress: WebhookEgress;
+}
+const webhookRuntime = async (environment: Environment): Promise<WebhookRuntime | null> => {
+  const configured = [
+    environment.WEBHOOK_EGRESS_ENDPOINT,
+    environment.WEBHOOK_EGRESS_TOKEN,
+    environment.WEBHOOK_WRAPPING_KEY_VERSION,
+    environment.WEBHOOK_WRAPPING_KEYS,
+  ];
+  if (configured.every((value) => !value)) return null;
+  if (configured.some((value) => !value))
+    throw new Error(
+      "Webhook configuration requires WEBHOOK_EGRESS_ENDPOINT, WEBHOOK_EGRESS_TOKEN, WEBHOOK_WRAPPING_KEY_VERSION, and WEBHOOK_WRAPPING_KEYS together",
+    );
+  const secrets: WebhookSecretProtector = await AesGcmWebhookSecretProtector.fromConfiguration({
+    currentVersion: environment.WEBHOOK_WRAPPING_KEY_VERSION as string,
+    keyringJson: environment.WEBHOOK_WRAPPING_KEYS as string,
+  });
+  return {
+    repository: new D1WebhookRepository(
+      environment.DB as ConstructorParameters<typeof D1WebhookRepository>[0],
+      secrets,
+    ),
+    egress: new TrustedWebhookEgress(
+      environment.WEBHOOK_EGRESS_ENDPOINT as string,
+      environment.WEBHOOK_EGRESS_TOKEN as string,
+    ),
+  };
+};
 
 /**
  * Where a speaker downloads the calendar for an event.
@@ -293,6 +351,7 @@ export async function remindDueSpeakerTasks(environment: Environment) {
 
 export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
   const communications = scheduledCommunications(environment).service;
+  const configuredWebhooks = await webhookRuntime(environment);
   const worker = new OutboxWorker(
     communicationsRepository(environment),
     // Throws rather than falling back if `live` is half-configured, so a scheduled drain that
@@ -308,15 +367,42 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
         console.info(JSON.stringify({ level: "info", message: "delivery.attempt", ...record }));
       },
     },
-    new SchedulePublishedConsumer({
-      enqueue: communications,
-      speakerDirectory: new D1IdentityDirectory(environment.DB),
-      calendarUrl: speakerCalendarUrl(environment),
-    }),
+    new FanoutDomainEventConsumer([
+      new SchedulePublishedConsumer({
+        enqueue: communications,
+        speakerDirectory: new D1IdentityDirectory(environment.DB),
+        calendarUrl: speakerCalendarUrl(environment),
+      }),
+      ...(configuredWebhooks
+        ? [
+            new WebhookFanoutConsumer(
+              configuredWebhooks.repository,
+              () => crypto.randomUUID(),
+              () => new Date(),
+            ),
+          ]
+        : []),
+    ]),
   );
-  let processed = 0;
-  while (processed < limit && (await worker.runOne())) processed += 1;
-  return processed;
+  const runBounded = async (runOne: () => Promise<boolean>) => {
+    let processed = 0;
+    while (processed < limit && (await runOne())) processed += 1;
+    return processed;
+  };
+  if (!configuredWebhooks) return runBounded(() => worker.runOne());
+
+  const webhookWorker = new WebhookWorker(configuredWebhooks.repository, {
+    egress: configuredWebhooks.egress,
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  // Start both independently bounded drains together. A slow provider in either queue must not
+  // prevent the other queue from leasing and durably completing work during this scheduled turn.
+  const [communicationsProcessed, webhooksProcessed] = await Promise.all([
+    runBounded(() => worker.runOne()),
+    runBounded(() => webhookWorker.runOne()),
+  ]);
+  return communicationsProcessed + webhooksProcessed;
 }
 
 export function pruneItineraries(environment: Environment): Promise<void> {
@@ -390,7 +476,7 @@ export function runtimeAuth(
 
 // @spec PRD-EVT-001 ARC-OBS-001
 export default {
-  fetch(request: Request, environment: Environment): Promise<Response> {
+  async fetch(request: Request, environment: Environment): Promise<Response> {
     const auth = runtimeAuth(environment);
     const identityDirectory = new D1IdentityDirectory(environment.DB);
     // Behaviour, not credentials: the transport is handed this object and never the signing
@@ -463,6 +549,16 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
+    const configuredWebhooks = await webhookRuntime(environment);
+    const webhooks = configuredWebhooks
+      ? new WebhookService({
+          repository: configuredWebhooks.repository,
+          eventDirectory: service,
+          egress: configuredWebhooks.egress,
+          newId: () => crypto.randomUUID(),
+          now: () => new Date(),
+        })
+      : undefined;
     /**
      * Closes `DEBT-006`: the writer that makes a schedule publication and its announcement one
      * durable operation (issue #22).
@@ -1031,6 +1127,20 @@ export default {
       now: () => Date.now(),
       mintToken: mintInvitationToken,
     });
+    const apiClientRepository = new D1ApiClientRepository(environment.DB);
+    const apiClients = new ApiClientService({
+      repository: apiClientRepository,
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+      mintCredential: mintApiClientCredential,
+    });
+    const apiClientResolver = new ApiClientResolver({
+      repository: apiClientRepository,
+      resolveCreator: (userId) => identityDirectory.findByUserId(userId),
+      events: service,
+      now: () => Date.now(),
+    });
     const crm = new CrmService({
       repository: new D1CrmRepository(environment.DB),
       speakerConversion,
@@ -1237,6 +1347,7 @@ export default {
             sessions,
             ...(googleAuth ? { google: googleAuth } : {}),
             resolveActor: (userId: string) => identityDirectory.findByUserId(userId),
+            resolveApiClient: (credential: string) => apiClientResolver.resolve(credential),
             resolveEmail: async (email: string) => {
               if (
                 environment.INITIAL_ORGANIZER_USER_ID &&
@@ -1274,11 +1385,13 @@ export default {
       crm,
       agenda,
       communications,
+      webhooks,
       publishing,
       itineraries,
       speakerCalendarInvites,
       accelEventsSync,
       membership,
+      apiClients,
       eventTemplates,
       platformOps,
       build:
@@ -1286,7 +1399,7 @@ export default {
           ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
           : undefined,
     });
-    return Promise.resolve(app.fetch(request));
+    return app.fetch(request);
   },
   /**
    * The one-minute tick.

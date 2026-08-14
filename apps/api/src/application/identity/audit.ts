@@ -38,7 +38,10 @@ export type AuditAction =
   | "membership.removed"
   | "membership.role_changed"
   | "event_role.granted"
-  | "event_role.revoked";
+  | "event_role.revoked"
+  | "api_client.created"
+  | "api_client.rotated"
+  | "api_client.revoked";
 
 /** A refusal is recorded as such; it is the row an operator most often goes looking for. */
 export type AuditOutcome = "succeeded" | "refused";

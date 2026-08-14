@@ -9,6 +9,11 @@
   "architecture": {
     "publicApplicationEntryPoints": [
       {
+        "path": "packages/contracts/src/domains/platform.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The platform-owned HTTP contract vocabulary: every response shares its declared API version and collection domains reuse its cursor-page schemas instead of drifting transport mechanics. It contains no business-domain nouns or behavior."
+      },
+      {
         "path": "apps/api/src/adapters/persistence/d1-write-result.ts",
         "governing": "ARC-003",
         "reason": "The transport-wide D1 write-result contract. Persistence adapters share its required affected-row count and refusal helper so a missing driver count has one meaning, while the module contains no domain logic or table knowledge."
@@ -62,6 +67,11 @@
         "path": "apps/api/src/application/identity/identity-directory.ts",
         "governing": "PRD-IAM-002",
         "reason": "The directory CRM, review and the content speaker-conversion adapter resolve personas and event membership through, instead of reading membership tables."
+      },
+      {
+        "path": "apps/api/src/application/identity/public.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "Identity-access's declared machine-credential application surface. The transport composition contract depends on the service type through this module while credential policy, hashing, resolution, and persistence stay inside identity-access."
       },
       {
         "path": "apps/api/src/application/communications/public.ts",

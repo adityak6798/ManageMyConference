@@ -17,14 +17,26 @@ import {
   retryDeliveryInputSchema,
   templateListParamsSchema,
   triggerDeliveryInputSchema,
+  createWebhookInputSchema,
+  organizationWebhookParamsSchema,
+  updateWebhookInputSchema,
+  webhookDeliveryParamsSchema,
+  webhookHistoryParamsSchema,
+  webhookIdempotencyHeaderSchema,
+  webhookParamsSchema,
 } from "@greenroom/contracts";
 import {
   AccelEventsUnavailableError,
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  WebhookUnavailableError,
 } from "../../../application/communications/public";
-import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
+import {
+  CapabilityDeniedError,
+  requireCapability,
+  requireEventCapability,
+} from "../../../application/identity/actor";
 import { envelope, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -38,13 +50,35 @@ const routes = [
   "POST /api/communications/deliveries/:deliveryId/retry",
   "GET /api/events/:eventId/integrations/accelevents",
   "POST /api/events/:eventId/integrations/accelevents/sync",
+  "POST /api/organizations/:organizationId/webhooks",
+  "GET /api/organizations/:organizationId/webhooks",
+  "PATCH /api/organizations/:organizationId/webhooks/:subscriptionId",
+  "DELETE /api/organizations/:organizationId/webhooks/:subscriptionId",
+  "POST /api/organizations/:organizationId/webhooks/:subscriptionId/rotate-secret",
+  "GET /api/organizations/:organizationId/webhooks/:subscriptionId/deliveries",
+  "POST /api/organizations/:organizationId/webhook-deliveries/:deliveryId/replay",
 ] as const;
+
+const publicSubscription = ({
+  secretMaterial: _secret,
+  previousSecretMaterial: _previous,
+  previousSecretExpiresAt: _previousExpiry,
+  revision: _revision,
+  ...subscription
+}: Awaited<ReturnType<NonNullable<HttpDependencies["webhooks"]>["update"]>>) => subscription;
+const requireWebhookIdempotencyKey = (request: { header(name: string): string | undefined }) => {
+  const parsed = webhookIdempotencyHeaderSchema.safeParse({
+    "idempotency-key": request.header("Idempotency-Key"),
+  });
+  if (!parsed.success) throw new CommunicationsInputError("Idempotency-Key header is required");
+  return parsed.data["idempotency-key"];
+};
 
 export const communicationsRoutes: RouteModule = {
   domain: "communications-integrations",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
-    const { communications, accelEventsSync } = dependencies;
+    const { communications, accelEventsSync, webhooks } = dependencies;
     app.post("/api/communications/templates", async (context) => {
       requireCapability(context.get("actor"), "communications:manage");
       if (!communications) throw new Error("Communications service is not configured");
@@ -245,6 +279,220 @@ export const communicationsRoutes: RouteModule = {
         ),
       );
     });
+    app.post("/api/organizations/:organizationId/webhooks", async (context) => {
+      if (!webhooks) throw new WebhookUnavailableError();
+      const params = organizationWebhookParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Organization ID is malformed.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      const authorized = requireCapability(context.get("actor"), "communications:manage");
+      if (!authorized.organizations.some(({ id }) => id === params.data.organizationId))
+        throw new CapabilityDeniedError("Organization access denied");
+      const idempotencyKey = requireWebhookIdempotencyKey(context.req);
+      const body = createWebhookInputSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The webhook subscription is invalid.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const created = await webhooks.create(
+        context.get("actor"),
+        {
+          organizationId: params.data.organizationId,
+          url: body.data.url,
+          eventTypes: body.data.eventTypes,
+          ...(body.data.eventId === undefined ? {} : { eventId: body.data.eventId }),
+        },
+        idempotencyKey,
+      );
+      return context.json(
+        { subscription: publicSubscription(created.subscription), secret: created.secret },
+        201,
+      );
+    });
+    app.get("/api/organizations/:organizationId/webhooks", async (context) => {
+      if (!webhooks) throw new WebhookUnavailableError();
+      const params = organizationWebhookParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Organization ID is malformed.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      return context.json({
+        subscriptions: (await webhooks.list(context.get("actor"), params.data.organizationId)).map(
+          publicSubscription,
+        ),
+      });
+    });
+    app.patch("/api/organizations/:organizationId/webhooks/:subscriptionId", async (context) => {
+      if (!webhooks) throw new WebhookUnavailableError();
+      const params = webhookParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Webhook reference is malformed.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      const authorized = requireCapability(context.get("actor"), "communications:manage");
+      if (!authorized.organizations.some(({ id }) => id === params.data.organizationId))
+        throw new CapabilityDeniedError("Organization access denied");
+      const idempotencyKey = requireWebhookIdempotencyKey(context.req);
+      const body = updateWebhookInputSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The webhook update is invalid.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      return context.json({
+        subscription: publicSubscription(
+          await webhooks.update(
+            context.get("actor"),
+            params.data.organizationId,
+            params.data.subscriptionId,
+            {
+              ...(body.data.url === undefined ? {} : { url: body.data.url }),
+              ...(body.data.eventId === undefined ? {} : { eventId: body.data.eventId }),
+              ...(body.data.eventTypes === undefined ? {} : { eventTypes: body.data.eventTypes }),
+            },
+            idempotencyKey,
+          ),
+        ),
+      });
+    });
+    app.delete("/api/organizations/:organizationId/webhooks/:subscriptionId", async (context) => {
+      if (!webhooks) throw new WebhookUnavailableError();
+      const params = webhookParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Webhook reference is malformed.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      const authorized = requireCapability(context.get("actor"), "communications:manage");
+      if (!authorized.organizations.some(({ id }) => id === params.data.organizationId))
+        throw new CapabilityDeniedError("Organization access denied");
+      const idempotencyKey = requireWebhookIdempotencyKey(context.req);
+      await webhooks.disable(
+        context.get("actor"),
+        params.data.organizationId,
+        params.data.subscriptionId,
+        idempotencyKey,
+      );
+      return context.body(null, 204);
+    });
+    app.post(
+      "/api/organizations/:organizationId/webhooks/:subscriptionId/rotate-secret",
+      async (context) => {
+        if (!webhooks) throw new WebhookUnavailableError();
+        const params = webhookParamsSchema.safeParse(context.req.param());
+        if (!params.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Webhook reference is malformed.",
+              context.get("correlationId"),
+            ),
+            400,
+          );
+        const authorized = requireCapability(context.get("actor"), "communications:manage");
+        if (!authorized.organizations.some(({ id }) => id === params.data.organizationId))
+          throw new CapabilityDeniedError("Organization access denied");
+        const idempotencyKey = requireWebhookIdempotencyKey(context.req);
+        return context.json(
+          await webhooks.rotate(
+            context.get("actor"),
+            params.data.organizationId,
+            params.data.subscriptionId,
+            idempotencyKey,
+          ),
+        );
+      },
+    );
+    app.get(
+      "/api/organizations/:organizationId/webhooks/:subscriptionId/deliveries",
+      async (context) => {
+        if (!webhooks) throw new WebhookUnavailableError();
+        const parsed = webhookHistoryParamsSchema.safeParse({
+          ...context.req.param(),
+          ...context.req.query(),
+        });
+        if (!parsed.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Webhook history request is invalid.",
+              context.get("correlationId"),
+              validationFields(parsed.error.issues),
+            ),
+            400,
+          );
+        return context.json(
+          await webhooks.history(
+            context.get("actor"),
+            parsed.data.organizationId,
+            parsed.data.subscriptionId,
+            {
+              limit: parsed.data.limit,
+              ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
+            },
+          ),
+        );
+      },
+    );
+    app.post(
+      "/api/organizations/:organizationId/webhook-deliveries/:deliveryId/replay",
+      async (context) => {
+        if (!webhooks) throw new WebhookUnavailableError();
+        const params = webhookDeliveryParamsSchema.safeParse(context.req.param());
+        if (!params.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Webhook delivery reference is malformed.",
+              context.get("correlationId"),
+            ),
+            400,
+          );
+        const authorized = requireCapability(context.get("actor"), "communications:manage");
+        if (!authorized.organizations.some(({ id }) => id === params.data.organizationId))
+          throw new CapabilityDeniedError("Organization access denied");
+        const idempotencyKey = requireWebhookIdempotencyKey(context.req);
+        return context.json({
+          delivery: await webhooks.replay(
+            context.get("actor"),
+            params.data.organizationId,
+            params.data.deliveryId,
+            idempotencyKey,
+          ),
+        });
+      },
+    );
   },
   translateError(error: unknown) {
     // The registration platform being unreachable is not the organizer's mistake and not a bug
@@ -262,6 +510,12 @@ export const communicationsRoutes: RouteModule = {
       return { code: "NOT_FOUND" as const, message: error.message, status: 404 as const };
     if (error instanceof CommunicationsConflictError)
       return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    if (error instanceof WebhookUnavailableError)
+      return {
+        code: "WEBHOOK_UNAVAILABLE" as const,
+        message: "Webhook delivery is not configured.",
+        status: 503 as const,
+      };
     return null;
   },
 };
