@@ -98,9 +98,14 @@ distinction visible instead of letting a logout button imply a guarantee.
 
 A visitor can become a user without an operator, and a workspace exists for them when they arrive:
 one organization named after them, one first event, the organizer role on it. Provisioning crosses
-into the events domain as `EventService.provisionOrganization` plus the ordinary authorized
-`create`, so identity never learns an events table and a first event is created exactly as every
-later one is.
+into the events domain as `EventService.provisionOrganization` plus `provisionFirstEvent`, so
+identity never learns an events table and a first event is authorized exactly as every later one
+is. It differs from ordinary creation in one way that domain owns: a provisioning key unique per
+person per organization, so a second concurrent callback adopts the first's event instead of
+creating a duplicate no route could delete (issue #164). Identity provisions only into an
+organization that holds no events and has no other member, so a sign-in never completes a workspace
+that is somebody else's. The organization a failed signup created is discarded by that signup
+rather than left unreferenced.
 
 Sign-in is provider-blind downstream, so no authorization rule and no capability check needed
 changing to accommodate Google. Adding a second provider later is a row in
@@ -108,15 +113,22 @@ changing to accommodate Google. Adding a second provider later is a row in
 
 A deployment carrying no Google bindings behaves exactly as it did before: `google: false` in the
 auth config, 404 from both Google routes, and a configuration object byte-for-byte the one it had.
-That property is what lets this ship to a demo deployment that deliberately leaves Google
-unconfigured — see `GAP-019`, which is about the demo reset deleting real self-serve rows, not
-about anything in this decision.
+That property is what let this ship to a demo deployment that left Google unconfigured while
+`GAP-019` was open — that entry is about the demo reset deleting real self-serve rows, not about
+anything in this decision, and it is now closed. `apps/api/wrangler.toml` carries the steps that
+enable Google there.
 
 The refusal surface is deliberately opaque. Every failure — unknown attempt, mismatched `state`,
 expired attempt, unverified signature, unverified address — redirects to the same
 `/signin?auth=failed`, with the reason in the Worker log. That costs a contributor debugging their
 own Google configuration a log read instead of an on-screen message, and it is the right trade:
 naming which check refused hands an attacker the oracle the flow exists to deny them.
+
+One outcome is told apart, and only one: a failure that is **ours** — D1 unavailable, Google
+answering 5xx, provisioning failing part-way — lands on `/signin?auth=unavailable` (issue #164).
+It names no check and so hands a forger nothing, because an outage is not the answer to any of
+them; what it buys is that somebody whose sign-in broke on our side is not sent to check an
+account that is fine.
 
 What this does not buy: rotation and recovery operations, membership administration, audit events
 and durable revocation all remain open under issue #12, and **Google sign-in has never exchanged a

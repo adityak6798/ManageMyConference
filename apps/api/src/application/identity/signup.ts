@@ -19,14 +19,24 @@
  * so no batch spans both. They are ordered so that every partial state is either harmless or
  * detectable:
  *
- *   1. the organization row — orphaned and invisible if we stop here, since nothing references it;
+ *   1. the organization row — unreferenced if we stop here, and **discarded when we do**:
+ *      `recoverFromFailedIdentity` removes it rather than leaving an orphan for a data-aware
+ *      demo reset to refuse on forever (issues #164, `GAP-019`);
  *   2. the identity batch — user, address, provider link and membership commit together or not
  *      at all, so a half-made account cannot sign in;
- *   3. the first event, which grants the organizer role.
+ *   3. the first event and the organizer role on it, which commit together in one batch.
  *
- * A failure at (3) leaves a user holding an organization and no event role, and `completeWorkspace`
- * treats exactly that state as resumable on the next sign-in. That condition is safe because it is
- * unreachable any other way: this product has no path that removes an organizer's last event.
+ * A failure at (3) leaves a user holding an organization and no event at all, and
+ * `completeWorkspace` provisions one on their next sign-in — but only while that organization is
+ * still theirs alone and still has no events, because the same shape is what an organization-level
+ * invitation and a revoked event role both leave behind.
+ *
+ * **Two callbacks at once are ordinary**, not exotic — a person with two tabs open produces
+ * exactly that (issue #166) — and neither of the two states they could otherwise leave behind is
+ * repairable by the product: nothing deletes an event, and nothing deletes an organization. Both
+ * are therefore prevented by storage rather than by ordering, and each racer converges on the
+ * same workspace: the identity batch's own uniqueness picks one winner, and the events domain's
+ * provisioning key picks one first event.
  *
  * @spec PRD-IAM-001 PRD-EVT-001
  */
@@ -56,6 +66,10 @@ export const FIRST_EVENT_NAME = "Your first event";
 export class UnverifiedProviderEmailError extends Error {}
 export class ProvisioningFailedError extends Error {}
 
+/** One failure's message, whatever it was thrown as. */
+const message = (failure: unknown) =>
+  failure instanceof Error ? failure.message : String(failure);
+
 /** The identity writes signup performs. Implemented by `D1IdentityDirectory`. */
 export interface SignupDirectory {
   findByProviderAccount(provider: "google", subject: string): Promise<Actor | null>;
@@ -67,8 +81,17 @@ export interface SignupDirectory {
     userId: string;
     linkedAt: number;
   }): Promise<void>;
-  /** `INSERT OR IGNORE`, so adopting an event a previous attempt created is safe to repeat. */
+  /** `INSERT OR IGNORE`, so a role a concurrent callback already granted is safe to repeat. */
   grantOrganizer(eventId: string, userId: string): Promise<void>;
+  /**
+   * How many people belong to this organization.
+   *
+   * The half of "is this workspace mine" that the events domain cannot answer, because
+   * `organization_memberships` is this domain's table. One member means the organization has
+   * exactly the person signing in, which is what a signup's own organization looks like; anything
+   * else is somebody's workspace that this person was merely added to. See `completeWorkspace`.
+   */
+  countOrganizationMembers(organizationId: string): Promise<number>;
   /**
    * User row, address, provider link and organization membership, in one batch. Together or not
    * at all: an account that can sign in but belongs to no organization is a dead end the user
@@ -91,15 +114,28 @@ export interface SignupDirectory {
  */
 export interface WorkspaceProvisioning {
   provisionOrganization(command: { name: string }): Promise<{ id: string }>;
+  /**
+   * The one event a new workspace starts with, **idempotent per person per organization**: two
+   * concurrent signups for one account both call it and both receive the same event, because the
+   * events domain declares the uniqueness and the loser adopts the winner's row (issue #164).
+   */
   createFirstEvent(
     actor: Actor,
     command: { organizationId: string; name: string; timezone: string },
   ): Promise<{ id: string }>;
   /**
-   * The events this organization already holds. Read before provisioning a first one, so a
-   * resumed signup adopts the event a previous attempt left behind instead of making another.
+   * The events this organization already holds. Read only to tell a workspace nobody has been
+   * given an event in from one that is already somebody's; a first event is provisioned into the
+   * former and never the latter, and nothing here ever adopts an event that already exists.
    */
   eventsInOrganization(actor: Actor, organizationId: string): Promise<readonly { id: string }[]>;
+  /**
+   * Discard an organization this signup created and then could not use.
+   *
+   * Refuses if the organization became somebody's workspace in the meantime, so it can only
+   * remove what this call abandoned. See the ordering note at the top of this file.
+   */
+  discardUnusedOrganization(organizationId: string): Promise<boolean>;
 }
 
 export interface SignupDependencies {
@@ -107,6 +143,16 @@ export interface SignupDependencies {
   workspace: WorkspaceProvisioning;
   newId: () => string;
   now: () => number;
+  /**
+   * Where an operational fact this workflow cannot act on goes.
+   *
+   * One caller today: an organization a failed signup created and could **not** discard, because
+   * something already referenced it. That row is invisible to the product — no member, no
+   * surface, nothing that lists it — and it is precisely the row a data-aware demo restore
+   * refuses on (`GAP-019`), so a silent one turns into a reset that refuses for ever with no
+   * trace of where it came from. Optional, because a composition with no logger is a test.
+   */
+  report?: (fields: Record<string, unknown>, message: string) => void;
 }
 
 /**
@@ -163,15 +209,23 @@ export class SignupService {
       name: organizationNameFor(identity.name),
     });
     const userId = this.dependencies.newId();
-    await directory.createSelfServeIdentity({
-      userId,
-      name: identity.name,
-      email: identity.email,
-      provider: "google",
-      subject: identity.subject,
-      linkedAt: this.dependencies.now(),
-      organizationId: organization.id,
-    });
+    try {
+      await directory.createSelfServeIdentity({
+        userId,
+        name: identity.name,
+        email: identity.email,
+        provider: "google",
+        subject: identity.subject,
+        linkedAt: this.dependencies.now(),
+        organizationId: organization.id,
+      });
+    } catch (failure) {
+      // ERROR-INTENT: not suppressed — `recoverFromFailedIdentity` is handed this failure and
+      // either rethrows it, or signs the caller in as the racer that won and reports why the
+      // organization it just created was discarded. Nothing here decides that a failure was
+      // harmless.
+      return await this.recoverFromFailedIdentity(identity, organization.id, failure);
+    }
     const actor = await directory.findByUserId(userId);
     if (!actor)
       throw new ProvisioningFailedError("The account was written but could not be read back");
@@ -179,42 +233,144 @@ export class SignupService {
   }
 
   /**
+   * The losing racer's recovery, and the only place an organization is ever deleted.
+   *
+   * Two concurrent first sign-ins for one Google account both provision an organization and both
+   * write the identity batch; the second fails whole on `identity_provider_accounts`' primary key
+   * or on `identity_emails.email UNIQUE`. Before this, that left two marks: the loser's
+   * organization row, unreferenced and swept by nothing (issue #164) — which, once the demo reset
+   * reads the data (`GAP-019`), is a row that would make every later reset refuse — and a person
+   * told their sign-in did not complete when in fact their account exists and works.
+   *
+   * So the organization is discarded, and then the winner is looked up: if the subject now
+   * resolves, this callback signs in as that user, exactly as a returning one would. Anything
+   * else is rethrown. Deliberately narrow — a *different* identity holding the address is a real
+   * conflict, and linking it here would be account takeover by race — and the discard is
+   * unconditional rather than conditional on winning, because an organization this call created
+   * and could not use is an orphan whichever way the failure went.
+   */
+  private async recoverFromFailedIdentity(
+    identity: GoogleIdentity,
+    organizationId: string,
+    failure: unknown,
+  ): Promise<SignInOutcome> {
+    let discardFailure: unknown;
+    let discarded = false;
+    try {
+      // The count is load-bearing rather than decorative: `false` means the orphan is still
+      // there, and nothing else in this repository will ever remove it.
+      discarded = await this.dependencies.workspace.discardUnusedOrganization(organizationId);
+    } catch (failedDiscard) {
+      // ERROR-INTENT: held, reported below through `report`, and carried into the thrown error
+      // when there is no winner to sign in. The orphan it names is the row a data-aware demo
+      // reset refuses on, so the production composition binds a reporter (`index.ts`); a
+      // composition that binds none — every test — is choosing not to hear about it.
+      discardFailure = failedDiscard;
+    }
+    if (!discarded)
+      this.dependencies.report?.(
+        {
+          organizationId,
+          reason: message(failure),
+          ...(discardFailure ? { discardError: message(discardFailure) } : {}),
+        },
+        "auth.signup.organization_not_discarded",
+      );
+    /*
+     * The winner is looked up whether or not the discard succeeded, and that ordering matters in
+     * exactly the case the discard's own guard describes: a batch that committed and lost its
+     * response leaves a membership referencing the organization, so the delete is refused by the
+     * foreign key — and the person whose account *does* now exist would otherwise be told their
+     * sign-in failed.
+     */
+    const winner = await this.dependencies.directory.findByProviderAccount(
+      "google",
+      identity.subject,
+    );
+    if (winner) return { actor: await this.completeWorkspace(winner), provisioned: false };
+    if (discardFailure)
+      throw new ProvisioningFailedError(
+        `Signup failed (${message(failure)}) and organization ${organizationId} could not be discarded (${message(discardFailure)})`,
+      );
+    throw failure;
+  }
+
+  /**
    * Give an organizer their first event, if the previous attempt stopped before it did.
    *
    * Reached on every Google sign-in and does nothing in every ordinary case. The condition is
-   * narrow on purpose — an organization but no event role at all — so a user who simply has not
-   * been added to an event by somebody else is never handed one, and a linked speaker (no
+   * narrow on purpose — an organization but no event role at all — so a linked speaker (no
    * organization) is never provisioned anything.
    *
-   * **It adopts before it creates, and that is the whole reason this reads the organization
-   * first.** `EventService.create` writes the event row and the organizer role as two separate
-   * calls, so a failure between them leaves precisely the state this method treats as resumable:
-   * an organization, an event, and no role on it. Creating unconditionally would then hand the
-   * user a *second* "Your first event" on their next sign-in — two identical entries in the
-   * switcher, the older of which refuses `/settings` because the role it never got is what
-   * grants `events:settings:update`. Adopting converges instead: the role is granted on the
-   * event already there, and `grantOrganizer` is `INSERT OR IGNORE`, so repeating it is free.
+   * **It provisions, and it never adopts.** One condition, and both halves of it are the
+   * permission: an organization with **no events** and **no other member** is a workspace this
+   * person owns and has not been given one for. Anything else is left alone.
    *
-   * This narrows the concurrent case without closing it: two callbacks that both read an empty
-   * organization before either writes still create two events, and no route can delete the
-   * duplicate. Closing it needs uniqueness the events domain would have to declare, which is a
-   * decision for that domain rather than one to make from inside this one — **issue #164**.
+   * Each half answers a way the old "adopt the organization's first event" rule handed somebody
+   * an event that was not theirs:
+   *
+   *   - *No other member.* An organization-level invitation writes a membership and no event
+   *     role, which is exactly the state this method acts on. Provisioning into somebody else's
+   *     empty organization would make the newcomer its organizer — and `identity:manage` over it —
+   *     while stranding the owner, whose own next sign-in would then find it non-empty.
+   *   - *No events.* An organization that already holds events is somebody's working workspace.
+   *     Adopting one of them would grant `agenda:manage`, `review:manage` and
+   *     `events:settings:update` on an event nobody granted, which organization membership
+   *     deliberately does not confer — and would silently restore a role an organizer had
+   *     deliberately revoked, because "somebody revoked my only role" and "my signup stopped
+   *     early" are the same state seen from here.
+   *
+   * **Adoption still happens — one layer down, where it can be justified.** A caller that reaches
+   * `createFirstEvent` is provisioning *now*, and the events domain answers it with the event
+   * already provisioned under this person's key if a concurrent callback got there first (issue
+   * #164). So two tabs converge on one event and one role, while a member who merely holds a
+   * membership never reaches that call at all.
+   *
+   * The consequence, stated rather than hidden: a signup whose event creation failed *and* whose
+   * organization has since gained a second member or an event is not resumed here. Their
+   * membership already lets them create an event themselves, which is the affordance this method
+   * is a convenience for.
    */
   private async completeWorkspace(actor: Actor): Promise<Actor> {
     if (actor.organizations.length === 0 || actor.eventAccess.length > 0) return actor;
-    const organizationId = actor.organizations[0]?.id;
-    if (!organizationId) return actor;
-    const existing = await this.dependencies.workspace.eventsInOrganization(actor, organizationId);
-    const adopted = existing[0];
-    if (adopted) await this.dependencies.directory.grantOrganizer(adopted.id, actor.id);
-    else
-      await this.dependencies.workspace.createFirstEvent(actor, {
-        organizationId,
+    const { workspace, directory } = this.dependencies;
+    /*
+     * Every organization this actor belongs to, rather than `organizations[0]`: that index is a
+     * sort order and not a choice, so a person whose own signup stalled *and* who has since been
+     * invited elsewhere would otherwise have their workspace completed — or silently not —
+     * according to which organization id sorts first.
+     */
+    for (const { id } of actor.organizations) {
+      /*
+       * Two reads, and neither can be made atomic with the write that follows. Both directions of
+       * the window are harmless enough that no compare-and-swap is reached for.
+       *
+       * An event arriving between them almost always comes from a concurrent callback for this
+       * same person, and the provisioning key hands this caller that event rather than a second
+       * one. The exception is an event they create *by hand* through `POST /api/events` in the
+       * same window — their membership authorizes it — which would leave them holding two events,
+       * one of them named "Your first event". That is the duplicate #164 is about, at a width of
+       * milliseconds and requiring the person to be racing themselves.
+       *
+       * A second member arriving between them means somebody joined an organization that was
+       * empty when both reads ran, and this person still receives a brand-new event of their own
+       * rather than anything that already existed.
+       */
+      if ((await workspace.eventsInOrganization(actor, id)).length > 0) continue;
+      if ((await directory.countOrganizationMembers(id)) !== 1) continue;
+      // Creates, or is handed the event a concurrent callback for this same person provisioned a
+      // moment ago under their shared key. Either way the role that opens it lands in the same
+      // durable write, and granting it again here is `INSERT OR IGNORE`.
+      const first = await workspace.createFirstEvent(actor, {
+        organizationId: id,
         name: FIRST_EVENT_NAME,
         timezone: DEFAULT_TIMEZONE,
       });
-    // Re-read rather than patched in memory: the event role the creation granted is what decides
-    // every capability the session is about to be issued with, and it is D1 that holds it.
-    return (await this.dependencies.directory.findByUserId(actor.id)) ?? actor;
+      await directory.grantOrganizer(first.id, actor.id);
+      // Re-read rather than patched in memory: the event role the creation granted is what
+      // decides every capability the session is about to be issued with, and D1 holds it.
+      return (await directory.findByUserId(actor.id)) ?? actor;
+    }
+    return actor;
   }
 }

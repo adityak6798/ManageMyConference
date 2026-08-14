@@ -52,9 +52,24 @@ signature checked against the key Google publishes for the `kid`, then issuer, a
 because linking on a claimed address hands an attacker whatever memberships and event roles the
 claimed identity holds. A verified identity matching neither is provisioned an organization, a
 first event and the organizer role on it, through the events domain's own service rather than by
-writing its tables. Every refusal in the flow — unknown attempt, wrong `state`, expired, bad
-signature, unverified address — redirects to one destination and logs its reason, so the callback
-is not an oracle. The redirect targets are string literals; nothing in the request decides where the
+writing its tables — idempotently per person per organization, so two concurrent first sign-ins
+converge on one workspace rather than two (issue #164). **Completing a workspace provisions and
+never adopts**, and only into an organization that holds no events and has no other member:
+"an organization, and no event role" is also what an organization-level invitation leaves and what
+revoking somebody's only event role leaves, and granting on an existing event there would hand a
+member `agenda:manage`, `review:manage` and `events:settings:update` that nobody granted — or
+silently reverse a revocation the audit log says succeeded. Every refusal in the flow — unknown attempt, wrong
+`state`, expired, bad signature, unverified address — redirects to one destination and logs its
+reason, so the callback is not an oracle. A failure that is *ours* rather than a refusal is the one
+exception, and lands on `/signin?auth=unavailable`: an outage answers none of the checks a forged
+callback could pose, and telling somebody their sign-in did not complete when the deployment broke
+sends them to check an account that is fine.
+
+The browser presents **every** attempt it has outstanding, not one (issue #166): two tabs are two
+sign-ins in flight, and the `state` proof identifies which of them a callback belongs to. The
+cookie is still the browser-binding half of the CSRF defence — a callback presented to a browser
+holding none of those ids is refused before the provider is asked — and only the attempt a callback
+actually spends is dropped from it. The redirect targets are string literals; nothing in the request decides where the
 browser goes next.
 
 Three bindings configure the door, all three or none: `GOOGLE_CLIENT_ID` and `GOOGLE_REDIRECT_URI`
@@ -111,8 +126,9 @@ operator investigating a failed sign-in should look.
 
 ## Three rules that keep the demo population and the real one apart
 
-The deployed demo runs `DEMO_MODE=true` against one D1 database, and `GAP-019` records that the
-same database would hold real self-serve organizations if Google were configured there. The
+The deployed demo runs `DEMO_MODE=true` against one D1 database, and the same database holds real
+self-serve organizations wherever Google is configured there — `GAP-019` records how the demo
+restore now refuses rather than deleting them. The
 authorization model already isolates the two structurally — `findByPersona` pins
 `id = 'seed-' + persona`, the two cookie grammars are mutually unparseable, and every event-owned
 read goes through `requireEventCapability` against a grant on that exact event. Membership
@@ -216,5 +232,7 @@ as `demo` and gets 401 having cost the session store no read, which
 path changes — `findByPersona` still pins
 `id = seed-<persona>`, so a persona cookie resolves to one of four seeded rows and can never
 resolve to a self-serve user. That is authorization isolation between the two populations, and it
-is not deployment isolation: they share one database, and `GAP-019` records what the demo reset
-does to the self-serve half of it.
+is not deployment isolation: they share one database. What the demo reset does to the self-serve
+half of it is `GAP-019`, now closed — the restore counts the rows the seed did not create and
+refuses rather than deleting them — and one database still holding both populations is what that
+entry records as unfixed.

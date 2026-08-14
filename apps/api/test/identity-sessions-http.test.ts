@@ -171,7 +171,10 @@ describe("session revocation over HTTP", () => {
     // The Google door, on the demo deployment that is the actual risk.
     const google: GoogleAuthProvider = {
       start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a" }),
-      complete: async () => ({ actor: persona, provisioned: false }),
+      complete: async () => ({
+        spentAttemptId: "a",
+        outcome: { status: "signed-in", actor: persona, provisioned: false },
+      }),
       resolveUserActor: async () => persona,
     };
     const withGoogle = createHttpApp(events(), logger, {
@@ -205,7 +208,7 @@ describe("session revocation over HTTP", () => {
     const sessions = memorySessionStore();
     const google: GoogleAuthProvider = {
       start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a" }),
-      complete: async () => null,
+      complete: async () => ({ spentAttemptId: null, outcome: { status: "refused" } }),
       resolveUserActor: async () => null,
     };
     const app = createHttpApp(events(), logger(), {

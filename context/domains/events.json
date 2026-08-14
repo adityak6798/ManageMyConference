@@ -37,7 +37,8 @@
     "apps/web/e2e/event-templates.spec.ts",
     "apps/web/e2e/reference-slice.spec.ts",
     "apps/api/src/transport/http/routes/events.ts",
-    "apps/api/src/transport/http/event-mappers.ts"
+    "apps/api/src/transport/http/event-mappers.ts",
+    "apps/api/src/adapters/persistence/events-fixture-statements.mjs"
   ],
   "symbols": {
     "EventService": "apps/api/src/application/events/event-service.ts",

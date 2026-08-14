@@ -248,30 +248,62 @@ feature-by-feature verdict.
   — a `webServer` health probe between spec files, or a Playwright global setup that fails fast
   when the API stops answering — and the wrangler crash itself is reported upstream with the log
   from `apps/api/.wrangler/wrangler.log` and the `kj` message above.
-- `GAP-019` **The demo reset would delete real self-serve accounts, and its guard cannot tell that
-  it is about to.** `apps/api/seed/reset.sql` is a full teardown: it `DELETE`s *every* row of
-  `users`, `organizations` and `events` — not the seeded ones, all of them — before inserting the
-  fixture back, and `tools/remote-demo-reset.mjs` runs that file against the **deployed** database
-  with `wrangler d1 execute DB --remote`. That is exactly right for a database holding nothing but
-  seed data, and it is what `npm run reset:demo` is for.
+- `GAP-019` **Closed 2026-08-13. The demo reset now reads the data before it writes.**
+  `apps/api/seed/reset.sql` is still a full teardown — it `DELETE`s *every* row of `users`,
+  `organizations` and `events`, not the seeded ones, all of them, before inserting the fixture
+  back — and `tools/remote-demo-reset.mjs` still runs that file against the **deployed** database.
+  That is exactly right for a database holding nothing but seed data, and it is what
+  `npm run reset:demo` is for. What was missing was any way for the command to know that this
+  database is that database.
 
-  The guard in front of it reads the repository, not the database. `assertDemoConfig` checks that
-  `apps/api/wrangler.toml` still says `name = "project-greenroom-api"`, `ENVIRONMENT =
-  "development"` and `DEMO_MODE = "true"`, that the D1 binding names the demo database id and the
-  R2 binding the demo bucket, and the CLI additionally requires `--confirm project-greenroom-api`.
-  Every one of those is a statement about *configuration*. None of them asks the question that now
-  matters: does this database contain an organization nobody seeded?
+  It now asks. Before the first destructive statement, and after `d1 migrations apply` so the
+  tables exist on a database that has never been migrated, the command counts every
+  `organizations`, `users` and `events` row whose id the fixture does not insert, and refuses if
+  the answer is anything but zero. The seeded ids are read out of `seed/reset.sql` itself rather
+  than listed in the tool — the seed is generated, so a fragment that adds a persona must not
+  silently become "real data" — and they are matched **positively**, because a self-serve
+  organization's UUID looks exactly like a seeded one and any id *pattern* would be worse than
+  useless. `assertDemoConfig` is unchanged and still runs first; it answers a different question,
+  and both now have to be true.
 
-  Impact: the moment a deployment carries both the demo seed and real self-serve organizations,
-  the next reset destroys the real ones — silently, with a successful exit and the message
-  `Remote demo restored`. Self-serve signup (`PRD-EVT-001`, `JNY-010`) is what makes that
-  combination reachable: product-written rows already accumulated there and were already discarded
-  by every reset — `reset.sql` says so of `attendee_itineraries` and `accelevents_sync_runs` — but
-  each of those is state *about* a demo snapshot, regenerable by using the demo again. An
-  organization somebody signed up for is the first row on that database whose loss cannot be
-  undone by re-running anything. There is no backup and no export, so the loss is final; and
-  because the demo reset is the routine way to restore the deployment after a demonstration, the
-  destructive path is the well-trodden one rather than an accident.
+  **It fails closed, which is the property the whole thing rests on.** An unreachable database, a
+  query that errors, a non-zero exit from wrangler, output that does not parse, a missing column,
+  a count that is not a whole number: each refuses. There is no path from a question the guard
+  could not answer to a teardown that runs anyway.
+
+  The refusal says what it found — how many non-seeded organizations, events and users — and what
+  proceeding costs: that `seed/reset.sql` deletes those rows permanently, that there is no backup
+  and no export, and that nothing re-creates them. The override is
+  `--destroy-real-data <organizations>/<events>/<users>`, separate from `--confirm` and unable to
+  be reached without first being shown the counts it must repeat; numbers that no longer match are
+  refused, so it cannot be pasted from an earlier run. `--confirm` was not weakened to carry it.
+  `npm run reset:demo -- --confirm project-greenroom-api` is unchanged on a clean fixture, which is
+  the routine path.
+
+  Evidence: `tools/tests/remote-demo-reset.test.mjs` covers the decisions and every fail-closed
+  case; `apps/api/test/demo-reset-guard.integration.test.ts` runs the shipped query against a real
+  migrated, seeded D1 — a clean fixture counts zero and proceeds, a database carrying one
+  self-serve organization, user and event refuses — and then applies `seed/reset.sql` to that same
+  database and watches all three rows disappear, which is what the refusal is a refusal of.
+
+  **What it still does not do.** It counts three tables — the ones whose rows are a person, an
+  organization somebody signed up for, or an event they made. Everything else the reset clears is
+  state *about* a demo snapshot with **one exception worth naming rather than glossing**:
+  `attendee_itineraries` is keyed on a token hash and references only the event, so an itinerary a
+  real attendee built against the *seeded* event is destroyed with all three counts at zero. It is
+  anonymous and unrecoverable, and it is not covered. It is also a count at a moment in time, so a
+  signup completing between the check and the teardown is destroyed unannounced — the window is
+  seconds and nothing serializes it. It says nothing about *whose* rows they are. And it does not
+  make the deployment safe to run real workloads on: one D1 database still holds both populations,
+  and separating them remains the larger fix this entry chose not to take.
+
+  Two more limits on the evidence itself. **Wrangler's `--json` output has never been observed
+  here**: the parser is covered against a hand-written model of that shape, and the D1 integration
+  test re-wraps real results into the same model, so first contact with the real CLI is where the
+  parse is most likely to be wrong — the same shape of gap `GAP-020` records for Google. And
+  `d1 migrations apply` still runs *before* the check, which is what lets the count query work on a
+  database that has never been migrated; the block is additive today, and a destructive migration
+  would need that ordering revisited rather than merely noted.
 
   **Be precise about what is and is not isolated.** The *authorization* model does separate demo
   personas from self-serve organizations, and does it structurally: every event-owned read and
@@ -280,19 +312,20 @@ feature-by-feature verdict.
   cookie by pinning `id = seed-<persona>`, so a demo session is always one of four seeded rows and
   can never resolve to a self-serve user. No demo persona can read or write a self-serve
   organization's data. What does not isolate them is the **deployment lifecycle**: one D1 database
-  holds both populations, and a reset addresses the database rather than the population.
+  holds both populations, and a reset addresses the database rather than the population. That is
+  unchanged; what changed is that the reset now notices.
 
-  This is why `apps/api/wrangler.toml` deliberately leaves `GOOGLE_CLIENT_ID` and
-  `GOOGLE_REDIRECT_URI` commented out. Google sign-in is implemented and the deployed demo does not
-  offer it, precisely so that no real account can accumulate on a database whose restore procedure
-  is a full teardown. The two races that would put an unreferenced organization on that database
-  even without a completed signup are issue #164, and whichever of the two lands second has to
-  account for the first: an accumulated orphan would trip the data-aware guard below permanently.
-  Owner: platform. Governing ID: `ENG-DEV-001`. Closure: the remote reset reads
-  the data before it writes — refusing when it finds an organization, user or event the seed does
-  not name, unless an explicit flag says to destroy them — or the demo and self-serve deployments
-  become separate databases. Either one, plus a test that proves the refusal, closes this and makes
-  it safe to configure Google on the deployed demo.
+  Issue #164 is closed alongside this and had to be: both races it names — two concurrent callbacks
+  creating two first events, and a failed signup orphaning an organization — would have put a row
+  on that database that the guard above refuses on, and an orphan nothing sweeps would have made
+  every later reset refuse permanently. The organization a signup abandons is now discarded by the
+  signup itself.
+
+  `apps/api/wrangler.toml` therefore no longer states a prohibition: it states the four steps that
+  enable Google sign-in on the deployed demo. `GOOGLE_CLIENT_ID` and `GOOGLE_REDIRECT_URI` remain
+  commented out because they carry a client id this repository does not have, and
+  `GOOGLE_CLIENT_SECRET` is a Worker secret — both are operator actions carrying credentials.
+  Owner: platform. Governing ID: `ENG-DEV-001`.
 
 - `GAP-023` **Applying an event template is not atomic across domains, and a half-applied template
   is a state a person has to notice and repair.** There is no cross-domain transaction in this

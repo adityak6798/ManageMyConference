@@ -1,6 +1,6 @@
 # Competition demo runbook
 
-Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-12
+Status: canonical | Owner: quality | Governing IDs: `PRD-005`, `PLAN-002`, `ACC-DEMO-SMOKE` | Last verified: 2026-08-13
 
 ## Where it is deployed
 
@@ -51,9 +51,36 @@ Wrangler configuration to match the exact demo Worker, database ID, D1 binding, 
 resource, or disabled demo mode fails closed. Do not weaken these checks to reuse the command for
 production.
 
+**It also reads the data, not only the configuration** (`GAP-019`). `seed/reset.sql` is a full
+teardown — it deletes every row of `organizations`, `users` and `events` before reinserting the
+fixture — so after applying migrations and before deleting anything, the command counts the rows of
+those three tables whose ids the fixture does not insert, and refuses if it finds any. That is what
+makes it safe for this deployment to offer Google sign-in: a real signup is no longer erased by the
+next routine restore. The check fails closed — an unreachable database, a query that errors, output
+it cannot parse are each a refusal, never a proceed — and the command above is unchanged on a
+database holding only the fixture.
+
+If it refuses, it names what it found and what proceeding would cost. Read that before doing
+anything else: those rows are somebody's workspace, there is no backup and no export, and nothing
+re-creates them. If destroying them really is the intent, repeat the exact counts it reported:
+
+```bash
+npm run reset:demo -- --confirm project-greenroom-api --destroy-real-data <organizations>/<events>/<users>
+```
+
+The counts are part of the flag on purpose — they change as the data does, so the flag cannot be
+typed from habit or pasted from an earlier run, and it is deliberately separate from `--confirm`
+rather than folded into it.
+
 Reseeding is on demand, not scheduled: a timer could erase a visitor's work mid-demo. Run it before
 a review or after a visitor degrades the shared seed; the weekly gardening workflow remains
 read-only.
+
+One consequence to expect if Google sign-in is enabled here: from the moment somebody signs up,
+this command refuses every time until either their rows are gone or the operator names them. That
+is the guard working as intended, and it means "restore the demo" stops being a routine one-liner
+on a deployment that carries real accounts — which is the trade `GAP-019` chose deliberately over
+a restore that deletes them.
 
 ## What this demo is, and is not
 

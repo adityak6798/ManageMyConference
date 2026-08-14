@@ -95,6 +95,12 @@ const realOrganizer = async () => ({
   name: "Odele Organizer",
 });
 
+/** The attempt ids a response leaves the browser holding — `""` when it clears them. */
+const attemptCookieValue = (response: Response) => {
+  const value = (response.headers.get("set-cookie")?.match(/greenroom_oauth=([^;]*)/) ?? [])[1];
+  return value ?? "";
+};
+
 describe("events HTTP transport", () => {
   it("returns health that matches the SQL/R2 runtime contract", async () => {
     const { app } = createTestApp();
@@ -180,7 +186,7 @@ describe("events HTTP transport", () => {
         resolveActor: resolveSeededDemoActor,
         google: {
           start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a" }),
-          complete: async () => null,
+          complete: async () => ({ spentAttemptId: null, outcome: { status: "refused" } }),
           resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
         },
         sessions: googleSessions,
@@ -318,6 +324,8 @@ describe("events HTTP transport", () => {
         list: vi.fn().mockResolvedValue([]),
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
+        findByProvisioningKey: vi.fn().mockResolvedValue(null),
+        discardUnusedOrganization: vi.fn().mockResolvedValue(false),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
         listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
@@ -538,6 +546,8 @@ describe("events HTTP transport", () => {
         list: vi.fn().mockResolvedValue([]),
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
+        findByProvisioningKey: vi.fn().mockResolvedValue(null),
+        discardUnusedOrganization: vi.fn().mockResolvedValue(false),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
         listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
@@ -777,6 +787,8 @@ describe("events HTTP transport", () => {
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
+        findByProvisioningKey: vi.fn().mockResolvedValue(null),
+        discardUnusedOrganization: vi.fn().mockResolvedValue(false),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
         listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
@@ -834,6 +846,8 @@ describe("events HTTP transport", () => {
         list: vi.fn().mockRejectedValue(new Error("storage unavailable")),
         findById: vi.fn().mockResolvedValue(null),
         createOrganization: vi.fn(),
+        findByProvisioningKey: vi.fn().mockResolvedValue(null),
+        discardUnusedOrganization: vi.fn().mockResolvedValue(false),
         listIdsInOrganization: vi.fn().mockResolvedValue([]),
         listAllIdsInOrganization: vi.fn().mockResolvedValue([]),
       },
@@ -898,7 +912,7 @@ describe("events HTTP transport", () => {
       }),
       // Every refusal of the protocol reaches the transport as `null`; the browser must not be
       // able to tell which one it was.
-      complete: async () => null,
+      complete: async () => ({ spentAttemptId: null, outcome: { status: "refused" } }),
       resolveUserActor: async () => null,
     };
     const configured = createHttpApp(
@@ -956,7 +970,10 @@ describe("events HTTP transport", () => {
     const actor = await realOrganizer();
     const google = (provisioned: boolean): GoogleAuthProvider => ({
       start: async () => ({ authorizationUrl: "https://accounts.google.com/", attemptId: "a1" }),
-      complete: async () => ({ actor, provisioned }),
+      complete: async () => ({
+        spentAttemptId: "a1",
+        outcome: { status: "signed-in", actor, provisioned },
+      }),
       resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
     });
     const appFor = (provisioned: boolean) =>
@@ -1007,6 +1024,175 @@ describe("events HTTP transport", () => {
       headers: { cookie: "greenroom_oauth=a1" },
     });
     expect(returning.headers.get("location")).toBe("/");
+  });
+
+  /**
+   * Two tabs (issue #166).
+   *
+   * The provider here is the real thing's shape rather than a canned answer: it mints an attempt
+   * per start, and `complete` succeeds only for a callback whose `state` names an attempt the
+   * browser actually presented — which is exactly what `consumeOauthAttempt`'s
+   * `id IN (…) AND state_proof = ?` does. That is what makes the assertions about *which* tab is
+   * refused mean anything.
+   */
+  it("keeps every sign-in a browser started outstanding, and spends only the one that returns", async () => {
+    const actor = await realOrganizer();
+    const attempts = new Map<string, string>();
+    let minted = 0;
+    const google: GoogleAuthProvider = {
+      start: async () => {
+        minted += 1;
+        const attemptId = `attempt-${minted}`;
+        attempts.set(`state-${minted}`, attemptId);
+        return {
+          authorizationUrl: `https://accounts.google.com/?state=state-${minted}`,
+          attemptId,
+        };
+      },
+      complete: async ({ attemptIds, state }) => {
+        const attemptId = attempts.get(state);
+        if (!attemptId || !attemptIds.includes(attemptId))
+          return { spentAttemptId: null, outcome: { status: "refused" } };
+        attempts.delete(state);
+        return {
+          spentAttemptId: attemptId,
+          outcome: { status: "signed-in", actor, provisioned: false },
+        };
+      },
+      resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
+    };
+    const app = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+        google,
+        sessions: memorySessionStore(),
+      },
+      testCrm(),
+    );
+    // Two tabs, one after the other. The second start must not evict the first.
+    const first = await app.request("/api/auth/google/start");
+    const firstCookie = attemptCookieValue(first);
+    const second = await app.request("/api/auth/google/start", {
+      headers: { cookie: `greenroom_oauth=${firstCookie}` },
+    });
+    const bothCookie = attemptCookieValue(second);
+    expect(bothCookie.split("~")).toEqual(["attempt-1", "attempt-2"]);
+
+    // The *older* tab returns first — the ordering that used to refuse both. It signs in, and
+    // the newer tab's attempt survives in the cookie it leaves behind.
+    const older = await app.request("/api/auth/google/callback?code=c&state=state-1", {
+      headers: { cookie: `greenroom_oauth=${bothCookie}` },
+    });
+    expect(older.headers.get("location")).toBe("/");
+    expect(older.headers.get("set-cookie")).toContain("greenroom_session=");
+    const afterOlder = attemptCookieValue(older);
+    expect(afterOlder).toBe("attempt-2");
+
+    // And the newer tab, arriving second, is signed in rather than refused.
+    const newer = await app.request("/api/auth/google/callback?code=c&state=state-2", {
+      headers: { cookie: `greenroom_oauth=${afterOlder}` },
+    });
+    expect(newer.headers.get("location")).toBe("/");
+    expect(newer.headers.get("set-cookie")).toContain("greenroom_session=");
+    // Nothing is left outstanding once both have returned.
+    expect(newer.headers.get("set-cookie")).toContain("greenroom_oauth=;");
+  });
+
+  it("refuses a callback in a browser that started nothing, and leaves other tabs alone", async () => {
+    const actor = await realOrganizer();
+    const complete = vi.fn(async () => ({
+      spentAttemptId: null,
+      outcome: { status: "refused" as const },
+    }));
+    const app = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+        google: {
+          start: async () => ({
+            authorizationUrl: "https://accounts.google.com/",
+            attemptId: "a1",
+          }),
+          complete,
+          resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
+        },
+        sessions: memorySessionStore(),
+      },
+      testCrm(),
+    );
+
+    // The browser-binding half of the CSRF defence: no cookie, no completion, and the provider
+    // is never even asked — a forged callback cannot cost a token exchange.
+    const stranger = await app.request("/api/auth/google/callback?code=c&state=whatever");
+    expect(stranger.headers.get("location")).toBe("/signin?auth=failed");
+    expect(stranger.headers.get("set-cookie") ?? "").not.toContain("greenroom_session=");
+    expect(complete).not.toHaveBeenCalled();
+
+    // A refused callback in a browser that *does* hold attempts spends none of them: the two
+    // this browser started are still outstanding afterwards, which is what stops one tab's
+    // failure from breaking the other's sign-in.
+    const refused = await app.request("/api/auth/google/callback?code=c&state=forged", {
+      headers: { cookie: "greenroom_oauth=attempt-1~attempt-2" },
+    });
+    expect(refused.headers.get("location")).toBe("/signin?auth=failed");
+    expect(attemptCookieValue(refused)).toBe("attempt-1~attempt-2");
+  });
+
+  it("tells the person the deployment broke rather than blaming their sign-in", async () => {
+    const actor = await realOrganizer();
+    const app = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+        google: {
+          start: async () => ({
+            authorizationUrl: "https://accounts.google.com/",
+            attemptId: "a1",
+          }),
+          // D1 unavailable, Google answering 5xx, provisioning failing part-way: the attempt is
+          // spent, and the fault is ours (issue #164).
+          complete: async () => ({
+            spentAttemptId: "a1",
+            outcome: { status: "unavailable" as const },
+          }),
+          resolveUserActor: async (userId) => (userId === actor.id ? actor : null),
+        },
+        sessions: memorySessionStore(),
+      },
+      testCrm(),
+    );
+
+    const broken = await app.request("/api/auth/google/callback?code=c&state=s", {
+      headers: { cookie: "greenroom_oauth=a1~a2" },
+    });
+    expect(broken.headers.get("location")).toBe("/signin?auth=unavailable");
+    // The spent attempt is dropped even though the sign-in failed; the other tab's is not.
+    expect(attemptCookieValue(broken)).toBe("a2");
   });
 
   it("clears the session cookie on sign-out, whether or not one was presented", async () => {

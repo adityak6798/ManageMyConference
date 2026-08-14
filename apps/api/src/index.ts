@@ -22,7 +22,10 @@ import { D1ContentRepository } from "./adapters/persistence/d1-content-repositor
 import { D1CrmRepository } from "./adapters/persistence/d1-crm-repository";
 import { type D1DatabasePort, D1EventRepository } from "./adapters/persistence/d1-event-repository";
 import { D1EventTemplateRepository } from "./adapters/persistence/d1-event-template-repository";
-import { D1IdentityDirectory } from "./adapters/persistence/d1-identity-directory";
+import {
+  D1IdentityDirectory,
+  preparedOrganizerGrant,
+} from "./adapters/persistence/d1-identity-directory";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
@@ -590,10 +593,12 @@ export default {
     // secret, the same rule `GoogleAuthProvider` follows.
     const sessions = new D1SessionStore(environment.DB);
     const service = new EventService({
-      repository: new D1EventRepository(environment.DB),
+      // The organizer grant travels with the event row rather than after it: identity-access
+      // owns `event_roles`, so the events adapter is handed the statement writer and never the
+      // table (issue #164). Bound here because this is the only composition that creates events.
+      repository: new D1EventRepository(environment.DB, preparedOrganizerGrant),
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
-      grantOrganizer: (eventId, userId) => identityDirectory.grantOrganizer(eventId, userId),
     });
     const contentRepository = new D1ContentRepository(environment.DB);
     const publicationRepository = new D1PublicationRepository(environment.DB);
@@ -782,10 +787,16 @@ export default {
             workspace: {
               provisionOrganization: (command) => service.provisionOrganization(command),
               // The ordinary authorized creation path, reached with the actor the membership
-              // written a moment earlier has just made an organizer. Nothing here bypasses
-              // `EventService.create`'s own capability and membership checks, which is the point:
-              // a first event is created exactly as every later one is.
-              createFirstEvent: (actor, command) => service.create(actor, command),
+              // written a moment earlier has just made an organizer. Nothing here bypasses the
+              // events domain's own capability and membership checks, which is the point: a first
+              // event is created exactly as every later one is — with one difference the events
+              // domain owns, its provisioning key, so a second concurrent callback adopts this
+              // event instead of creating another (issue #164).
+              createFirstEvent: (actor, command) => service.provisionFirstEvent(actor, command),
+              // The counterweight to `provisionOrganization`: an organization this signup created
+              // and could not use is removed rather than left for a data-aware reset to refuse on.
+              discardUnusedOrganization: (organizationId) =>
+                service.discardUnusedOrganization(organizationId),
               // Scoped by the actor's own memberships, so this reads the organization it has
               // just been made a member of and nothing else.
               eventsInOrganization: async (actor, organizationId) =>
@@ -795,6 +806,9 @@ export default {
             },
             newId: () => crypto.randomUUID(),
             now: () => Date.now(),
+            // An orphaned organization is invisible to the product and refuses every later demo
+            // restore (`GAP-019`), so the one case that leaves one behind says so.
+            report: (fields, event) => logger.error(fields, event),
           });
           return {
             async start(now) {
@@ -805,28 +819,67 @@ export default {
                 attemptId: started.attempt.id,
               };
             },
-            async complete({ attemptId, state, code, now, correlationId }) {
+            async complete({ attemptIds, state, code, now, correlationId }) {
+              let spentAttemptId: string | null = null;
               try {
-                // The attempt is spent before the code is exchanged. A callback that fails
-                // verification has still consumed its one use, so a stolen `state` cannot be
-                // retried against a different code.
+                /*
+                 * The attempt is spent before the code is exchanged. A callback that fails
+                 * verification has still consumed its one use, so a stolen `state` cannot be
+                 * retried against a different code.
+                 *
+                 * Every id the browser presented goes in, and the `state` proof picks exactly one
+                 * of them (issue #166): a person with two tabs open has two attempts in flight,
+                 * and which one returns first is not something either tab controls. The proof is
+                 * still what identifies the attempt, so widening the id set widens nothing about
+                 * what a caller can complete — an id the browser never held is not in the list,
+                 * and an id it held with a `state` it cannot produce still matches nothing.
+                 */
                 const spent = await identityDirectory.consumeOauthAttempt(
-                  attemptId,
+                  attemptIds,
                   await stateProof(state, sessionSecret),
                   now,
                 );
                 if (!spent) {
+                  /*
+                   * One statement decided this, and no second one investigates it.
+                   *
+                   * Issue #166 asked for a superseded attempt to be distinguishable in the log
+                   * from a `state` mismatch. A start now appends to the browser's set rather than
+                   * replacing it, so the ordinary supersession that issue described — a second
+                   * tab evicting the first — is gone. What remains of it is the cap: a browser
+                   * that starts more than `MAX_OUTSTANDING_ATTEMPTS` sign-ins drops its oldest id
+                   * from the cookie while that attempt is still live in D1, and a callback for it
+                   * then refuses here indistinguishably from a forged `state`. `presented` is
+                   * logged as a hint rather than a discriminator — it is neither necessary nor
+                   * sufficient for that case — and the row itself expires ten minutes after it
+                   * was minted (`ATTEMPT_LIFETIME_MS`), so the state is bounded rather than
+                   * durable.
+                   *
+                   * Narrowing it further would take a second query, which would double the D1
+                   * cost of the cheapest unauthenticated request in the deployment, since a
+                   * caller can present a cookie of their own making — and would answer, to
+                   * whoever asked, whether the `state` they sent was live.
+                   */
                   logger.warn(
-                    { correlationId, reason: "attempt_not_current" },
+                    { correlationId, reason: "attempt_not_current", presented: attemptIds.length },
                     "auth.google.refused",
                   );
-                  return null;
+                  return { spentAttemptId: null, outcome: { status: "refused" } };
                 }
+                spentAttemptId = spent.id;
                 const identity = await completeGoogleAuthorization(
                   { code, attempt: spent, configuration, now },
                   { exchange: client.exchange, keys: client.keys },
                 );
-                return await signup.signInWithGoogle(identity);
+                const session = await signup.signInWithGoogle(identity);
+                return {
+                  spentAttemptId,
+                  outcome: {
+                    status: "signed-in",
+                    actor: session.actor,
+                    provisioned: session.provisioned,
+                  },
+                };
               } catch (error) {
                 /*
                  * ERROR-INTENT: the browser is told the same thing whichever of these happened —
@@ -839,7 +892,10 @@ export default {
                  * answering 5xx, the key fetch timing out, provisioning failing part-way — and is
                  * logged at error with the request's correlation id, so a person reporting "I
                  * cannot sign in" can be found in the log and an alert can fire on sign-in being
-                 * down rather than on sign-ins being refused.
+                 * down rather than on sign-ins being refused. The same split now reaches the
+                 * person: an operational failure sends them to `/signin?auth=unavailable`, which
+                 * says the deployment broke rather than telling them to check their account
+                 * (issue #164).
                  *
                  * `consumeOauthAttempt` is inside this try for a second reason: it is a D1 write,
                  * and a throw escaping here reached the transport's error boundary and answered a
@@ -857,7 +913,10 @@ export default {
                 };
                 if (operational) logger.error(fields, "auth.google.failed");
                 else logger.warn(fields, "auth.google.refused");
-                return null;
+                return {
+                  spentAttemptId,
+                  outcome: { status: operational ? "unavailable" : "refused" },
+                };
               }
             },
             resolveUserActor: (userId: string) => identityDirectory.findByUserId(userId),

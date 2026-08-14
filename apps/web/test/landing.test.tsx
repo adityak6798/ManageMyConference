@@ -149,6 +149,26 @@ describe("the landing surfaces", () => {
   });
 
   /**
+   * The one outcome the callback does distinguish, because the fault is ours (issue #164).
+   *
+   * "That sign-in did not complete" sends somebody to check an account that is fine when what
+   * actually happened is D1 being down or provisioning failing part-way. It still names no
+   * check, so it hands a forged callback nothing: an outage is not the answer to any of them.
+   */
+  it("says the deployment broke rather than blaming a sign-in that was fine", async () => {
+    window.history.replaceState(null, "", "/signin?auth=unavailable");
+    stubDeployment({ demoMode: false, google: true });
+    render(<LandingRoot bootstrap={probeIdentity()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("our side rather than yours");
+    expect(alert).not.toHaveTextContent("That sign-in did not complete");
+    for (const leak of ["state", "expired", "signature", "verified", "attempt"])
+      expect(alert.textContent?.toLowerCase()).not.toContain(leak);
+    expect(screen.getByRole("link", { name: "Continue with Google" })).toBeInTheDocument();
+  });
+
+  /**
    * The version-skew case, which is the one a `status === 404` guard alone misses.
    *
    * A frontend and its API do not roll atomically — `VITE_API_BASE_URL` allows them to be hosted

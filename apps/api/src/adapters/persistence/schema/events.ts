@@ -32,10 +32,21 @@ export function defineEventsSchema() {
       name: text("name").notNull(),
       timezone: text("timezone").notNull(),
       createdAt: text("created_at").notNull(),
+      /**
+       * What provisioned this event, for the one kind of event nobody asked for by name.
+       *
+       * Null on every event an organizer created. Set only by the events domain's own
+       * provisioning paths, where a second concurrent writer must lose rather than create a
+       * duplicate (issue #164).
+       */
+      provisioningKey: text("provisioning_key"),
     },
     (table) => [
       check("events_name_length", sql`length(${table.name}) BETWEEN 1 AND 120`),
       index("events_organization_id_idx").on(table.organizationId),
+      uniqueIndex("events_provisioning_key_idx")
+        .on(table.organizationId, table.provisioningKey)
+        .where(sql`${table.provisioningKey} IS NOT NULL`),
     ],
   );
 
