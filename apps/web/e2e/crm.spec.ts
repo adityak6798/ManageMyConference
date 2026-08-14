@@ -523,8 +523,14 @@ test("an organizer moves a card on the board by pointer and by keyboard", async 
   // all, the exact failure #145 shipped.
   const target = page.locator(".pipeline-column").filter({ hasText: "Invited" }).first();
   const dragged = page.locator(".pipeline-card").filter({ hasText: name }).first();
-  const from = await dragged.boundingBox();
+  // The columns live in a horizontal scroller, so the destination has to be brought on screen
+  // *before* the source box is measured — scrolling afterwards moves the card out from under
+  // the pointer, which is why this passed alone and failed in the full suite, where earlier
+  // journeys leave the board wider.
+  await target.scrollIntoViewIfNeeded();
+  await dragged.scrollIntoViewIfNeeded();
   const to = await target.boundingBox();
+  const from = await dragged.boundingBox();
   await page.mouse.move((from?.x ?? 0) + 20, (from?.y ?? 0) + 20);
   await page.mouse.down();
   await page.mouse.move((to?.x ?? 0) + 60, (to?.y ?? 0) + 60, { steps: 20 });
