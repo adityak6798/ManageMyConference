@@ -26,6 +26,16 @@ const destination = new URL("../apps/api/.dev.vars", import.meta.url);
  * docs/engineering/local-development.md#google-sign-in-configuration.
  */
 const GOOGLE_BINDINGS = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"];
+/**
+ * Deployed webhook configuration is all-or-none. Blank local overrides keep the checked-in
+ * endpoint/version from half-applying without the two production secrets.
+ */
+const WEBHOOK_BINDINGS = [
+  "WEBHOOK_EGRESS_ENDPOINT",
+  "WEBHOOK_EGRESS_TOKEN",
+  "WEBHOOK_WRAPPING_KEY_VERSION",
+  "WEBHOOK_WRAPPING_KEYS",
+];
 
 /** The keys a `.dev.vars` file already declares, whatever their values. */
 export function declaredKeys(text) {
@@ -58,24 +68,40 @@ export function withGoogleBindings(text) {
   };
 }
 
+export function withWebhookBindings(text) {
+  const declared = declaredKeys(text);
+  const missing = WEBHOOK_BINDINGS.filter((name) => !declared.has(name));
+  if (missing.length === 0) return { text, added: [] };
+  const separator = text === "" || text.endsWith("\n") ? "" : "\n";
+  return {
+    text: `${text}${separator}${WEBHOOK_BINDINGS.map((name) => `${name}=`).join("\n")}\n`,
+    added: WEBHOOK_BINDINGS,
+  };
+}
+
 if (!existsSync(destination)) {
   const secret = randomBytes(32).toString("hex");
   writeFileSync(
     destination,
-    `ENVIRONMENT=development\nDEMO_MODE=true\nSESSION_SECRET=${secret}\n${GOOGLE_BINDINGS.map(
-      (name) => `${name}=`,
-    ).join("\n")}\n`,
+    `ENVIRONMENT=development\nDEMO_MODE=true\nSESSION_SECRET=${secret}\n${[
+      ...GOOGLE_BINDINGS,
+      ...WEBHOOK_BINDINGS,
+    ]
+      .map((name) => `${name}=`)
+      .join("\n")}\n`,
     { encoding: "utf8", mode: 0o600 },
   );
   process.stdout.write("Created ignored apps/api/.dev.vars with a random local session key.\n");
 } else {
   const existing = readFileSync(destination, "utf8");
-  const { text, added } = withGoogleBindings(existing);
+  const google = withGoogleBindings(existing);
+  const webhook = withWebhookBindings(google.text);
+  const added = [...google.added, ...webhook.added];
   if (added.length > 0) {
-    writeFileSync(destination, text, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(destination, webhook.text, { encoding: "utf8", mode: 0o600 });
     process.stdout.write(
       `Using existing ignored apps/api/.dev.vars, with ${added.join(", ")} added blank so the ` +
-        "deployed Google configuration does not half-apply locally.\n",
+        "deployed provider configuration does not half-apply locally.\n",
     );
   } else {
     process.stdout.write("Using existing ignored apps/api/.dev.vars.\n");

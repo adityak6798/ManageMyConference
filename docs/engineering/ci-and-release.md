@@ -74,11 +74,23 @@ All six jobs are *intended* required branch-protection checks and none of them i
 The `deploy` job is a release action, not another gate. It runs only for a push to `main`, declares
 all six gate jobs in `needs`, and runs `npm run deploy` only after they succeed. That command first
 applies every pending remote D1 migration and stops on failure; only then does it build the web
-artifact and upload the Worker. Code that expects a new table therefore cannot deploy over a
-database whose migration failed. D1 captures a backup and rolls back a failing migration, while
-already-completed earlier migrations remain valid deployed history. The job reads
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from GitHub repository secrets; neither value
-belongs in source, workflow literals, artifacts, or logs. `tools/check-gate-drift.mjs` recognizes
+artifact, build/push/roll out the trusted-webhook-egress Container Worker, and upload the API Worker.
+Code that expects a new table therefore cannot deploy over a database whose migration failed, and
+the API cannot activate a trusted-egress endpoint before that service exists. D1 captures a backup
+and rolls back a failing migration, while already-completed earlier migrations remain valid deployed
+history.
+
+The job reads `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `WEBHOOK_EGRESS_TOKEN`, and
+`WEBHOOK_WRAPPING_KEYS` from GitHub repository secrets; `WEBHOOK_EGRESS_TOKEN_PREVIOUS` is present
+only during rotation. None belongs in source, workflow literals, artifacts, or logs.
+`tools/deploy.mjs` validates them before changing remote state and passes the Worker-specific values
+to Wrangler through mode-`0600` temporary secret files that are removed on success or failure.
+Before the image deploy, `wrangler secret bulk` atomically reconciles egress bearers because deploys
+retain omitted/null secrets; that explicit operation makes previous-bearer revocation real. The API
+secrets upload alongside code and vars rather than temporarily creating the API's deliberately
+refused partial configuration. The Ubuntu runner supplies Docker;
+the developer machine does not. A Container image-push 403 means the CI token needs operator scope
+repair and is never worked around with a second registry. `tools/check-gate-drift.mjs` recognizes
 this one non-gate job and enforces its branch condition, complete dependency list, and sole command.
 
 Main deploy jobs share one non-cancelling concurrency group. After a queued job acquires that lock,

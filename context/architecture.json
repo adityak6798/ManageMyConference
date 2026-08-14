@@ -216,6 +216,7 @@
       "application": ["apps/api/src/application"],
       "adapters": ["apps/api/src/adapters"],
       "transport": ["apps/api/src/transport"],
+      "egress": ["apps/webhook-egress/src"],
       "ui": ["apps/web/src"],
       "contracts": ["packages/contracts/src"]
     },
@@ -225,7 +226,8 @@
       "adapters": ["domain", "application", "adapters"],
       "transport": ["domain", "application", "transport"],
       "ui": ["ui", "contracts"],
-      "contracts": ["contracts"]
+      "contracts": ["contracts"],
+      "egress": ["egress"]
     },
     "externalPackagesByLayer": {
       "domain": [],
@@ -239,7 +241,20 @@
       ],
       "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
       "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
-      "contracts": ["zod"]
+      "contracts": ["zod"],
+      "egress": [
+        "@cloudflare/containers",
+        "cloudflare:workers",
+        "node:crypto",
+        "node:dns",
+        "node:dns/promises",
+        "node:http",
+        "node:https",
+        "node:net",
+        "node:stream",
+        "node:stream/web",
+        "node:url"
+      ]
     },
     "resources": [
       {

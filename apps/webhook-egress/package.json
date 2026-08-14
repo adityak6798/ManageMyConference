@@ -1,0 +1,25 @@
+{
+  "name": "@greenroom/webhook-egress",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "deploy": "wrangler deploy --containers-rollout immediate",
+    "predeploy": "npm run build",
+    "secrets:reconcile": "wrangler secret bulk",
+    "test": "vitest run --coverage --coverage.reporter=text --coverage.include='src/**'",
+    "types": "wrangler types worker-configuration.d.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.123.0"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  }
+}

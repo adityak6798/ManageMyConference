@@ -11,6 +11,7 @@
       "!**/playwright-report",
       "!**/test-results",
       "!**/openapi.json",
+      "!apps/webhook-egress/worker-configuration.d.ts",
       "!context-manifest.json",
       "!prototype.html",
       "!.claude/worktrees"
