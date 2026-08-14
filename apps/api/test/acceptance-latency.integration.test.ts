@@ -387,7 +387,7 @@ describe("the cost of confirming a speaker acceptance", () => {
  * change this issue found: a serialized read added to the busiest write in the product.
  *
  * **How to reproduce the "before" column**, because this harness postdates the change it measures
- * and the numbers would otherwise rest on one person's word: check out the four source files the
+ * and the numbers would otherwise rest on one person's word: check out the five source files the
  * fix touched at the base commit — `d1-content-repository.ts`, `content-repository.ts`,
  * `content-service.ts`, `memory-content-repository.ts` and `index.ts` — point this test's
  * `acceptSession` calls at `accept`, drop the `organizationOf` memo from the fixture below so it

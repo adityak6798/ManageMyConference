@@ -225,15 +225,17 @@ export class D1ContentRepository
    * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
    * row" from "no visible difference" rather than refusing an edit that changed nothing.
    *
-   * **Every writer whose caller can report success to a person reads the count** (issue #202, the
-   * second filing of the same divergence). That is the rule. Two earlier drafts of this comment
-   * stated it more broadly — "every conditional writer", then "every writer that addresses one
-   * row by id" — and review found each false, the second contradicted by its own list. So the
-   * list below is the whole file, by category, and it is meant to be checked rather than trusted.
+   * **There is no one-line rule for which writers come through here, and three attempts at
+   * writing one were each wrong** (issue #202, the second filing of the same divergence).
+   * "Every conditional writer", "every writer that addresses one row by id" and "every writer
+   * whose caller reports success to a person" were all published in this comment and all refuted
+   * by review — the last two by the very list below them. So what follows is the file, by
+   * category, with the reason each is where it is. It is meant to be checked, not summarised.
    *
    * - **Reads the count and answers with it**: `updateProfilePhoto`, `updateProfileWorkflow`,
    *   `updateTask`, `updateAsset`, `updateResource`, `updateTaskTemplate`, `completeSpeakerImport`.
-   *   Each has a caller that reports success to a person, which is the criterion.
+   *   Each is a single guarded `UPDATE` whose caller read the row first and then tells somebody
+   *   it saved. That combination is what the count is for.
    * - **Reads the count and deliberately discards it**: `deleteSession`, `deleteResource`,
    *   `deleteTaskTemplate`. A row already gone is the outcome the caller asked for, so zero is
    *   not a failure — but a driver that cannot report a count still is, which is the half worth
@@ -246,11 +248,14 @@ export class D1ContentRepository
    * - **The batch paths, which read only `success`**: `accept` and `addTasks` are inserts.
    *   `deleteAsset` carries a conditional promotion whose `WHERE id=(SELECT … LIMIT 1)` matches
    *   nothing when there is no earlier version to promote, which is an ordinary state.
-   *   `replaceLatestAsset` is the one whose zero would mean something — `WHERE id=?` against the
-   *   version it means to demote — and it is left because the insert beside it in the same batch
-   *   carries `is_latest`, so a demotion that matched nothing produces two rows claiming to be
-   *   latest rather than a silent loss, and `findAsset`'s `ORDER BY version_number DESC` still
-   *   answers the newer one. Narrower than the writers above, and named rather than swept in.
+   *   `replaceLatestAsset` is the interesting one: its demotion is `WHERE id=?` against the
+   *   version it means to replace, and a zero there would be a lost write. It is left without a
+   *   count because **storage refuses the batch instead** — `speaker_assets_latest_unique`
+   *   (migration `1403`) is a partial unique index over `version_group_id WHERE is_latest=1`, so
+   *   an insert that lands beside a row the demotion failed to clear violates it and the whole
+   *   batch throws. A constraint that makes the loss loud is a stronger guard than a count this
+   *   method would have to interpret, which is why this is a deliberate exception rather than an
+   *   oversight — and why loosening that index would mean revisiting this line.
    *   (The private `batch()` used by `revise` is separate: it reports each statement's count.)
    * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
    *   no production caller to mislead — stated here and in `content-repository.ts`.

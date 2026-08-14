@@ -142,7 +142,11 @@ export function recordRoundTrips<T extends Database>(
   };
   const proxy = new Proxy(database as object, {
     get: (target, property, receiver) => {
-      if (property in overrides) return overrides[property as string];
+      // `Object.hasOwn` rather than `in`: `in` walks `Object.prototype`, so `toString`,
+      // `valueOf`, `constructor` and `hasOwnProperty` would all resolve out of this literal
+      // instead of the handle — the same silent shadowing the spread this replaced was guilty
+      // of, at smaller radius.
+      if (Object.hasOwn(overrides, property)) return overrides[property as string];
       const value = Reflect.get(target, property, receiver);
       return typeof value === "function" ? value.bind(target) : value;
     },

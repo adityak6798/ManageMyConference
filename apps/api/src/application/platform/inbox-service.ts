@@ -143,7 +143,7 @@ export class PlatformInboxService {
    * Everything waiting on this event, as this actor.
    *
    * The dismissal read happens once and is shared by every category, because a dismissal is
-   * keyed by item rather than by source and asking five times would be five reads of one row set.
+   * keyed by item rather than by source and asking six times would be six reads of one row set.
    */
   async inbox(actor: Actor | null, eventId: string): Promise<PlatformInboxAnswer> {
     const authorized = requireEventCapability(actor, eventId, "events:read");

@@ -1119,9 +1119,12 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
 
     await service.accept(organizer, command, correlationId);
 
-    expect(order).toEqual([
-      "accepted",
-      "accepted:done",
+    // The invitation's chain completes before either task notice starts. Asserted as a boundary
+    // rather than as an exact array, because `acceptSession` says outright that nothing orders
+    // the two task notices against each other — pinning them here would refuse a change the
+    // design calls meaningless, and fail pointing at acceptance ordering.
+    expect(order.slice(0, 2)).toEqual(["accepted", "accepted:done"]);
+    expect(order.slice(2).toSorted()).toEqual([
       "task:Complete your speaker profile",
       "task:Upload a headshot",
     ]);

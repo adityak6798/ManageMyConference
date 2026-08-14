@@ -300,7 +300,11 @@ describe("D1CfpRepository", () => {
       new D1SubmittedProposalAdapter(withCounts([0, 1])).transitionAtomically(
         transition({ eventId, proposalIds: [proposalId] }),
       ),
-    ).rejects.toThrow(/matched no submission/);
+      // The whole message, not only the half that survived the repair: it tells an operator this
+      // needs checking rather than retrying, and a revert to "retry to converge" — guidance that
+      // cannot work, because the retry refuses before reaching the write — would pass an
+      // assertion on the first clause alone.
+    ).rejects.toThrow(/matched no submission[\s\S]*needs checking rather than retrying/);
 
     // And the update itself.
     await expect(

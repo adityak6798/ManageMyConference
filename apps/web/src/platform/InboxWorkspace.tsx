@@ -8,7 +8,7 @@
  * **A failed category must not blank the page.** Each category keeps the last value it was given
  * across a failed refresh and reports the failure beside it, following the `Panel<T>` shape
  * `OverviewPage` uses — a dashboard that goes blank because one of six reads failed is worse
- * than no dashboard, because it hides the four that worked.
+ * than no dashboard, because it hides the five that worked.
  *
  * **A dismissal is optimistic but never a lie.** Pressing Dismiss marks the row immediately and
  * reloads; if the write is refused, the reload puts the row back open and the refusal is shown.
