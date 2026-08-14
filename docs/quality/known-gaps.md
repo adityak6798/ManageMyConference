@@ -177,6 +177,12 @@ feature-by-feature verdict.
   sightings are recorded in the [wave coordination ledger](../exec-plans/competition-waves.md),
   where they were observed: the ephemeral-port measurement of 2026-08-12, and a second crash on
   2026-08-13 carrying the same `Broken pipe` message as the one below. In that
+  A fourth hosted sighting on 2026-08-14, in the `browser` job of run `31803323240` (issue #190's
+  branch): `reference-slice.spec.ts` failed with `apiRequestContext.get: socket hang up` and the
+  runtime printed the same `Broken pipe` line dozens of times. One test failed rather than 22, and
+  the same commit's suite had passed locally three times immediately before and passed again after,
+  so this one degraded rather than collapsed — worth recording because it shows the crash is not
+  always all-or-nothing, and a single red spec is the harder shape to attribute. In that
   second case every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
