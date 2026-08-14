@@ -260,9 +260,11 @@ WHERE prospect_id IN (
 -- prospects that name a stage.
 DELETE FROM crm_prospect_transitions
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM crm_prospects
 WHERE event_id IN (
@@ -274,9 +276,11 @@ WHERE event_id IN (
 );
 DELETE FROM crm_pipeline_stages
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 -- Every content table is event-scoped, so every statement here resolves the same set — the events
