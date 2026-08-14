@@ -41,7 +41,7 @@
  * @spec PRD-IAM-001 PRD-EVT-001
  */
 import type { Actor } from "./actor";
-import type { GoogleIdentity } from "./google-oauth";
+import type { GoogleIdentity, WorkspaceIntent } from "./google-oauth";
 
 /**
  * The default timezone of a workspace nobody has configured yet.
@@ -84,6 +84,14 @@ export interface SignupDirectory {
   /** `INSERT OR IGNORE`, so a role a concurrent callback already granted is safe to repeat. */
   grantOrganizer(eventId: string, userId: string): Promise<void>;
   /**
+   * Make an existing account an organizer of an organization.
+   *
+   * Only `completeWorkspace` calls it, and only for an account that holds no organization at all
+   * — a submitter-door identity signing in through the organizer door. `INSERT OR IGNORE`, so two
+   * tabs converge.
+   */
+  joinOrganization(organizationId: string, userId: string): Promise<void>;
+  /**
    * How many people belong to this organization.
    *
    * The half of "is this workspace mine" that the events domain cannot answer, because
@@ -104,7 +112,17 @@ export interface SignupDirectory {
     provider: "google";
     subject: string;
     linkedAt: number;
-    organizationId: string;
+    /**
+     * The organization this account is a member of, or `null` for an account that is not being
+     * given one.
+     *
+     * Null is the submitter door (see `signInWithGoogle`): the batch then writes a user, an
+     * address and a provider link and **no membership**, which is a complete, usable identity —
+     * it can hold proposals, receive their confirmations and read their decisions — that simply
+     * belongs to no conference. Every other caller passes an id, and the batch is atomic either
+     * way, because an account that can sign in and has half its rows is a dead end.
+     */
+    organizationId: string | null;
   }): Promise<void>;
 }
 
@@ -179,15 +197,40 @@ export interface SignInOutcome {
 export class SignupService {
   constructor(private readonly dependencies: SignupDependencies) {}
 
-  async signInWithGoogle(identity: GoogleIdentity): Promise<SignInOutcome> {
+  /**
+   * `intent` decides whether a first-time identity is given a conference to run.
+   *
+   * Outcome 3 provisioned an organization and a "Your first event" for **every** unrecognized
+   * Google account, which is right for somebody who pressed the button on `/signin` and wrong for
+   * a CFP submitter who pressed it on a public call page to keep track of a talk proposal. They
+   * came for a proposal and were handed a conference workspace named after themselves, with an
+   * empty event in it. Recorded as a residual of `GAP-027` and owned by nobody until this lane.
+   *
+   * The context travels on the attempt row rather than on the callback URL or a cookie — see
+   * migration `1005` — and it only ever *withholds*, so it is not an authorization decision.
+   *
+   * **A submitter is not stranded by this.** `completeWorkspace` provisions for an account that
+   * holds no organization and no event role whenever a sign-in asks for one, so the same person
+   * signing in later through the organizer door gets the workspace then. The decision is about
+   * this sign-in, not a permanent mark on the account.
+   */
+  async signInWithGoogle(
+    identity: GoogleIdentity,
+    intent: WorkspaceIntent = "organizer",
+  ): Promise<SignInOutcome> {
     if (!identity.emailVerified)
       throw new UnverifiedProviderEmailError(
         "Google reports this address as unverified, so it cannot be linked to an account",
       );
     const { directory } = this.dependencies;
+    const wantsWorkspace = intent !== "submitter";
 
     const linked = await directory.findByProviderAccount("google", identity.subject);
-    if (linked) return { actor: await this.completeWorkspace(linked), provisioned: false };
+    if (linked)
+      return {
+        actor: wantsWorkspace ? await this.completeWorkspace(linked) : linked,
+        provisioned: false,
+      };
 
     const byAddress = await directory.findByEmail(identity.email);
     if (byAddress) {
@@ -205,9 +248,17 @@ export class SignupService {
       };
     }
 
-    const organization = await this.dependencies.workspace.provisionOrganization({
-      name: organizationNameFor(identity.name),
-    });
+    /*
+     * The organization is created *before* the identity batch that references it, so that a
+     * failed batch can discard it (issue #164) — and a submitter creates no organization at all,
+     * so there is nothing to discard and `recoverFromFailedIdentity` is not reached. That is why
+     * the two paths are told apart here rather than inside the batch.
+     */
+    const organization = wantsWorkspace
+      ? await this.dependencies.workspace.provisionOrganization({
+          name: organizationNameFor(identity.name),
+        })
+      : null;
     const userId = this.dependencies.newId();
     try {
       await directory.createSelfServeIdentity({
@@ -217,19 +268,29 @@ export class SignupService {
         provider: "google",
         subject: identity.subject,
         linkedAt: this.dependencies.now(),
-        organizationId: organization.id,
+        organizationId: organization?.id ?? null,
       });
     } catch (failure) {
       // ERROR-INTENT: not suppressed — `recoverFromFailedIdentity` is handed this failure and
       // either rethrows it, or signs the caller in as the racer that won and reports why the
       // organization it just created was discarded. Nothing here decides that a failure was
-      // harmless.
-      return await this.recoverFromFailedIdentity(identity, organization.id, failure);
+      // harmless. With no organization to discard there is nothing to recover *from*, and the
+      // winner lookup is still owed to a racer whose account now exists, so the same method runs
+      // with a null organization.
+      return await this.recoverFromFailedIdentity(
+        identity,
+        organization?.id ?? null,
+        failure,
+        wantsWorkspace,
+      );
     }
     const actor = await directory.findByUserId(userId);
     if (!actor)
       throw new ProvisioningFailedError("The account was written but could not be read back");
-    return { actor: await this.completeWorkspace(actor), provisioned: true };
+    return {
+      actor: wantsWorkspace ? await this.completeWorkspace(actor) : actor,
+      provisioned: true,
+    };
   }
 
   /**
@@ -251,15 +312,20 @@ export class SignupService {
    */
   private async recoverFromFailedIdentity(
     identity: GoogleIdentity,
-    organizationId: string,
+    organizationId: string | null,
     failure: unknown,
+    /** Carried through so the racer that wins is completed on the terms *this* sign-in asked for. */
+    wantsWorkspace: boolean,
   ): Promise<SignInOutcome> {
     let discardFailure: unknown;
-    let discarded = false;
+    // Nothing was created, so nothing is orphaned: a submitter sign-in leaves no organization
+    // behind and takes the winner lookup below without a discard.
+    let discarded = organizationId === null;
     try {
       // The count is load-bearing rather than decorative: `false` means the orphan is still
       // there, and nothing else in this repository will ever remove it.
-      discarded = await this.dependencies.workspace.discardUnusedOrganization(organizationId);
+      if (organizationId !== null)
+        discarded = await this.dependencies.workspace.discardUnusedOrganization(organizationId);
     } catch (failedDiscard) {
       // ERROR-INTENT: held, reported below through `report`, and carried into the thrown error
       // when there is no winner to sign in. The orphan it names is the row a data-aware demo
@@ -287,7 +353,11 @@ export class SignupService {
       "google",
       identity.subject,
     );
-    if (winner) return { actor: await this.completeWorkspace(winner), provisioned: false };
+    if (winner)
+      return {
+        actor: wantsWorkspace ? await this.completeWorkspace(winner) : winner,
+        provisioned: false,
+      };
     if (discardFailure)
       throw new ProvisioningFailedError(
         `Signup failed (${message(failure)}) and organization ${organizationId} could not be discarded (${message(discardFailure)})`,
@@ -298,9 +368,9 @@ export class SignupService {
   /**
    * Give an organizer their first event, if the previous attempt stopped before it did.
    *
-   * Reached on every Google sign-in and does nothing in every ordinary case. The condition is
-   * narrow on purpose — an organization but no event role at all — so a linked speaker (no
-   * organization) is never provisioned anything.
+   * Reached on every Google sign-in **that asked for a workspace** and does nothing in every
+   * ordinary case. The condition is narrow on purpose — no event role at all — so a linked
+   * speaker, who holds one, is never provisioned anything.
    *
    * **It provisions, and it never adopts.** One condition, and both halves of it are the
    * permission: an organization with **no events** and **no other member** is a workspace this
@@ -332,8 +402,49 @@ export class SignupService {
    * is a convenience for.
    */
   private async completeWorkspace(actor: Actor): Promise<Actor> {
-    if (actor.organizations.length === 0 || actor.eventAccess.length > 0) return actor;
+    if (actor.eventAccess.length > 0) return actor;
     const { workspace, directory } = this.dependencies;
+    /*
+     * An account with no organization at all, signing in through a door that asks for one.
+     *
+     * This used to return early, because the only way to hold no organization was to be a linked
+     * speaker — and they hold an event role, which the line above already excludes. The submitter
+     * door creates the other way: an identity that owns proposals and belongs to no conference.
+     * That is the right shape for somebody proposing a talk, and it must not be a trap. Signing in
+     * from `/signin` is them asking for a workspace, and this is where they get one.
+     *
+     * It provisions rather than adopting, exactly like the loop below: nothing here can hand
+     * somebody an organization that already exists.
+     */
+    if (actor.organizations.length === 0) {
+      const organization = await workspace.provisionOrganization({
+        name: organizationNameFor(actor.name),
+      });
+      try {
+        await directory.joinOrganization(organization.id, actor.id);
+      } catch (failure) {
+        // ERROR-INTENT: rethrown, after removing the organization this call created and could not
+        // use. An unreferenced organization is invisible to the product and is the row a
+        // data-aware demo restore refuses on for ever (`GAP-019`), so it is discarded on exactly
+        // the ordering grounds the top of this file states — never suppressed.
+        await workspace.discardUnusedOrganization(organization.id);
+        throw failure;
+      }
+      /*
+       * Re-read before creating the event, so the creation is authorized by the membership that
+       * now exists rather than by an actor assembled here. A fabricated actor is an authorization
+       * check that has stopped meaning anything, and this is the one place in the flow where it
+       * would have been tempting.
+       */
+      const member = (await directory.findByUserId(actor.id)) ?? actor;
+      const first = await workspace.createFirstEvent(member, {
+        organizationId: organization.id,
+        name: FIRST_EVENT_NAME,
+        timezone: DEFAULT_TIMEZONE,
+      });
+      await directory.grantOrganizer(first.id, actor.id);
+      return (await directory.findByUserId(actor.id)) ?? member;
+    }
     /*
      * Every organization this actor belongs to, rather than `organizations[0]`: that index is a
      * sort order and not a choice, so a person whose own signup stalled *and* who has since been

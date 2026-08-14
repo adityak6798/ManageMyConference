@@ -618,7 +618,16 @@ export function PublicCfpView({
           </p>
           <div className="pub-signin-doors">
             {doors?.google ? (
-              <a className="pub-button" href="/api/auth/google/start">
+              /*
+               * `intent=submitter`, which is what stops this button handing somebody a conference.
+               *
+               * A first-time Google identity is otherwise given an organization named after them
+               * and an event called "Your first event" — right for somebody who pressed this on
+               * `/signin`, and an answer to a question nobody asked for somebody who pressed it
+               * here to keep track of a talk proposal. The parameter withholds that and grants
+               * nothing; signing in from `/signin` later still provisions the workspace.
+               */
+              <a className="pub-button" href="/api/auth/google/start?intent=submitter">
                 Continue with Google
               </a>
             ) : null}

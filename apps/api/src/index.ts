@@ -815,8 +815,13 @@ export default {
             report: (fields, event) => logger.error(fields, event),
           });
           return {
-            async start(now) {
-              const started = await startGoogleAuthorization(configuration, sessionSecret, now);
+            async start(now, workspaceIntent) {
+              const started = await startGoogleAuthorization(
+                configuration,
+                sessionSecret,
+                now,
+                workspaceIntent,
+              );
               await identityDirectory.saveOauthAttempt(started.attempt);
               return {
                 authorizationUrl: started.authorizationUrl,
@@ -875,7 +880,9 @@ export default {
                   { code, attempt: spent, configuration, now },
                   { exchange: client.exchange, keys: client.keys },
                 );
-                const session = await signup.signInWithGoogle(identity);
+                // The door this sign-in was started from, read back off the attempt row it just
+                // spent rather than from anything the callback carried (migration `1005`).
+                const session = await signup.signInWithGoogle(identity, spent.workspaceIntent);
                 return {
                   spentAttemptId,
                   outcome: {

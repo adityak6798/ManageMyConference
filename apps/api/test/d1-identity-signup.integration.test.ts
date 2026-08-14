@@ -112,6 +112,9 @@ describe("Google signup against migrated D1", () => {
       id: attempt.id,
       codeVerifier: attempt.codeVerifier,
       nonce: attempt.nonce,
+      // Defaulted by the column and by the adapter: an attempt minted without a door is the
+      // front one, which is the behaviour that predates migration `1005`.
+      workspaceIntent: "organizer",
     });
     // A replayed callback — the same id, the same valid `state` — finds nothing to spend. This
     // is the property a read-then-delete could not promise under two racing callbacks.
@@ -130,6 +133,7 @@ describe("Google signup against migrated D1", () => {
       id: "attempt-wrong-proof",
       codeVerifier: attempt.codeVerifier,
       nonce: attempt.nonce,
+      workspaceIntent: "organizer",
     });
 
     await directory.saveOauthAttempt({ ...attempt, id: "attempt-expired" });
@@ -157,7 +161,12 @@ describe("Google signup against migrated D1", () => {
       directory.consumeOauthAttempt(["attempt-raced"], attempt.stateProof, 1_000_000),
     ]);
     expect(raced.filter((outcome) => outcome !== null)).toEqual([
-      { id: "attempt-raced", codeVerifier: attempt.codeVerifier, nonce: attempt.nonce },
+      {
+        id: "attempt-raced",
+        codeVerifier: attempt.codeVerifier,
+        nonce: attempt.nonce,
+        workspaceIntent: "organizer",
+      },
     ]);
 
     /*
@@ -260,7 +269,40 @@ describe("Google signup against migrated D1", () => {
       id: started.attempt.id,
       codeVerifier: started.attempt.codeVerifier,
       nonce: started.attempt.nonce,
+      workspaceIntent: "organizer",
     });
+  });
+
+  it("carries the door a sign-in was started from through the redirect", async () => {
+    /*
+     * The context has to outlive a round trip through Google, and it cannot ride on the callback
+     * URL — that is fixed configuration registered with Google, and deriving it from a request is
+     * the open redirect this flow refuses by construction. So it rides on the attempt row, which
+     * is already the per-attempt state the callback spends exactly once (migration `1005`).
+     */
+    const migrated = await createMigratedDatabase({ label: "identity-oauth-intent", seed: true });
+    runtime = migrated.runtime;
+    const { directory } = signupStack(migrated.database);
+    const secret = "a-session-secret-for-this-test";
+    const started = await startGoogleAuthorization(
+      {
+        clientId: "client.apps.googleusercontent.com",
+        clientSecret: "unused-here",
+        redirectUri: "https://greenroom.test/api/auth/google/callback",
+      },
+      secret,
+      1_000_000,
+      "submitter",
+    );
+    await directory.saveOauthAttempt(started.attempt);
+
+    await expect(
+      directory.consumeOauthAttempt(
+        [started.attempt.id],
+        await stateProof(started.state, secret),
+        1_000_100,
+      ),
+    ).resolves.toMatchObject({ workspaceIntent: "submitter" });
   });
 
   it("writes the whole identity of a self-serve signup, and resolves it back", async () => {

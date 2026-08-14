@@ -18,14 +18,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import { D1CommunicationsRepository } from "../src/adapters/persistence/d1-communications-repository";
 import { CommunicationsService } from "../src/application/communications/communications-service";
 import { DEFAULT_TEMPLATES } from "../src/domain/communications/default-templates";
-import { applyMigrations, createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrations, createMigratedDatabase, type MigratedDatabase } from "./support/seeded-d1";
 
 const SEEDED_ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 const SECOND_ORGANIZATION = "20000000-0000-4000-8000-0000000000aa";
 const SECOND_EVENT = "20000000-0000-4000-8000-0000000000bb";
 
 /** A self-serve organization and its first event, exactly as signup writes them. */
-const createSecondOrganization = async (database: D1Database) => {
+type Database = MigratedDatabase["database"];
+
+const createSecondOrganization = async (database: Database) => {
   await database
     .prepare("INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)")
     .bind(SECOND_ORGANIZATION, "Second conference", "2026-08-14T09:00:00.000Z")
@@ -38,7 +40,7 @@ const createSecondOrganization = async (database: D1Database) => {
     .run();
 };
 
-const serviceFor = (database: D1Database) => {
+const serviceFor = (database: Database) => {
   let id = 0;
   return new CommunicationsService({
     repository: new D1CommunicationsRepository(database),
@@ -114,13 +116,14 @@ describe("lifecycle templates for every organization", () => {
       from: "1706_default_lifecycle_templates.sql",
     });
 
+    type Row = { template_key: string; version: number; subject: string; body: string };
     const after = await migrated.database
       .prepare(
         "SELECT template_key, version, subject, body FROM message_templates WHERE organization_id = ? ORDER BY template_key",
       )
       .bind(SECOND_ORGANIZATION)
-      .all<{ template_key: string; version: number; subject: string; body: string }>();
-    expect(after.results.map(({ template_key }) => template_key).sort()).toEqual(
+      .all<Row>();
+    expect(after.results.map(({ template_key }: Row) => template_key).sort()).toEqual(
       DEFAULT_TEMPLATES.map(({ key }) => key).sort(),
     );
     // The migration's words and the catalogue's are two copies of the same nine messages, so they

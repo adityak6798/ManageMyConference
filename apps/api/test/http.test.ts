@@ -958,6 +958,54 @@ describe("events HTTP transport", () => {
     expect(refused.headers.get("set-cookie") ?? "").not.toContain("greenroom_session=");
   });
 
+  it("passes the door a sign-in was started from to the provider, and defaults to the front one", async () => {
+    /*
+     * `?intent=submitter` is what the public call page's sign-in link sends, and it decides one
+     * thing: whether a first-time identity is given a conference workspace. It only ever
+     * withholds, so it is not an authorization input — which is why it travels as a plain query
+     * parameter and why an unrecognized value is treated as the front door rather than refused.
+     */
+    const intents: (string | undefined)[] = [];
+    const google: GoogleAuthProvider = {
+      start: async (_now, workspaceIntent) => {
+        intents.push(workspaceIntent);
+        return { authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth", attemptId: "a" };
+      },
+      complete: async () => ({ spentAttemptId: null, outcome: { status: "refused" } }),
+      resolveUserActor: async () => null,
+    };
+    const warn = vi.fn();
+    const configured = createHttpApp(
+      new EventService({
+        repository: new MemoryEventRepository(),
+        newId: () => crypto.randomUUID(),
+        now: () => new Date("2026-08-09T12:00:00.000Z"),
+      }),
+      { info: vi.fn(), warn, error: vi.fn() },
+      {
+        demoMode: true,
+        sessionSecret: secret,
+        now: () => 1_000,
+        resolveActor: resolveSeededDemoActor,
+        google,
+        sessions: memorySessionStore(),
+      },
+      testCrm(),
+    );
+
+    await configured.request("/api/auth/google/start?intent=submitter");
+    await configured.request("/api/auth/google/start");
+    await configured.request("/api/auth/google/start?intent=nonsense");
+
+    expect(intents).toEqual(["submitter", "organizer", "organizer"]);
+    // The unrecognized one is reported rather than silently normalized: a link somebody wrote by
+    // hand and got wrong should be findable rather than quietly doing something else.
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: "nonsense" }),
+      "auth.google.unknown_intent",
+    );
+  });
+
   /**
    * The success half of the callback, which the refusal case above cannot reach.
    *

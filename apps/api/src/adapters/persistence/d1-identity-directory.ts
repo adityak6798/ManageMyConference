@@ -2,6 +2,7 @@ import type { IdentityDirectory } from "../../application/identity/identity-dire
 import type { DemoPersona } from "../../application/identity/demo-session";
 import type { Actor, Capability, EventAccess } from "../../application/identity/actor";
 import { ATTEMPT_LIFETIME_MS } from "../../application/identity/google-oauth";
+import type { WorkspaceIntent } from "../../application/identity/google-oauth";
 
 interface D1Result<T> {
   results?: T[];
@@ -159,6 +160,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
     codeVerifier: string;
     nonce: string;
     expiresAt: number;
+    workspaceIntent?: WorkspaceIntent;
   }): Promise<void> {
     const results = await this.database.batch([
       this.database
@@ -166,7 +168,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
         .bind(attempt.expiresAt - ATTEMPT_LIFETIME_MS),
       this.database
         .prepare(
-          "INSERT INTO identity_oauth_attempts (id,state_proof,code_verifier,nonce,expires_at) VALUES (?,?,?,?,?)",
+          "INSERT INTO identity_oauth_attempts (id,state_proof,code_verifier,nonce,expires_at,workspace_intent) VALUES (?,?,?,?,?,?)",
         )
         .bind(
           attempt.id,
@@ -174,6 +176,9 @@ export class D1IdentityDirectory implements IdentityDirectory {
           attempt.codeVerifier,
           attempt.nonce,
           attempt.expiresAt,
+          // Defaulted here as well as in the column, so a caller that predates the context — and
+          // every test composition — mints exactly the attempt it always did.
+          attempt.workspaceIntent ?? "organizer",
         ),
     ]);
     const failed = results.find((result) => !result.success);
@@ -204,18 +209,32 @@ export class D1IdentityDirectory implements IdentityDirectory {
     ids: readonly string[],
     stateProof: string,
     now: number,
-  ): Promise<{ id: string; codeVerifier: string; nonce: string } | null> {
+  ): Promise<{
+    id: string;
+    codeVerifier: string;
+    nonce: string;
+    workspaceIntent: WorkspaceIntent;
+  } | null> {
     if (ids.length === 0) return null;
     const result = await this.database
       .prepare(
-        `DELETE FROM identity_oauth_attempts WHERE id IN (${ids.map(() => "?").join(",")}) AND state_proof=? AND expires_at>? RETURNING id, code_verifier, nonce`,
+        `DELETE FROM identity_oauth_attempts WHERE id IN (${ids.map(() => "?").join(",")}) AND state_proof=? AND expires_at>? RETURNING id, code_verifier, nonce, workspace_intent`,
       )
       .bind(...ids, stateProof, now)
-      .all<{ id: string; code_verifier: string; nonce: string }>();
+      .all<{ id: string; code_verifier: string; nonce: string; workspace_intent: string }>();
     if (!result.success)
       throw new Error(`D1 failed to consume sign-in attempt: ${result.error ?? "unknown error"}`);
     const row = result.results?.[0];
-    return row ? { id: row.id, codeVerifier: row.code_verifier, nonce: row.nonce } : null;
+    return row
+      ? {
+          id: row.id,
+          codeVerifier: row.code_verifier,
+          nonce: row.nonce,
+          // The column's `CHECK` allows only these two, so anything else is a row this build did
+          // not write; the safe reading is the default, which provisions exactly as before.
+          workspaceIntent: row.workspace_intent === "submitter" ? "submitter" : "organizer",
+        }
+      : null;
   }
 
   async findByProviderAccount(provider: "google", subject: string): Promise<Actor | null> {
@@ -269,6 +288,14 @@ export class D1IdentityDirectory implements IdentityDirectory {
    * Four rows across four tables that are only meaningful together — an account with no address
    * cannot be written to, and one with no membership has a console it cannot use. D1 applies a
    * batch atomically, so the alternative to this is a user who can sign in to nothing.
+   *
+   * **Three rows and no membership when `organizationId` is null**, which is the submitter door
+   * (see `SignupService.signInWithGoogle`). That account is complete rather than half-made: it
+   * owns proposals, receives their confirmations and reads their decisions, and belongs to no
+   * conference. Its persona is `public` for the same reason — the console picks the surfaces it
+   * offers from the persona when an account holds no event role, so writing `organizer` there
+   * would offer an organizer's workspaces to somebody holding none of an organizer's
+   * capabilities.
    */
   async createSelfServeIdentity(input: {
     userId: string;
@@ -277,12 +304,12 @@ export class D1IdentityDirectory implements IdentityDirectory {
     provider: "google";
     subject: string;
     linkedAt: number;
-    organizationId: string;
+    organizationId: string | null;
   }): Promise<void> {
     const results = await this.database.batch([
       this.database
-        .prepare("INSERT INTO users (id,name,persona) VALUES (?,?,'organizer')")
-        .bind(input.userId, input.name),
+        .prepare("INSERT INTO users (id,name,persona) VALUES (?,?,?)")
+        .bind(input.userId, input.name, input.organizationId === null ? "public" : "organizer"),
       this.database
         .prepare("INSERT INTO identity_emails (user_id,email) VALUES (?,?)")
         .bind(input.userId, input.email.trim().toLowerCase()),
@@ -291,15 +318,47 @@ export class D1IdentityDirectory implements IdentityDirectory {
           "INSERT INTO identity_provider_accounts (provider,subject,user_id,linked_at) VALUES (?,?,?,?)",
         )
         .bind(input.provider, input.subject, input.userId, input.linkedAt),
-      this.database
-        .prepare(
-          "INSERT INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
-        )
-        .bind(input.organizationId, input.userId),
+      ...(input.organizationId === null
+        ? []
+        : [
+            this.database
+              .prepare(
+                "INSERT INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
+              )
+              .bind(input.organizationId, input.userId),
+          ]),
     ]);
     const failed = results.find((result) => !result.success);
     if (failed)
       throw new Error(`D1 failed to provision identity: ${failed.error ?? "unknown error"}`);
+  }
+
+  /**
+   * Make an existing account an organizer of an organization, and say so on its `users` row.
+   *
+   * The one caller is `SignupService.completeWorkspace`, giving a workspace to an account that
+   * was created without one — a submitter who came in through a public call page and has since
+   * signed in through the organizer door. `INSERT OR IGNORE`, because two tabs doing this at once
+   * must converge rather than fail, and the persona is moved off `public` in the same batch so
+   * the console offers the workspaces the membership has just made reachable.
+   *
+   * It writes a membership and nothing else: the event and the role on it are the events domain's
+   * and are created afterwards, against the actor this membership authorizes.
+   */
+  async joinOrganization(organizationId: string, userId: string): Promise<void> {
+    const results = await this.database.batch([
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
+        )
+        .bind(organizationId, userId),
+      this.database
+        .prepare("UPDATE users SET persona = 'organizer' WHERE id = ? AND persona = 'public'")
+        .bind(userId),
+    ]);
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(`D1 failed to record organization membership: ${failed.error ?? "unknown error"}`);
   }
 
   async findByEmail(email: string): Promise<Actor | null> {

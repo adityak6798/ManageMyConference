@@ -12,6 +12,7 @@
 import type { ApiErrorEnvelope } from "@greenroom/contracts";
 import type { Context } from "hono";
 import type { Actor } from "../../application/identity/actor";
+import type { WorkspaceIntent } from "../../application/identity/google-oauth";
 import type { SigningSecrets } from "../../application/identity/real-auth";
 import type { SessionStore } from "../../application/identity/session-store";
 
@@ -50,8 +51,19 @@ export type ActorResolver = (
  * Google configuration behaving exactly as it did before.
  */
 export interface GoogleAuthProvider {
-  /** Mint one single-use attempt; the browser is redirected to `authorizationUrl`. */
-  start(now: number): Promise<{ authorizationUrl: string; attemptId: string }>;
+  /**
+   * Mint one single-use attempt; the browser is redirected to `authorizationUrl`.
+   *
+   * `workspaceIntent` records which door this sign-in was started from, and is stored on the
+   * attempt so the callback can read it back. It decides one thing only: whether a first-time
+   * identity is given a conference workspace. `submitter` withholds it — somebody who pressed
+   * this button on a public call page came to keep track of a proposal — and grants nothing, so
+   * it is not an authorization input. Omitted means `organizer`, which is the front door.
+   */
+  start(
+    now: number,
+    workspaceIntent?: WorkspaceIntent,
+  ): Promise<{ authorizationUrl: string; attemptId: string }>;
   /**
    * Spend one of this browser's outstanding attempts and sign the caller in.
    *
