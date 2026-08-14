@@ -237,6 +237,26 @@ export class EventService {
     return event?.organizationId ?? null;
   }
 
+  /**
+   * What this event is called, for a caller that has no actor to scope by.
+   *
+   * The same system-trust shape as `organizationOf` above, and it carries the same obligation:
+   * the caller has already authorized the action that led here. It exists because a message to
+   * a speaker reads better naming their conference than not, and a consumer that had to fetch
+   * the whole event through `get` would need an actor it does not have.
+   *
+   * Null when no such event exists. A caller must treat that as "no name" rather than as an
+   * empty string — a message saying "You are speaking at " is worse than one that does not
+   * mention the event.
+   */
+  async nameOf(eventId: string): Promise<string | null> {
+    const event = await this.dependencies.repository.findById(eventId, {
+      organizationIds: [],
+      eventIds: [eventId],
+    });
+    return event?.name ?? null;
+  }
+
   async belongsToOrganization(eventId: string, organizationId: string): Promise<boolean> {
     return (
       (await this.dependencies.repository.findById(eventId, {

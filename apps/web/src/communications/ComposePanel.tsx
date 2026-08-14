@@ -15,13 +15,20 @@
  * next version of the same key, the previous one stays readable, and a delivery sent last week
  * still names the version it used.
  */
-import type { BroadcastRecipientDto, MessageTemplateDto } from "@greenroom/contracts";
+import type {
+  BroadcastPreviewEntryDto,
+  BroadcastRecipientDto,
+  MessageTemplateDto,
+  SpeakerMergeFieldDto,
+} from "@greenroom/contracts";
 import { useCallback, useEffect, useState } from "react";
 import {
   CommunicationsApiError,
   createTemplate,
+  getMergeFields,
   getRecipients,
   getTemplates,
+  previewBroadcast,
   sendToSpeakers,
 } from "../api/communications";
 import { IconSend, IconWarning } from "../ui/icons";
@@ -63,6 +70,18 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
    */
   const [audienceVersion, setAudienceVersion] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string>("");
+  /**
+   * Who this send is for.
+   *
+   * `null` means "everybody reachable", which is what this panel did before a selection
+   * existed and is still the common case — distinct from an empty set, which is nobody and is
+   * refused. The distinction matters because the roster changes: "everybody" re-resolves on the
+   * server at send time, a named list does not.
+   */
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const [search, setSearch] = useState("");
+  const [preview, setPreview] = useState<BroadcastPreviewEntryDto[] | null>(null);
+  const [mergeFields, setMergeFields] = useState<SpeakerMergeFieldDto[]>([]);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -73,10 +92,12 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   // biome-ignore lint/correctness/useExhaustiveDependencies: feedback.announce is a fresh closure every render, so depending on it would re-run the mount effect forever.
   const load = useCallback(async () => {
     try {
-      const [loadedTemplates, loadedRecipients] = await Promise.all([
+      const [loadedTemplates, loadedRecipients, fields] = await Promise.all([
         getTemplates(organizationId),
         getRecipients(organizationId, eventId),
+        getMergeFields(),
       ]);
+      setMergeFields([...fields]);
       setTemplates(loadedTemplates);
       setRecipients(loadedRecipients.recipients);
       setAudienceVersion(loadedRecipients.audienceVersion);
@@ -105,6 +126,34 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   const selected = available.find((template) => template.key === selectedKey) ?? null;
   const reachable = (recipients ?? []).filter((recipient) => recipient.address !== null);
   const unreachable = (recipients ?? []).filter((recipient) => recipient.address === null);
+  const needle = search.trim().toLowerCase();
+  const matching = reachable.filter(
+    (recipient) =>
+      !needle ||
+      `${recipient.name} ${recipient.address ?? ""}`.toLowerCase().includes(needle),
+  );
+  /*
+   * The people this send would actually reach.
+   *
+   * A selection is filtered against the reachable roster rather than trusted, so a speaker who
+   * left the event between ticking and sending is not counted in the number being approved —
+   * the server refuses that send anyway, and the count on screen should not disagree with it.
+   */
+  const audience = chosen
+    ? reachable.filter((recipient) => chosen.includes(recipient.userId))
+    : reachable;
+  const audienceLabel = `${audience.length} ${audience.length === 1 ? "speaker" : "speakers"}`;
+  const toggle = (userId: string) =>
+    setChosen((current) => {
+      // The first tick turns "everybody" into a list, starting from everybody: unticking one
+      // person should not silently drop the rest.
+      const base = current ?? reachable.map((recipient) => recipient.userId);
+      const next = base.includes(userId)
+        ? base.filter((id) => id !== userId)
+        : [...base, userId];
+      setPreview(null);
+      return next;
+    });
 
   async function publish() {
     setBusy(true);
@@ -137,6 +186,39 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
     }
   }
 
+  /**
+   * Resolve what each chosen recipient would receive, then ask for confirmation.
+   *
+   * The preview is a request rather than a client-side substitution, so what is approved is what
+   * the delivery will store. A template whose placeholder has no value is refused here — on the
+   * screen showing the message — instead of after the first delivery is queued.
+   */
+  async function resolve() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const resolved = await previewBroadcast({
+        organizationId,
+        eventId,
+        templateKey: selected.key,
+        templateVersion: selected.version,
+        ...(chosen ? { recipientIds: audience.map(({ userId }) => userId) } : {}),
+      });
+      setPreview([...resolved.entries]);
+      // The audience the *preview* named, so the send confirms against what was on screen.
+      setAudienceVersion(resolved.audienceVersion);
+      setConfirming(true);
+    } catch (reason: unknown) {
+      // ERROR-INTENT: announced beside the control that asked for it. A placeholder with no
+      // value names itself here, which is the whole reason the preview happens server-side.
+      setPreview(null);
+      setConfirming(false);
+      feedback.announce("error", readError(reason, "The message could not be resolved."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
     if (!selected) return;
     setBusy(true);
@@ -147,8 +229,10 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
         templateKey: selected.key,
         templateVersion: selected.version,
         ...(audienceVersion ? { audienceVersion } : {}),
+        ...(chosen ? { recipientIds: audience.map(({ userId }) => userId) } : {}),
       });
       setConfirming(false);
+      setPreview(null);
       onSent();
       // What happened, not what was attempted. A repeat send of the same template version
       // writes nothing, and saying "queued" about it would promise mail that will never go.
@@ -173,6 +257,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       // sends them back through the confirmation deliberately — a send refused because the
       // audience changed must be re-approved, not retried.
       setConfirming(false);
+      setPreview(null);
       await load();
       feedback.announce("error", readError(reason, "The send was refused."));
     } finally {

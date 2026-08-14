@@ -9,6 +9,7 @@
 import {
   accelEventsSyncInputSchema,
   broadcastInputSchema,
+  previewBroadcastInputSchema,
   eventIdParamsSchema,
   broadcastRecipientsParamsSchema,
   communicationsHistoryParamsSchema,
@@ -30,6 +31,7 @@ import {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  SPEAKER_MERGE_FIELDS,
   WebhookUnavailableError,
 } from "../../../application/communications/public";
 import {
@@ -45,6 +47,8 @@ const routes = [
   "GET /api/communications/templates",
   "GET /api/communications/recipients",
   "POST /api/communications/broadcasts",
+  "POST /api/communications/broadcasts/preview",
+  "GET /api/communications/merge-fields",
   "POST /api/communications/deliveries",
   "GET /api/communications/history",
   "POST /api/communications/deliveries/:deliveryId/retry",
@@ -156,6 +160,40 @@ export const communicationsRoutes: RouteModule = {
         );
       // 202: the deliveries are durable, but nothing has been sent until the outbox drains them.
       return context.json(await communications.broadcast(context.get("actor"), parsed.data), 202);
+    });
+    /**
+     * What each chosen recipient would receive, before anything is queued.
+     *
+     * A `POST` because it carries a selection and a template rather than addressing a resource,
+     * and because the body is the audience. It writes nothing.
+     */
+    app.post("/api/communications/broadcasts/preview", async (context) => {
+      requireCapability(context.get("actor"), "communications:manage");
+      if (!communications) throw new Error("Communications service is not configured");
+      const parsed = previewBroadcastInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The preview request is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      return context.json(
+        await communications.previewBroadcast(context.get("actor"), parsed.data),
+      );
+    });
+    /**
+     * The tokens a speaker template may use.
+     *
+     * Served rather than hard-coded in the console, so the list an author reads is the list the
+     * server resolves. Capability-gated like everything else here, and it names no data.
+     */
+    app.get("/api/communications/merge-fields", (context) => {
+      requireCapability(context.get("actor"), "communications:manage");
+      return context.json({ fields: SPEAKER_MERGE_FIELDS });
     });
     app.post("/api/communications/deliveries", async (context) => {
       requireCapability(context.get("actor"), "communications:manage");

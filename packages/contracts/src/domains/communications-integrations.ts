@@ -145,7 +145,63 @@ export const broadcastInputSchema = z.object({
    * nothing is sent. Optional so an API caller that never saw a count is not made to invent one.
    */
   audienceVersion: z.string().min(1).max(100).optional(),
+  /**
+   * Who to send to. Omitted means every reachable speaker on the event.
+   *
+   * An id the event no longer has a speaker for, or one with no address, is a `400` and nothing
+   * is sent — an organizer ticked a person, and quietly reaching fewer people than were ticked
+   * is the failure this surface already refuses to make.
+   */
+  recipientIds: z.array(z.string().min(1)).min(1).max(500).optional(),
 });
+
+/**
+ * What each chosen recipient would receive, rendered by the same call the send uses.
+ *
+ * A separate request rather than a field on the recipients read, because it needs the template
+ * and the selection — and because a preview that renders client-side could disagree with the
+ * message that is actually stored on the delivery, which is worse than no preview since it is
+ * believed (#189).
+ */
+export const previewBroadcastInputSchema = broadcastInputSchema.pick({
+  organizationId: true,
+  eventId: true,
+  templateKey: true,
+  templateVersion: true,
+  recipientIds: true,
+});
+export type PreviewBroadcastInput = z.infer<typeof previewBroadcastInputSchema>;
+
+export const broadcastPreviewEntrySchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  address: z.string(),
+  subject: z.string().nullable(),
+  body: z.string(),
+});
+export const broadcastPreviewResponseSchema = z.object({
+  entries: z.array(broadcastPreviewEntrySchema),
+  /** The same change detector the recipients read returns, so a preview can be confirmed. */
+  audienceVersion: z.string(),
+});
+export type BroadcastPreviewEntryDto = z.infer<typeof broadcastPreviewEntrySchema>;
+
+/**
+ * The merge-field vocabulary a speaker template may use.
+ *
+ * Published on the wire so the console prints the same list the server resolves, rather than
+ * hard-coding a copy that drifts. The renderer refuses a placeholder with no value — a half
+ * sentence reaching a speaker is worse than a refused send — so an author who cannot see this
+ * list writes a template that cannot be sent.
+ */
+export const speakerMergeFieldSchema = z.object({
+  token: z.string(),
+  describes: z.string(),
+});
+export const speakerMergeFieldsResponseSchema = z.object({
+  fields: z.array(speakerMergeFieldSchema),
+});
+export type SpeakerMergeFieldDto = z.infer<typeof speakerMergeFieldSchema>;
 export const deliveryIdParamsSchema = z.object({ deliveryId: z.string().min(1) });
 export const messageTemplateSchema = createTemplateInputSchema.extend({
   id: z.string(),

@@ -9,6 +9,9 @@ import {
   accelEventsSyncInputSchema,
   accelEventsSyncReportSchema,
   broadcastInputSchema,
+  broadcastPreviewResponseSchema,
+  previewBroadcastInputSchema,
+  speakerMergeFieldsResponseSchema,
   broadcastRecipientsParamsSchema,
   broadcastRecipientsResponseSchema,
   broadcastResponseSchema,
@@ -244,6 +247,39 @@ export const communicationsPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/communications/broadcasts/preview",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { body: { required: true, content: json(previewBroadcastInputSchema) } },
+      responses: {
+        200: {
+          description:
+            "What each chosen recipient would receive, rendered by the same call the send uses. Writes nothing. A placeholder with no value is refused here rather than after the first delivery is queued.",
+          content: json(broadcastPreviewResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/communications/merge-fields",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      responses: {
+        200: {
+          description:
+            "The tokens a speaker template may use. Served rather than hard-coded in a client, so the list an author reads is the list the renderer resolves.",
+          content: json(speakerMergeFieldsResponseSchema),
+        },
+        401: errorResponse,
+        403: errorResponse,
         500: errorResponse,
       },
     });

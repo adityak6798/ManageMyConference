@@ -4,7 +4,10 @@ import {
   type CommunicationsHistoryDto,
   type CreateTemplateInput,
   type MessageTemplateDto,
+  broadcastPreviewResponseSchema,
   broadcastRecipientsResponseSchema,
+  previewBroadcastInputSchema,
+  speakerMergeFieldsResponseSchema,
   broadcastResponseSchema,
   communicationsHistoryResponseSchema,
   deliveryResponseSchema,
@@ -74,6 +77,36 @@ export async function getRecipients(
   return decode(response, broadcastRecipientsResponseSchema);
 }
 
+/**
+ * What each chosen recipient would receive, rendered by the server.
+ *
+ * Not a client-side substitution: the preview has to be the *message*, and the only way to be
+ * sure of that is to have the code that will send it produce the text.
+ */
+export async function previewBroadcast(
+  input: {
+    organizationId: string;
+    eventId: string;
+    templateKey: string;
+    templateVersion?: number;
+    recipientIds?: string[];
+  },
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher("/api/communications/broadcasts/preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(previewBroadcastInputSchema.parse(input)),
+  });
+  return decode(response, broadcastPreviewResponseSchema);
+}
+
+/** The tokens a template may use, from the server that resolves them. */
+export async function getMergeFields(fetcher: typeof fetch = fetch) {
+  const response = await fetcher("/api/communications/merge-fields");
+  return (await decode(response, speakerMergeFieldsResponseSchema)).fields;
+}
+
 export async function sendToSpeakers(
   input: {
     organizationId: string;
@@ -81,6 +114,8 @@ export async function sendToSpeakers(
     templateKey: string;
     templateVersion: number;
     audienceVersion?: string;
+    /** Omitted sends to every reachable speaker, which is what this did before selection. */
+    recipientIds?: string[];
   },
   fetcher: typeof fetch = fetch,
 ): Promise<BroadcastResultDto> {

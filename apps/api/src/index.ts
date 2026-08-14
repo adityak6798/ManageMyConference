@@ -652,7 +652,13 @@ export default {
     );
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),
-      eventDirectory: service,
+      eventDirectory: {
+        belongsToOrganization: (eventId, organizationId) =>
+          service.belongsToOrganization(eventId, organizationId),
+        // For `{{eventName}}`. Events owns what an event is called; communications asks rather
+        // than storing a copy that would drift the first time somebody renames one.
+        name: (eventId) => service.nameOf(eventId),
+      },
       // Who an event's speakers are is identity's answer, not a read of content's profiles.
       speakerDirectory: identityDirectory,
       newId: () => crypto.randomUUID(),
