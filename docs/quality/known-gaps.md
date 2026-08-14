@@ -549,8 +549,12 @@ feature-by-feature verdict.
   that effect plus a fixture that is reset by rebuilding rather than by deleting. The narrow failed-delivery query on communications' public interface closes the fifth, and
   its test is an inbox that shows a failure older than one page of history.
 
-- `GAP-025` (content) **Closed by issue #202.** Every conditional writer in
-  `d1-content-repository.ts` now reads the affected-row count. The four this entry named —
+- `GAP-025` (content) **Closed by issue #202.** Every writer in `d1-content-repository.ts` whose caller can report
+  success to a person now reads the affected-row count — which is the criterion, and is
+  narrower than "every conditional writer": that phrasing was tried, found false by review
+  (`replaceLatestAsset`, `deleteAsset` and `beginSpeakerImport` are conditional and
+  deliberately do not), and the adapter's own docblock now enumerates the whole file by
+  category so the claim can be checked rather than trusted. The four this entry named —
   `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and `completeSpeakerImport` —
   answer `false` when no row matched, and each caller that reports success to a person refuses
   instead: naming or clearing a headshot on a profile that has gone, and publishing or

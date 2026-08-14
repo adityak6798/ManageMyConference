@@ -188,7 +188,7 @@ export function OrganizerReviewWorkspace({
        * reload, which would then be speaking at the same instant as the confirmation.
        *
        * The saving was one HTTP round trip whose server side measures two sequential D1 waits,
-       * on top of a request this branch already took from 65 to 30. That is not worth a control
+       * on top of a request this branch already took from 65 to 35. That is not worth a control
        * that is live over state it does not yet reflect.
        */
       await load();

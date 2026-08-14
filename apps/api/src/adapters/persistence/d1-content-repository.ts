@@ -225,15 +225,15 @@ export class D1ContentRepository
    * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
    * row" from "no visible difference" rather than refusing an edit that changed nothing.
    *
-   * **Every writer in this file that addresses one row by id goes through here** (issue #202,
-   * the second filing of the same divergence). That is the rule, and it is stated as what it is
-   * rather than as "every conditional writer", which an earlier draft of this comment claimed and
-   * which was not true — a review pass found three writers the claim did not cover. The list
-   * below is the whole of it, so a later reader can check rather than trust:
+   * **Every writer whose caller can report success to a person reads the count** (issue #202, the
+   * second filing of the same divergence). That is the rule. Two earlier drafts of this comment
+   * stated it more broadly — "every conditional writer", then "every writer that addresses one
+   * row by id" — and review found each false, the second contradicted by its own list. So the
+   * list below is the whole file, by category, and it is meant to be checked rather than trusted.
    *
    * - **Reads the count and answers with it**: `updateProfilePhoto`, `updateProfileWorkflow`,
    *   `updateTask`, `updateAsset`, `updateResource`, `updateTaskTemplate`, `completeSpeakerImport`.
-   *   Each has a caller that reports success to a person.
+   *   Each has a caller that reports success to a person, which is the criterion.
    * - **Reads the count and deliberately discards it**: `deleteSession`, `deleteResource`,
    *   `deleteTaskTemplate`. A row already gone is the outcome the caller asked for, so zero is
    *   not a failure — but a driver that cannot report a count still is, which is the half worth
@@ -243,11 +243,15 @@ export class D1ContentRepository
    *   an `INSERT OR IGNORE` and so *does* converge on a quiet zero — deliberately: it claims the
    *   ledger row, and a row another attempt already claimed is the same outcome. Its caller reads
    *   the state back through `findSpeakerImport` rather than inferring it from a count.
-   * - **The batch paths**: the private `batch()` used by `revise` reports each statement's count
-   *   to its caller, while `accept`, `addTasks`, `replaceLatestAsset` and `deleteAsset` go
-   *   straight to `database.batch` and read only `success`. The first two are inserts. The two
-   *   asset writes carry a conditional `is_latest` update whose zero means "no other version to
-   *   promote", which is an ordinary state rather than a lost write.
+   * - **The batch paths, which read only `success`**: `accept` and `addTasks` are inserts.
+   *   `deleteAsset` carries a conditional promotion whose `WHERE id=(SELECT … LIMIT 1)` matches
+   *   nothing when there is no earlier version to promote, which is an ordinary state.
+   *   `replaceLatestAsset` is the one whose zero would mean something — `WHERE id=?` against the
+   *   version it means to demote — and it is left because the insert beside it in the same batch
+   *   carries `is_latest`, so a demotion that matched nothing produces two rows claiming to be
+   *   latest rather than a silent loss, and `findAsset`'s `ORDER BY version_number DESC` still
+   *   answers the newer one. Narrower than the writers above, and named rather than swept in.
+   *   (The private `batch()` used by `revise` is separate: it reports each statement's count.)
    * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
    *   no production caller to mislead — stated here and in `content-repository.ts`.
    */

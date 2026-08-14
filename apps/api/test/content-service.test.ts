@@ -1082,6 +1082,51 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
     });
   });
 
+  /**
+   * The invitation is announced before the work it explains, and this is the test that pins it.
+   *
+   * Issue #207 collapsed all three announcements into one `Promise.all` for the five round trips
+   * it saved. Review found the cost: a delivery's `created_at` is stamped inside its own enqueue
+   * and the sender claims deliveries ordered on exactly that column, so three chains in flight
+   * together are stamped in completion order and a speaker could be told to upload a headshot
+   * before being told they had been accepted.
+   *
+   * Asserted on the **order of the calls** rather than on stored timestamps, deliberately: every
+   * fixture in this repository freezes the clock, so four deliveries share one `created_at` and a
+   * timestamp assertion would pass against the very arrangement it is meant to refuse. The call
+   * order is the property the fix actually establishes.
+   *
+   * Re-collapse the two awaits in `acceptSession` into one `Promise.all` and this fails.
+   */
+  it("announces the acceptance before the work it explains", async () => {
+    const order: string[] = [];
+    const { service } = setup({
+      seedSpeaker: false,
+      speakerNotifications: {
+        async speakerAccepted() {
+          order.push("accepted");
+          // Yields, so a `Promise.all` over all three would interleave here and let a task
+          // notice reach the sink first. Without it the collapsed form passes by accident.
+          await Promise.resolve();
+          order.push("accepted:done");
+        },
+        async taskAssigned(fact) {
+          order.push(`task:${fact.taskTitle}`);
+        },
+      },
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.accept(organizer, command, correlationId);
+
+    expect(order).toEqual([
+      "accepted",
+      "accepted:done",
+      "task:Complete your speaker profile",
+      "task:Upload a headshot",
+    ]);
+  });
+
   it("reports each onboarding task acceptance created, so the checklist is not silent", async () => {
     const notifications = recorder();
     const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });

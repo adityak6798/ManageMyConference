@@ -300,9 +300,9 @@ describe("the cost of confirming a speaker acceptance", () => {
     expect(sequential.reload).toBeLessThanOrEqual(RELOAD_SEQUENTIAL_BUDGET);
     /*
      * Pinned as its own constant rather than as the sum of the two above, which is the number
-     * every document quotes and was therefore the one number nothing asserted. The sum is 33
-     * against a measurement of 30, so two serialized reads could be added — one to each phase —
-     * with both phase budgets still passing and the quoted figure quietly false.
+     * every document quotes and was therefore the one number nothing asserted. The two phase
+     * budgets sum to 38 against a measurement of 35, so three serialized reads could be added
+     * with both of them still passing and the quoted figure quietly false. This catches the third.
      */
     expect(sequential.request).toBeLessThanOrEqual(REQUEST_SEQUENTIAL_BUDGET);
   });

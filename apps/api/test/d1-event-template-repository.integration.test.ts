@@ -616,7 +616,9 @@ describe("D1EventTemplateRepository", () => {
             outcome: "failed",
             reason: "The destination has no room matching \u201cGrand Hall\u201d.",
             applied: [],
-            incompatible: [],
+            // Non-empty, so the round trip through `outcome_json` is proven for the entities a
+            // refusal names rather than only for the sentence about them.
+            incompatible: [{ id: "room-grand-hall", label: "Room: Grand Hall" }],
           },
         ],
       },
@@ -646,6 +648,7 @@ describe("D1EventTemplateRepository", () => {
       version: 1,
       outstandingSince: "2026-08-11T09:00:00.000Z",
       destination: DESTINATION_RANGE,
+      incompatible: [{ id: "room-grand-hall", label: "Room: Grand Hall" }],
     });
   });
 

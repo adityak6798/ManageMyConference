@@ -3,7 +3,7 @@
  * The inbox surface, and specifically the two things a service test cannot see.
  *
  * Partial failure is a first-class criterion here rather than a nicety: one category that did
- * not answer must report itself and leave the other four usable, and the page must not blank.
+ * not answer must report itself and leave the other five usable, and the page must not blank.
  * And a dismissal has to round-trip through the surface — marked, still visible, and undoable —
  * because "dismissed" is a state of the item rather than a way of deleting it.
  */

@@ -1045,7 +1045,8 @@ export class ContentService {
      * delivery's `created_at` and `next_attempt_at` are stamped inside the enqueue, *after* its
      * own reads, and the sender claims one delivery at a time ordered on exactly those two
      * columns. Three chains in flight together are stamped in completion order rather than in
-     * acceptance order, and ties are then broken by insert order, which is no longer fixed. A
+     * acceptance order. Ties are worse rather than better: the sender's `ORDER BY` names only
+     * those two columns, so a tie has no order the schema specifies at all. A
      * speaker could receive "Upload a headshot" before the invitation that explains what the
      * tasks are for.
      *

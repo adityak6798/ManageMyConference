@@ -51,7 +51,13 @@ describe("outstandingConfiguration", () => {
       application({
         templateName: "Template A",
         appliedAt: "2027-01-05T12:00:00.000Z",
-        slices: [slice("cfp", "applied"), slice("agenda", "failed", "Rooms and time slots")],
+        slices: [
+          slice("cfp", "applied"),
+          {
+            ...slice("agenda", "failed", "Rooms and time slots"),
+            incompatible: [{ id: "room-grand-hall", label: "Room: Grand Hall" }],
+          },
+        ],
       }),
       application({
         templateId: "33333333-3333-4333-8333-333333333333",
@@ -70,6 +76,9 @@ describe("outstandingConfiguration", () => {
       templateName: "Template A",
       version: 1,
       outstandingSince: "2027-01-05T12:00:00.000Z",
+      // The entities the destination named, carried rather than summarised. Asserted non-empty
+      // because a fold that hardcoded `[]` would type-check and pass every other assertion here.
+      incompatible: [{ id: "room-grand-hall", label: "Room: Grand Hall" }],
     });
   });
 

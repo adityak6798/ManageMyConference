@@ -309,9 +309,18 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
      * other throw in this method, which fires on a batch D1 rolled back. What is refused is the
      * *answer*: over several proposals, one whose row vanished in the read-to-batch gap leaves
      * the others durably transitioned, and this refuses to hand back a list claiming all of them
-     * moved. The caller's retry is what converges, exactly as it does for a decision whose
-     * session failed — every statement here is idempotent, so re-posting the same transition
-     * writes the missing rows and answers cleanly.
+     * moved.
+     *
+     * **A retry does not heal it, and an earlier draft of this comment said it did.** Two things
+     * stop it. `ReviewService.decide` and this method both re-read the proposals and refuse a
+     * missing one *before* the batch, so the same request answers "Proposal not found" rather
+     * than reaching the write. And `cfp_status_audit` carries no uniqueness beyond its own
+     * primary key while every call mints fresh `auditIds`, so a retry that did run would append
+     * a second audit row for one transition rather than converging on the first. This is
+     * therefore a report an operator has to act on, not a transient to retry, which is what the
+     * message says. Reachability is near zero — nothing in the product deletes a submission —
+     * and the alternative to refusing is answering with a list that claims a transition that did
+     * not happen, which is the whole of what #202 is about.
      */
     const changes = results.map((result, index) =>
       changedRows(
@@ -321,7 +330,9 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
     );
     if (changes.some((count) => count === 0))
       throw new Error(
-        "A proposal in this transition matched no submission; the batch committed, so retry to converge",
+        "A proposal in this transition matched no submission. The batch has committed, so the " +
+          "other proposals moved; this needs checking rather than retrying, because the retry " +
+          "refuses on the missing proposal before reaching the write.",
       );
     return current.map((item) => ({ ...item, status: input.toStatus }));
   }

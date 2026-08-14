@@ -1,13 +1,13 @@
 /**
  * The operational inbox at `/inbox`.
  *
- * Five categories, each read from its owning domain on every load, so the page shows what is
+ * Six categories, each read from its owning domain on every load, so the page shows what is
  * true rather than what a queue last recorded. Two things it has to be careful about, and both
  * are visible in the code below.
  *
  * **A failed category must not blank the page.** Each category keeps the last value it was given
  * across a failed refresh and reports the failure beside it, following the `Panel<T>` shape
- * `OverviewPage` uses — a dashboard that goes blank because one of five reads failed is worse
+ * `OverviewPage` uses — a dashboard that goes blank because one of six reads failed is worse
  * than no dashboard, because it hides the four that worked.
  *
  * **A dismissal is optimistic but never a lie.** Pressing Dismiss marks the row immediately and
