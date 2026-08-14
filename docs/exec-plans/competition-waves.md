@@ -849,3 +849,93 @@ the issue rather than an expansion of it.
 **And one shared file: `apps/web/src/styles/content.css`.** The checklist editor shares the
 resource editor's selectors rather than copying them, so the two panels cannot drift into looking
 like different products. A lane editing that file should expect the roster rules to name both.
+
+### Issues #164, #166 and `GAP-019` rulings — the sign-in-before-Google lane
+
+All three are one lane because they are one precondition: the deployed demo cannot offer Google
+sign-in until a real account is safe on that database, and neither race can be left open once one
+can exist.
+
+**The demo reset's guard reads the data, and its SQL lives in the domains that own the tables.**
+`tools/remote-demo-reset.mjs` belongs to `platform`; `organizations` and `events` belong to
+`events` and `users` to `identity-access`, so the command composes its count query from
+`events-fixture-statements.mjs` and `identity-fixture-statements.mjs` rather than writing it —
+the pattern `identity-revocation-statements.mjs` set for `revoke-sessions`. A tool is not exempt
+from the boundary, and `npm run context -- check` enforces it by text, including in tests: two
+integration tests were rewritten to drive domain services instead of raw SQL for that reason.
+
+**Fail closed, and prove it by attempting the destructive thing.** Every inconclusive answer —
+unreachable database, non-zero wrangler exit, unparseable output, a missing or non-integer column —
+refuses. `demo-reset-guard.integration.test.ts` runs the shipped query against a real seeded D1,
+refuses on a database carrying a self-serve signup, and then applies `seed/reset.sql` to that same
+database to show the rows really do disappear. A guard whose refusal is never demonstrated to be
+about something real is a comment.
+
+**The override names the counts.** `--destroy-real-data <organizations>/<events>/<users>` must
+repeat exactly what the refusal reported, is separate from `--confirm`, and cannot be reached
+without first being shown the numbers. `--confirm` was not widened to carry it: one flag says which
+deployment, the other says that destroying real rows there is intended.
+
+**Both first-sign-in races are closed by storage, not by ordering.** The events domain declares a
+`provisioning_key` on `events` (migration `1101`, events block) with a partial unique index per
+organization, so the second concurrent first-event writer loses and adopts the winner's row; the
+identity batch's own uniqueness already decided the account, and the loser now discards the
+organization it created and signs in as the winner. Reads cannot close either race, and this
+product has no delete for an event or an organization — so the only repair is prevention.
+
+**The organizer grant travels in the event's own batch.** `event_roles` is identity's table, so
+`D1EventRepository` takes a statement writer (`preparedOrganizerGrant`) and never learns it, the
+same shape the agenda uses for `EVT-SCHEDULE-PUBLISHED`. `EventService`'s `grantOrganizer`
+dependency is gone: an event whose creator holds no role on it is not a state this path can leave.
+
+**One browser, several sign-ins.** `greenroom_oauth` carries a capped set of attempt ids rather
+than one, and a callback spends only the attempt its `state` proof identifies. The cookie remains
+the browser-binding half of the CSRF defence, and it is no longer cleared before the attempt is
+identified — that was what let an older tab's failed callback destroy a newer tab's live sign-in.
+
+**One outcome is told apart from a refusal, deliberately.** A failure that is ours lands on
+`/signin?auth=unavailable`. It names no check and so hands a forger nothing; what it buys is that
+somebody whose sign-in broke on our side is not told to check an account that is fine.
+
+**The review turned up one thing that was not a regression and was fixed anyway — and its first
+fix was wrong, which is the part worth carrying forward.** `completeWorkspace` adopted "the
+organization's first event" when a user held a membership and no event role, a state an
+**organization-level invitation** produces (and so does revoking somebody's only event role), not
+only a failed signup. A member reaching it and then signing in with Google was handed
+`events:settings:update`, `agenda:manage` and `review:manage` on somebody else's event.
+
+**Two repairs were tried and rejected before the third, and that sequence is the lesson.** The
+first keyed the adoption to the organization; a review pass reproduced the escalation straight
+through it, because **every** organization a self-serve signup created carries a provisioned first
+event for ever, so an organization-scoped key answers "yes, provisioned" to whoever joins later.
+The second adopted only what *this person* provisioned and otherwise provisioned into any
+organization holding no events — which made a newcomer the organizer of somebody else's *empty*
+organization, and stranded its owner, whose own next sign-in then found it non-empty.
+
+What shipped is smaller than either: **completing a workspace provisions, and never adopts.** One
+condition, both halves of it a permission — an organization with no events *and* no other member is
+a workspace this person owns and has not been given an event in. Adoption still happens one layer
+down, inside `provisionFirstEvent`, for a caller that is provisioning *now*, which is what makes
+two tabs converge. The member count is identity's own read: `organization_memberships` is its
+table, so the events domain cannot answer that half.
+
+Two consequences are deliberate and worth stating rather than discovering. A **revoked** event role
+is not restored by signing in again — "somebody revoked my only role" and "my signup stopped early"
+are the same state seen from here, and the old rule silently reversed the revocation on the next
+Google sign-in while the emailed-code door left it revoked. And a signup whose organization has
+since gained an event or a second member is not resumed; that person's membership already lets them
+create an event themselves.
+
+Two smaller notes. The loop runs over *every* organization the actor belongs to rather than
+`organizations[0]`, which is a sort order rather than a choice. And the subject inside the
+provisioning key is now defence in depth rather than the guard: no caller can reach
+`provisionFirstEvent` with another person's key in play, because the precondition above admits only
+a sole member — the key's job is to make two callbacks *for one person* converge.
+
+**Two more from the same pass, both about the guard's own honesty.** Migration `0002` plants an
+`Imported organization` row that the seed never re-inserts, so the guard refused the *first* restore
+against a freshly provisioned database and offered `--destroy-real-data` as the way through — the
+exact habit the flag exists to prevent; migration-planted ids are now declared by the domain that
+owns the table. And the command's own ordering had no test: `main` takes its two Wrangler seams as
+parameters so a refusal can be shown to run nothing destructive, and so `--remote` on the count
+query is asserted rather than assumed.

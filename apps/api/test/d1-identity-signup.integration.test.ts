@@ -10,8 +10,14 @@
  * against the same storage and the same authorization derivation production uses. The in-memory
  * demo fixture cannot prove it — it hard-codes the persona's access and so agrees with itself.
  */
+import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  parseUnseededCounts,
+  seededFixtureIds,
+  unseededCountQuery,
+} from "../../../tools/remote-demo-reset.mjs";
 import {
   type D1DatabasePort,
   D1EventRepository,
@@ -19,6 +25,7 @@ import {
 import {
   D1IdentityDirectory,
   type IdentityDatabasePort,
+  preparedOrganizerGrant,
 } from "../src/adapters/persistence/d1-identity-directory";
 import { EventService } from "../src/application/events/event-service";
 import {
@@ -33,28 +40,46 @@ const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const DEMO_WORKSHOP = "00000000-0000-4000-8000-000000000002";
 const DEMO_ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 const linkedAt = 1_760_000_000_000;
+const SEED_FILE = new URL("../seed/reset.sql", import.meta.url);
 
 /** The composition `index.ts` builds for a request, over whichever database the case made. */
 function signupStack(database: unknown) {
   const directory = new D1IdentityDirectory(database as IdentityDatabasePort);
   const events = new EventService({
-    repository: new D1EventRepository(database as D1DatabasePort),
+    repository: new D1EventRepository(database as D1DatabasePort, preparedOrganizerGrant),
     newId: () => crypto.randomUUID(),
     now: () => new Date("2026-08-12T12:00:00.000Z"),
-    grantOrganizer: (eventId, userId) => directory.grantOrganizer(eventId, userId),
   });
   const signup = new SignupService({
     directory,
     workspace: {
       provisionOrganization: (command) => events.provisionOrganization(command),
-      createFirstEvent: (actor, command) => events.create(actor, command),
+      createFirstEvent: (actor, command) => events.provisionFirstEvent(actor, command),
       eventsInOrganization: async (actor, organizationId) =>
         (await events.list(actor)).filter((event) => event.organizationId === organizationId),
+      discardUnusedOrganization: (organizationId) =>
+        events.discardUnusedOrganization(organizationId),
     },
     newId: () => crypto.randomUUID(),
     now: () => linkedAt,
   });
   return { directory, events, signup };
+}
+
+/**
+ * What this database holds beyond the seeded fixture, counted by the demo restore's own guard.
+ *
+ * Borrowed rather than re-implemented, and the borrowing is the point: the rows a signup leaves
+ * behind are exactly the rows `npm run reset:demo` refuses on (`GAP-019`), so asserting them with
+ * that guard's query says something about the deployment rather than only about this test. It
+ * also keeps the SQL in the domains that own those tables, which is why the tool composes it from
+ * their statement modules instead of writing it.
+ */
+async function unseededRows(database: unknown) {
+  const ids = seededFixtureIds(await readFile(SEED_FILE, "utf8"));
+  const result = await (database as D1DatabasePort).prepare(unseededCountQuery(ids)).all();
+  if (!result.success) throw new Error(`count failed: ${result.error ?? "unknown error"}`);
+  return parseUnseededCounts(JSON.stringify([{ results: result.results, success: true }]));
 }
 
 const newcomer: GoogleIdentity = {
@@ -82,29 +107,37 @@ describe("Google signup against migrated D1", () => {
 
     await directory.saveOauthAttempt(attempt);
     await expect(
-      directory.consumeOauthAttempt(attempt.id, attempt.stateProof, 1_000_000),
-    ).resolves.toEqual({ codeVerifier: attempt.codeVerifier, nonce: attempt.nonce });
+      directory.consumeOauthAttempt([attempt.id], attempt.stateProof, 1_000_000),
+    ).resolves.toEqual({
+      id: attempt.id,
+      codeVerifier: attempt.codeVerifier,
+      nonce: attempt.nonce,
+    });
     // A replayed callback — the same id, the same valid `state` — finds nothing to spend. This
     // is the property a read-then-delete could not promise under two racing callbacks.
     await expect(
-      directory.consumeOauthAttempt(attempt.id, attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt([attempt.id], attempt.stateProof, 1_000_000),
     ).resolves.toBeNull();
 
     await directory.saveOauthAttempt({ ...attempt, id: "attempt-wrong-proof" });
     await expect(
-      directory.consumeOauthAttempt("attempt-wrong-proof", "a-forged-proof", 1_000_000),
+      directory.consumeOauthAttempt(["attempt-wrong-proof"], "a-forged-proof", 1_000_000),
     ).resolves.toBeNull();
     // Refusing a forged `state` must not spend the attempt the real browser still holds.
     await expect(
-      directory.consumeOauthAttempt("attempt-wrong-proof", attempt.stateProof, 1_000_000),
-    ).resolves.toEqual({ codeVerifier: attempt.codeVerifier, nonce: attempt.nonce });
+      directory.consumeOauthAttempt(["attempt-wrong-proof"], attempt.stateProof, 1_000_000),
+    ).resolves.toEqual({
+      id: "attempt-wrong-proof",
+      codeVerifier: attempt.codeVerifier,
+      nonce: attempt.nonce,
+    });
 
     await directory.saveOauthAttempt({ ...attempt, id: "attempt-expired" });
     await expect(
-      directory.consumeOauthAttempt("attempt-expired", attempt.stateProof, attempt.expiresAt),
+      directory.consumeOauthAttempt(["attempt-expired"], attempt.stateProof, attempt.expiresAt),
     ).resolves.toBeNull();
     await expect(
-      directory.consumeOauthAttempt("attempt-unknown", attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt(["attempt-unknown"], attempt.stateProof, 1_000_000),
     ).resolves.toBeNull();
 
     /*
@@ -119,13 +152,57 @@ describe("Google signup against migrated D1", () => {
      */
     await directory.saveOauthAttempt({ ...attempt, id: "attempt-raced" });
     const raced = await Promise.all([
-      directory.consumeOauthAttempt("attempt-raced", attempt.stateProof, 1_000_000),
-      directory.consumeOauthAttempt("attempt-raced", attempt.stateProof, 1_000_000),
-      directory.consumeOauthAttempt("attempt-raced", attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt(["attempt-raced"], attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt(["attempt-raced"], attempt.stateProof, 1_000_000),
+      directory.consumeOauthAttempt(["attempt-raced"], attempt.stateProof, 1_000_000),
     ]);
     expect(raced.filter((outcome) => outcome !== null)).toEqual([
-      { codeVerifier: attempt.codeVerifier, nonce: attempt.nonce },
+      { id: "attempt-raced", codeVerifier: attempt.codeVerifier, nonce: attempt.nonce },
     ]);
+
+    /*
+     * Several attempts in flight in one browser, which is what a person with two tabs open
+     * actually has (issue #166). The proof picks exactly one of the ids presented, the others
+     * survive it, and an id the browser is *not* holding cannot be spent however valid its
+     * proof — that last one is the browser binding this cookie exists for.
+     */
+    await directory.saveOauthAttempt({ ...attempt, id: "attempt-tab-one" });
+    await directory.saveOauthAttempt({
+      ...attempt,
+      id: "attempt-tab-two",
+      stateProof: "the-proof-of-the-other-tabs-state",
+    });
+    await expect(
+      directory.consumeOauthAttempt(
+        ["attempt-tab-one", "attempt-tab-two"],
+        attempt.stateProof,
+        1_000_000,
+      ),
+    ).resolves.toMatchObject({ id: "attempt-tab-one" });
+    // The other tab's sign-in is untouched, and completes on its own proof afterwards.
+    await expect(
+      directory.consumeOauthAttempt(
+        ["attempt-tab-two"],
+        "the-proof-of-the-other-tabs-state",
+        1_000_000,
+      ),
+    ).resolves.toMatchObject({ id: "attempt-tab-two" });
+    /*
+     * Another browser's attempt, with a proof this browser can produce, is still refused: the id
+     * is not in the list this caller presented. That is the browser binding the cookie exists
+     * for, and it is the one property widening the list must not cost.
+     */
+    await directory.saveOauthAttempt({ ...attempt, id: "attempt-another-browser" });
+    await expect(
+      directory.consumeOauthAttempt(["attempt-tab-one"], attempt.stateProof, 1_000_000),
+    ).resolves.toBeNull();
+    await expect(
+      directory.consumeOauthAttempt([], attempt.stateProof, 1_000_000),
+    ).resolves.toBeNull();
+    // And it survives: refusing this caller spent nothing that belonged to the other browser.
+    await expect(
+      directory.consumeOauthAttempt(["attempt-another-browser"], attempt.stateProof, 1_000_000),
+    ).resolves.toMatchObject({ id: "attempt-another-browser" });
   });
 
   /**
@@ -159,7 +236,7 @@ describe("Google signup against migrated D1", () => {
     expect(started.attempt.stateProof).not.toBe(started.state);
     await expect(
       directory.consumeOauthAttempt(
-        started.attempt.id,
+        [started.attempt.id],
         await stateProof(`${started.state}-tampered`, secret),
         1_000_100,
       ),
@@ -167,7 +244,7 @@ describe("Google signup against migrated D1", () => {
     // A proof of the right state under the wrong secret is equally worthless.
     await expect(
       directory.consumeOauthAttempt(
-        started.attempt.id,
+        [started.attempt.id],
         await stateProof(started.state, "a-different-session-secret"),
         1_000_100,
       ),
@@ -175,11 +252,12 @@ describe("Google signup against migrated D1", () => {
     // And the genuine one spends it, returning the verifier that never left this server.
     await expect(
       directory.consumeOauthAttempt(
-        started.attempt.id,
+        [started.attempt.id],
         await stateProof(started.state, secret),
         1_000_100,
       ),
     ).resolves.toEqual({
+      id: started.attempt.id,
       codeVerifier: started.attempt.codeVerifier,
       nonce: started.attempt.nonce,
     });
@@ -292,5 +370,225 @@ describe("Google signup against migrated D1", () => {
     expect(selfServeList).toEqual([selfServeEvent]);
     await expect(events.get(outcome.actor, DEMO_EVENT)).resolves.toBeNull();
     await expect(events.get(outcome.actor, DEMO_WORKSHOP)).resolves.toBeNull();
+  });
+
+  /**
+   * Two callbacks at once, against real D1 — issue #164's acceptance criterion.
+   *
+   * A person with two tabs open produces exactly this (issue #166), and before the fix it
+   * produced two of everything: a stagger sweep of two concurrent `signInWithGoogle` calls for
+   * one new subject created two events and two organizer roles at 25 of 45 tested offsets, and
+   * left the loser's organization row behind. Neither mark is repairable through the product —
+   * no route deletes an event and none deletes an organization — so the assertions here are
+   * about what storage refused, not about what a service remembered to check.
+   *
+   * The `Promise.all` is genuinely overlapping rather than staggered: every call in it is an
+   * HTTP round trip to workerd, so both readers see an empty directory before either writes.
+   * Against the pre-fix code this case fails on the very first assertion.
+   */
+  it("converges two concurrent first sign-ins on one workspace", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-signup-race", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, events, directory } = signupStack(database);
+
+    const [first, second] = await Promise.all([
+      signup.signInWithGoogle(newcomer),
+      signup.signInWithGoogle(newcomer),
+    ]);
+
+    // One person, one workspace: both callbacks resolve the same user, and both hold the role.
+    expect(first.actor.id).toBe(second.actor.id);
+    expect(first.actor.eventAccess).toHaveLength(1);
+    expect(second.actor.eventAccess).toEqual(first.actor.eventAccess);
+    const organizationId = first.actor.organizations[0]?.id as string;
+    const eventId = first.actor.eventAccess[0]?.eventId as string;
+    expect(second.actor.organizations).toEqual([{ id: organizationId }]);
+
+    // Exactly one of everything, counted in the tables rather than inferred from the actors:
+    // one organization, one user, one event beyond the seeded fixture — no duplicate first
+    // event, and **no orphaned organization** from the callback that lost. The orphan matters
+    // beyond tidiness: it is precisely the row a data-aware demo reset refuses on, and nothing
+    // in the product would ever remove it, so one would make every later reset refuse forever
+    // (`GAP-019`).
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+    // And the one event is the one both actors hold the organizer role on.
+    await expect(events.listEventIdsForOrganization(organizationId)).resolves.toEqual([eventId]);
+    await expect(directory.listAssignableOwnersForEvent(eventId)).resolves.toEqual([
+      { id: first.actor.id, name: newcomer.name },
+    ]);
+  });
+
+  /**
+   * The workspace owner's event is not handed to somebody who merely joins the organization.
+   *
+   * Every organization a self-serve signup created carries a provisioned first event for ever, so
+   * a provisioning key naming only the organization would answer "yes, provisioned" to any later
+   * member — and completing their workspace would grant them organizer on the owner's event. Two
+   * ways to reach that membership-with-no-event-role state exist today: an organization-level
+   * invitation, and an organizer revoking somebody's only event role. Driven here against real
+   * D1, because a fake would agree with whichever key the implementation chose.
+   */
+  it("never grants a later member the workspace owner's provisioned event", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "identity-first-event-owner",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, directory, events } = signupStack(database);
+
+    const owner = await signup.signInWithGoogle(newcomer);
+    const organizationId = owner.actor.organizations[0]?.id as string;
+    const ownerEvent = owner.actor.eventAccess[0]?.eventId as string;
+
+    // A second person in the owner's organization, with a membership and no event role.
+    await directory.createSelfServeIdentity({
+      userId: "later-member",
+      name: "Later Member",
+      email: "later@example.test",
+      provider: "google",
+      subject: "later-member-subject",
+      linkedAt,
+      organizationId,
+    });
+
+    const later = await signup.signInWithGoogle({
+      subject: "later-member-subject",
+      email: "later@example.test",
+      emailVerified: true,
+      name: "Later Member",
+    });
+
+    // Nothing granted, and nothing invented: an organizer of that organization grants access
+    // deliberately or it does not exist.
+    expect(later.actor.eventAccess).toEqual([]);
+    await expect(events.listEventIdsForOrganization(organizationId)).resolves.toEqual([ownerEvent]);
+    await expect(directory.listAssignableOwnersForEvent(ownerEvent)).resolves.toEqual([
+      { id: owner.actor.id, name: newcomer.name },
+    ]);
+  });
+
+  /**
+   * The same rule from the other side: an organization that is somebody else's and merely *empty*.
+   *
+   * "No events" alone would read as "a fresh workspace" and provision one — making the newcomer
+   * its organizer, and with it `identity:manage` over an organization they were only added to,
+   * while the actual owner's own next sign-in would find their organization no longer empty and
+   * come away with nothing. The second half of the condition is the membership count, which only
+   * identity-access can answer.
+   */
+  it("provisions nothing into an empty organization that already has another member", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-empty-foreign", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, directory, events } = signupStack(database);
+
+    // An organization with a member and no events: the state a signup that stopped before its
+    // event leaves, seen by somebody who is not the person it belongs to.
+    const organization = await events.provisionOrganization({ name: "Somebody else's" });
+    await directory.createSelfServeIdentity({
+      userId: "the-owner",
+      name: "The Owner",
+      email: "owner@example.test",
+      provider: "google",
+      subject: "owner-subject",
+      linkedAt,
+      organizationId: organization.id,
+    });
+    await directory.createSelfServeIdentity({
+      userId: "the-newcomer",
+      name: "The Newcomer",
+      email: "newcomer@example.test",
+      provider: "google",
+      subject: "newcomer-subject",
+      linkedAt,
+      organizationId: organization.id,
+    });
+
+    const newcomerSignIn = await signup.signInWithGoogle({
+      subject: "newcomer-subject",
+      email: "newcomer@example.test",
+      emailVerified: true,
+      name: "The Newcomer",
+    });
+
+    expect(newcomerSignIn.actor.eventAccess).toEqual([]);
+    await expect(events.listEventIdsForOrganization(organization.id)).resolves.toEqual([]);
+  });
+
+  /**
+   * The discard is refused by the database when the organization is in use, not merely by the
+   * predicate this domain can express.
+   *
+   * `discardUnusedOrganization` guards on the events domain's own references, because it cannot
+   * read another domain's tables. What stops it removing an organization somebody is already a
+   * member of — the state a batch that committed and lost its response leaves — is
+   * `organization_memberships.organization_id REFERENCES organizations(id)`. That is the argument
+   * the interface doc makes, and this is the assertion behind it.
+   */
+  it("refuses to discard an organization a membership already references", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-discard-guard", seed: true });
+    runtime = migrated.runtime;
+    const { directory, events } = signupStack(migrated.database);
+    const organization = await events.provisionOrganization({ name: "Committed anyway" });
+    await directory.createSelfServeIdentity({
+      userId: "committed-user",
+      name: "Committed User",
+      email: "committed@example.test",
+      provider: "google",
+      subject: "committed-subject",
+      linkedAt,
+      organizationId: organization.id,
+    });
+
+    await expect(events.discardUnusedOrganization(organization.id)).rejects.toThrow();
+    // And the member is still a member of an organization that still exists.
+    await expect(directory.findByUserId("committed-user")).resolves.toMatchObject({
+      organizations: [{ id: organization.id }],
+    });
+  });
+
+  /**
+   * The event row and the organizer role commit together, or neither does.
+   *
+   * They were two unbatched writes, so a failure between them left an event whose creator held
+   * no role on it — an event nobody can open and no route can delete. The failure is provoked
+   * by the batch's own constraint: a second create under the same provisioning key.
+   */
+  it("never leaves an event without the role that opens it", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-first-event", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, events, directory } = signupStack(database);
+
+    const outcome = await signup.signInWithGoogle(newcomer);
+    const organizationId = outcome.actor.organizations[0]?.id as string;
+    const eventId = outcome.actor.eventAccess[0]?.eventId as string;
+
+    // A second provisioning of the same organization adopts rather than creating, and the
+    // adopted event is the one that already exists.
+    await expect(
+      events.provisionFirstEvent(outcome.actor, {
+        organizationId,
+        name: "Another first event",
+        timezone: "UTC",
+      }),
+    ).resolves.toMatchObject({ id: eventId });
+    await expect(events.listEventIdsForOrganization(organizationId)).resolves.toEqual([eventId]);
+    // The refused insert took its organizer grant down with it: still one role, not two rows
+    // and not a role on an event that was never written.
+    await expect(directory.listAssignableOwnersForEvent(eventId)).resolves.toEqual([
+      { id: outcome.actor.id, name: newcomer.name },
+    ]);
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
   });
 });

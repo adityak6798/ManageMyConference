@@ -23,8 +23,26 @@ export interface EventServiceDependencies {
   repository: EventRepository;
   newId: () => string;
   now: () => Date;
-  grantOrganizer?: (eventId: string, userId: string) => Promise<void>;
 }
+
+/**
+ * The key a self-serve workspace's first event is provisioned under, per person.
+ *
+ * Unique per `(organization_id, provisioning_key)` by a partial index, which is what makes two
+ * concurrent first sign-ins converge on one event instead of creating two (issue #164): both
+ * callbacks are the same person, so both compute the same key and the second one loses and adopts.
+ *
+ * **It names the person, not just the intent**, so the idempotence belongs to the caller: a repeat
+ * of *this* person's provisioning converges, and two different people provisioning in one
+ * organization would not silently collide on each other's key.
+ *
+ * It is not what stops a member taking somebody else's event. `SignupService.completeWorkspace`
+ * does that, by provisioning only into an organization with no events and no other member and
+ * never adopting an event that already exists — so no caller can reach here with another person's
+ * key in play. The subject is defence in depth against a future caller, and today no test can
+ * observe the difference; that is stated rather than dressed up as a guard.
+ */
+export const firstEventProvisioningKey = (userId: string) => `self-serve-first-event:${userId}`;
 
 // @spec PRD-EVT-001
 export class EventService {
@@ -44,17 +62,45 @@ export class EventService {
     };
   }
 
-  async create(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
+  /** Who may create an event in this organization, and who the role belongs to when they do. */
+  private authorizeCreate(actor: Actor | null, organizationId: string): Actor {
     const authorized = requireCapability(actor, "events:create");
     const canCreateInOrganization = authorized.organizationAccess
       ? authorized.organizationAccess.some(
-          ({ id, capabilities }) =>
-            id === command.organizationId && capabilities.has("events:create"),
+          ({ id, capabilities }) => id === organizationId && capabilities.has("events:create"),
         )
-      : authorized.organizations.some(({ id }) => id === command.organizationId);
+      : authorized.organizations.some(({ id }) => id === organizationId);
     if (!canCreateInOrganization) {
       throw new CapabilityDeniedError("Organization access denied");
     }
+    return authorized;
+  }
+
+  async create(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
+    const authorized = this.authorizeCreate(actor, command.organizationId);
+    const created = await this.write(command, authorized.roleGrantSubjectId ?? authorized.id, {});
+    if (created === null)
+      // Unreachable: only a provisioning key can be taken, and `create` passes none.
+      throw new Error("Creating an event without a provisioning key cannot be refused as taken");
+    return created;
+  }
+
+  /**
+   * The event row and its organizer role, as one durable write.
+   *
+   * They used to be two — the insert, then a separate `grantOrganizer` — so a failure between
+   * them left an event whose creator held no role on it, and therefore an event nobody could
+   * open or delete (issue #164). The role belongs to identity-access, so the repository is
+   * handed the subject and the adapter commits both in one batch through a writer that domain
+   * supplies.
+   *
+   * `null` means the provisioning key was already taken; the caller adopts the winner.
+   */
+  private async write(
+    command: CreateEventCommand,
+    organizerUserId: string | undefined,
+    options: { readonly provisioningKey?: string },
+  ): Promise<Event | null> {
     const event: Event = {
       id: this.dependencies.newId(),
       organizationId: command.organizationId,
@@ -62,10 +108,63 @@ export class EventService {
       timezone: command.timezone,
       createdAt: this.dependencies.now().toISOString(),
     };
-    await this.dependencies.repository.create(event);
-    const roleGrantSubjectId = authorized.roleGrantSubjectId ?? authorized.id;
-    if (roleGrantSubjectId) await this.dependencies.grantOrganizer?.(event.id, roleGrantSubjectId);
-    return event;
+    const outcome = await this.dependencies.repository.create(event, {
+      ...(organizerUserId ? { organizerUserId } : {}),
+      ...options,
+    });
+    return outcome === "created" ? event : null;
+  }
+
+  /**
+   * The one event a brand-new self-serve workspace starts with.
+   *
+   * Authorized exactly as `create` is — the caller has just been made a member of the
+   * organization it names — and different from it in one way: it is **idempotent per caller per
+   * organization**. Two concurrent first sign-ins for one account both reach here, and the
+   * uniqueness the provisioning key declares is what makes the second one adopt the first's
+   * event rather than create a second "Your first event" that no route can delete. A *different*
+   * person provisioning in the same organization would not collide with it — which is why the
+   * caller that decides to provision at all (`completeWorkspace`) requires an organization with
+   * no events and no other member.
+   *
+   * On adoption the caller holds no role yet — its own grant rolled back with its refused
+   * insert — so the caller grants it, exactly as it does for an event it finds by reading. That
+   * grant is `INSERT OR IGNORE` on identity's side, so it is free when the role is already held.
+   */
+  async provisionFirstEvent(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
+    const authorized = this.authorizeCreate(actor, command.organizationId);
+    const subject = authorized.roleGrantSubjectId ?? authorized.id;
+    const created = await this.write(command, subject, {
+      provisioningKey: firstEventProvisioningKey(subject),
+    });
+    if (created) return created;
+    const adopted = await this.dependencies.repository.findByProvisioningKey(
+      command.organizationId,
+      firstEventProvisioningKey(subject),
+    );
+    if (!adopted)
+      // The key was reported taken and then named no row: two answers that cannot both be true,
+      // and a state no retry here can resolve. Reported rather than papered over with a second
+      // create, which is exactly the duplicate this method exists to prevent.
+      throw new Error(
+        `Event provisioning for organization ${command.organizationId} was refused as already provisioned, but no provisioned event exists`,
+      );
+    return adopted;
+  }
+
+  /**
+   * Remove an organization a signup abandoned, and report whether one went.
+   *
+   * The system-trust sibling of `provisionOrganization` and its counterweight: that call writes
+   * the organization before the identity batch that would reference it, so a failed signup left
+   * an unreferenced row that nothing swept (issue #164) — and, once the demo reset reads the
+   * data (`GAP-019`), one that would make a reset refuse forever. No actor, for the same reason
+   * `provisionOrganization` has none: at the moment it runs nobody is a member. The refusal is
+   * in the repository's statement, so an organization that became somebody's workspace between
+   * the failure and this call is kept rather than deleted.
+   */
+  async discardUnusedOrganization(organizationId: string): Promise<boolean> {
+    return this.dependencies.repository.discardUnusedOrganization(organizationId);
   }
 
   /**

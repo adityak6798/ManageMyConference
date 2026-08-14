@@ -1,6 +1,6 @@
 # Security operations
 
-Status: canonical | Owner: security | Last verified: 2026-08-12
+Status: canonical | Owner: security | Last verified: 2026-08-13
 
 What an operator does about credentials, and what happens to the people signed in while they do
 it. Everything here is procedure for a live deployment; the design behind it is
@@ -22,10 +22,34 @@ The Google bindings are **all three or none**: `resolveGoogleConfiguration` refu
 configuration by name at boot, because a deployment that offers a sign-in button it cannot complete
 is worse than one that offers none.
 
-They are also deliberately commented out on the deployed demo, and must stay that way until
-`GAP-019` is closed. The demo restore executes `seed/reset.sql`, which deletes every row of
-`users`, `organizations` and `events`; the first real person to sign up there would be erased by
-the next routine restore, silently and with a successful exit.
+### Enabling Google sign-in on the deployed demo
+
+They are commented out on the deployed demo because they carry a client id this repository does not
+have, not because enabling them is unsafe: `GAP-019` is closed, and the demo restore now counts the
+rows the seed did not create and refuses rather than deleting them. Four steps, in this order, all
+of them operator actions because two of them carry credentials:
+
+1. **Create the OAuth client.** Google Cloud console → Credentials → OAuth 2.0 client ID → *Web
+   application*. Register exactly this redirect URI against it:
+   `https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback`. It must match
+   byte for byte, and it is configuration rather than anything derived from a request — a redirect
+   URI a caller can name is the open redirect.
+2. **Set the two vars.** Uncomment `GOOGLE_CLIENT_ID` and `GOOGLE_REDIRECT_URI` in
+   `apps/api/wrangler.toml`, replacing `<client-id>` with the client's own id and leaving the
+   redirect URI as written.
+3. **Put the secret.** `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET`. All three or
+   none: `resolveGoogleConfiguration` refuses to boot a partial configuration by name.
+4. **Deploy and verify.** `npm run deploy` from the repository root, then check `/api/auth/config`
+   reports `google: true` and complete one real sign-in. That sign-in is the observation `GAP-020`
+   is waiting for — record its date, commit and client id there and in the `ACC-IDENTITY-EVENTS`
+   scorecard row.
+
+Two consequences to expect rather than discover. A Google identity whose verified address is a
+**seeded persona address** (`organizer@greenroom.test` and the rest) is refused and logged as
+`auth.google.refused`, because linking it would hand a real session to whoever presses *Continue as
+organizer* next. And once anyone signs up there, `npm run reset:demo` refuses until either those
+rows are gone or the operator names them explicitly — see the restore section of the
+[demo runbook](../demo-runbook.md#restore-the-deployed-demo).
 
 ## Rotating `SESSION_SECRET`
 

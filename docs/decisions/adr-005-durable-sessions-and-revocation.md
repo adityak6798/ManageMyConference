@@ -87,7 +87,8 @@ the identity the landing page hands to the next visitor who presses **Continue a
 Both issuing routes refuse a subject for which `isDemoPersonaId` holds, and that predicate is
 derived from the `personas` object's own keys so it cannot drift from the four seeded rows. The
 alternative — trusting `GAP-019` to keep Google unconfigured on the demo — is a deployment
-convention standing in for an authorization rule.
+convention standing in for an authorization rule, and that convention has since gone: `GAP-019` is
+closed and the demo can carry a Google client.
 
 **The Google callback's refusals are recorded as structured logs, not audit rows.** A refused
 sign-in has no state change to batch a row with. Writing one best-effort would give two bad

@@ -13,7 +13,10 @@ import { D1ContentRepository } from "../src/adapters/persistence/d1-content-repo
 import type { D1DatabasePort } from "../src/adapters/persistence/d1-event-repository";
 import { D1EventRepository } from "../src/adapters/persistence/d1-event-repository";
 import { D1EventTemplateRepository } from "../src/adapters/persistence/d1-event-template-repository";
-import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
+import {
+  D1IdentityDirectory,
+  preparedOrganizerGrant,
+} from "../src/adapters/persistence/d1-identity-directory";
 import { D1PublicationRepository } from "../src/adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "../src/adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
@@ -153,10 +156,9 @@ function compose(database: D1DatabasePort, templateDatabase: D1DatabasePort = da
     database as ConstructorParameters<typeof D1IdentityDirectory>[0],
   );
   const events = new EventService({
-    repository: new D1EventRepository(database),
+    repository: new D1EventRepository(database, preparedOrganizerGrant),
     newId,
     now,
-    grantOrganizer: (eventId, userId) => identity.grantOrganizer(eventId, userId),
   });
   const proposals = new D1SubmittedProposalAdapter(
     database as ConstructorParameters<typeof D1SubmittedProposalAdapter>[0],
@@ -339,7 +341,7 @@ describe("D1EventTemplateRepository", () => {
 
   /**
    * A seeded database plus an empty destination event, created through the same
-   * `EventService.create` + `grantOrganizer` path the Worker composes — so "nothing arrived
+   * `EventService.create` path the Worker composes, whose event row and organizer role are one batch — so "nothing arrived
    * here" is a statement about the clone rather than about a hand-written fixture row.
    */
   async function seeded(interpose: (base: D1DatabasePort) => D1DatabasePort = (base) => base) {

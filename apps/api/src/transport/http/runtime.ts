@@ -53,20 +53,46 @@ export interface GoogleAuthProvider {
   /** Mint one single-use attempt; the browser is redirected to `authorizationUrl`. */
   start(now: number): Promise<{ authorizationUrl: string; attemptId: string }>;
   /**
-   * Spend the attempt and sign the caller in. `null` is every refusal — an unknown attempt, a
-   * `state` that does not match, an expired or already-spent attempt, a token that does not
-   * verify — deliberately indistinguishable to the browser.
+   * Spend one of this browser's outstanding attempts and sign the caller in.
+   *
+   * The caller passes **every** attempt id the browser is holding, because a person with two
+   * tabs open has two sign-ins in flight and either may return first (issue #166). Exactly one
+   * of them can match the `state` this callback carries, and matching it is what spends it.
+   *
+   * `refused` is every protocol refusal — no matching attempt, a `state` that does not match,
+   * an expired or already-spent attempt, a token that does not verify, an unverified address —
+   * and they are deliberately indistinguishable to the browser. `unavailable` is *ours*: D1
+   * down, Google answering 5xx, provisioning failing part-way. The browser is told those apart
+   * because a person whose sign-in broke on our side should not be told to check their account
+   * (issue #164); it leaks nothing, because an operational fault is not the answer to any check
+   * an attacker can pose.
    */
   complete(input: {
-    attemptId: string;
+    attemptIds: readonly string[];
     state: string;
     code: string;
     now: number;
     /** Carried so a failure inside the flow can be found from the caller's report of it. */
     correlationId: string;
-  }): Promise<{ actor: Actor; provisioned: boolean } | null>;
+  }): Promise<GoogleCallbackResult>;
   /** Resolve a signed user-session cookie back to its actor. */
   resolveUserActor(userId: string): Promise<Actor | null>;
+}
+
+/**
+ * What a callback did, split into the two things its caller must act on separately.
+ *
+ * `spentAttemptId` is reported whatever the outcome, including the refusals that happen *after*
+ * an attempt was consumed: the row is gone, so the browser must stop presenting that id — while
+ * every other attempt it holds stays outstanding. Reporting only on success would leave a dead
+ * id occupying one of the browser's slots until it aged out.
+ */
+export interface GoogleCallbackResult {
+  readonly spentAttemptId: string | null;
+  readonly outcome:
+    | { readonly status: "signed-in"; readonly actor: Actor; readonly provisioned: boolean }
+    | { readonly status: "refused" }
+    | { readonly status: "unavailable" };
 }
 
 /**

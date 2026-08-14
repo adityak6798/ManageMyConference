@@ -54,12 +54,10 @@ describe("EventService", () => {
 
   it("persists a new event through its repository port", async () => {
     const repository = new MemoryEventRepository();
-    const grantOrganizer = vi.fn().mockResolvedValue(undefined);
     const service = new EventService({
       repository,
       newId: () => "123e4567-e89b-12d3-a456-426614174000",
       now: () => new Date("2026-08-09T12:00:00.000Z"),
-      grantOrganizer,
     });
 
     await service.create(organizer, {
@@ -67,10 +65,11 @@ describe("EventService", () => {
       name: "Greenroom Summit",
       timezone: "America/Los_Angeles",
     });
-    expect(grantOrganizer).toHaveBeenCalledWith(
-      "123e4567-e89b-12d3-a456-426614174000",
-      "seed-organizer",
-    );
+    // The role is part of the write that creates the event rather than a call after it, so an
+    // event whose creator cannot open it is not a state this path can leave behind (issue #164).
+    expect(repository.organizerGrants).toEqual([
+      { eventId: "123e4567-e89b-12d3-a456-426614174000", userId: "seed-organizer" },
+    ]);
 
     await expect(service.list(organizer)).resolves.toEqual([
       {

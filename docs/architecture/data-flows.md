@@ -36,9 +36,18 @@ written, because nothing server-side was recorded when it was issued.
 
 Provisioning is the one part of this that is not one transaction, because it crosses a domain: the
 organization row is written first and is inert if nothing follows it, the identity batch (user,
-address, provider link, membership) commits together or not at all, and the first event is created
-last. A failure after the identity batch leaves an organizer with no event, which the next sign-in
-completes rather than duplicating.
+address, provider link, membership) commits together or not at all, and the first event and the
+organizer role on it commit together last, in one batch. A failure after the identity batch leaves
+an organizer with no event, which the next sign-in completes rather than duplicating.
+
+**Two of these at once is ordinary** — one person with two tabs open — and neither of the two marks
+that would leave behind is repairable by the product, since nothing deletes an event and nothing
+deletes an organization. So each is prevented by storage rather than by ordering (issue #164): the
+identity batch's own uniqueness picks one winner and the loser signs in as it, and the events
+domain's provisioning key, unique per person per organization, makes the second first-event writer
+adopt the first's event. Provisioning happens only into an organization with no events and no
+other member, so the same code path never completes somebody else's workspace. The organization the losing callback created is discarded by that callback, which
+also keeps the deployment's demo restore able to tell real rows from seeded ones (`GAP-019`).
 
 ## Event configuration reuse (`ARC-FLOW-006`)
 

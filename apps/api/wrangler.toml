@@ -72,12 +72,33 @@ REVIEW_AI_PROVIDER = "fixture"
 # reports `google: false`, both Google routes answer 404, and this deployment is byte-for-byte
 # the configuration it was before the feature existed.
 #
-# **Why they are commented out.** Google sign-in works; enabling it here would not. `GAP-019`: the
-# demo restore (`npm run reset:demo`) executes `seed/reset.sql` against this database, which
-# DELETEs every row of `users`, `organizations` and `events` before reinserting the fixture, and
-# its guard reads this file rather than the data — so the first real person to sign up here would
-# be erased by the next routine demo restore, silently and with a successful exit. Uncomment these
-# two lines and put the secret once that gap is closed.
+# **How to enable it here.** These two lines are commented out because they carry a credential
+# this repository does not have — a real OAuth client id — rather than because enabling them is
+# unsafe. `GAP-019` is closed: `npm run reset:demo` now reads the database before it writes and
+# refuses when it finds an organization, user or event the seed does not name, so a real signup
+# is no longer erased by the next routine restore. Four steps, in this order:
+#
+#   1. In the Google Cloud console, create an OAuth 2.0 **Web application** client, and register
+#      exactly this redirect URI against it:
+#      `https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback`
+#      It must match byte for byte; Google refuses the exchange otherwise.
+#   2. Uncomment both lines below and replace `<client-id>` with the client's own id. The redirect
+#      URI stays exactly as written: it is configuration on purpose, never derived from a request
+#      (that is the open redirect) and never from `PUBLIC_BASE_URL` (local development inherits
+#      that value from this file and would claim the deployed callback as its own).
+#   3. `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET`, pasting the client secret.
+#      All three or none: with one or two set the Worker refuses to boot, by name.
+#   4. `npm run deploy` from the repository root, then confirm `/api/auth/config` reports
+#      `google: true` and complete one real sign-in. That sign-in is also what closes `GAP-020`,
+#      which records that this adapter has never exchanged a request with Google — record the
+#      date, commit and client id there when it succeeds.
+#
+# Two things to know before step 4 rather than after. A Google identity resolving to a **seeded
+# persona address** is refused and logged: `seed/reset.sql` gives the personas real-looking
+# addresses, and linking one would hand a real session to whoever presses "Continue as organizer"
+# next. And a self-serve signup on this deployment writes rows the demo reset will then refuse to
+# delete — that is the guard working, and `npm run reset:demo` will tell you what it found and
+# what destroying it would cost. See docs/engineering/security-operations.md.
 #
 # GOOGLE_CLIENT_ID = "<client-id>.apps.googleusercontent.com"
 # GOOGLE_REDIRECT_URI = "https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback"
