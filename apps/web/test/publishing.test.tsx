@@ -167,14 +167,18 @@ describe("PublishingWorkspace", () => {
     const frames = [...container.querySelectorAll("iframe")].map((frame) =>
       frame.getAttribute("src"),
     );
-    // Four widget types, which is what issue #95 asks the share tooling to cover: the two
-    // programme views and the two readings of the speaker directory.
+    // Programme, directory, gallery, and a private-link itinerary all use the same
+    // published projection and the same configurable embed contract.
     expect(frames).toEqual([
       `/embed/events/${slug}/schedule`,
       `/embed/events/${slug}/sessions`,
       `/embed/events/${slug}/speakers`,
       `/embed/events/${slug}/gallery`,
+      `/embed/events/${slug}/itinerary`,
     ]);
+    expect(
+      screen.getByRole("link", { name: `${origin}/api/public/events/${slug}` }),
+    ).toHaveAttribute("href", `/api/public/events/${slug}`);
   });
 
   it("writes the chosen options into every snippet it hands out", async () => {
@@ -315,7 +319,7 @@ describe("PublishingWorkspace", () => {
     expect(fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
   });
 
-  it("publishes, reveals the public URL, and states that later edits stay invisible", async () => {
+  it("publishes, reveals the public URL, and explains automatic source refresh", async () => {
     const fetchMock = stubPublishing({ preview: unpublished });
     renderWorkspace();
 
@@ -325,7 +329,7 @@ describe("PublishingWorkspace", () => {
     fireEvent.click(publish);
 
     expect(
-      await screen.findByText(/later draft edits stay invisible until you publish again/),
+      await screen.findByText(/accepted schedule, content, and CFP publications now refresh/i),
     ).toHaveAttribute("role", "status");
     const publishCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
     expect(String(publishCall?.[0])).toBe(`/api/publishing/events/${eventId}/publish`);
@@ -354,11 +358,11 @@ describe("PublishingWorkspace", () => {
     expect(screen.getByText(/Reserved public URL/)).toBeInTheDocument();
   });
 
-  it("names the parts of the draft that have moved ahead of the immutable snapshot", async () => {
+  it("names event or site settings that still need an explicit publish", async () => {
     stubPublishing({ preview: publication({ draft: movedDraft }) });
     renderWorkspace();
 
-    const alerts = await screen.findAllByText(/stay invisible until you publish again/);
+    const alerts = await screen.findAllByText(/need an explicit publish/);
     expect(alerts[0]).toHaveTextContent("sessions");
     expect(screen.getByText("Draft ahead of the published snapshot")).toBeInTheDocument();
 

@@ -52,8 +52,25 @@ export const publicEventProjectionSchema = z.object({
   sessions: z.array(publicSessionSchema),
   speakers: z.array(publicSpeakerSchema),
 });
+export const publicationProvenanceSchema = z.object({
+  agendaVersion: z.number().int().positive().nullable(),
+  agendaPublishedAt: z.string().datetime().nullable(),
+  cfpVersion: z.number().int().positive().nullable(),
+  cfpPublishedAt: z.string().datetime().nullable(),
+  contentDigest: z.string().min(1),
+  cause: z.enum(["site-published", "schedule-published", "source-reconciled"]),
+});
 export type PublicEventProjectionDto = z.infer<typeof publicEventProjectionSchema>;
-export const publicEventResponseSchema = z.object({ projection: publicEventProjectionSchema });
+export const publicEventResponseSchema = z.object({
+  projection: publicEventProjectionSchema,
+  publication: z
+    .object({
+      version: z.number().int().nonnegative(),
+      publishedAt: z.string().datetime().nullable(),
+      provenance: publicationProvenanceSchema.nullable(),
+    })
+    .optional(),
+});
 export const publicEventSlugParamsSchema = z.object({ slug: routeSlugSchema });
 /*
  * The public schedule is a view of the published projection, not of the agenda draft.
@@ -168,5 +185,7 @@ export const publicationPreviewResponseSchema = z.object({
     draft: publicEventProjectionSchema,
     published: publicEventProjectionSchema.nullable(),
     publishedAt: z.string().datetime().nullable(),
+    projectionVersion: z.number().int().nonnegative().optional(),
+    provenance: publicationProvenanceSchema.nullable().optional(),
   }),
 });

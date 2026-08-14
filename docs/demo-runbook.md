@@ -147,8 +147,10 @@ Every workspace has its own URL, so each step below is directly linkable and sur
 5. **Call for proposals** (`/cfp`) — compose the public form, watch the draft diverge from the live
    published form, publish, and copy the public link.
 6. **Publishing** (`/publishing`) — the public projection, end to end and without touching the seed.
-   **Preview** composes the payload from the current draft and publishes nothing; **Publish** freezes
-   that payload as an immutable snapshot and reveals the public link; **Unpublish** takes it down and
+   **Preview** composes the payload from the current draft and publishes nothing; **Publish**
+   establishes the first immutable projection version and reveals the public link. Publishing the
+   agenda after that activates another version automatically, and the event page, schedule, JSON
+   feed, and embeds all move together. **Unpublish** takes the site down and
    the public routes — the event page, `/api/public/events/greenroom-demo-summit/schedule`, and the
    speaker headshots that snapshot exposed — go back to the standard not-published response. On a
    clean reset the seeded snapshot is exactly what Publish composes, so pressing Publish before
@@ -157,8 +159,8 @@ Every workspace has its own URL, so each step below is directly linkable and sur
    identical to what the publish command recomposes"), which applies the seed in Miniflare, compares
    the composed preview with the seeded snapshot field for field, and republishes to prove the page
    is unchanged. The panel names which parts of
-   the draft have moved ahead of the snapshot, so "why is my edit not on the site" is answered on
-   screen. Both embed views are here with their addresses, a paste-ready `<iframe>` snippet behind a
+   event or site fields still need an explicit publish. All embed views are here with their
+   addresses, a paste-ready `<iframe>` snippet behind a
    copy button, and a live frame of the real embed:
    - `/embed/events/greenroom-demo-summit/schedule`
    - `/embed/events/greenroom-demo-summit/speakers`

@@ -147,4 +147,5 @@ export const {
   webhookDeliveries,
   webhookDeliveryAttempts,
   webhookIdempotencyRecords,
+  publicEventProjectionVersions,
 } = schema;

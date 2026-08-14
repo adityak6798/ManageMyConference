@@ -48,12 +48,10 @@ export interface ContentAgendaInterface {
    * the snapshot does not place, and every session of an event with no published schedule at
    * all, is absent, which is what "not scheduled yet" means wherever this is read.
    *
-   * This is the agenda publication in force *now*, read on every call. It is not the site
-   * publication: `/api/public/events/{slug}/schedule` and the event hub serve a projection
-   * frozen at the last site publish, so republishing the agenda alone moves what this returns
-   * while the public page stays where it was until the organizer publishes the site too
-   * (`PRD-PUB-001`). Callers that must match the public programme byte for byte have to read
-   * the publishing domain's projection instead of this.
+   * This is the agenda publication in force *now*, read on every call. A live site's publishing
+   * projection is refreshed in the agenda publication transaction, but callers that must match
+   * the public programme byte for byte still read publishing's projection: it owns public
+   * content allowlisting and the site's live/unpublished boundary (`PRD-PUB-001`).
    */
   publishedSessionSchedules(eventId: string): Promise<ReadonlyMap<string, SessionScheduleRevision>>;
   /**

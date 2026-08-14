@@ -92,6 +92,22 @@ test("serves a published public projection that satisfies the shared contract", 
     "jordan-bell",
     "sam-speaker",
   ]);
+  expect(
+    parsed.data.sessions.map(({ slug, room, startsAt }) => ({ slug, room, startsAt })),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        slug: "designing-the-calm-conference",
+        room: "Main stage",
+        startsAt: "2026-09-01T16:00:00.000Z",
+      }),
+      expect.objectContaining({
+        slug: "accessible-by-default",
+        room: "Workshop lab",
+        startsAt: "2026-09-02T17:00:00.000Z",
+      }),
+    ]),
+  );
   // Every session names speakers the same snapshot publishes: a dangling slug renders a
   // card with nobody on it.
   const speakerSlugs = new Set(parsed.data.speakers.map(({ slug }) => slug));

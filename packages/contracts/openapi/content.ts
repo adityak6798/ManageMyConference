@@ -433,7 +433,7 @@ export const contentPaths: OpenApiFragment = {
       method: "delete",
       path: "/api/content-sessions/{sessionId}",
       description:
-        "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone, and the withdrawn session leaves the public page at the next publish because published snapshots are immutable. Answers the refreshed content workspace.",
+        "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone. An already-live public projection removes the session on its next reconciled read; this action never publishes a site. Answers the refreshed content workspace.",
       security: [{ sessionCookie: [] }, { eventBearer: [] }],
       request: { params: contentSessionParamsSchema },
       responses: {

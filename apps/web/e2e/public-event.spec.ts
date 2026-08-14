@@ -88,11 +88,14 @@ test("browses the same accessible published projection directly and embedded", a
   await expect(page.locator(".pub-tz")).toHaveCount(1);
   await expect(page.locator(".pub-tz")).toContainText("All times in America/Los_Angeles (PDT)");
   await expect(page.getByRole("heading", { name: "Tuesday, September 1" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Wednesday, September 2" })).toBeVisible();
   // The session starts at 16:00Z, which is 9:00 AM in the venue's zone and the next calendar
   // day in the browser's. The time is stated once, on the day rail, not repeated per card.
   await expect(page.getByText("9:00 AM", { exact: true })).toHaveCount(1);
-  await expect(page.getByText("10:00 AM", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("10:00 AM", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("11:00 AM", { exact: true })).toHaveCount(1);
   await expect(page.getByText("Main stage")).toBeVisible();
+  await expect(page.getByText("Workshop lab")).toBeVisible();
 
   await page.getByRole("link", { name: "Designing the calm conference" }).click();
   await expect(
@@ -206,11 +209,10 @@ test("shows a clear unpublished or unknown event state", async ({ page }) => {
 /**
  * The compose→publish→serve chain, end to end, on content this run edits.
  *
- * "Accessible by default" is the seeded session with no agenda placement, so renaming it
- * changes the sessions index and the gallery without disturbing the published schedule
- * slug the agenda journey asserts. The rename is undone and republished before the test
- * ends: the public projection is the demo an evaluator opens next, and the run must hand
- * it back the way it found it.
+ * Renaming "Accessible by default" changes the sessions index and gallery while its agenda
+ * placement remains stable. The rename is undone and republished before the test ends: the
+ * public projection is the demo an evaluator opens next, and the run must hand it back the
+ * way it found it.
  */
 test("serves an edit published during this run on the public page", async ({ page }) => {
   const original = "Accessible by default";

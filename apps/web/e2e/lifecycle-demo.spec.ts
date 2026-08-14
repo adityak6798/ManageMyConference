@@ -12,7 +12,7 @@ const PUBLIC_SURFACES = [
   { path: "/itinerary", heading: "My itinerary" },
   { path: "/cfp", heading: "Share your conference story" },
 ] as const;
-const EMBED_SURFACES = ["schedule", "sessions", "speakers", "gallery"] as const;
+const EMBED_SURFACES = ["schedule", "sessions", "speakers", "gallery", "itinerary"] as const;
 /**
  * The two signed-out surfaces. They are audited exactly as the public event pages are, because
  * they are the same kind of thing: the first screen a stranger sees, rendered before anybody has
@@ -264,9 +264,12 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   await expect(page.locator('input[value="speaker-handbook"]')).toBeVisible();
   await page.goto("/agenda");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
-  await expect(page.getByText("1 of 2 scheduled")).toBeVisible();
+  await expect(page.getByText("2 of 2 scheduled")).toBeVisible();
+  await page.getByLabel("Day", { exact: true }).selectOption({ label: "Wednesday, September 2" });
   await expect(
-    page.getByRole("button", { name: /Accessible by default\. Not scheduled/ }),
+    page.getByRole("button", {
+      name: /Accessible by default\. Workshop lab, 10:00–11:00/,
+    }),
   ).toBeVisible();
   await page.goto("/abstracts");
   await expect(page.getByRole("heading", { name: "Reviewer progress" })).toBeVisible();

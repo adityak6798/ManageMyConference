@@ -7,11 +7,10 @@
  *
  * Two things drive its shape.
  *
- * 1. Publishing takes an *immutable snapshot*. The server recomposes `draft` from the
- *    live content, agenda, and CFP on every preview, but visitors keep receiving the
- *    frozen `published` copy until the organizer publishes again. That divergence is
- *    invisible in the API, so the panel states it in words, fingerprints both copies,
- *    and names which parts have moved.
+ * 1. Publishing establishes the event's public presence. Once it is live, accepted source
+ *    publications refresh the versioned public projection while event/site settings remain
+ *    deliberate organizer edits. The panel fingerprints draft and public copies and names
+ *    any event/site changes still waiting for an explicit publish.
  * 2. The embed views are the product's distribution story and nothing pointed at them.
  *    Each view gets its address, a paste-ready <iframe> snippet, and a live frame of
  *    the real embed — so "does this work in someone else's page" is answered on screen
@@ -67,6 +66,11 @@ const EMBED_VIEWS = [
     id: "gallery",
     label: "Gallery",
     description: "The photo-forward speaker gallery, in surname order.",
+  },
+  {
+    id: "itinerary",
+    label: "Itinerary",
+    description: "A shared attendee itinerary; append its private plan token to the URL.",
   },
 ] as const;
 
@@ -720,8 +724,8 @@ export function PublishingWorkspace({
         announce(
           "success",
           action === "publish"
-            ? "Published. Visitors see this snapshot; later draft edits stay invisible until you publish again."
-            : "Unpublished. The public page and both embeds now return the not-published response.",
+            ? "Published. Accepted schedule, content, and CFP publications now refresh every public surface automatically."
+            : "Unpublished. The public page, feed, and embeds now return the not-published response.",
         );
         // Publishing changes what the panel offers — a public link and live embeds
         // appear, or disappear. Move focus to the state it changed rather than
@@ -754,6 +758,8 @@ export function PublishingWorkspace({
       isLive: publication.state === "published" && published !== null,
       siteHref,
       siteUrl: absolute(siteHref),
+      apiHref: `/api/public/events/${publication.slug}`,
+      apiUrl: absolute(`/api/public/events/${publication.slug}`),
       draftPrint: fingerprint(publication.draft),
       publishedPrint: fingerprint(published),
       changed: changedAreas(publication.draft, published),
@@ -925,18 +931,17 @@ export function PublishingWorkspace({
         <Notice tone="warn">
           <IconWarning size={15} />
           <span>
-            Visitors are being served the snapshot taken on {formatStamp(publication.publishedAt)}.
-            The draft has moved on ({model.changed.join(", ")}) and those edits stay invisible until
-            you publish again.
+            Visitors are being served public projection version {publication.projectionVersion ?? 1}
+            , activated on {formatStamp(publication.publishedAt)}. Event or site settings have moved
+            ({model.changed.join(", ")}) and need an explicit publish.
           </span>
         </Notice>
       ) : model.isLive ? (
         <Notice tone="info">
           <IconCheck size={15} />
           <span>
-            The published snapshot is identical to the current draft. Publishing freezes a copy —
-            editing sessions, speakers, or the agenda afterwards never changes the live page on its
-            own.
+            The public projection matches the current sources. Publishing establishes the site;
+            later accepted schedule, content, and CFP publications refresh it automatically.
           </span>
         </Notice>
       ) : (
@@ -944,8 +949,7 @@ export function PublishingWorkspace({
           <IconGlobe size={15} />
           <span>
             Nothing is published yet. Preview composes the payload without publishing; Publish
-            freezes that payload as an immutable snapshot and brings the public page and both embeds
-            online.
+            establishes version one and brings the public page, JSON feed, and embeds online.
           </span>
         </Notice>
       )}
@@ -1077,6 +1081,15 @@ export function PublishingWorkspace({
           {model.embeds.map((embed) => (
             <EmbedPanel key={embed.id} embed={embed} isLive={model.isLive} />
           ))}
+        </div>
+        <div className="publishing-feed">
+          <h3>JSON programme feed</h3>
+          <p className="publishing-sub">
+            The same versioned projection used by the pages and embeds, for native integrations.
+          </p>
+          <a href={model.apiHref} target="_blank" rel="noreferrer">
+            {model.apiUrl}
+          </a>
         </div>
       </Card>
     </>

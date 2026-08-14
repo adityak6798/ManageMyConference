@@ -248,6 +248,20 @@
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: var(--s-5);
 }
+.publishing-feed {
+  display: grid;
+  gap: var(--s-2);
+  margin-top: var(--s-5);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.publishing-feed h3,
+.publishing-feed p {
+  margin: 0;
+}
 
 /* Positioned so this section's own live region — .visually-hidden, and therefore
    position:absolute, while it holds no message — is anchored to the card that owns it

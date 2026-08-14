@@ -98,7 +98,7 @@ describe("withdrawing a session", () => {
     expect(sent).toEqual([]);
     // The confirmation says what else goes, and what does not.
     expect(screen.getByText(/any agenda placement holding it is removed/i)).toBeInTheDocument();
-    expect(screen.getByText(/until you publish again/i)).toBeInTheDocument();
+    expect(screen.getByText(/live public page removes it on its next read/i)).toBeInTheDocument();
 
     // Backing out leaves the session alone.
     fireEvent.click(screen.getByRole("button", { name: "Keep this session" }));

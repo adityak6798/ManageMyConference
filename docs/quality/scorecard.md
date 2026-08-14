@@ -127,6 +127,19 @@ therefore the last step before publishing, not the first.
 
 Webhook evidence for `ACC-INTEGRATION`: `apps/api/test/d1-webhooks.integration.test.ts` drives the real D1 schema through subscribe → schedule-event fan-out → signed receiver failure → bounded retry success → stale-timestamp refusal → tampered-body refusal → actor-attributed manual replay. It also proves fan-out idempotency, 24-hour dual-signature rotation, keyset history, API-client organization denial, encrypted secret storage, concurrent partial-update preservation, and that receiver content is absent from history. `apps/api/test/webhook-security.test.ts` exercises the authenticated trusted-egress client contract, mixed public/private DNS refusal and send-time rebinding refusal through an executable enforcement fixture. No enforcement service is deployed or live-verified (`GAP-026`, [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194)); API routes return `503 WEBHOOK_UNAVAILABLE` until it and the wrapping keys are configured, so live delivery interoperability remains unproven.
 
+Wave 5 publishing evidence addendum (`ACC-PUBLIC`, `ACC-AGENDA`):
+`d1-publication-repository.integration.test.ts` now publishes a real second agenda snapshot and
+reads the public hub and schedule back from the same active publishing projection, asserting the
+moved time/room/track, agenda provenance, monotonic immutable history, and the negative that agenda
+publication neither creates nor reactivates an unpublished site. It also refuses a refresh result
+whose D1 driver omits `meta.changes`. `publication.test.ts` proves accepted-content and CFP lifecycle
+changes reconcile without another site publish while site-owned event fields remain deliberate.
+`public-event-pages.test.tsx` covers speaker-aware search and combined Track/Format/Location facets;
+`public-itinerary.spec.ts` carries a plan into the itinerary embed; `publishing.spec.ts` exposes all
+five embed types and the JSON feed. The clean seed now contains two placed sessions across two days.
+These assertions close the former two-snapshot disagreement for the paths they exercise; live cache
+and deployment verification remain bounded by the existing hosted-smoke gap.
+
 ## What each row's automated evidence actually is
 
 - Browser evidence is `apps/web/e2e/*.spec.ts`, one shared local D1 fixture, `workers: 1`.

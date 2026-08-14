@@ -82,6 +82,7 @@
     "webhook_subscription_event_types": "communications-integrations",
     "webhook_deliveries": "communications-integrations",
     "webhook_delivery_attempts": "communications-integrations",
-    "webhook_idempotency_records": "communications-integrations"
+    "webhook_idempotency_records": "communications-integrations",
+    "public_event_projection_versions": "publishing"
   }
 }

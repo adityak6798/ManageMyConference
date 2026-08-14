@@ -88,7 +88,7 @@ const capabilities: Capability[] = [
   },
   {
     title: "A public site, and embeds of it",
-    body: "The programme as last published, at its own address and as copy-paste embeds of the schedule and the speaker gallery. One immutable snapshot is behind all of them, so two embeds and the site cannot disagree, and it reads on a phone.",
+    body: "A versioned multi-day programme at its own address, as JSON, and as copy-paste schedule, session, speaker, gallery, and itinerary embeds. One active projection is behind all of them, so a schedule publish moves every public surface together.",
     state: "ships",
   },
 ];

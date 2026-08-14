@@ -29,7 +29,12 @@ import {
   PublicationSlugTakenError,
 } from "../src/application/publishing/publication-service";
 import type { ContentSession, SpeakerProfile } from "../src/domain/content/content";
-import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
+import type {
+  ProjectionRefresh,
+  Publication,
+  PublicationProvenance,
+  PublicEventProjection,
+} from "../src/domain/publishing/publication";
 import { createHttpApp } from "../src/transport/http/app";
 
 const safeProjection = {
@@ -238,7 +243,12 @@ async function composedFixture() {
     findPublicBySlug: async (slug: string) =>
       slug === record.slug && record.state === "published" ? record : null,
     findByEventId: async () => record,
-    publish: async (_eventId: string, publishedAt: string, published: PublicEventProjection) => {
+    publish: async (
+      _eventId: string,
+      publishedAt: string,
+      published: PublicEventProjection,
+      provenance?: PublicationProvenance,
+    ) => {
       // `slug` follows the projection exactly as the D1 statement's `slug = excluded.slug`
       // does. Without it the double cannot show a slug edit going live at publish time.
       record = {
@@ -247,6 +257,19 @@ async function composedFixture() {
         state: "published",
         publishedAt,
         published,
+        projectionVersion: (record.projectionVersion ?? 0) + 1,
+        provenance: provenance ?? null,
+      };
+      return record;
+    },
+    refreshPublished: async (refresh: ProjectionRefresh) => {
+      if (record.state !== "published") return null;
+      record = {
+        ...record,
+        published: refresh.projection,
+        publishedAt: refresh.activatedAt,
+        projectionVersion: (record.projectionVersion ?? 0) + 1,
+        provenance: refresh.provenance,
       };
       return record;
     },
@@ -279,6 +302,7 @@ async function composedFixture() {
       cfp: async (eventId) => {
         const form = await cfp.getPublished(eventId);
         return {
+          version: form.version,
           title: form.title,
           description: form.description,
           status: form.status === "closed" ? ("closed" as const) : ("open" as const),
@@ -290,7 +314,7 @@ async function composedFixture() {
     },
     () => new Date("2026-08-10T00:00:00.000Z"),
   );
-  return { record, service, repository, content, agenda };
+  return { record, service, repository, content, agenda, cfp };
 }
 
 describe("publication snapshots", () => {
@@ -509,8 +533,10 @@ describe("publication snapshots", () => {
     });
   });
 
-  it("composes owning-domain public interfaces only when previewing or republishing", async () => {
+  it("composes owning-domain public interfaces and reconciles published content on read", async () => {
     const { record, service, repository, content } = await composedFixture();
+    // Source reconciliation preserves publishing-owned event/site fields; only an explicit
+    // site publish promotes a renamed event or changed public details.
     expect((await service.publicBySlug("safe-event"))?.event.name).toBe("Safe Event");
     const organizer = await resolveSeededDemoActor("organizer");
     await service.publish(organizer, record.eventId);
@@ -564,11 +590,26 @@ describe("publication snapshots", () => {
     const renamed = await content.findSession(CALM_SESSION);
     if (!renamed) throw new Error("the fixture must seed the calm-conference session");
     await content.updateSession({ ...renamed, title: "Designing the calm conference, revisited" });
-    await service.publish(organizer, record.eventId);
+    expect((await service.publicBySlug("safe-event"))?.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Designing the calm conference, revisited" }),
+      ]),
+    );
     expect(repository.stored?.sessions.map(({ slug }) => slug)).toEqual([
       "accessible-by-default",
       "designing-the-calm-conference-revisited",
     ]);
+  });
+
+  it("reconciles CFP lifecycle changes without another site publish", async () => {
+    const { record, service, cfp } = await composedFixture();
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.publish(organizer, record.eventId);
+    expect((await service.publicBySlug("safe-event"))?.cfp.status).toBe("open");
+
+    await cfp.changeState(organizer, record.eventId, "close");
+
+    expect((await service.publicBySlug("safe-event"))?.cfp.status).toBe("closed");
   });
 
   it("drops a headshot from the gallery when its asset is unpublished", async () => {

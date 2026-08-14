@@ -74,13 +74,21 @@ function publishingFor(database: never) {
     () => crypto.randomUUID(),
     () => new Date(),
   );
-  const agenda = new AgendaService(
-    new D1AgendaRepository(database, () => new Date("2026-08-10T20:00:00.000Z")),
+  const publicationRepository = new D1PublicationRepository(database);
+  let publishing: PublicationService;
+  const agenda: AgendaService = new AgendaService(
+    new D1AgendaRepository(
+      database,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      async (_database, event, schedule) => {
+        const refresh = await publishing.prepareScheduleRefresh(event, schedule);
+        return refresh ? publicationRepository.prepareRefreshStatements(refresh) : [];
+      },
+    ),
     () => new Date("2026-08-10T20:00:00.000Z"),
     contentRepository,
   );
-  const publicationRepository = new D1PublicationRepository(database);
-  const publishing = new PublicationService(
+  publishing = new PublicationService(
     publicationRepository,
     {
       event: async (actor, eventId) => {
@@ -91,6 +99,7 @@ function publishingFor(database: never) {
         try {
           const form = await cfpService.getPublished(eventId);
           return {
+            version: form.version,
             title: form.title,
             description: form.description,
             status: form.status === "closed" ? ("closed" as const) : ("open" as const),
@@ -119,6 +128,40 @@ function publishingFor(database: never) {
 describe("D1PublicationRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
+
+  it("refuses a refresh result whose driver omits the affected-row count", async () => {
+    const statement = {
+      bind() {
+        return this;
+      },
+      async run() {
+        return { success: true, meta: { changes: 1 } };
+      },
+      async all() {
+        return { success: true, results: [] };
+      },
+    };
+    const repository = new D1PublicationRepository({
+      prepare: () => statement,
+      batch: async () => [{ success: true }, { success: true, meta: { changes: 1 } }],
+    } as never);
+
+    await expect(
+      repository.refreshPublished({
+        eventId: DEMO_EVENT,
+        activatedAt: "2026-08-10T20:00:00.000Z",
+        projection: safeProjection,
+        provenance: {
+          agendaVersion: 2,
+          agendaPublishedAt: "2026-08-10T20:00:00.000Z",
+          cfpVersion: 1,
+          cfpPublishedAt: "2026-08-09T12:00:00.000Z",
+          contentDigest: "fnv1a32:12345678",
+          cause: "source-reconciled",
+        },
+      }),
+    ).rejects.toThrow("D1 reported no row count while attempting to refresh public projection");
+  });
 
   it("reports only the writer that actually transitions a published projection", async () => {
     runtime = new Miniflare({
@@ -408,6 +451,127 @@ describe("D1PublicationRepository", () => {
     });
   });
 
+  it("publishes an agenda and advances the live projection in the same durable write", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-agenda-refresh" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { agenda, events, publicationRepository, publishing } = publishingFor(database as never);
+    const organizer = await resolveSeededDemoActor("organizer");
+    const app = createHttpApp(
+      events,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      { demoMode: false },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agenda,
+      undefined,
+      publishing,
+    );
+
+    // Read the seeded live snapshot, then move the second day's session to a later hour.
+    expect((await app.request(`/api/public/events/${DEMO_SLUG}`)).status).toBe(200);
+    const draft = await agenda.draft(organizer, DEMO_EVENT);
+    await agenda.configure(organizer, DEMO_EVENT, {
+      rooms: draft.rooms,
+      tracks: draft.tracks,
+      slots: draft.slots.map((slot) =>
+        slot.id === "slot-day-two"
+          ? {
+              ...slot,
+              startsAt: "2026-09-02T19:00:00.000Z",
+              endsAt: "2026-09-02T20:00:00.000Z",
+            }
+          : slot,
+      ),
+    });
+    await agenda.publish(organizer, DEMO_EVENT, "projection-refresh-v2");
+
+    const hub = await app.request(`/api/public/events/${DEMO_SLUG}`);
+    expect(hub.status).toBe(200);
+    const hubBody = (await hub.json()) as {
+      projection: { sessions: Array<Record<string, unknown>> };
+      publication: { version: number; provenance: { agendaVersion: number } };
+    };
+    expect(
+      hubBody.projection.sessions.find(({ title }) => title === "Accessible by default"),
+    ).toMatchObject({
+      startsAt: "2026-09-02T19:00:00.000Z",
+      endsAt: "2026-09-02T20:00:00.000Z",
+      room: "Workshop lab",
+      track: "Practice",
+    });
+    expect(hubBody.publication).toMatchObject({
+      provenance: { agendaVersion: 2 },
+    });
+
+    const schedule = await app.request(`/api/public/events/${DEMO_SLUG}/schedule`);
+    expect(schedule.status).toBe(200);
+    const scheduleBody = (await schedule.json()) as {
+      schedule: { version: number; sessions: Array<Record<string, unknown>> };
+    };
+    expect(scheduleBody.schedule.version).toBe(2);
+    expect(
+      [...scheduleBody.schedule.sessions].sort((left, right) =>
+        String(left.title).localeCompare(String(right.title)),
+      ),
+    ).toEqual(
+      hubBody.projection.sessions
+        .filter(({ startsAt }) => Boolean(startsAt))
+        .sort((left, right) => String(left.title).localeCompare(String(right.title))),
+    );
+
+    const history = await database
+      .prepare(
+        "SELECT version, agenda_version, activation_cause FROM public_event_projection_versions WHERE event_id = ? ORDER BY version",
+      )
+      .bind(DEMO_EVENT)
+      .all<{ version: number; agenda_version: number | null; activation_cause: string }>();
+    expect(history.results?.at(-1)).toMatchObject({
+      agenda_version: 2,
+      activation_cause: "schedule-published",
+    });
+    expect(new Set(history.results?.map(({ version }: { version: number }) => version)).size).toBe(
+      history.results?.length,
+    );
+    expect((await publicationRepository.findByEventId(DEMO_EVENT))?.projectionVersion).toBe(
+      history.results?.at(-1)?.version,
+    );
+  });
+
+  it("does not create a public projection when an unpublished event publishes its agenda", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-agenda-private-event" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { agenda, publicationRepository, publishing } = publishingFor(database as never);
+    const organizer = await resolveSeededDemoActor("organizer");
+    await publishing.publicBySlug(DEMO_SLUG);
+    const before = await database
+      .prepare("SELECT COUNT(*) AS count FROM public_event_projection_versions WHERE event_id = ?")
+      .bind(DEMO_EVENT)
+      .first<{ count: number }>();
+    await publicationRepository.unpublish(DEMO_EVENT);
+
+    await agenda.publish(organizer, DEMO_EVENT, "private-agenda-v2");
+
+    await expect(publicationRepository.findPublicBySlug(DEMO_SLUG)).resolves.toBeNull();
+    const history = await database
+      .prepare("SELECT COUNT(*) AS count FROM public_event_projection_versions WHERE event_id = ?")
+      .bind(DEMO_EVENT)
+      .first<{ count: number }>();
+    expect(history?.count).toBe(before?.count);
+    expect(history?.count).toBeGreaterThan(0);
+  });
+
   it("serves the seeded headshot to an anonymous reader and withdraws it on unpublish", async () => {
     runtime = new Miniflare({
       modules: true,
@@ -504,6 +668,18 @@ describe("D1PublicationRepository", () => {
             startsAt: "2026-09-01T16:00:00.000Z",
             endsAt: "2026-09-01T17:00:00.000Z",
             room: "Main stage",
+          },
+          {
+            slug: "accessible-by-default",
+            title: "Accessible by default",
+            abstract:
+              "A hands-on guide to making conference experiences work for more attendees from the first sketch.",
+            format: "60-minute workshop",
+            track: "Practice",
+            speakerSlugs: ["jordan-bell"],
+            startsAt: "2026-09-02T17:00:00.000Z",
+            endsAt: "2026-09-02T18:00:00.000Z",
+            room: "Workshop lab",
           },
         ],
       },

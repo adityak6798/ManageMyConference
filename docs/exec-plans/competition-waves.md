@@ -849,3 +849,26 @@ the issue rather than an expansion of it.
 **And one shared file: `apps/web/src/styles/content.css`.** The checklist editor shares the
 resource editor's selectors rather than copying them, so the two panels cannot drift into looking
 like different products. A lane editing that file should expect the roster rules to name both.
+
+## Wave 5 publishing ruling — one live programme, versioned (#205, #192)
+
+Publishing the site is the act that establishes public presence; publishing an agenda is not.
+After a site is live, `EVT-SCHEDULE-PUBLISHED` carries the exact agenda snapshot into publishing's
+own composer, and publishing contributes its own opaque statements to the agenda batch. The agenda
+therefore neither imports publishing storage nor creates a site, while a successful schedule
+publish and the public projection become visible together. A schedule publish for a never-published
+or currently unpublished event remains private.
+
+Each activated public composition has a per-event monotonic version and source provenance: agenda
+version/time, CFP version/time, a digest of the allowlisted content projection, and the activation
+cause. The active row is the serving pointer; `public_event_projection_versions` is immutable
+history. CFP and content have no durable publication-event seam, so a public read reconciles those
+narrow application projections before serving and appends a version only when public bytes or
+provenance changed. Event/site-owned draft fields are deliberately preserved by source refresh and
+still require an explicit site publish.
+
+The public event response, schedule endpoint, pages, configured embeds, JSON feed, and itinerary
+all consume that one active projection. The deterministic seed now demonstrates two scheduled days,
+and session discovery combines text across sessions and speakers with Track, Format, and Location
+facets. The itinerary embed reads a shared capability-token plan without introducing an attendee
+account or copying private data.

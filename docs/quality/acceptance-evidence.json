@@ -129,6 +129,7 @@
         "apps/api/test/d1-agenda-repository.integration.test.ts",
         "apps/api/test/agenda-backfill-parity.test.ts",
         "apps/api/test/agenda-schedule-reconciliation.test.ts",
+        "apps/api/test/d1-publication-repository.integration.test.ts",
         "apps/web/test/agenda-timeslots.test.tsx",
         "apps/web/test/agenda-timezone.test.tsx",
         "apps/web/test/agenda-failure-feedback.test.tsx",

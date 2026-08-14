@@ -843,9 +843,14 @@ describe("events HTTP transport", () => {
     const logger: StructuredLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     // The public projection route is the one unauthenticated read that can reach a
     // repository, so it is where an anonymous 500 can be observed without demo mode.
-    const app = createHttpApp(service, logger, { demoMode: false }, {
-      publicBySlug: vi.fn().mockRejectedValue(new Error("storage unavailable")),
-    } as unknown as Parameters<typeof createHttpApp>[3]);
+    const app = createHttpAppFrom({
+      events: service,
+      logger,
+      auth: { demoMode: false },
+      publishing: {
+        publicSnapshotBySlug: vi.fn().mockRejectedValue(new Error("storage unavailable")),
+      } as unknown as PublicationService,
+    });
     const response = await app.request("/api/public/events/greenroom-demo-summit", {
       headers: { "x-correlation-id": "production-correlation" },
     });

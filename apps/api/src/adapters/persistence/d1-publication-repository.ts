@@ -1,15 +1,23 @@
 import type { PublicationRepository } from "../../application/publishing/publication-repository";
 import { PublicationSlugTakenError } from "../../application/publishing/publication-service";
-import type { Publication, PublicEventProjection } from "../../domain/publishing/publication";
+import type {
+  ProjectionRefresh,
+  Publication,
+  PublicationProvenance,
+  PublicEventProjection,
+} from "../../domain/publishing/publication";
 import { changedRows, type D1WriteResult } from "./d1-write-result";
 
-interface D1PreparedStatement {
-  bind(...values: unknown[]): D1PreparedStatement;
-  run(): Promise<D1WriteResult>;
+export interface PublicationD1Statement {
+  bind(...values: unknown[]): PublicationD1Statement;
+  run<T = unknown>(): Promise<D1WriteResult & { results?: T[] }>;
   all<T>(): Promise<{ results?: T[]; success: boolean; error?: string }>;
 }
 interface D1DatabasePort {
-  prepare(query: string): D1PreparedStatement;
+  prepare(query: string): PublicationD1Statement;
+  batch<T = unknown>(
+    statements: PublicationD1Statement[],
+  ): Promise<Array<D1WriteResult & { results?: T[] }>>;
 }
 
 interface PublicationRow {
@@ -19,7 +27,17 @@ interface PublicationRow {
   draft_json: string;
   published_json: string | null;
   published_at: string | null;
+  projection_version: number;
+  agenda_version: number | null;
+  agenda_published_at: string | null;
+  cfp_version: number | null;
+  cfp_published_at: string | null;
+  content_digest: string | null;
+  activation_cause: PublicationProvenance["cause"] | null;
 }
+
+const PUBLICATION_COLUMNS =
+  "event_id, slug, state, draft_json, published_json, published_at, projection_version, agenda_version, agenda_published_at, cfp_version, cfp_published_at, content_digest, activation_cause";
 
 const fromRow = (row: PublicationRow): Publication => ({
   eventId: row.event_id,
@@ -28,6 +46,18 @@ const fromRow = (row: PublicationRow): Publication => ({
   draft: JSON.parse(row.draft_json) as PublicEventProjection,
   published: row.published_json ? (JSON.parse(row.published_json) as PublicEventProjection) : null,
   publishedAt: row.published_at,
+  projectionVersion: row.projection_version,
+  provenance:
+    row.activation_cause && row.content_digest
+      ? {
+          agendaVersion: row.agenda_version,
+          agendaPublishedAt: row.agenda_published_at,
+          cfpVersion: row.cfp_version,
+          cfpPublishedAt: row.cfp_published_at,
+          contentDigest: row.content_digest,
+          cause: row.activation_cause,
+        }
+      : null,
 });
 
 const isPublicationSlugConstraint = (error: unknown) =>
@@ -42,7 +72,7 @@ export class D1PublicationRepository implements PublicationRepository {
   async findPublicBySlug(slug: string): Promise<Publication | null> {
     const result = await this.database
       .prepare(
-        "SELECT event_id, slug, state, draft_json, published_json, published_at FROM public_event_projections WHERE slug = ? AND state = 'published' LIMIT 1",
+        `SELECT ${PUBLICATION_COLUMNS} FROM public_event_projections WHERE slug = ? AND state = 'published' LIMIT 1`,
       )
       .bind(slug)
       .all<PublicationRow>();
@@ -54,7 +84,7 @@ export class D1PublicationRepository implements PublicationRepository {
   async findByEventId(eventId: string): Promise<Publication | null> {
     const result = await this.database
       .prepare(
-        "SELECT event_id, slug, state, draft_json, published_json, published_at FROM public_event_projections WHERE event_id = ? LIMIT 1",
+        `SELECT ${PUBLICATION_COLUMNS} FROM public_event_projections WHERE event_id = ? LIMIT 1`,
       )
       .bind(eventId)
       .all<PublicationRow>();
@@ -128,39 +158,149 @@ export class D1PublicationRepository implements PublicationRepository {
     eventId: string,
     publishedAt: string,
     projection: PublicEventProjection,
+    provenance: PublicationProvenance = {
+      agendaVersion: null,
+      agendaPublishedAt: null,
+      cfpVersion: null,
+      cfpPublishedAt: null,
+      contentDigest: "legacy:unknown",
+      cause: "site-published",
+    },
   ): Promise<Publication | null> {
-    let result: { success: boolean; error?: string };
+    let results: Array<D1WriteResult & { results?: unknown[] }>;
     try {
-      result = await this.database
-        .prepare(
-          `INSERT INTO public_event_projections
-          (event_id, slug, state, draft_json, published_json, published_at)
-         VALUES (?, ?, 'published', ?, ?, ?)
+      results = await this.database.batch([
+        this.database
+          .prepare(
+            `INSERT INTO public_event_projections
+          (event_id, slug, state, draft_json, published_json, published_at,
+           projection_version, agenda_version, agenda_published_at, cfp_version,
+           cfp_published_at, content_digest, activation_cause)
+         VALUES (?, ?, 'published', ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(event_id) DO UPDATE SET
           slug = excluded.slug,
           state = 'published',
           draft_json = excluded.draft_json,
           published_json = excluded.published_json,
-          published_at = excluded.published_at`,
-        )
-        .bind(
-          eventId,
-          projection.event.slug,
-          JSON.stringify(projection),
-          JSON.stringify(projection),
-          publishedAt,
-        )
-        .run();
+          published_at = excluded.published_at,
+          projection_version = public_event_projections.projection_version + 1,
+          agenda_version = excluded.agenda_version,
+          agenda_published_at = excluded.agenda_published_at,
+          cfp_version = excluded.cfp_version,
+          cfp_published_at = excluded.cfp_published_at,
+          content_digest = excluded.content_digest,
+          activation_cause = excluded.activation_cause`,
+          )
+          .bind(
+            eventId,
+            projection.event.slug,
+            JSON.stringify(projection),
+            JSON.stringify(projection),
+            publishedAt,
+            provenance.agendaVersion,
+            provenance.agendaPublishedAt,
+            provenance.cfpVersion,
+            provenance.cfpPublishedAt,
+            provenance.contentDigest,
+            provenance.cause,
+          ),
+        this.snapshotStatement(eventId),
+      ]);
     } catch (error) {
       if (isPublicationSlugConstraint(error))
         throw new PublicationSlugTakenError("That public address is already taken.");
       throw error;
     }
-    if (!result.success && isPublicationSlugConstraint(result.error))
-      throw new PublicationSlugTakenError("That public address is already taken.");
-    if (!result.success)
-      throw new Error(`D1 failed to publish projection: ${result.error ?? "unknown error"}`);
+    const constraint = results.find((result) => isPublicationSlugConstraint(result.error));
+    if (constraint) throw new PublicationSlugTakenError("That public address is already taken.");
+    const failure = results.find((result) => !result.success);
+    if (failure)
+      throw new Error(`D1 failed to publish projection: ${failure.error ?? "unknown error"}`);
     return this.findByEventId(eventId);
+  }
+
+  /** Insert the active row as an immutable history entry after a publish/refresh statement. */
+  private snapshotStatement(eventId: string): PublicationD1Statement {
+    return this.database
+      .prepare(
+        `INSERT INTO public_event_projection_versions
+          (event_id, version, activated_at, projection_json, agenda_version,
+           agenda_published_at, cfp_version, cfp_published_at, content_digest, activation_cause)
+         SELECT event_id, projection_version, published_at, published_json, agenda_version,
+                agenda_published_at, cfp_version, cfp_published_at, content_digest, activation_cause
+         FROM public_event_projections
+         WHERE event_id = ? AND state = 'published' AND published_json IS NOT NULL
+         ON CONFLICT(event_id, version) DO NOTHING`,
+      )
+      .bind(eventId);
+  }
+
+  /**
+   * Statements publishing contributes to the agenda's publication transaction.
+   *
+   * The first statement is conditional on the event still being live and on the composed bytes
+   * or provenance actually changing. The second snapshots exactly the row that first statement
+   * activated. Both are publishing-owned SQL returned opaquely through agenda's existing event
+   * writer; agenda never names this table or learns the projection shape.
+   */
+  prepareRefreshStatements(refresh: ProjectionRefresh): readonly PublicationD1Statement[] {
+    const projection = JSON.stringify(refresh.projection);
+    const source = refresh.provenance;
+    return [
+      this.database
+        .prepare(
+          `UPDATE public_event_projections SET
+             published_json = ?,
+             published_at = ?,
+             projection_version = projection_version + 1,
+             agenda_version = ?,
+             agenda_published_at = ?,
+             cfp_version = ?,
+             cfp_published_at = ?,
+             content_digest = ?,
+             activation_cause = ?
+           WHERE event_id = ? AND state = 'published'
+             AND (
+               published_json IS NOT ? OR
+               agenda_version IS NOT ? OR agenda_published_at IS NOT ? OR
+               cfp_version IS NOT ? OR cfp_published_at IS NOT ? OR
+               content_digest IS NOT ?
+             )`,
+        )
+        .bind(
+          projection,
+          refresh.activatedAt,
+          source.agendaVersion,
+          source.agendaPublishedAt,
+          source.cfpVersion,
+          source.cfpPublishedAt,
+          source.contentDigest,
+          source.cause,
+          refresh.eventId,
+          projection,
+          source.agendaVersion,
+          source.agendaPublishedAt,
+          source.cfpVersion,
+          source.cfpPublishedAt,
+          source.contentDigest,
+        ),
+      this.snapshotStatement(refresh.eventId),
+    ];
+  }
+
+  async refreshPublished(refresh: ProjectionRefresh): Promise<Publication | null> {
+    const results = await this.database.batch([...this.prepareRefreshStatements(refresh)]);
+    const failure = results.find((result) => !result.success);
+    if (failure)
+      throw new Error(
+        `D1 failed to refresh public projection: ${failure.error ?? "unknown error"}`,
+      );
+    const update = results[0];
+    if (!update) throw new Error("D1 returned no result for public projection refresh");
+    // Missing `meta.changes` is a failure, never an assumed success or no-op.
+    changedRows(update, "refresh public projection");
+    const publication = await this.findByEventId(refresh.eventId);
+    return publication?.state === "published" ? publication : null;
   }
 
   async unpublish(eventId: string): Promise<Publication | null> {

@@ -53,6 +53,8 @@ interface AgendaDatabase {
 export type PublicationEventWriter = (
   database: AgendaDatabase,
   event: SchedulePublishedEvent,
+  /** The immutable snapshot that produced the event, exposed through agenda's public type. */
+  schedule: PublishedSchedule,
 ) => readonly D1Statement[] | Promise<readonly D1Statement[]>;
 
 interface DraftRow {
@@ -420,8 +422,11 @@ export class D1AgendaRepository implements AgendaRepository {
         .bind(schedule.eventId),
       ...this.insertSessionSchedules(schedule.eventId, revisions),
       this.claimWatermark(schedule.eventId, (current.watermark ?? 0) + 1, schedule.publishedAt),
-      ...((await this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule))) ??
-        []),
+      ...((await this.writePublicationEvent?.(
+        this.database,
+        schedulePublishedEvent(schedule),
+        schedule,
+      )) ?? []),
     ];
     let results: Array<D1WriteResult & { results?: unknown[] }>;
     try {

@@ -1,13 +1,15 @@
 import {
   allowlistPublicProjection,
   applyPublicationSettings,
+  type ProjectionRefresh,
   type Publication,
+  type PublicationProvenance,
   type PublicationSettings,
   publicEventSlug,
   publicSlugs,
   resolveEventDates,
 } from "../../domain/publishing/publication";
-import type { PublicSchedule } from "../agenda/public";
+import type { PublicSchedule, SchedulePublishedEvent } from "../agenda/public";
 import type { PublishingContentQuery } from "../content/public";
 import {
   type Actor,
@@ -61,6 +63,7 @@ export interface PublicationNotificationPort {
 export interface PublicationSources {
   event(actor: Actor, eventId: string): Promise<{ name: string; timezone: string } | null>;
   cfp(eventId: string): Promise<{
+    version: number;
     title: string;
     description: string;
     status: "open" | "closed";
@@ -69,6 +72,25 @@ export interface PublicationSources {
   content: PublishingContentQuery;
   schedule(eventId: string): Promise<PublicSchedule | null>;
 }
+
+/** Stable, non-reversible provenance for a source that has no aggregate version row. */
+const publicSourceDigest = (value: unknown): string => {
+  const serialized = JSON.stringify(value);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `fnv1a32:${hash.toString(16).padStart(8, "0")}`;
+};
+
+/** Cause describes why a version activated, not whether its source inputs are identical. */
+const sameSources = (left: PublicationProvenance, right: PublicationProvenance): boolean =>
+  left.agendaVersion === right.agendaVersion &&
+  left.agendaPublishedAt === right.agendaPublishedAt &&
+  left.cfpVersion === right.cfpVersion &&
+  left.cfpPublishedAt === right.cfpPublishedAt &&
+  left.contentDigest === right.contentDigest;
 
 // @spec PRD-PUB-001
 export class PublicationService {
@@ -91,7 +113,52 @@ export class PublicationService {
 
   async publicBySlug(slug: string) {
     const publication = await this.repository.findPublicBySlug(slug);
-    return publication?.published ?? null;
+    if (!publication?.published) return null;
+    if (!this.sources) return publication.published;
+
+    /*
+     * This is the repair path for a source writer whose notification never reached publishing.
+     * The ordinary agenda path is stronger — its projection update commits in the schedule's own
+     * batch — but CFP and content predate a durable event seam. Re-reading their narrow public
+     * projections here means a successful public read never knowingly serves the old composition.
+     * A changed input appends a new immutable publishing version; an unchanged read writes nothing.
+     */
+    const composed = await this.compose(
+      { ...publication, draft: publication.published },
+      publication.published.event,
+      undefined,
+      "source-reconciled",
+    );
+    if (
+      publication.provenance &&
+      sameSources(publication.provenance, composed.provenance) &&
+      JSON.stringify(publication.published) === JSON.stringify(composed.draft)
+    )
+      return publication.published;
+    // Small in-memory/legacy compositions have no versioned refresh writer. Production storage
+    // always does; retaining the frozen answer here keeps those deliberately narrow doubles useful.
+    if (!this.repository.refreshPublished) return publication.published;
+    const refreshed = await this.repository.refreshPublished({
+      eventId: publication.eventId,
+      activatedAt: this.now().toISOString(),
+      projection: allowlistPublicProjection(composed.draft),
+      provenance: composed.provenance,
+    });
+    return refreshed?.published ?? null;
+  }
+
+  /** The active projection together with the publishing-owned version that all surfaces share. */
+  async publicSnapshotBySlug(slug: string) {
+    const projection = await this.publicBySlug(slug);
+    if (!projection) return null;
+    const publication = await this.repository.findPublicBySlug(slug);
+    if (!publication?.published) return null;
+    return {
+      projection,
+      version: publication.projectionVersion ?? 0,
+      publishedAt: publication.publishedAt,
+      provenance: publication.provenance ?? null,
+    };
   }
 
   private requireOrganizer(
@@ -151,20 +218,20 @@ export class PublicationService {
     };
   }
 
-  async preview(actor: Actor | null, eventId: string) {
-    const organizer = this.requireOrganizer(actor, eventId, "events:settings:read");
-    if (!organizer) return null;
-    const stored = await this.repository.findByEventId(eventId);
-    if (!this.sources) return stored;
-    const event = await this.sources.event(organizer, eventId);
-    if (!event) return null;
-    const publication = stored ?? this.emptyPublication(eventId, event);
+  private async compose(
+    publication: Publication,
+    event: { name: string; timezone: string },
+    suppliedSchedule: PublicSchedule | undefined,
+    cause: PublicationProvenance["cause"],
+  ): Promise<Publication & { readonly provenance: PublicationProvenance }> {
+    if (!this.sources) throw new Error("Publication sources are not configured");
     const [cfp, content, schedule] = await Promise.all([
-      this.sources.cfp(eventId),
-      this.sources.content.publishedEventContent(eventId),
-      this.sources.schedule(eventId),
+      this.sources.cfp(publication.eventId),
+      this.sources.content.publishedEventContent(publication.eventId),
+      suppliedSchedule
+        ? Promise.resolve(suppliedSchedule)
+        : this.sources.schedule(publication.eventId),
     ]);
-    if (!event) return null;
     const agenda = schedule?.agenda;
     const placements = new Map(agenda?.placements.map((item) => [item.sessionId, item]) ?? []);
     const slots = new Map(agenda?.slots.map((item) => [item.id, item]) ?? []);
@@ -197,61 +264,116 @@ export class PublicationService {
      * lives in the draft and only becomes the served address at publish time.
      */
     const draftSlug = publication.draft.event.slug || publication.slug;
+    const draft = allowlistPublicProjection({
+      event: {
+        ...publication.draft.event,
+        slug: draftSlug,
+        name: event.name,
+        timezone: event.timezone,
+        /*
+         * The organizer's typed dates win, and the agenda fills the gap when they have
+         * typed none. It used to be the other way round — the agenda's first and last slot
+         * dates overwrote whatever was stored, and the stored value showed only when no
+         * agenda existed at all — which left an organizer unable to say "the conference
+         * runs Monday to Wednesday" while a single rehearsal slot sat on the Sunday.
+         */
+        ...resolveEventDates(publication.draft.event, sortedDates),
+      },
+      cfp: cfp
+        ? {
+            title: cfp.title,
+            description: cfp.description,
+            status: cfp.status,
+            publishedAt: cfp.publishedAt,
+            submissionUrl: `/events/${draftSlug}/cfp`,
+          }
+        : publication.draft.cfp,
+      sessions: content.sessions.map((session) => {
+        const placement = placements.get(session.id);
+        const slot = placement ? slots.get(placement.slotId) : undefined;
+        const room = placement ? rooms.get(placement.roomId) : undefined;
+        return {
+          slug: sessionSlug(session.id),
+          title: session.title,
+          abstract: session.abstract,
+          format: session.format,
+          track: placement ? (tracks.get(placement.trackId) ?? "") : (session.tracks[0] ?? ""),
+          speakerSlugs: session.speakerProfileIds
+            .filter((id) => speakers.has(id))
+            .map((id) => speakerSlug(id)),
+          ...(slot ? { startsAt: slot.startsAt, endsAt: slot.endsAt } : {}),
+          ...(room ? { room } : {}),
+        };
+      }),
+      speakers: content.speakers.map((speaker) => ({
+        slug: speakerSlug(speaker.id),
+        name: speaker.name,
+        bio: speaker.bio,
+        organization: speaker.organization,
+        // The gallery links the asset route the content domain actually serves; the
+        // `/api/public/assets/:id` path this used to emit was never routed at all.
+        ...(speaker.photoAssetId && publishableAssets.has(speaker.photoAssetId)
+          ? { photoUrl: `/api/speaker-assets/${speaker.photoAssetId}` }
+          : {}),
+      })),
+    });
     return {
       ...publication,
-      draft: allowlistPublicProjection({
-        event: {
-          ...publication.draft.event,
-          slug: draftSlug,
-          name: event.name,
-          timezone: event.timezone,
-          /*
-           * The organizer's typed dates win, and the agenda fills the gap when they have
-           * typed none. It used to be the other way round — the agenda's first and last slot
-           * dates overwrote whatever was stored, and the stored value showed only when no
-           * agenda existed at all — which left an organizer unable to say "the conference
-           * runs Monday to Wednesday" while a single rehearsal slot sat on the Sunday.
-           */
-          ...resolveEventDates(publication.draft.event, sortedDates),
-        },
-        cfp: cfp
-          ? {
-              title: cfp.title,
-              description: cfp.description,
-              status: cfp.status,
-              publishedAt: cfp.publishedAt,
-              submissionUrl: `/events/${draftSlug}/cfp`,
-            }
-          : publication.draft.cfp,
-        sessions: content.sessions.map((session) => {
-          const placement = placements.get(session.id);
-          const slot = placement ? slots.get(placement.slotId) : undefined;
-          const room = placement ? rooms.get(placement.roomId) : undefined;
-          return {
-            slug: sessionSlug(session.id),
-            title: session.title,
-            abstract: session.abstract,
-            format: session.format,
-            track: placement ? (tracks.get(placement.trackId) ?? "") : (session.tracks[0] ?? ""),
-            speakerSlugs: session.speakerProfileIds
-              .filter((id) => speakers.has(id))
-              .map((id) => speakerSlug(id)),
-            ...(slot ? { startsAt: slot.startsAt, endsAt: slot.endsAt } : {}),
-            ...(room ? { room } : {}),
-          };
-        }),
-        speakers: content.speakers.map((speaker) => ({
-          slug: speakerSlug(speaker.id),
-          name: speaker.name,
-          bio: speaker.bio,
-          organization: speaker.organization,
-          // The gallery links the asset route the content domain actually serves; the
-          // `/api/public/assets/:id` path this used to emit was never routed at all.
-          ...(speaker.photoAssetId && publishableAssets.has(speaker.photoAssetId)
-            ? { photoUrl: `/api/speaker-assets/${speaker.photoAssetId}` }
-            : {}),
-        })),
-      }),
+      draft,
+      provenance: {
+        agendaVersion: schedule?.version ?? null,
+        agendaPublishedAt: schedule?.publishedAt ?? null,
+        cfpVersion: cfp?.version ?? null,
+        cfpPublishedAt: cfp?.publishedAt ?? null,
+        contentDigest: publicSourceDigest(content),
+        cause,
+      },
+    };
+  }
+
+  async preview(actor: Actor | null, eventId: string) {
+    const organizer = this.requireOrganizer(actor, eventId, "events:settings:read");
+    if (!organizer) return null;
+    const stored = await this.repository.findByEventId(eventId);
+    if (!this.sources) return stored;
+    const event = await this.sources.event(organizer, eventId);
+    if (!event) return null;
+    return this.compose(
+      stored ?? this.emptyPublication(eventId, event),
+      event,
+      undefined,
+      "source-reconciled",
+    );
+  }
+
+  /**
+   * Publishing's consumer of `EVT-SCHEDULE-PUBLISHED`.
+   *
+   * The caller hands over the public agenda snapshot that produced the event. This method never
+   * reads agenda storage, and it preserves the live page's own event fields rather than pulling
+   * in unrelated draft edits. The D1 adapter turns the returned value into statements appended
+   * to the agenda publication batch, so the new schedule and the public projection become active
+   * together. No live publication means no refresh: publishing an agenda cannot create a site.
+   */
+  async prepareScheduleRefresh(
+    event: SchedulePublishedEvent,
+    schedule: PublicSchedule,
+  ): Promise<ProjectionRefresh | null> {
+    const publication = await this.repository.findByEventId(event.eventId);
+    if (publication?.state !== "published" || !publication.published || !this.sources) return null;
+    if ((publication.provenance?.agendaVersion ?? 0) >= event.publicationVersion) return null;
+    const composed = await this.compose(
+      { ...publication, draft: publication.published },
+      publication.published.event,
+      schedule,
+      "schedule-published",
+    );
+    if (!composed.provenance) return null;
+    return {
+      eventId: event.eventId,
+      activatedAt: event.publishedAt,
+      projection: allowlistPublicProjection(composed.draft),
+      provenance: composed.provenance,
     };
   }
 
@@ -316,6 +438,7 @@ export class PublicationService {
       eventId,
       publishedAt,
       allowlistPublicProjection(publication.draft),
+      publication.provenance ? { ...publication.provenance, cause: "site-published" } : undefined,
     );
     // Reported after the write, never before: the fact is that a page *is* live, and announcing
     // one that then failed to commit would put a change on an audit timeline that never happened.

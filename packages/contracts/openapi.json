@@ -6992,7 +6992,7 @@
         }
       },
       "delete": {
-        "description": "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone, and the withdrawn session leaves the public page at the next publish because published snapshots are immutable. Answers the refreshed content workspace.",
+        "description": "Withdraws a session from the programme: the session is removed and every agenda placement holding it is dropped, so the board cannot keep a slot for a session that no longer exists. Organizer-only, and the reverse of accepting a proposal — the path back when an accepted abstract is later declined. The speaker profile, its tasks, and its uploads are left alone. An already-live public projection removes the session on its next reconciled read; this action never publishes a site. Answers the refreshed content workspace.",
         "security": [
           {
             "sessionCookie": []
@@ -24463,6 +24463,58 @@
                                   "type": "string",
                                   "nullable": true,
                                   "format": "date-time"
+                                },
+                                "projectionVersion": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "provenance": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "properties": {
+                                    "agendaVersion": {
+                                      "type": "integer",
+                                      "nullable": true,
+                                      "minimum": 0,
+                                      "exclusiveMinimum": true
+                                    },
+                                    "agendaPublishedAt": {
+                                      "type": "string",
+                                      "nullable": true,
+                                      "format": "date-time"
+                                    },
+                                    "cfpVersion": {
+                                      "type": "integer",
+                                      "nullable": true,
+                                      "minimum": 0,
+                                      "exclusiveMinimum": true
+                                    },
+                                    "cfpPublishedAt": {
+                                      "type": "string",
+                                      "nullable": true,
+                                      "format": "date-time"
+                                    },
+                                    "contentDigest": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "cause": {
+                                      "type": "string",
+                                      "enum": [
+                                        "site-published",
+                                        "schedule-published",
+                                        "source-reconciled"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "agendaVersion",
+                                    "agendaPublishedAt",
+                                    "cfpVersion",
+                                    "cfpPublishedAt",
+                                    "contentDigest",
+                                    "cause"
+                                  ]
                                 }
                               },
                               "required": [
@@ -57982,6 +58034,73 @@
                         "sessions",
                         "speakers"
                       ]
+                    },
+                    "publication": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "publishedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time"
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "agendaVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "agendaPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "cfpVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "cfpPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "contentDigest": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "cause": {
+                              "type": "string",
+                              "enum": [
+                                "site-published",
+                                "schedule-published",
+                                "source-reconciled"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agendaVersion",
+                            "agendaPublishedAt",
+                            "cfpVersion",
+                            "cfpPublishedAt",
+                            "contentDigest",
+                            "cause"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "publishedAt",
+                        "provenance"
+                      ]
                     }
                   },
                   "required": [
@@ -59510,6 +59629,58 @@
                           "type": "string",
                           "nullable": true,
                           "format": "date-time"
+                        },
+                        "projectionVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "agendaVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "agendaPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "cfpVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "cfpPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "contentDigest": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "cause": {
+                              "type": "string",
+                              "enum": [
+                                "site-published",
+                                "schedule-published",
+                                "source-reconciled"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agendaVersion",
+                            "agendaPublishedAt",
+                            "cfpVersion",
+                            "cfpPublishedAt",
+                            "contentDigest",
+                            "cause"
+                          ]
                         }
                       },
                       "required": [
@@ -60220,6 +60391,58 @@
                           "type": "string",
                           "nullable": true,
                           "format": "date-time"
+                        },
+                        "projectionVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "agendaVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "agendaPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "cfpVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "cfpPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "contentDigest": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "cause": {
+                              "type": "string",
+                              "enum": [
+                                "site-published",
+                                "schedule-published",
+                                "source-reconciled"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agendaVersion",
+                            "agendaPublishedAt",
+                            "cfpVersion",
+                            "cfpPublishedAt",
+                            "contentDigest",
+                            "cause"
+                          ]
                         }
                       },
                       "required": [
@@ -60983,6 +61206,58 @@
                           "type": "string",
                           "nullable": true,
                           "format": "date-time"
+                        },
+                        "projectionVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "agendaVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "agendaPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "cfpVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "cfpPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "contentDigest": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "cause": {
+                              "type": "string",
+                              "enum": [
+                                "site-published",
+                                "schedule-published",
+                                "source-reconciled"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agendaVersion",
+                            "agendaPublishedAt",
+                            "cfpVersion",
+                            "cfpPublishedAt",
+                            "contentDigest",
+                            "cause"
+                          ]
                         }
                       },
                       "required": [
@@ -61753,6 +62028,58 @@
                           "type": "string",
                           "nullable": true,
                           "format": "date-time"
+                        },
+                        "projectionVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "agendaVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "agendaPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "cfpVersion": {
+                              "type": "integer",
+                              "nullable": true,
+                              "minimum": 0,
+                              "exclusiveMinimum": true
+                            },
+                            "cfpPublishedAt": {
+                              "type": "string",
+                              "nullable": true,
+                              "format": "date-time"
+                            },
+                            "contentDigest": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "cause": {
+                              "type": "string",
+                              "enum": [
+                                "site-published",
+                                "schedule-published",
+                                "source-reconciled"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "agendaVersion",
+                            "agendaPublishedAt",
+                            "cfpVersion",
+                            "cfpPublishedAt",
+                            "contentDigest",
+                            "cause"
+                          ]
                         }
                       },
                       "required": [

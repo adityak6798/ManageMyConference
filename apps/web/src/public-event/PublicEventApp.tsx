@@ -74,6 +74,8 @@ export function PublicEventApp() {
   const [cfpUnavailable, setCfpUnavailable] = useState<string | null>(null);
   const [sessionQuery, setSessionQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState("all");
+  const [formatFilter, setFormatFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("all");
   const [speakerQuery, setSpeakerQuery] = useState("");
   // A grouping is a reading preference, not a filter: it survives a trip to a session
   // and back, and it never triggers a fetch.
@@ -94,7 +96,11 @@ export function PublicEventApp() {
    */
   // Keyed on the event id, which a slug change cannot move; the slug is still needed for the
   // routable share URL and the mint call. Idle until the projection supplies the id.
-  const itinerary = useItinerary(slug, projection?.event.eventId ?? "", !embedded);
+  const itinerary = useItinerary(
+    slug,
+    projection?.event.eventId ?? "",
+    !embedded || section === "itinerary",
+  );
   const viewKey = `${section}/${detail ?? ""}`;
   const landedOn = useRef(viewKey);
   const [filteredView, setFilteredView] = useState(section);
@@ -107,6 +113,8 @@ export function PublicEventApp() {
     setFilteredView(section);
     setSessionQuery("");
     setTrackFilter("all");
+    setFormatFilter("all");
+    setLocationFilter("all");
     setSpeakerQuery("");
   }
 
@@ -344,11 +352,24 @@ export function PublicEventApp() {
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
+    if (formatFilter !== "all" && item.format !== formatFilter) return false;
+    if (locationFilter !== "all" && (item.room || "To be announced") !== locationFilter)
+      return false;
     if (!needle) return true;
-    return `${item.title} ${item.abstract} ${item.track} ${item.format}`
+    const speakerNames = model
+      .speakersOf(item)
+      .map((speakerItem) => speakerItem.name)
+      .join(" ");
+    return `${item.title} ${item.abstract} ${item.track} ${item.format} ${item.room} ${speakerNames}`
       .toLowerCase()
       .includes(needle);
   });
+  const formats = [
+    ...new Set(projection.sessions.map((item) => item.format).filter(Boolean)),
+  ].sort();
+  const locations = [
+    ...new Set(projection.sessions.map((item) => item.room || "To be announced")),
+  ].sort();
   const speakerNeedle = speakerQuery.trim().toLowerCase();
   const visibleSpeakers = model.bySurname.filter((item) =>
     speakerNeedle
@@ -361,6 +382,18 @@ export function PublicEventApp() {
    * that — which is what makes the page readable as a day plan.
    */
   const itinerarySessions = model.ordered.filter((item) => itinerary.has(item.slug));
+  const itineraryDays = model.days
+    .map((day) => ({
+      ...day,
+      slots: day.slots
+        .map((slot) => ({
+          ...slot,
+          items: slot.items.filter((item) => itinerary.has(item.slug)),
+        }))
+        .filter((slot) => slot.items.length > 0),
+    }))
+    .filter((day) => day.slots.length > 0);
+  const untimedItinerary = model.untimed.filter((item) => itinerary.has(item.slug));
   const downloadCalendar = () => {
     const calendar = itineraryCalendar(
       projection.event.name,
@@ -761,7 +794,7 @@ export function PublicEventApp() {
                       id="pub-session-search"
                       type="search"
                       value={sessionQuery}
-                      placeholder="Title, topic, or format"
+                      placeholder="Session or speaker"
                       onChange={(changeEvent) => setSessionQuery(changeEvent.target.value)}
                     />
                   </div>
@@ -780,6 +813,36 @@ export function PublicEventApp() {
                       ))}
                     </select>
                   </div>
+                  <div className="pub-field">
+                    <label htmlFor="pub-format-filter">Format</label>
+                    <select
+                      id="pub-format-filter"
+                      value={formatFilter}
+                      onChange={(changeEvent) => setFormatFilter(changeEvent.target.value)}
+                    >
+                      <option value="all">All formats</option>
+                      {formats.map((format) => (
+                        <option key={format} value={format}>
+                          {format}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="pub-field">
+                    <label htmlFor="pub-location-filter">Location</label>
+                    <select
+                      id="pub-location-filter"
+                      value={locationFilter}
+                      onChange={(changeEvent) => setLocationFilter(changeEvent.target.value)}
+                    >
+                      <option value="all">All locations</option>
+                      {locations.map((location) => (
+                        <option key={location} value={location}>
+                          {location}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <p className="pub-count" role="status">
                     Showing {visibleSessions.length} of{" "}
                     {countLabel(projection.sessions.length, "session")}
@@ -787,7 +850,7 @@ export function PublicEventApp() {
                 </div>
                 {visibleSessions.length === 0 ? (
                   <Empty level={2} title="No sessions match that filter">
-                    Try a different search term or choose “All tracks”.
+                    Try a different search term or reset the track, format, and location filters.
                   </Empty>
                 ) : (
                   // The card titles are h3s, so the flat grid needs an h2 above them or
@@ -1047,19 +1110,50 @@ export function PublicEventApp() {
                   <h2 className="pub-sr" id="pub-itinerary-list">
                     Starred sessions
                   </h2>
-                  <div className="pub-grid">
-                    {itinerarySessions.map((item) => (
-                      <SessionCard
-                        key={item.slug}
-                        session={item}
-                        base={base}
-                        timezone={model.timezone}
-                        speakers={model.speakersOf(item)}
-                        showTime
-                        action={<StarButton session={item} itinerary={itinerary} />}
-                      />
-                    ))}
-                  </div>
+                  {itineraryDays.map((day) => (
+                    <ScheduleGroup key={day.key} id={`itinerary-${day.key}`} title={day.label}>
+                      <div className="pub-grid">
+                        {day.slots.flatMap((slot) =>
+                          slot.items.map((item) => (
+                            <SessionCard
+                              key={item.slug}
+                              session={item}
+                              base={base}
+                              timezone={model.timezone}
+                              speakers={model.speakersOf(item)}
+                              showTime
+                              action={
+                                embedded ? undefined : (
+                                  <StarButton session={item} itinerary={itinerary} />
+                                )
+                              }
+                            />
+                          )),
+                        )}
+                      </div>
+                    </ScheduleGroup>
+                  ))}
+                  {untimedItinerary.length > 0 && (
+                    <ScheduleGroup id="itinerary-unscheduled" title="Time to be announced">
+                      <div className="pub-grid">
+                        {untimedItinerary.map((item) => (
+                          <SessionCard
+                            key={item.slug}
+                            session={item}
+                            base={base}
+                            timezone={model.timezone}
+                            speakers={model.speakersOf(item)}
+                            showTime
+                            action={
+                              embedded ? undefined : (
+                                <StarButton session={item} itinerary={itinerary} />
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    </ScheduleGroup>
+                  )}
                 </section>
               </>
             )}
@@ -1099,14 +1193,12 @@ export function PublicEventApp() {
         <p>Published by Project Greenroom</p>
         {/*
           The freshness boundary, stated rather than left to be discovered. Every surface
-          on this page reads one immutable snapshot, so an organizer's edit is invisible
-          here until they publish again — which is the property that lets two of these
-          pages be compared against each other and against an embed and agree, and the
-          one thing a visitor cannot infer from a page that looks live.
+          reads one active immutable version. Accepted source publications refresh that version;
+          event/site draft fields still wait for an explicit site publish.
         */}
         <p className="pub-note">
-          This page shows the programme as last published. Changes an organizer makes afterwards
-          appear here only when they publish again.
+          This page shows the current published programme. Draft changes remain private until their
+          owning publication action succeeds.
         </p>
       </footer>
     </div>

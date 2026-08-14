@@ -414,6 +414,8 @@ describe("public schedule", () => {
     await screen.findByRole("heading", { level: 1, name: "Sessions" });
     expect(screen.getByLabelText("Search sessions")).toBeVisible();
     expect(screen.getByLabelText("Track")).toBeVisible();
+    expect(screen.getByLabelText("Format")).toBeVisible();
+    expect(screen.getByLabelText("Location")).toBeVisible();
     for (const control of container.querySelectorAll("input, select, textarea"))
       expect(
         container.querySelector(`label[for="${control.id}"]`),
@@ -424,6 +426,25 @@ describe("public schedule", () => {
     mountAt(`/events/${SLUG}/speakers`);
     await screen.findByRole("heading", { level: 1, name: "Speakers" });
     expect(screen.getByLabelText("Search speakers")).toBeVisible();
+  });
+
+  it("searches sessions by speaker and combines track, format, and location facets", async () => {
+    mountAt(`/events/${SLUG}/sessions`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+
+    fireEvent.change(screen.getByLabelText("Search sessions"), {
+      target: { value: "Jordan Bell" },
+    });
+    expect(screen.getByRole("link", { name: "Accessible by default" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Closing notes" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search sessions"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Track"), { target: { value: "Experience" } });
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "Workshop" } });
+    fireEvent.change(screen.getByLabelText("Location"), { target: { value: "Bay Studio" } });
+
+    expect(screen.getByRole("link", { name: "Accessible by default" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 1 of 5 sessions");
   });
 });
 

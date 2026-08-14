@@ -236,6 +236,7 @@ function compose(database: D1DatabasePort, templateDatabase: D1DatabasePort = da
       try {
         const form = await cfp.getPublished(eventId);
         return {
+          version: form.version,
           title: form.title,
           description: form.description,
           status: form.status === "closed" ? ("closed" as const) : ("open" as const),

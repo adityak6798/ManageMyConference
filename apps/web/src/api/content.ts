@@ -341,8 +341,8 @@ export async function publishSpeakerAsset(
  * Return a published asset to private.
  *
  * The reverse of `publishSpeakerAsset`, and organizer-only for the same reason. A headshot
- * withdrawn this way leaves the public gallery at the next publish, and its bytes stop being
- * served anonymously immediately.
+ * withdrawn this way leaves the public gallery on its next reconciled read, and its bytes stop
+ * being served anonymously immediately.
  */
 export async function unpublishSpeakerAsset(
   assetId: string,
