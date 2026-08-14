@@ -34,6 +34,7 @@ export type PublicApiClient = Omit<
 
 export interface ApiClientRepository {
   findByPrefix(prefix: string): Promise<ApiClientRecord | null>;
+  findKeyPrefix(organizationId: string, clientId: string): Promise<string | null>;
   list(organizationId: string): Promise<readonly ApiClientRecord[]>;
   create(client: ApiClientRecord, context: AuditContext): Promise<void>;
   rotate(input: {
@@ -272,8 +273,12 @@ export class ApiClientService {
     context: AuditContext,
   ): Promise<{ credential: string; previousCredentialExpiresAt: number }> {
     await this.requireOrganization(actor, organizationId);
+    const keyPrefix = await this.dependencies.repository.findKeyPrefix(organizationId, clientId);
+    if (!keyPrefix) throw new ApiClientNotFoundError("API client not found or inactive");
     const now = this.dependencies.now();
     const minted = await this.dependencies.mintCredential();
+    const parsed = parseApiClientCredential(minted.credential);
+    if (!parsed) throw new Error("Credential mint returned a malformed API client credential");
     const overlapExpiresAt = now + ROTATION_OVERLAP_MS;
     const changed = await this.dependencies.repository.rotate({
       organizationId,
@@ -284,7 +289,10 @@ export class ApiClientService {
       context,
     });
     if (changed === 0) throw new ApiClientNotFoundError("API client not found or inactive");
-    return { credential: minted.credential, previousCredentialExpiresAt: overlapExpiresAt };
+    return {
+      credential: `grn_${keyPrefix}.${parsed.secret}`,
+      previousCredentialExpiresAt: overlapExpiresAt,
+    };
   }
 
   async revoke(

@@ -20,6 +20,7 @@ const OTHER_ORGANIZATION = "00000000-0000-4000-8000-000000000020";
 const EVENT = "00000000-0000-4000-8000-000000000001";
 const NOW = 1_760_000_000_000;
 const PREFIX = "0123456789abcdef";
+const ROTATED_PREFIX = "fedcba9876543210";
 const SECRET = "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678";
 const ROTATED_SECRET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
 const CREDENTIAL = `grn_${PREFIX}.${SECRET}`;
@@ -48,6 +49,13 @@ class MemoryRepository implements ApiClientRepository {
   clients: ApiClientRecord[] = [];
   async findByPrefix(prefix: string) {
     return this.clients.find((client) => client.keyPrefix === prefix) ?? null;
+  }
+  async findKeyPrefix(organizationId: string, clientId: string) {
+    return (
+      this.clients.find(
+        (client) => client.organizationId === organizationId && client.id === clientId,
+      )?.keyPrefix ?? null
+    );
   }
   async list(organizationId: string) {
     return this.clients.filter((client) => client.organizationId === organizationId);
@@ -205,17 +213,18 @@ describe("API client credentials", () => {
     await expect(after.resolve(CREDENTIAL)).resolves.toBeNull();
   });
 
-  it("rotates through the service and accepts both credentials during the overlap", async () => {
+  it("keeps the lookup prefix stable and accepts the old secret only during rotation overlap", async () => {
     const repository = new MemoryRepository();
     repository.clients.push(await record());
+    let now = NOW;
     const service = new ApiClientService({
       repository,
       events,
       newId: () => crypto.randomUUID(),
-      now: () => NOW,
+      now: () => now,
       mintCredential: async () => ({
-        credential: `grn_${PREFIX}.${ROTATED_SECRET}`,
-        prefix: PREFIX,
+        credential: `grn_${ROTATED_PREFIX}.${ROTATED_SECRET}`,
+        prefix: ROTATED_PREFIX,
         secretHash: await hashApiClientSecret(ROTATED_SECRET),
       }),
     });
@@ -223,7 +232,7 @@ describe("API client credentials", () => {
       repository,
       resolveCreator: async () => creator,
       events,
-      now: () => NOW,
+      now: () => now,
     });
 
     const rotated = await service.rotate(
@@ -235,6 +244,10 @@ describe("API client credentials", () => {
 
     expect(rotated.credential).toBe(`grn_${PREFIX}.${ROTATED_SECRET}`);
     await expect(resolver.resolve(CREDENTIAL)).resolves.not.toBeNull();
+    await expect(resolver.resolve(rotated.credential)).resolves.not.toBeNull();
+
+    now = rotated.previousCredentialExpiresAt;
+    await expect(resolver.resolve(CREDENTIAL)).resolves.toBeNull();
     await expect(resolver.resolve(rotated.credential)).resolves.not.toBeNull();
   });
 

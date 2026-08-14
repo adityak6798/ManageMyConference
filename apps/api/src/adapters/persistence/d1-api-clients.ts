@@ -57,6 +57,15 @@ export class D1ApiClientRepository implements ApiClientRepository {
     return row ? this.hydrate(row) : null;
   }
 
+  async findKeyPrefix(organizationId: string, clientId: string): Promise<string | null> {
+    const found = await this.database
+      .prepare("SELECT key_prefix FROM api_clients WHERE organization_id = ? AND id = ?")
+      .bind(organizationId, clientId)
+      .all<{ key_prefix: string }>();
+    this.assertRead(found, "find an API client prefix");
+    return found.results?.[0]?.key_prefix ?? null;
+  }
+
   async list(organizationId: string): Promise<readonly ApiClientRecord[]> {
     const found = await this.database
       .prepare(`${SELECT_CLIENT} WHERE organization_id = ? ORDER BY created_at DESC, id`)
