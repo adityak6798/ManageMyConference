@@ -169,6 +169,14 @@
  */
 .crm .pipeline-board {
   display: grid;
+  /*
+   * `minmax(0, 1fr)`, not `auto`. A grid track defaults to a min-content floor, so the eight
+   * columns inside the scroller below sized this track to their *total* width and the whole
+   * console panned sideways — 213px of horizontal overflow at 390px, caught by the layout
+   * check in the accessibility gate rather than by looking at it. Declaring a zero minimum is
+   * what lets `overflow-x` on the child actually clip.
+   */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--s-3);
   padding: var(--s-4) var(--s-5) var(--s-5);
   min-width: 0;
