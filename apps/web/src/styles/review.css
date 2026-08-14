@@ -726,9 +726,26 @@
 }
 .suggestion-score dd {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--s-2);
   margin: 0;
+}
+/*
+ * A drafted value can be a whole sentence, and a pill is a shape for a token.
+ *
+ * The assistant drafts one value per rubric criterion, and a *text* criterion's drafted value is
+ * prose — "Strong fit. Consider asking for one worked example…" — which a pill rendered as a
+ * single 551px line inside a 390px viewport. The seeded suggestion is what exposed it; the
+ * defect is the shape, not the length, and it would have shown up the first time a live model
+ * drafted a sentence. Pills wrap and stay inside their column now.
+ */
+.suggestion-score dd .pill {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 .suggestion-rationale {
   min-width: 0;
@@ -785,21 +802,106 @@
   border-bottom: 1px solid var(--line);
   background: var(--surface-2, transparent);
 }
+/*
+ * `min-width: 0` on the fields and `max-width: 100%` on their controls.
+ *
+ * Without both, a 9rem select plus a 9rem number input plus the toolbar's own gaps and padding
+ * exceed 390px and the whole page scrolls sideways — the accessibility gate's "no horizontal
+ * overflow at 390px" check caught exactly this. A flex item's default `min-width: auto` refuses to
+ * shrink below its content, so the wrap has to be allowed rather than assumed.
+ */
+.triage-round-bar .field {
+  min-width: 0;
+}
 .triage-round-bar select,
 .triage-round-bar input[type="number"] {
   width: auto;
-  min-width: 9rem;
+  min-width: min(9rem, 100%);
+  max-width: 100%;
 }
 .triage-round-summary {
   margin: 0 0 var(--s-1);
   color: var(--muted);
   font-size: var(--text-xs);
 }
-/* `.triage-select-all` is styled once, above, where `#206`'s sweep put it. A second rule here
-   would win on order and quietly undo it. */
+/*
+ * `.triage-select-all` is styled once, above, where `#206`'s sweep put it — a second rule here
+ * would win on order and quietly undo it.
+ *
+ * This lane's own version of that control put the whole sentence on screen, which made the label
+ * 369px wide inside a 390px viewport and panned the console sideways by 16px. The sweep's shape —
+ * `Select all` visible, the sentence as the accessible name — has neither problem, so the rule it
+ * needed is gone with it.
+ */
+.triage-sort {
+  min-width: 0;
+}
 .triage-sort select {
   width: auto;
-  min-width: 12rem;
+  min-width: min(12rem, 100%);
+  max-width: 100%;
+}
+/*
+ * The rounds table is wide by nature — eight columns of policy — so on a wide screen it scrolls
+ * inside its own `.table-wrap` rather than making the page scroll.
+ *
+ * On a phone that is not enough, and the accessibility gate is right about why: a scrolling
+ * container took the Edit button of every round past the right edge, behind a swipe nothing hinted
+ * at. That is the same defect `communications.css` and `identity.css` each record, and this is the
+ * same recipe — `thead` goes, each row becomes a card, each cell carries its own label through
+ * `data-label`. Three consoles restack one way.
+ */
+.review-rounds-table {
+  min-width: 46rem;
+}
+@media (max-width: 780px) {
+  .review-rounds-table,
+  .review-rounds-table tbody,
+  .review-rounds-table tr,
+  .review-rounds-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .review-rounds-table thead {
+    display: none;
+  }
+  .review-rounds-table tbody {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .review-rounds-table tr {
+    padding: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .review-rounds-table td[data-label] {
+    display: grid;
+    grid-template-columns: minmax(6rem, 8rem) minmax(0, 1fr);
+    gap: var(--s-2);
+    padding: var(--s-2) 0;
+    border: 0;
+    white-space: normal;
+    text-align: left;
+  }
+  .review-rounds-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+  /* A cell's secondary line is part of its value, not a second label. */
+  .review-rounds-table td[data-label] > .sub {
+    grid-column: 2;
+  }
+}
+/* The same containment `content.css` needs for the same reason: a wide table scrolls correctly
+   inside `.table-wrap`, and its layout overflow still leaked out to the document and panned the
+   whole phone viewport. Painting containment keeps it inside the scroller. */
+.review-block .table-wrap {
+  contain: paint;
 }
 
 .review-rounds-table td .sub {

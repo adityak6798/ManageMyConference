@@ -60,7 +60,14 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
   // used to reach the owner_id foreign key and surface as a 500.
   const newOwner = page.getByLabel("Owner", { exact: true });
   await expect(newOwner).toHaveRole("combobox");
-  await expect(newOwner.locator("option")).toHaveText(["Olivia Organizer (you)", "Ravi Reviewer"]);
+  // Every organizer and reviewer the event staffs, in name order. The second reviewer arrived
+  // with the review lane's seeded round pools (`#191`); ownership eligibility follows the event
+  // roles, so she is offered here too and the assignment grants her no CRM access either.
+  await expect(newOwner.locator("option")).toHaveText([
+    "Nina Alvarez",
+    "Olivia Organizer (you)",
+    "Ravi Reviewer",
+  ]);
   // `seed-speaker` holds the speaker role on this event and is therefore not offerable.
   await expect(newOwner.locator("option", { hasText: "Sam Speaker" })).toHaveCount(0);
   await page.getByLabel("First action due").fill("2026-08-01T12:00");
@@ -127,7 +134,11 @@ test("an owner the event does not staff is refused as a named field, not a crash
   const owners = await page.request.get(`/api/events/${EVENT_ID}/prospects/owners`);
   expect(owners.status()).toBe(200);
   const staff = (await owners.json()).owners as { id: string; name: string }[];
-  expect(staff.map(({ id }) => id)).toEqual(["seed-organizer", "seed-reviewer"]);
+  expect(staff.map(({ id }) => id)).toEqual([
+    "review-nina-alvarez",
+    "seed-organizer",
+    "seed-reviewer",
+  ]);
 
   // The select cannot offer these, but the API is the boundary that has to hold: an unknown
   // id used to reach the owner_id foreign key and return 500 INTERNAL_ERROR, and a
@@ -344,7 +355,11 @@ test("a directory contact is sourced into an event and reaches communications", 
   // Owner is a select over the event's staff, served by identity-access — the directory does
   // not invent a second vocabulary for it.
   const owner = page.getByLabel(/^Owner on/);
-  await expect(owner.locator("option")).toHaveText(["Olivia Organizer (you)", "Ravi Reviewer"]);
+  await expect(owner.locator("option")).toHaveText([
+    "Nina Alvarez",
+    "Olivia Organizer (you)",
+    "Ravi Reviewer",
+  ]);
   await page.getByLabel("Convert to a speaker straight away").check();
   await page.getByRole("button", { name: /Add to Greenroom Demo Summit/ }).click();
   await expect(page.getByText(`Sourced Person ${stamp} is now a speaker`)).toBeVisible();
