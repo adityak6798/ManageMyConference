@@ -138,10 +138,15 @@ describe("the signed-in applicant's proposals", () => {
      */
     let listReads = 0;
     const test = mount({
-      write: (url, init) =>
-        url === proposalsPath && init.method === "POST"
-          ? jsonResponse({ proposal: proposal() }, 201)
-          : undefined,
+      write: (url, init) => {
+        if (url.endsWith("/submit"))
+          return jsonResponse({
+            proposal: proposal({ lifecycle: "submitted", state: "under_consideration" }),
+          });
+        if (url === proposalsPath && init.method === "POST")
+          return jsonResponse({ proposal: proposal() }, 201);
+        return undefined;
+      },
     });
     // The dashboard read fails from here on; the writes still answer.
     const original = globalThis.fetch as typeof fetch;
@@ -161,6 +166,19 @@ describe("the signed-in applicant's proposals", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
 
     await waitFor(() => expect(test.calls.some(({ url }) => url.endsWith("/submit"))).toBe(true));
+    /*
+     * And it is *reported* as submitted, which is the assertion that matters most.
+     *
+     * A first version of this stopped at the line above. That passes while the refresh still
+     * sits after the submit, where a failed list read reports "The proposal could not be
+     * submitted." over a proposal that was — with the form already cleared and the idempotency
+     * key already rotated, so the applicant retypes, presses Submit, and creates a second one.
+     * On a one-way action, that is the worst outcome this surface can produce.
+     */
+    // `queryByRole` rather than a rejected `findByRole`: the notice element is always mounted and
+    // only its role changes, so an error notice would be findable immediately if there were one.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(await screen.findByRole("status")).toHaveTextContent("Proposal submitted.");
   });
 
   it("does not tell an applicant a submission failed when what failed was signing out", async () => {

@@ -1370,7 +1370,7 @@ latest draft".
 
 **A tenth pass found that the window had quietly rewritten an existing endpoint's status codes,
 and that is the one finding of this issue that changed a decision rather than a line.**
-`POST /api/public/events/{eventId}/submissions` answered `404 CFP_UNAVAILABLE` for a closed call
+`POST /api/public/events/{eventId}/submissions` answered `404 NOT_FOUND` for a closed call
 and `400` when its insert lost a race. Routing it through `openForm` moved the first to `409`, and
 a repair earlier in this issue moved the second there too — both improvements, and both breaking:
 `api-compatibility.md` classes "repurposing a status or error code" as a change that ships
@@ -1391,6 +1391,34 @@ form was awaited *inside* the submit's guarded action, so a failed list read —
 submitted. It is now fire-and-forget with an `ERROR-INTENT`, and a test drives a failing list read
 through a successful submit. It was also, like two repairs before it, untested: deleting it left
 all 350 web tests green.
+
+**An eleventh pass found the sibling of the *tenth* pass's repair, which makes three rounds in a
+row where a fix was applied to one call site and not the other.** The list refresh had been moved
+out of the submit's failure path in one place and left, awaited, in the place immediately after the
+submit had committed. A failed read there reported "The proposal could not be submitted." over a
+proposal that **was** submitted — with the form already cleared and the idempotency key already
+rotated, so the applicant retyped, pressed Submit, and created a *second* proposal. On a one-way
+action that is the worst outcome this surface can produce, and the test written for the first half
+stopped one assertion short of catching it.
+
+There is now **one** refresh, in `guarded`'s `finally`, after every action and part of none. That
+removes the gating in both places at once, and removes an ordering race the two-call version had
+introduced — the dashboard could render "Draft · Continue" beside a notice saying the proposal was
+submitted. The rule this issue kept relearning is worth stating plainly: **a view must never gate
+an action, and a repair to one call site is not a repair.** `GAP-025` exists for the same reason.
+
+That pass also checked the previous round's compatibility argument against `origin/main` rather
+than against the branch, and found half of it wrong in a way that mattered. The status codes were
+right — 404 and 400 are what `main` answered. But the *error code* named throughout was
+`CFP_UNAVAILABLE`, which is the name of an error **class**: `apiErrorCodeSchema` has no such member
+and the wire has always carried `NOT_FOUND`. Six places said it, including this ledger and the
+interfaces document — one of them inherited from `main`. All corrected, and the interfaces document
+now says so rather than quietly changing.
+
+Two smaller ones: the translation that pins the status was replacing `openForm`'s sentence, so a
+guest arriving a month early was told the call had closed — the message travels now, and is
+asserted; and the transport carrying the service's conflict wording is a visible change on a
+pre-existing endpoint, which is compatible but was undocumented.
 
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through

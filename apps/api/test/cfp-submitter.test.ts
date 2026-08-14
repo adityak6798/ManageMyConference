@@ -131,14 +131,22 @@ describe("the scheduled submission window", () => {
     await expect(service.getPublished(eventId)).resolves.toMatchObject({
       effectiveStatus: "scheduled",
     });
-    // The anonymous door answers 404 `CFP_UNAVAILABLE` whichever way the call is shut, which is
+    // The anonymous door answers `404 NOT_FOUND` whichever way the call is shut, which is
     // the code it documented before this issue. The distinction between "come back on the 1st" and
     // "you have missed it" is carried on the *read* asserted above, which every public surface
     // makes before it renders the form — and on the account-bound routes, which are new and so
     // free to answer 409 with the state attached.
-    await expect(service.submit(eventId, "too-early", complete)).rejects.toBeInstanceOf(
-      CfpUnavailableError,
+    const early = await service.submit(eventId, "too-early", complete).then(
+      () => null,
+      (error: unknown) => error,
     );
+    expect(early).toBeInstanceOf(CfpUnavailableError);
+    // The *sentence* still distinguishes the two closures even though the code does not. The
+    // translation that pins the status for compatibility rethrows a different error class, and a
+    // first version of it replaced the message with a fixed "closed" — telling a guest who
+    // arrived a month early that they had missed it, which is the one thing this domain says
+    // never to do.
+    expect((early as Error).message).toMatch(/not open for submissions yet/);
 
     at("2026-09-15T09:00:00.000Z");
     await expect(service.getPublished(eventId)).resolves.toMatchObject({
@@ -631,17 +639,18 @@ describe("a proposal that belongs to an account", () => {
     }
   });
 
-  it("answers a guest whose call closed mid-request with a conflict, not a validation failure", async () => {
+  it("tells a guest whose write lost a race what happened, in the status code it always used", async () => {
     /*
-     * The anonymous door's version of the refusal `createDraft` was repaired for.
+     * Two things this endpoint gets right for different reasons.
      *
-     * `createSubmission` returns null for two reasons and both are conflicts with the resource's
-     * state rather than faults in the request: the storage guard saw a call that is no longer
-     * open, or the published version moved between the read and the write. It threw
-     * `CfpStateError`, which the transport answers as a **400 `VALIDATION_FAILED`** — so a guest
-     * who pressed Submit as the organizer closed the call was told their form answers were wrong,
-     * and had nothing to act on. Both causes are modelled by the write matching nothing, which is
-     * what the repository reports either way.
+     * `createSubmission` returns null for several reasons and every one is a conflict with the
+     * resource's *state* rather than a fault in the request — so `409` is the right code, and it
+     * is what the account-bound routes this issue adds give. This one keeps `400`, because that
+     * is what it answered before the issue and `api-compatibility.md` makes repurposing a status
+     * code a breaking change with a 180-day window behind it. The code is compatibility; the
+     * sentence is correctness, and the sentence was what was actually wrong: it borrowed
+     * `createDraft`'s and told a guest who raced a republish that the call had closed while it
+     * was open.
      */
     const { service, repository } = await open();
     vi.spyOn(repository, "createSubmission").mockResolvedValue(null);

@@ -318,7 +318,7 @@ describe("CFP service", () => {
     /*
      * The applicant-facing consequence, which is the whole point: no late submissions.
      *
-     * Still `CfpUnavailableError` — 404 `CFP_UNAVAILABLE` — on this door, and deliberately.
+     * Still `CfpUnavailableError` — `404 NOT_FOUND` on the wire — on this door, and deliberately.
      * A closed call is a resource whose *state* refuses the write, so 409 is the better answer and
      * it is what the account-bound routes issue #190 added give. This endpoint is not new: it
      * documented 404, and `api-compatibility.md` makes repurposing a status code a breaking change

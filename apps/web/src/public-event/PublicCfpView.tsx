@@ -158,6 +158,27 @@ export function PublicCfpView({
       report(reason, fallback);
     } finally {
       setSubmitting(false);
+      /*
+       * The dashboard catches up here, once, after every action — and never as part of one.
+       *
+       * It used to be awaited inside the actions themselves, which made a *decorative* read gate
+       * the thing the applicant pressed. Two separate repairs each fixed one call site and left
+       * the other, and the one left behind was the worse of the two: awaited **after** a
+       * successful submit, it reported "The proposal could not be submitted." over a proposal
+       * that had been submitted, having already cleared the form and rotated the idempotency key
+       * — so the applicant retyped, pressed Submit, and created a second proposal. On a one-way
+       * action.
+       *
+       * One call, outside the try, non-fatal, and after both outcomes: a failed read leaves a
+       * stale list and changes nothing else, and a single call cannot race itself the way two
+       * could — the earlier fix produced a dashboard showing "Draft · Continue" beside a notice
+       * saying the proposal was submitted.
+       *
+       * ERROR-INTENT: a list that failed to reload is stale and nothing more; the action's own
+       * outcome is already rendered, and the next action or page load reads it again.
+       */
+      // ERROR-INTENT: a list that failed to reload is stale and nothing more.
+      if (signedIn) void refreshProposals().catch(() => undefined);
     }
   }
 
@@ -187,7 +208,6 @@ export function PublicCfpView({
         : await createProposalDraft(eventId, answers, submissionKey);
       setEditing(saved);
       setSubmissionKey(crypto.randomUUID());
-      await refreshProposals();
       setNotice({
         tone: "ok",
         // Two different things happened, so two different sentences: a revision to something the
@@ -226,24 +246,11 @@ export function PublicCfpView({
         target = await createProposalDraft(eventId, answers, submissionKey);
         setEditing(target);
         setSubmissionKey(crypto.randomUUID());
-        /*
-         * The list catches up too, or a failing submit leaves "Nothing yet." above a form that
-         * says it is editing a draft — the row exists and the two halves of the page disagree.
-         *
-         * Deliberately not awaited into this action's failure. The list is a view; the submit
-         * below is the thing the applicant pressed. Awaiting it meant a failed list read
-         * prevented the submit from being attempted at all — a decorative request gating the
-         * primary one.
-         */
-        // ERROR-INTENT: a failed refresh of a list leaves the list stale and nothing else; the
-        // submit that follows is what this action is for, and the next render re-reads anyway.
-        void refreshProposals().catch(() => undefined);
       }
       const submitted = await submitOwnedProposal(eventId, target.id, answers, target.revision);
       setEditing(null);
       setAnswers({});
       setSubmissionKey(crypto.randomUUID());
-      await refreshProposals();
       setNotice({
         tone: "ok",
         text: `Proposal submitted. Confirmation: ${submitted.id}`,

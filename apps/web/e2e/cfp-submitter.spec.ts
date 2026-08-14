@@ -376,7 +376,7 @@ test("a configured deadline closes the public call and locks the proposals behin
         answers: { title: "Late guest", abstract: "x", email: "guest@example.test" },
       },
     });
-    // 404 rather than the owned routes' 409: this endpoint documented `CFP_UNAVAILABLE` before
+    // 404 rather than the owned routes' 409: this endpoint answered `NOT_FOUND` before
     // the window existed, and changing a status code is breaking under `api-compatibility.md`.
     expect(guest.status()).toBe(404);
 

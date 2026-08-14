@@ -435,7 +435,8 @@ export class CfpService {
      * `openForm` refuses a closed call with `CfpClosedError`, which the transport answers `409` —
      * and 409 is the better answer, which is why the account-bound routes added by this issue use
      * it. But this endpoint is **not** new: `POST /api/public/events/{eventId}/submissions`
-     * answered `404 CFP_UNAVAILABLE` for a closed call before, its OpenAPI fragment says so, and
+     * answered `404 NOT_FOUND` for a closed call before — its OpenAPI fragment declares 404 and
+     * not 409 — and
      * `api-compatibility.md` classes "repurposing a status or error code" as a breaking change
      * that first ships additively and waits 180 days. Silently improving it would break exactly
      * the client that read the document.
@@ -444,8 +445,11 @@ export class CfpService {
      * decision and its deprecation window, recorded rather than taken here.
      */
     const form = await this.openForm(eventId).catch((error: unknown) => {
-      if (error instanceof CfpClosedError)
-        throw new CfpUnavailableError("This call for proposals is closed.");
+      // The *code* is what compatibility pins, so the sentence travels rather than being replaced:
+      // `openForm` distinguishes "not open yet" from "you have missed it", and collapsing them
+      // here would tell a guest who arrived early that the call had closed — which this domain
+      // says elsewhere is the one thing never to do.
+      if (error instanceof CfpClosedError) throw new CfpUnavailableError(error.message);
       throw error;
     });
     const fieldErrors = validateAnswers(form.fields, answers);

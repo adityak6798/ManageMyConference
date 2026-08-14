@@ -536,7 +536,7 @@ describe("the submitter's proposal routes", () => {
      * And the anonymous door is shut by the schedule as well — with its own **404**, not the 409
      * the account-bound routes give.
      *
-     * The schedule is new; this endpoint is not. It documented `404 CFP_UNAVAILABLE` for a closed
+     * The schedule is new; this endpoint is not. It answered `404 NOT_FOUND` for a closed
      * call, and `api-compatibility.md` makes repurposing a status code a breaking change that
      * ships additively and waits 180 days. So the *reason* a call is shut has grown a new member
      * and the *answer* has not, which is the compatible half of that pair. The status is asserted
