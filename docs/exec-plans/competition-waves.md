@@ -1447,8 +1447,16 @@ the controls are live again while it is in flight and a *second* action can over
 then submit, then the save's older list lands and repaints the row as a draft with a Continue
 button, beside a notice saying the proposal was submitted. A generation counter now drops stale
 answers. And the line the whole round was about had no unit coverage at all; deleting it left 351
-tests green. That is the fourth consecutive round in which this one line has been wrong, which is
-its own argument for the test that now covers it.
+tests green. That is the fourth consecutive round in which this one line has been wrong.
+
+**And a thirteenth pass caught the sentence above being false when it was first written.** The
+round claimed the refresh line "now has a test"; it did not. Mutation showed four of that commit's
+behaviours shipping uncovered — the refresh call, the generation counter, the `refreshes` option,
+and the hidden-field half of the prune — each of which could be deleted with all 353 web tests
+still green. Only the browser gate would have noticed, which is the slowest signal there is. All
+four are covered now, each verified by reverting it and watching a named test fail. The lesson is
+narrower than "write tests": a claim *about coverage* is exactly as checkable as the code, and this
+one went into a commit message and a plan document without being run.
 
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through

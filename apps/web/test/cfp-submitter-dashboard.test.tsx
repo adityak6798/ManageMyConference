@@ -73,6 +73,8 @@ function mount(
   options: {
     proposals?: readonly Record<string, unknown>[];
     status?: "open" | "closed";
+    /** Replaces the published form's questions, for the conditional-visibility cases. */
+    liveFields?: readonly Record<string, unknown>[];
     write?: (url: string, init: RequestInit) => Promise<Response> | undefined;
   } = {},
 ) {
@@ -102,7 +104,13 @@ function mount(
   render(
     <PublicCfpView
       eventId={eventId}
-      liveCfp={{ ...liveCfp, effectiveStatus: status } as never}
+      liveCfp={
+        {
+          ...liveCfp,
+          ...(options.liveFields ? { fields: options.liveFields } : {}),
+          effectiveStatus: status,
+        } as never
+      }
       unavailable={null}
       status={status}
       statusLine={status === "open" ? "Open for submissions." : "Submissions closed."}
@@ -254,6 +262,140 @@ describe("the signed-in applicant's proposals", () => {
     // The retired answer is not sent, so the write the server would have refused is never made.
     expect(test.calls.find(({ method }) => method === "PUT")?.body).toEqual({
       answers: { title: "Kept" },
+      expectedRevision: 1,
+    });
+  });
+
+  it("reloads the dashboard after an action, and lets the newest answer win", async () => {
+    /*
+     * The refresh line, and the generation counter that guards it.
+     *
+     * Both shipped uncovered — deleting either left the whole web suite green, which is how this
+     * one line came to be wrong in four consecutive rounds. Only the browser gate noticed, and
+     * that is the slowest signal there is.
+     *
+     * The interleave is the one the counter exists for: a save's list read is held open, a submit
+     * completes and its list lands first, and only then does the save's older list arrive. Without
+     * the counter that older answer wins and repaints a submitted proposal as a draft — beside a
+     * notice saying it was submitted, offering a Continue whose Submit can only 409.
+     */
+    let releaseFirstList: (() => void) | undefined;
+    let lists = 0;
+    const submitted = proposal({ lifecycle: "submitted", state: "under_consideration" });
+    const test = mount({
+      proposals: [proposal()],
+      write: (url, init) => {
+        if (url.endsWith("/submit")) return jsonResponse({ proposal: submitted });
+        if (init.method === "PUT") return jsonResponse({ proposal: proposal({ revision: 2 }) });
+        return undefined;
+      },
+    });
+    const original = globalThis.fetch as typeof fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === proposalsPath && !init?.method) {
+        lists += 1;
+        // 1 is the mount read. 2 is the save's — held open until the submit's has landed, and it
+        // answers with the *draft*, which is what it would genuinely have seen.
+        if (lists === 1)
+          return Promise.resolve(new Response(JSON.stringify({ proposals: [proposal()] })));
+        if (lists === 2)
+          return new Promise((resolve) => {
+            releaseFirstList = () =>
+              resolve(new Response(JSON.stringify({ proposals: [proposal()] })));
+          });
+        return Promise.resolve(new Response(JSON.stringify({ proposals: [submitted] })));
+      }
+      return original(input, init);
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+
+    // The submit's list lands and the row reads as submitted…
+    expect(await screen.findByText("Under consideration")).toBeVisible();
+    // …and the save's older list, arriving afterwards, does not put it back.
+    releaseFirstList?.();
+    await waitFor(() => expect(lists).toBeGreaterThanOrEqual(3));
+    expect(screen.getByText("Under consideration")).toBeVisible();
+    expect(screen.queryByText("Draft")).toBeNull();
+  });
+
+  it("does not read the proposals list on the two actions that end the session", async () => {
+    /*
+     * `refreshes: false`, which also shipped uncovered.
+     *
+     * Signing out destroys the cookie and reloads the page; the read that followed could only
+     * answer 401 and be thrown away. It existed because the guard asked "is somebody signed in"
+     * rather than "does this action leave a list worth reading".
+     */
+    const test = mount({
+      proposals: [proposal()],
+      write: (url) => (url === "/api/auth/signout" ? jsonResponse({ ok: true }) : undefined),
+    });
+    await screen.findByRole("heading", { name: /Your proposals/ });
+
+    // Counted directly rather than through `calls`, which records only requests carrying a
+    // method — a list read is a GET, so the very request under test would not have appeared.
+    let listsAfterSignOut = 0;
+    let signedOut = false;
+    const original = globalThis.fetch as typeof fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/signout") signedOut = true;
+      if (signedOut && String(input) === proposalsPath && !init?.method) listsAfterSignOut += 1;
+      return original(input, init);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
+
+    await waitFor(() =>
+      expect(test.calls.some(({ url }) => url === "/api/auth/signout")).toBe(true),
+    );
+    expect(listsAfterSignOut).toBe(0);
+  });
+
+  it("drops an answer whose question is now hidden, not only one that was removed", async () => {
+    /*
+     * The second half of the prune, which also shipped uncovered: deleting the hidden-field loop
+     * left every test green.
+     *
+     * A conditional question the applicant answered can become hidden without being removed —
+     * the organizer changes what reveals it, or an earlier answer changes. The server refuses an
+     * answer to a hidden field exactly as it refuses an unknown one, so both halves have to run.
+     */
+    const test = mount({
+      liveFields: [
+        {
+          id: "title",
+          type: "short_text" as const,
+          label: "Proposal title",
+          guidance: "",
+          required: true,
+          options: [],
+        },
+        {
+          id: "detail",
+          type: "long_text" as const,
+          label: "Tell us more",
+          guidance: "",
+          required: false,
+          options: [],
+          visibleWhen: { fieldId: "title", operator: "equals" as const, values: ["Workshop"] },
+        },
+      ],
+      proposals: [proposal({ answers: { title: "Talk", detail: "Written while it was shown" } })],
+      write: (url, init) =>
+        init.method === "PUT" ? jsonResponse({ proposal: proposal({ revision: 2 }) }) : undefined,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));
+    // `detail` still *exists* on the form, so the unknown-key half would keep it. Its condition no
+    // longer matches, which is what the second loop is for.
+    expect(test.calls.find(({ method }) => method === "PUT")?.body).toEqual({
+      answers: { title: "Talk" },
       expectedRevision: 1,
     });
   });

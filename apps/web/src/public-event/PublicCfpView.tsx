@@ -108,6 +108,11 @@ export function PublicCfpView({
    * notice saying the proposal was submitted, and offering a Submit whose only outcome is a 409.
    * Making the refresh non-blocking is what introduced that; the earlier awaited version could
    * not overlap. This keeps the non-blocking behaviour and drops stale answers instead.
+   *
+   * It closes one thing only: an older *response* overwriting a newer one. It does not make the
+   * list fresh — between the controls being re-enabled and the read landing, what is on screen is
+   * a refresh behind, and clicking it binds a stale revision. `openForEditing` handles that
+   * separately by preferring the copy the last write returned.
    */
   const refreshGeneration = useRef(0);
   const refreshProposals = useCallback(async () => {
@@ -303,6 +308,18 @@ export function PublicCfpView({
    *
    * This is the same pruning the change handler already does on every keystroke; it just was not
    * done on the way in.
+   *
+   * **One pass is enough only because a condition may not reference a later question**
+   * (`PRD-CFP-001`, enforced by `saveCfpInputSchema`). With forward references legal, deleting a
+   * hidden field could hide a field examined earlier in the loop and the set would need
+   * re-running to a fixed point. A fuzz over 4,000 schema-valid forms found no case where one
+   * pass leaves an answer the server would refuse; reversing the field order in a hand-built form
+   * does, which is what makes the dependency real rather than incidental.
+   *
+   * It also covers **two** of `validateAnswers`' refusals — unknown key and hidden field — and
+   * deliberately not the other three. Length, email format and select-option all land on a
+   * *visible* field, where the error renders next to the question and the applicant can fix it.
+   * Pruning those would delete their work to avoid showing them a message they can act on.
    */
   const answersTheFormStillAccepts = (stored: Readonly<Record<string, string>>) => {
     const fields = liveCfp?.fields ?? [];
@@ -315,14 +332,29 @@ export function PublicCfpView({
   };
 
   const openForEditing = (proposal: SubmitterProposalDto) => {
-    setEditing(proposal);
-    setAnswers(answersTheFormStillAccepts(proposal.answers));
+    /*
+     * Rebind from the copy in hand when it is the same proposal.
+     *
+     * The list can be a refresh behind — the controls come back before the trailing read lands —
+     * so `Continue` on the row you have just saved could hand back the revision *before* that
+     * save, and the next save is then refused as a conflict with the applicant's own edit.
+     * `editing` holds what the write returned, which is never staler than the list.
+     */
+    const current = editing?.id === proposal.id ? editing : proposal;
+    const kept = answersTheFormStillAccepts(current.answers);
+    const dropped = Object.keys(current.answers).length - Object.keys(kept).length;
+    setEditing(current);
+    setAnswers(kept);
     setFieldErrors({});
     // Announced rather than only rendered: the form below has just changed underneath somebody who
-    // pressed a button in the list above it, and that is not visible to a screen reader.
+    // pressed a button in the list above it, and that is not visible to a screen reader. And when
+    // the form has moved on beneath the proposal, that is said rather than left to be noticed —
+    // saving is what makes the loss permanent, so it is not something to discover afterwards.
     setNotice({
       tone: "ok",
-      text: `Editing ${proposal.title ?? "your proposal"}. Change what you need, then save or submit it.`,
+      text: dropped
+        ? `Editing ${current.title ?? "your proposal"}. The form has changed since you wrote it, so ${dropped === 1 ? "one answer no longer has a question" : `${dropped} answers no longer have questions`} and saving will drop ${dropped === 1 ? "it" : "them"}.`
+        : `Editing ${current.title ?? "your proposal"}. Change what you need, then save or submit it.`,
     });
   };
   const startFresh = () => {
