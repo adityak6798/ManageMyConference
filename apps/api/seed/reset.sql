@@ -76,11 +76,15 @@ DELETE FROM review_evaluations;
 DELETE FROM review_suggestions;
 DELETE FROM review_conflicts;
 DELETE FROM review_assignments;
--- After the assignments and before the rounds, and both halves of that matter. A membership row
--- whose reviewer still holds an assignment in that round is refused by
--- `review_round_member_holds_assignments` (`1312`), and a round with membership rows still
--- pointing at it is refused by their foreign key. Wrong on either side and a reset fails with a
--- bare constraint error naming no table, which is how the ordering above this line was found.
+-- Before the rounds, because `review_round_members` carries a composite foreign key to
+-- `review_rounds(event_id, sequence)` and a round with membership rows still pointing at it
+-- cannot be dropped. That is the whole reason, and it is worth saying that it is: an earlier
+-- version of this comment also claimed the *assignments* had to go first, refused by a trigger
+-- named `review_round_member_holds_assignments`. No such trigger exists — `1312` says in as many
+-- words that it deliberately installs none on this table, because the pool-removal rule is a
+-- predicate inside `setRoundMembers` and raw seed SQL does not go through it. A comment that
+-- names a guard nobody wrote is worse than no comment: the next person edits around a rule that
+-- is not there.
 DELETE FROM review_round_members;
 DELETE FROM review_rounds;
 DELETE FROM review_plans;
@@ -447,12 +451,16 @@ INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
  * round 1 is absent from round 2 until somebody adds them. Ravi's queue is round 1's, which is
  * what keeps the seeded reviewer journey exactly as it was.
  *
- * Both are date-bounded and both windows are live, so the dates are real without the demo being
- * a museum of a closed conference.
+ * Each carries a real `opens_at` and **no** `closes_at`, and the missing half is deliberate. The
+ * product honours the wall clock, so a fixed future close date is a timebomb on a deterministic
+ * fixture: past it, Ravi's seeded evaluation is refused, the browser journey that drives it fails,
+ * and `gate:browser` goes red on a date rather than on a change. Window *enforcement* is proved
+ * where a clock-dependent rule belongs — `review-rounds.test.ts` drives an unopened and a closed
+ * window against an injected clock — and the console still edits both bounds.
  */
 INSERT INTO review_rounds (event_id, sequence, name, opens_at, closes_at, state, anonymized, criteria_json, pool_mode, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000001', 1, 'First pass', '2026-08-09T00:00:00.000Z', '2027-01-31T00:00:00.000Z', 'open', 1, NULL, 'named', '2026-08-09T11:00:00.000Z', '2026-08-09T11:00:00.000Z'),
-  ('00000000-0000-4000-8000-000000000001', 2, 'Programme committee', '2026-08-12T00:00:00.000Z', '2027-02-28T00:00:00.000Z', 'open', 0, '[{"id":"programme_fit","name":"Programme fit","description":"Balance across the final programme","type":"numeric","minScore":1,"maxScore":5,"weight":3},{"id":"delivery","name":"Delivery confidence","description":"Confidence this speaker can deliver it","type":"numeric","minScore":1,"maxScore":5,"weight":1},{"id":"committee_note","name":"Committee note","description":"One sentence for the record","type":"text","maxLength":500,"weight":1}]', 'named', '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z');
+  ('00000000-0000-4000-8000-000000000001', 1, 'First pass', '2026-08-09T00:00:00.000Z', NULL, 'open', 1, NULL, 'named', '2026-08-09T11:00:00.000Z', '2026-08-09T11:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', 2, 'Programme committee', '2026-08-12T00:00:00.000Z', NULL, 'open', 0, '[{"id":"programme_fit","name":"Programme fit","description":"Balance across the final programme","type":"numeric","minScore":1,"maxScore":5,"weight":3},{"id":"delivery","name":"Delivery confidence","description":"Confidence this speaker can deliver it","type":"numeric","minScore":1,"maxScore":5,"weight":1},{"id":"committee_note","name":"Committee note","description":"One sentence for the record","type":"text","maxLength":500,"weight":1}]', 'named', '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z');
 
 INSERT INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) VALUES
   ('00000000-0000-4000-8000-000000000001', 1, 'seed-reviewer', '2026-08-09T11:00:00.000Z'),

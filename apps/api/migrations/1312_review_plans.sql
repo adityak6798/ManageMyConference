@@ -31,8 +31,15 @@
 -- values it gets are the truth about how that round actually behaved, not a guess:
 --
 --   * `name` is `Round N`, which is what every surface called it.
---   * `state` is `closed` for every round below the event's highest and `open` for the highest,
---     because that is what advancing a round meant: earlier rounds stopped taking work.
+--   * `state` is `open`, for every round including the ones below the event's highest.
+--
+--     The tempting alternative is `closed` for earlier rounds, on the reasoning that advancing is
+--     what ends a round. It is not: `advanceRound` never required round *N* to be finished, so a
+--     deployment can hold outstanding round-1 assignments beside round-2 work, and closing those
+--     rounds here would meet those reviewers with "this round is closed" on a save that worked
+--     the day before — taking a capability away from the one person who cannot give it back. An
+--     organizer closes a round when a round is over, which is a decision rather than a migration's
+--     inference. This is the same rule as `pool_mode` below and for the same reason.
 --   * `anonymized` is 1, because the reviewer projection has masked the submitter unconditionally
 --     since the queue existed. Recording it as 0 would be a claim about past reviews that is false.
 --   * `criteria_json` is NULL, meaning "this round scores against the event plan". Snapshotting
@@ -110,13 +117,7 @@ SELECT
   'Round ' || observed.sequence,
   NULL,
   NULL,
-  CASE WHEN observed.sequence = (
-    SELECT MAX(peer.sequence) FROM (
-      SELECT event_id, round AS sequence FROM review_assignments
-      UNION SELECT event_id, round FROM review_outcomes
-      UNION SELECT event_id, round FROM review_suggestions
-    ) peer WHERE peer.event_id = observed.event_id
-  ) THEN 'open' ELSE 'closed' END,
+  'open',
   1,
   NULL,
   'event',
@@ -206,9 +207,16 @@ BEGIN SELECT RAISE(ABORT, 'REVIEW_ROUND_CLOSED'); END;
 -- table's triggers when it drops the table, so a create/copy/drop/rename rebuild silently leaves
 -- an assignments table with no round guard, no open-round guard and no pool guard — the rules
 -- still hold in the service, and stop holding in the schema, which is the half that was the point.
--- `1301` restates the four triggers `1300` had for exactly this reason; a future rebuild has to
--- restate seven. `d1-review-repository.integration.test.ts` asserts the full set by name after a
--- replay, so this fails loudly rather than quietly.
+-- `1301` restates the five triggers that existed when it was written, for exactly this reason; a
+-- rebuild today has to restate **ten**, and `apps/api/migrations/README.md` lists them by name and
+-- by the migration that added each. The two most easily missed are `1310`'s AI-provenance guards,
+-- which sit on `review_evaluations` — a *child* of the table being rebuilt — rather than on the
+-- parent.
+--
+-- What catches a forgotten one is `tools/check-schema-drift.mjs`, which fails when an entry in
+-- `UNMODELLED_OBJECTS` names a trigger no migration creates. Not the D1 replay: that re-runs
+-- `1301`, so it can only ever describe the world `1301` was written in, and it asserts the five it
+-- restates plus the three from here as deliberately *absent* afterwards.
 --
 -- **There is deliberately no trigger on `review_round_members`.** "A reviewer who already holds
 -- work in this round cannot be removed from its pool" is a real rule and it is enforced — but as

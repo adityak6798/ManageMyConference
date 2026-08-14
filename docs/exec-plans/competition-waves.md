@@ -1654,10 +1654,14 @@ rather than a UUID. Renumbering is not something organizers ask for — rounds a
 
 **Two things are recorded for whoever rebuilds `review_assignments` next**, because both are traps
 this lane walked into. SQLite drops a table's triggers with the table, so a rebuild now has to
-restate **seven** rather than the four `1301` restates; forgetting the three `1312` adds leaves the
-round, open-round and pool rules holding in the service and no longer holding in the schema, which
-is the half that was the point. It is asserted by name after a replay in
-`d1-review-repository.integration.test.ts`, and stated in `apps/api/migrations/README.md`. And
+restate **ten** — `1301` restates the five that existed when it was written, `1310` added two more
+on `review_evaluations`, and `1312` adds three — and forgetting any of them leaves its rule holding
+in the service and no longer holding in the schema, which is the half that was the point. The list
+lives in `apps/api/migrations/README.md`, by name and by the migration that added each, alongside
+the count of children that is **three** rather than the four an earlier draft of that section
+claimed. What actually catches a forgotten trigger is `tools/check-schema-drift.mjs`, which fails
+on an `UNMODELLED_OBJECTS` entry no migration creates; the D1 replay re-runs `1301` and so can only
+ever describe the world `1301` was written in. And
 `1312` deliberately has **no** trigger on `review_round_members`: the rule "a reviewer holding work
 in this round cannot be removed from its pool" is real and enforced, but as a `NOT EXISTS`
 predicate on the DELETE itself, because a `BEFORE DELETE` whose body reads `review_assignments` is
@@ -1714,8 +1718,19 @@ configuration only; **per-plan session filters** over configured fields with an 
 recomputation on source change; a **maximum evaluation count per proposal** and the concurrency
 around it; **field- and file-level visibility policy** beyond the author masking that ships;
 **automated weekly** reminders, which need their own occurrence key and a scheduled tick — the
-manual nudge ships and `GAP-010` names the recurring one as absent; and **XLSX** export beside the
-CSV. Structured co-author input remains what it was: parsed out of a `coauthors` answer, because
+manual nudge ships and `GAP-010` names the recurring one as absent; **plan instructions**, which
+the private set asks for and `ReviewRound` has no field for; and a **complete proposal history**
+linking revisions, round membership, assignments, conflicts, evaluations, AI drafts, decisions,
+notifications and content conversion.
+
+**Two things left undone are from the *public* rubric, not the private set, and saying otherwise
+would understate what remains.** **XLSX** export beside the CSV is in #191's public scope and its
+public acceptance criteria; only the CSV ships, and its completion is observable and its contents
+are read in the browser. **Track-filtered** bulk selection is in the same public criterion, and is
+absent for a different reason: the product has no track concept in any migration or contract, so
+there is nothing to filter by — the filter is a CFP field question before it is a review one.
+
+Structured co-author input remains what it was: parsed out of a `coauthors` answer, because
 first-class co-author capture belongs to the CFP lifecycle epic. Each of those is listed in the
 pull request so the next lane inherits the list rather than re-deriving it.
 

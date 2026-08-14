@@ -67,8 +67,16 @@ async function preMigrationHistory() {
    */
   const sql = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
   for (const statement of statements(sql)) {
-    if (/review_rounds|review_round_members/.test(statement)) continue;
-    await database.prepare(statement).run();
+    // `statements` strips both comment forms, so this matches SQL rather than the prose beside it
+    // — the seed's own comments name both tables while explaining the cleanup ordering.
+    if (/\breview_rounds\b|\breview_round_members\b/.test(statement)) continue;
+    try {
+      await database.prepare(statement).run();
+    } catch (error) {
+      // A seed load that fails here reports a bare `FOREIGN KEY constraint failed` naming no
+      // table, which is a long way from the statement that caused it.
+      throw new Error(`seed statement failed: ${statement.slice(0, 200)}`, { cause: error });
+    }
   }
 
   /*
@@ -212,7 +220,7 @@ describe("first-class rounds over existing numbered history", () => {
       {
         sequence: 1,
         name: "Round 1",
-        state: "closed",
+        state: "open",
         anonymized: 1,
         criteria_json: null,
         pool_mode: "event",
@@ -222,7 +230,7 @@ describe("first-class rounds over existing numbered history", () => {
       {
         sequence: 2,
         name: "Round 2",
-        state: "closed",
+        state: "open",
         anonymized: 1,
         criteria_json: null,
         pool_mode: "event",
@@ -300,8 +308,18 @@ describe("first-class rounds over existing numbered history", () => {
     ).results?.[0];
     expect(landed?.total).toBe(1);
 
-    // And the guards do refuse what they are for: round 1 is closed by the backfill, so it takes
-    // no new work — which is the "preserve immutable completed-round history" property.
+    /*
+     * And the guards do refuse what they are for — but only once an organizer has actually closed
+     * a round, which the backfill deliberately does not do for them.
+     *
+     * That is the "preserve immutable completed-round history" property, and it is worth being
+     * precise about when it starts applying: closing is a decision, so `1312` leaves every
+     * backfilled round `open` and this test closes one by hand before expecting the refusal.
+     */
+    await database
+      .prepare("UPDATE review_rounds SET state = 'closed' WHERE event_id = ? AND sequence = 1")
+      .bind(EVENT)
+      .run();
     await expect(
       database
         .prepare(

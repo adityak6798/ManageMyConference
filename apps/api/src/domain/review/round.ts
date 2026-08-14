@@ -51,11 +51,18 @@ export type ReviewRound = {
   /**
    * Whether reviewers in this round see the author.
    *
-   * A correctness property rather than a display preference: the reviewer projection, the export
-   * and the audit timeline all read it. The AI suggestion port does **not** — its input is
-   * identity-free in every round, blind or open, because "the provider never receives an author"
-   * is a stronger promise than "the provider receives what this round's reviewers receive" and
-   * there is no reason to weaken it.
+   * A correctness property rather than a display preference: it decides which projection
+   * `reviewerQueue` builds, so a blind round and an open one send genuinely different bytes for
+   * the same abstract. It is the *only* consumer, and saying so is the point — the export and the
+   * audit timeline do not read it and do not need to, because both are `review:manage` surfaces
+   * where the author is visible in every round. An earlier version of this sentence claimed all
+   * three read it, which a later reader could take as a guarantee that the export is
+   * anonymization-aware. It is not, and it does not have to be.
+   *
+   * The AI suggestion port deliberately ignores it too: its input is identity-free in every round,
+   * blind or open, because "the provider never receives an author" is a stronger promise than
+   * "the provider receives what this round's reviewers receive" and there is no reason to weaken
+   * it.
    */
   readonly anonymized: boolean;
   /**

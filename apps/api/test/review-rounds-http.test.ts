@@ -158,21 +158,6 @@ describe("review round HTTP API", () => {
       ((await listed.json()) as { rounds: { name: string }[] }).rounds.map((r) => r.name),
     ).toEqual(["Round 1", "Programme committee"]);
 
-    const edited = await app.request(`/api/events/${eventId}/review/round-plans/2`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({
-        name: "Programme committee",
-        anonymized: true,
-        poolMode: "named",
-        state: "closed",
-      }),
-    });
-    expect(edited.status).toBe(200);
-    expect((await edited.json()) as { round: { state: string } }).toMatchObject({
-      round: { state: "closed", anonymized: true },
-    });
-
     const pooled = await app.request(`/api/events/${eventId}/review/round-plans/2/pool`, {
       method: "PUT",
       headers,
@@ -182,6 +167,149 @@ describe("review round HTTP API", () => {
     expect(
       ((await pooled.json()) as { round: { reviewerIds: string[] } }).round.reviewerIds,
     ).toEqual([NINA, RAVI]);
+
+    const edited = await app.request(`/api/events/${eventId}/review/round-plans/2`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        name: "Programme committee",
+        anonymized: false,
+        poolMode: "named",
+        state: "closed",
+      }),
+    });
+    expect(edited.status).toBe(200);
+    expect((await edited.json()) as { round: { state: string } }).toMatchObject({
+      round: { state: "closed", anonymized: false },
+    });
+
+    /*
+     * A closed round's pool is part of the record rather than a setting.
+     *
+     * `review_round_closed_terms_locked` watches columns on `review_rounds`, and membership is a
+     * different table — so until this rule existed an organizer could add somebody to the list of
+     * who reviewed a round six weeks after it finished, while the specification claimed a closed
+     * round's pool was frozen. What was frozen was `pool_mode`.
+     */
+    const late = await app.request(`/api/events/${eventId}/review/round-plans/2/pool`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ reviewerIds: [NINA] }),
+    });
+    expect(late.status).toBe(400);
+    expect(await late.text()).toContain("closed");
+  });
+
+  it("locks a round's scorecard and blind-review policy once it holds assignments", async () => {
+    const { app } = build();
+    const headers = await cookie("organizer");
+    await app.request(`/api/events/${eventId}/review/plan`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(plan),
+    });
+    const terms = { name: "Round 1", poolMode: "event" as const, state: "open" as const };
+    // Editable while the round holds nothing.
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/review/round-plans/1`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ ...terms, anonymized: false }),
+        })
+      ).status,
+    ).toBe(200);
+    await app.request(`/api/events/${eventId}/review/assignments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ proposalIds: [proposalId], reviewerId: RAVI }),
+    });
+
+    /*
+     * And locked once it does — the round-scoped twin of `review_plan_lock`.
+     *
+     * Editing an open round's rubric used to answer 200, and the next completion would recompute
+     * `review_outcomes` over *every* completed evaluation of that round under the new criteria:
+     * an aggregate an organizer had already read, silently restated, with a completion count that
+     * under-reports because an evaluation whose criterion ids the rubric no longer contains
+     * contributes nothing to the join.
+     */
+    const rubric = await app.request(`/api/events/${eventId}/review/round-plans/1`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        ...terms,
+        anonymized: false,
+        criteria: [{ id: "novelty", name: "Novelty", description: "", minScore: 1, maxScore: 5 }],
+      }),
+    });
+    expect(rubric.status).toBe(400);
+    expect(await rubric.text()).toContain("locked");
+
+    // The blind-review policy is on the same lock: reviewers have already been shown these
+    // abstracts under the current one, and reopen-then-flip is the two-step that defeats the
+    // closed-round trigger.
+    const blind = await app.request(`/api/events/${eventId}/review/round-plans/1`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ ...terms, anonymized: true }),
+    });
+    expect(blind.status).toBe(400);
+    expect(await blind.text()).toContain("locked");
+
+    // Everything else about the round still moves: the lock is on the terms evaluations were
+    // recorded under, not on the round.
+    expect(
+      (
+        await app.request(`/api/events/${eventId}/review/round-plans/1`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ ...terms, name: "First pass", anonymized: false }),
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("keeps the round's reviewer pool off the reviewer's queue", async () => {
+    const { app } = build();
+    const organizer = await cookie("organizer");
+    const reviewer = await cookie("reviewer");
+    await app.request(`/api/events/${eventId}/review/plan`, {
+      method: "PUT",
+      headers: organizer,
+      body: JSON.stringify(plan),
+    });
+    await app.request(`/api/events/${eventId}/review/round-plans/1/pool`, {
+      method: "PUT",
+      headers: organizer,
+      body: JSON.stringify({ reviewerIds: [RAVI, NINA] }),
+    });
+    await app.request(`/api/events/${eventId}/review/assignments`, {
+      method: "POST",
+      headers: organizer,
+      body: JSON.stringify({ proposalIds: [proposalId], reviewerId: RAVI }),
+    });
+
+    /*
+     * Who else is scoring these abstracts is staffing information, and in a blind round it is the
+     * one question a double-blind committee exists to keep closed. `listRounds` joins the pool in
+     * and its own docstring calls it organizer-only; returning the whole round on the queue handed
+     * every reviewer the user ids of everybody else in it.
+     *
+     * Asserted over the serialized response rather than over a field, because the failure this
+     * guards against is an id travelling in a shape nobody looked for.
+     */
+    const queue = await (
+      await app.request(`/api/events/${eventId}/review/assignments`, { headers: reviewer })
+    ).text();
+    expect(queue).toContain("Round 1");
+    expect(queue).not.toContain(NINA);
+    expect(queue).not.toContain("reviewerIds");
+    // The organizer's own view of the round still carries it.
+    const rounds = await (
+      await app.request(`/api/events/${eventId}/review/round-plans`, { headers: organizer })
+    ).text();
+    expect(rounds).toContain(NINA);
   });
 
   it("refuses every round route to a reviewer and to an anonymous caller", async () => {

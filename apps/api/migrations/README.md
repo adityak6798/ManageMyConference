@@ -44,18 +44,37 @@ reason `1705` is.
 ## Rebuilding a review table
 
 `review_assignments` is the parent with the longest child chain in this schema, and each migration
-that has touched it left the next one more to do. As of `1312` a rebuild has to copy and drop
-**four** children in order — `review_conflicts`, `review_evaluations` and `review_suggestions`,
-with evaluations citing suggestions in turn — and then restate **seven** triggers, not the four
-`1301` restates: `review_assignment_cap`, `review_assignment_requires_plan`,
-`review_completion_rejects_conflict`, `review_conflict_rejects_completion`, `review_plan_lock`,
-plus `1312`'s `review_assignment_requires_round`, `review_assignment_requires_open_round` and
-`review_assignment_requires_pool_membership`.
+that has touched it left the next one more to do. Counted against the migrations rather than from
+memory — `grep "REFERENCES review_assignments" apps/api/migrations/` and
+`grep "^CREATE TRIGGER"` are what these numbers are:
 
-SQLite drops a table's triggers with the table, so forgetting the last three leaves the round,
-open-round and pool rules holding in the service and no longer holding in the schema — the half
-that was the point. `apps/api/test/d1-review-repository.integration.test.ts` asserts the full set
-by name after replaying `1301`, so this fails loudly rather than quietly.
+**Three children**, copied and dropped in order: `review_conflicts` and `review_evaluations`
+(`0006`), and `review_suggestions` (`1310`) — with `review_evaluations.suggestion_id` citing
+suggestions in turn, so the two are a pair rather than two independent copies.
+
+**Ten triggers to restate**, where `1301` restates five:
+
+| Trigger | Added by | On |
+|---|---|---|
+| `review_completion_rejects_conflict` | `0007` | `review_evaluations` |
+| `review_conflict_rejects_completion` | `0008` | `review_conflicts` |
+| `review_assignment_requires_plan` | `0009` | `review_assignments` |
+| `review_plan_lock` | `0010` | `review_plans` |
+| `review_assignment_cap` | `1300` | `review_assignments` |
+| `review_evaluation_source_insert` | `1310` | `review_evaluations` |
+| `review_evaluation_source_update` | `1310` | `review_evaluations` |
+| `review_assignment_requires_round` | `1312` | `review_assignments` |
+| `review_assignment_requires_open_round` | `1312` | `review_assignments` |
+| `review_assignment_requires_pool_membership` | `1312` | `review_assignments` |
+
+SQLite drops a table's triggers with the table, so forgetting any of them leaves its rule holding
+in the service and no longer holding in the schema — the half that was the point. The two
+`review_evaluation_source_*` guards are the pair most easily missed: they are the AI-provenance
+rules, they sit on a *child* rather than on the parent being rebuilt, and `1301` predates them.
+
+**What actually catches a forgotten one** is `tools/check-schema-drift.mjs`, which fails when an
+entry in `UNMODELLED_OBJECTS` names a trigger no migration creates. That is the net; it is not the
+D1 replay, which re-runs `1301` and therefore only ever describes the world `1301` was written in.
 
 `1312` itself deliberately rebuilds nothing, and its header explains why the surrogate-key shape
 that would have required one was the more dangerous design over a deployed database.

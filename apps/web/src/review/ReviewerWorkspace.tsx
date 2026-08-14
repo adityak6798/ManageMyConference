@@ -102,10 +102,15 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
            * genuinely different bytes for each. So this reads the round rather than inferring
            * blindness from a missing field — a proposal whose submitter is absent because the form
            * collected no address is not a blind review, and the old test conflated the two.
+           *
+           * The open-review branch **names the author**, which is the whole point of the setting.
+           * It previously said "Authors and co-authors are shown" and then showed only the
+           * co-authors: the name was on the wire and rendered nowhere, so an organizer who turned
+           * blind review off got the exposure without the benefit.
            */
           hint={
             active.round && !active.round.anonymized
-              ? `${active.round.name} — open review. Authors and co-authors are shown.`
+              ? `${active.round.name} — open review. Submitted by ${active.proposal.submitterName}.`
               : `${active.round?.name ? `${active.round.name} — ` : ""}Blind review — the submitter's name and contact details are hidden from reviewers.`
           }
           actions={<Pill tone={queueState(active).tone}>{queueState(active).label}</Pill>}

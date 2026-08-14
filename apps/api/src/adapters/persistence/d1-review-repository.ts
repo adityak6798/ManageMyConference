@@ -332,26 +332,55 @@ export class D1ReviewRepository implements ReviewRepository {
         throw new ReviewStateConflictError("A round with that number or name already exists");
       throw error;
     }
-    for (const result of results) this.ensure(result, "create review round");
+    for (const result of results) {
+      // Both shapes. D1 reports a constraint failure by throwing *or* by answering `success:
+      // false` with the message on the result, depending on the driver path — `saveConflict`
+      // below has handled both since it was written, and handling only the throw here turned
+      // `ensureDefaultRound`'s benign first-touch race into a 500 instead of the loser reading
+      // the winner's round.
+      if (!result.success && /UNIQUE|PRIMARY KEY/.test(result.error ?? ""))
+        throw new ReviewStateConflictError("A round with that number or name already exists");
+      this.ensure(result, "create review round");
+    }
   }
+  /**
+   * Change a round's terms.
+   *
+   * **The scorecard and the anonymization policy are guarded by the statement itself**, not by the
+   * service's prior read. The service checks first and says which rule it is, because a refusal an
+   * organizer cannot act on is not worth much; this is the guard for an assignment created between
+   * that read and this write, and for anything that did not come through the service.
+   *
+   * The predicate permits the write when the two locked columns are *unchanged* — `IS` rather than
+   * `=` so a NULL rubric compares equal to a NULL rubric — or when the round holds no assignment.
+   * That is exactly `review_plan_lock`'s rule, at the round's scope. A guarded UPDATE rather than a
+   * trigger, for the reason `1312` records: a trigger whose body reads `review_assignments` is
+   * evaluated whenever that table is mid-rebuild.
+   */
   async updateRound(item: Omit<ReviewRound, "reviewerIds" | "createdAt">) {
+    const criteria = item.criteria === null ? null : JSON.stringify(item.criteria);
+    const anonymized = item.anonymized ? 1 : 0;
+    const unlocked =
+      "((criteria_json IS ? AND anonymized IS ?) OR NOT EXISTS (SELECT 1 FROM review_assignments WHERE event_id = review_rounds.event_id AND round = review_rounds.sequence))";
     let result: D1Result<unknown>;
     try {
       result = await this.database
         .prepare(
-          "UPDATE review_rounds SET name = ?, opens_at = ?, closes_at = ?, state = ?, anonymized = ?, criteria_json = ?, pool_mode = ?, updated_at = ? WHERE event_id = ? AND sequence = ?",
+          `UPDATE review_rounds SET name = ?, opens_at = ?, closes_at = ?, state = ?, anonymized = ?, criteria_json = ?, pool_mode = ?, updated_at = ? WHERE event_id = ? AND sequence = ? AND ${unlocked}`,
         )
         .bind(
           item.name,
           item.opensAt,
           item.closesAt,
           item.state,
-          item.anonymized ? 1 : 0,
-          item.criteria === null ? null : JSON.stringify(item.criteria),
+          anonymized,
+          criteria,
           item.poolMode,
           item.updatedAt,
           item.eventId,
           item.sequence,
+          criteria,
+          anonymized,
         )
         .run();
     } catch (error) {
@@ -361,10 +390,22 @@ export class D1ReviewRepository implements ReviewRepository {
         throw new ReviewStateConflictError("Another round of this event already has that name");
       throw error;
     }
+    if (!result.success && result.error?.includes("REVIEW_ROUND_CLOSED"))
+      throw new ReviewStateConflictError("A closed round's terms cannot be changed");
+    if (!result.success && result.error?.includes("UNIQUE"))
+      throw new ReviewStateConflictError("Another round of this event already has that name");
     // A missing count is a failure rather than an assumed 1 (#133): reading it as 1 would report
     // a round whose window never moved as retimed, and the window is what refuses work.
-    if (this.changed(result, "update review round") === 0)
-      throw new ReviewStateConflictError("Review round not found");
+    if (this.changed(result, "update review round") === 0) {
+      // Nothing matched, and the two reasons are different facts with different remedies. A round
+      // that is still there was refused by the lock; one that is not was never there.
+      const round = await this.findRound(item.eventId, item.sequence);
+      throw new ReviewStateConflictError(
+        round
+          ? "This round already has assignments, so its scorecard and blind-review policy are locked"
+          : "Review round not found",
+      );
+    }
   }
   /**
    * Replace a round's pool.
@@ -375,14 +416,19 @@ export class D1ReviewRepository implements ReviewRepository {
    * `added_at` — the record of when they joined the round, which a blanket delete would reset to
    * the moment somebody else was added.
    *
-   * **The rule "a reviewer holding work in this round cannot be removed from its pool" is the
-   * DELETE's own predicate, not a prior read and not a trigger.** Not a prior read, because an
-   * assignment created between the check and the write would slip through. Not a trigger, because
-   * a `BEFORE DELETE` on `review_round_members` whose body reads `review_assignments` is evaluated
-   * whenever that table is mid-rebuild — which would turn a future rebuild of a table this one
-   * does not belong to into a failure naming a third table (`1312` records this). So the row
-   * simply cannot be removed, and the refusal is read back from the row still being there, the
-   * same shape `deleteAssignment` above uses for the same reason.
+   * **Two rules, and both are predicates on every statement in the batch rather than a prior
+   * read.** A reviewer holding work in this round cannot be removed from its pool, and a closed
+   * round's pool cannot change at all. Not a prior read, because an assignment created between the
+   * check and the write would slip through. Not triggers, because a `BEFORE DELETE` on
+   * `review_round_members` whose body reads `review_assignments` is evaluated whenever that table
+   * is mid-rebuild — which would turn a future rebuild of a table this one does not belong to into
+   * a failure naming a third table (`1312` records this).
+   *
+   * **The predicate is on the inserts too, and that is the correction that matters.** It used to
+   * guard only the DELETE, so a request removing somebody who held work *committed the additions*
+   * and then reported failure from a separate read — leaving a pool nobody asked for behind a 400
+   * an organizer reads as "nothing changed". `batch` is a transaction, so conditioning every
+   * statement on the same predicate makes the whole edit land or none of it.
    */
   async setRoundMembers(
     eventId: string,
@@ -392,33 +438,42 @@ export class D1ReviewRepository implements ReviewRepository {
   ) {
     const keeping = [...new Set(reviewerIds)];
     const placeholders = keeping.map(() => "?").join(", ");
-    const unassigned =
-      "NOT EXISTS (SELECT 1 FROM review_assignments WHERE event_id = review_round_members.event_id AND round = review_round_members.round_sequence AND reviewer_id = review_round_members.reviewer_id)";
+    const leaving = keeping.length ? ` AND reviewer_id NOT IN (${placeholders})` : "";
+    // True when this whole edit is permitted: the round is open, and nobody it would remove holds
+    // an assignment in it. Written as one expression so the DELETE and every INSERT share it.
+    const permitted = `NOT EXISTS (SELECT 1 FROM review_rounds WHERE event_id = ? AND sequence = ? AND state = 'closed') AND NOT EXISTS (SELECT 1 FROM review_round_members member JOIN review_assignments assignment ON assignment.event_id = member.event_id AND assignment.round = member.round_sequence AND assignment.reviewer_id = member.reviewer_id WHERE member.event_id = ? AND member.round_sequence = ?${keeping.length ? ` AND member.reviewer_id NOT IN (${placeholders})` : ""})`;
+    const guard = [eventId, sequence, eventId, sequence, ...keeping];
     const results = await this.database.batch([
       this.database
         .prepare(
-          `DELETE FROM review_round_members WHERE event_id = ? AND round_sequence = ?${keeping.length ? ` AND reviewer_id NOT IN (${placeholders})` : ""} AND ${unassigned}`,
+          `DELETE FROM review_round_members WHERE event_id = ? AND round_sequence = ?${leaving} AND ${permitted}`,
         )
-        .bind(eventId, sequence, ...keeping),
+        .bind(eventId, sequence, ...keeping, ...guard),
       ...keeping.map((reviewerId) =>
         this.database
           .prepare(
-            "INSERT OR IGNORE INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) VALUES (?, ?, ?, ?)",
+            `INSERT OR IGNORE INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) SELECT ?, ?, ?, ? WHERE ${permitted}`,
           )
-          .bind(eventId, sequence, reviewerId, addedAt),
+          .bind(eventId, sequence, reviewerId, addedAt, ...guard),
       ),
     ]);
     for (const result of results) this.ensure(result, "set review round members");
-    // Whoever the predicate refused is still there. Read back rather than counted, because the
-    // count says how many left and this has to name who did not.
-    const stranded = await this.database
+    // Read back rather than counted: the count says how many rows moved, and this has to say
+    // whether the edit was permitted at all — which, when it was not, is indistinguishable from
+    // an edit that asked for the pool it already had.
+    const after = await this.database
       .prepare(
-        `SELECT reviewer_id FROM review_round_members WHERE event_id = ? AND round_sequence = ?${keeping.length ? ` AND reviewer_id NOT IN (${placeholders})` : ""}`,
+        "SELECT (SELECT COUNT(*) FROM review_rounds WHERE event_id = ? AND sequence = ? AND state = 'closed') AS closed, (SELECT COUNT(*) FROM review_round_members WHERE event_id = ? AND round_sequence = ?" +
+          (keeping.length ? ` AND reviewer_id NOT IN (${placeholders})` : "") +
+          ") AS stranded",
       )
-      .bind(eventId, sequence, ...keeping)
-      .all<{ reviewer_id: string }>();
-    this.ensure(stranded, "confirm review round members");
-    if ((stranded.results ?? []).length)
+      .bind(eventId, sequence, eventId, sequence, ...keeping)
+      .all<{ closed: number; stranded: number }>();
+    this.ensure(after, "confirm review round members");
+    const state = after.results?.[0];
+    if (state?.closed)
+      throw new ReviewStateConflictError("A closed round's pool cannot be changed");
+    if (state?.stranded)
       throw new ReviewStateConflictError(
         "A reviewer who already holds assignments in this round cannot be removed from its pool",
       );

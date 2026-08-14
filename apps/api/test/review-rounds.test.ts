@@ -57,6 +57,14 @@ const reviewerActor = (id: string, name: string): Actor => ({
   ],
 });
 
+/**
+ * `fieldId` is deliberately not the canonical `coauthors` spelling.
+ *
+ * `cfpFieldSchema.id` is free-form, so a published form can carry `co_authors`, `coAuthors` or
+ * `Co-Authors`, and the blind projection matched one exact lowercase string — leaving every other
+ * spelling's raw JSON in the answers a blind reviewer reads. The same leak one spelling away, so
+ * the fixture uses one of the spellings the old code missed.
+ */
 const proposal = (id: string, title: string) => ({
   id,
   eventId,
@@ -67,7 +75,7 @@ const proposal = (id: string, title: string) => ({
   submitterUserId: null,
   answers: [
     {
-      fieldId: "coauthors",
+      fieldId: "co_authors",
       label: "Co-authors",
       type: "long_text" as const,
       value: '[{"name":"Avery Chen","role":"Co-presenter"}]',
@@ -430,6 +438,17 @@ describe("review rounds", () => {
     // Co-authors are absent rather than masked: a masked list still leaks its length.
     expect(blindText).not.toContain("Avery Chen");
     expect(blindItem?.proposal.coAuthors).toEqual([]);
+    /*
+     * And the pool is absent too, which is a different secret in the same response.
+     *
+     * `listRounds` joins the round's reviewers in, so returning the round object as-is told every
+     * reviewer who else was scoring the same abstracts — in a blind round, the one thing a
+     * double-blind committee exists not to say. Asserted over the whole serialized item rather
+     * than over `proposal`, because this one travels on a sibling field.
+     */
+    expect(JSON.stringify(blindItem)).not.toContain(NINA);
+    expect(JSON.stringify(blindItem)).not.toContain("reviewerIds");
+    expect(blindItem?.round).toMatchObject({ name: "Blind pass", anonymized: true });
 
     expect(openItem?.proposal.submitterName).toBe("Robin Submitter");
     expect(openItem?.proposal.coAuthors).toEqual([{ name: "Avery Chen", role: "Co-presenter" }]);
@@ -515,6 +534,172 @@ describe("review rounds", () => {
       expect(queue).toContain(own);
       expect(queue).not.toContain(theirs);
     }
+  });
+
+  it("will not restate an aggregate by editing the rubric of a round that holds work", async () => {
+    const { service, repository } = build();
+    await service.configurePlan(organizer, eventId, [...PLAN]);
+    const committee = await service.createRound(organizer, eventId, {
+      name: "Programme committee",
+      state: "open",
+      anonymized: true,
+      criteria: [...COMMITTEE],
+      reviewerIds: [NINA],
+    });
+    const [assignment] = await service.assign(
+      organizer,
+      eventId,
+      [first],
+      NINA,
+      committee.sequence,
+    );
+    await service.saveEvaluation(
+      nina,
+      eventId,
+      assignment?.id as string,
+      {
+        scores: [
+          { criterionId: "programme_fit", value: 5 },
+          { criterionId: "delivery", value: 3 },
+        ],
+        notes: "",
+        complete: true,
+      },
+      "correlation",
+    );
+    expect(await repository.listOutcomes(eventId)).toMatchObject([{ averageScore: 4.5 }]);
+
+    const terms = {
+      name: "Programme committee",
+      state: "open" as const,
+      anonymized: true,
+      poolMode: "named" as const,
+    };
+    /*
+     * The rubric is locked, and the reason is the aggregate rather than tidiness.
+     *
+     * Without this, the next completion in the round recomputes `review_outcomes` over *every*
+     * completed evaluation of it under the new criteria — so a 4.5 an organizer has already read
+     * becomes something else, and the completion count drops, because an evaluation whose
+     * criterion ids the rubric no longer contains contributes nothing to the join. Clearing the
+     * override is the same edit by another route, so it is refused the same way.
+     */
+    for (const [name, criteria] of [
+      ["a different rubric", [...PLAN]],
+      ["clearing the override", null],
+    ] as const) {
+      const refusal = await refusalOf(
+        service.updateRound(organizer, eventId, committee.sequence, { ...terms, criteria }),
+      );
+      expect(fieldsOf(refusal)?.criteria?.join(" "), `${name} was not refused`).toContain("locked");
+    }
+    // The blind-review policy is on the same lock: these abstracts were already shown under it.
+    const flipped = await refusalOf(
+      service.updateRound(organizer, eventId, committee.sequence, {
+        ...terms,
+        anonymized: false,
+        criteria: [...COMMITTEE],
+      }),
+    );
+    expect(fieldsOf(flipped)?.anonymized?.join(" ")).toContain("locked");
+    // Renaming and retiming still work — the lock is on the terms the evaluations were recorded
+    // under, not on the round.
+    await expect(
+      service.updateRound(organizer, eventId, committee.sequence, {
+        ...terms,
+        name: "Second pass",
+        criteria: [...COMMITTEE],
+      }),
+    ).resolves.toMatchObject({ name: "Second pass" });
+    expect(await repository.listOutcomes(eventId)).toMatchObject([{ averageScore: 4.5 }]);
+  });
+
+  it("leaves the pool untouched when it refuses one of its removals", async () => {
+    const { service, repository } = build();
+    await service.configurePlan(organizer, eventId, [...PLAN]);
+    const round = await service.createRound(organizer, eventId, {
+      name: "First pass",
+      state: "open",
+      anonymized: true,
+      reviewerIds: [RAVI, NINA],
+    });
+    await service.assign(organizer, eventId, [first], RAVI, round.sequence);
+
+    /*
+     * Ravi holds work, so removing him is refused — and the *addition* in the same request must
+     * not land either. The D1 shape committed the batch and discovered the refusal in a separate
+     * read afterwards, so a request like this one left a pool nobody asked for behind a 400 an
+     * organizer reads as "nothing changed".
+     */
+    await refusalOf(service.setRoundPool(organizer, eventId, round.sequence, [NINA]));
+    expect((await repository.findRound(eventId, round.sequence))?.reviewerIds).toEqual(
+      [NINA, RAVI].sort(),
+    );
+  });
+
+  it("freezes a closed round's pool, which is a record rather than a setting", async () => {
+    const { service } = build();
+    await service.configurePlan(organizer, eventId, [...PLAN]);
+    const round = await service.createRound(organizer, eventId, {
+      name: "First pass",
+      state: "closed",
+      anonymized: true,
+      reviewerIds: [RAVI],
+    });
+    const refusal = await refusalOf(
+      service.setRoundPool(organizer, eventId, round.sequence, [RAVI, NINA]),
+    );
+    // `review_round_closed_terms_locked` watches `review_rounds`; membership is another table, so
+    // this rule had nowhere to live until the service and the guarded write both took it.
+    expect(fieldsOf(refusal)?.reviewerIds?.join(" ")).toContain("closed");
+  });
+
+  it("sends no reminder at all when one of the named reviewers cannot be reminded", async () => {
+    const { service, reminded } = build();
+    await service.configurePlan(organizer, eventId, [...PLAN]);
+    const round = await service.createRound(organizer, eventId, {
+      name: "First pass",
+      state: "open",
+      anonymized: true,
+      reviewerIds: [RAVI, NINA],
+    });
+    await service.assign(organizer, eventId, [first], RAVI, round.sequence);
+
+    /*
+     * Nina has nothing in this round, so the request is refused — and refused *before* Ravi's
+     * message goes out. Validating inside the send loop mailed the reviewers ahead of the bad
+     * entry and then answered 400 with no `reminders` array, so the organizer read "nothing was
+     * sent" over a delivery and an audit record that both existed.
+     */
+    await refusalOf(
+      service.remindOutstandingReviewers(organizer, eventId, round.sequence, [NINA, RAVI]),
+    );
+    expect(reminded).toEqual([]);
+  });
+
+  it("refuses to remind about a round nobody could act on", async () => {
+    const { service, reminded } = build();
+    await service.configurePlan(organizer, eventId, [...PLAN]);
+    const round = await service.createRound(organizer, eventId, {
+      name: "First pass",
+      state: "open",
+      anonymized: true,
+      reviewerIds: [RAVI],
+    });
+    await service.assign(organizer, eventId, [first], RAVI, round.sequence);
+    await service.updateRound(organizer, eventId, round.sequence, {
+      name: "First pass",
+      state: "closed",
+      anonymized: true,
+      poolMode: "named",
+    });
+    // A reminder is an instruction, and this one would tell somebody to open a queue whose every
+    // save answers "this round is closed".
+    const refusal = await refusalOf(
+      service.remindOutstandingReviewers(organizer, eventId, round.sequence, [RAVI]),
+    );
+    expect(fieldsOf(refusal)?.round?.join(" ")).toContain("closed");
+    expect(reminded).toEqual([]);
   });
 
   it("validates and weighs scores against the round's own scorecard", async () => {

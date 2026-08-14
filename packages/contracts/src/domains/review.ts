@@ -208,6 +208,15 @@ export const reviewRoundParamsSchema = z.object({
   eventId: z.string().uuid(),
   sequence: z.coerce.number().int().positive(),
 });
+/**
+ * A round as a reviewer sees it: its terms, without its pool.
+ *
+ * `reviewerIds` is staffing information. A reviewer's queue carries the round so the surface can
+ * name it, say whether it is taking work, and say whether the reader is reading blind — none of
+ * which needs to know who else is scoring the same abstracts, and a blind round publishing that
+ * would answer the one question a double-blind committee exists to keep closed.
+ */
+export const reviewerRoundSchema = reviewRoundSchema.omit({ reviewerIds: true });
 export const reviewRoundResponseSchema = z.object({ round: reviewRoundSchema });
 export const reviewRoundsResponseSchema = z.object({ rounds: z.array(reviewRoundSchema) });
 /**
@@ -452,7 +461,7 @@ export const reviewerQueueItemSchema = z.object({
    * The round this assignment sits in, whose anonymization policy chose the projection above and
    * whose scorecard is the `plan` beside it. Optional for clients written before rounds.
    */
-  round: reviewRoundSchema.nullable().optional(),
+  round: reviewerRoundSchema.nullable().optional(),
   /**
    * Why this round is not taking work, or `null` when it is.
    *

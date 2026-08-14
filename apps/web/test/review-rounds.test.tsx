@@ -474,10 +474,11 @@ describe("the reviewer's side of a round", () => {
         : undefined,
     );
     render(<ReviewerWorkspace eventId={eventId} />);
+    // The hint *names the author*, which is the point of turning blind review off. It used to say
+    // "Authors and co-authors are shown" and then show only the co-authors — the name was on the
+    // wire and rendered nowhere, so the setting bought the exposure without the benefit.
     expect(
-      await screen.findByText(
-        /Programme committee — open review. Authors and co-authors are shown./,
-      ),
+      await screen.findByText(/Programme committee — open review. Submitted by Alex Morgan./),
     ).toBeVisible();
     expect(screen.getByText(/Avery Chen — Co-presenter/)).toBeVisible();
   });

@@ -11,11 +11,15 @@ DELETE FROM review_evaluations;
 DELETE FROM review_suggestions;
 DELETE FROM review_conflicts;
 DELETE FROM review_assignments;
--- After the assignments and before the rounds, and both halves of that matter. A membership row
--- whose reviewer still holds an assignment in that round is refused by
--- `review_round_member_holds_assignments` (`1312`), and a round with membership rows still
--- pointing at it is refused by their foreign key. Wrong on either side and a reset fails with a
--- bare constraint error naming no table, which is how the ordering above this line was found.
+-- Before the rounds, because `review_round_members` carries a composite foreign key to
+-- `review_rounds(event_id, sequence)` and a round with membership rows still pointing at it
+-- cannot be dropped. That is the whole reason, and it is worth saying that it is: an earlier
+-- version of this comment also claimed the *assignments* had to go first, refused by a trigger
+-- named `review_round_member_holds_assignments`. No such trigger exists — `1312` says in as many
+-- words that it deliberately installs none on this table, because the pool-removal rule is a
+-- predicate inside `setRoundMembers` and raw seed SQL does not go through it. A comment that
+-- names a guard nobody wrote is worse than no comment: the next person edits around a rule that
+-- is not there.
 DELETE FROM review_round_members;
 DELETE FROM review_rounds;
 DELETE FROM review_plans;

@@ -566,7 +566,17 @@ export function OrganizerReviewWorkspace({
             .join(","),
         );
       for (const assignment of assigned) {
-        const evaluation = data.evaluations?.find((item) => item.assignmentId === assignment.id);
+        /*
+         * Completed only, at the lookup rather than at one column.
+         *
+         * The server now sends completed evaluations alone, so this is belt to that braces — but
+         * the previous shape is worth naming, because it gated `notes` and left every criterion
+         * column ungated. A draft's free-text criterion is prose the reviewer meant to rewrite,
+         * and it went into the file beside a `State` of `draft`. One filter, all columns.
+         */
+        const evaluation = data.evaluations?.find(
+          (item) => item.assignmentId === assignment.id && item.state === "completed",
+        );
         const outcome = data.outcomes.find(
           (item) => item.proposalId === proposal.id && item.round === assignment.round,
         );
@@ -583,9 +593,7 @@ export function OrganizerReviewWorkspace({
             reviewerName(assignment.reviewerId),
             evaluation?.state ?? "outstanding",
             outcome?.averageScore ?? "",
-            // A draft's notes are the reviewer's unfinished thinking, so only a completed
-            // evaluation's comment is exported — the same line the organizer's detail panel draws.
-            evaluation?.state === "completed" ? evaluation.notes : "",
+            evaluation?.notes ?? "",
             ...criteria.map((criterion) =>
               (() => {
                 const score = evaluation?.scores.find((item) => item.criterionId === criterion.id);

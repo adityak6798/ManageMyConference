@@ -19,12 +19,16 @@ INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
  * round 1 is absent from round 2 until somebody adds them. Ravi's queue is round 1's, which is
  * what keeps the seeded reviewer journey exactly as it was.
  *
- * Both are date-bounded and both windows are live, so the dates are real without the demo being
- * a museum of a closed conference.
+ * Each carries a real `opens_at` and **no** `closes_at`, and the missing half is deliberate. The
+ * product honours the wall clock, so a fixed future close date is a timebomb on a deterministic
+ * fixture: past it, Ravi's seeded evaluation is refused, the browser journey that drives it fails,
+ * and `gate:browser` goes red on a date rather than on a change. Window *enforcement* is proved
+ * where a clock-dependent rule belongs — `review-rounds.test.ts` drives an unopened and a closed
+ * window against an injected clock — and the console still edits both bounds.
  */
 INSERT INTO review_rounds (event_id, sequence, name, opens_at, closes_at, state, anonymized, criteria_json, pool_mode, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000001', 1, 'First pass', '2026-08-09T00:00:00.000Z', '2027-01-31T00:00:00.000Z', 'open', 1, NULL, 'named', '2026-08-09T11:00:00.000Z', '2026-08-09T11:00:00.000Z'),
-  ('00000000-0000-4000-8000-000000000001', 2, 'Programme committee', '2026-08-12T00:00:00.000Z', '2027-02-28T00:00:00.000Z', 'open', 0, '[{"id":"programme_fit","name":"Programme fit","description":"Balance across the final programme","type":"numeric","minScore":1,"maxScore":5,"weight":3},{"id":"delivery","name":"Delivery confidence","description":"Confidence this speaker can deliver it","type":"numeric","minScore":1,"maxScore":5,"weight":1},{"id":"committee_note","name":"Committee note","description":"One sentence for the record","type":"text","maxLength":500,"weight":1}]', 'named', '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z');
+  ('00000000-0000-4000-8000-000000000001', 1, 'First pass', '2026-08-09T00:00:00.000Z', NULL, 'open', 1, NULL, 'named', '2026-08-09T11:00:00.000Z', '2026-08-09T11:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', 2, 'Programme committee', '2026-08-12T00:00:00.000Z', NULL, 'open', 0, '[{"id":"programme_fit","name":"Programme fit","description":"Balance across the final programme","type":"numeric","minScore":1,"maxScore":5,"weight":3},{"id":"delivery","name":"Delivery confidence","description":"Confidence this speaker can deliver it","type":"numeric","minScore":1,"maxScore":5,"weight":1},{"id":"committee_note","name":"Committee note","description":"One sentence for the record","type":"text","maxLength":500,"weight":1}]', 'named', '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z');
 
 INSERT INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) VALUES
   ('00000000-0000-4000-8000-000000000001', 1, 'seed-reviewer', '2026-08-09T11:00:00.000Z'),

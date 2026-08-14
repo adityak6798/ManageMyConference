@@ -62,6 +62,21 @@ export class MemoryReviewRepository implements ReviewRepository {
         existing.poolMode !== round.poolMode)
     )
       throw new ReviewStateConflictError("A closed round's terms cannot be changed");
+    // The round-scoped twin of `review_plan_lock`, restated so a suite driven against this
+    // repository meets the refusal the guarded UPDATE gives. Without it an open round's rubric
+    // could change under evaluations already completed, and the next completion would recompute
+    // the aggregate over all of them under criteria they were never scored against.
+    if (
+      (JSON.stringify(existing.criteria ?? null) !== JSON.stringify(round.criteria ?? null) ||
+        existing.anonymized !== round.anonymized) &&
+      [...this.assignments.values()].some(
+        (assignment) =>
+          assignment.eventId === round.eventId && (assignment.round ?? 1) === round.sequence,
+      )
+    )
+      throw new ReviewStateConflictError(
+        "This round already has assignments, so its scorecard and blind-review policy are locked",
+      );
     if (
       [...this.rounds.values()].some(
         (item) =>
@@ -82,6 +97,11 @@ export class MemoryReviewRepository implements ReviewRepository {
     const key = this.roundKey(eventId, sequence);
     const existing = this.rounds.get(key);
     if (!existing) throw new ReviewStateConflictError("Review round not found");
+    // A closed round's pool is frozen — the specification says so, and until this line only
+    // `pool_mode` was actually frozen, so an organizer could add somebody to the historical
+    // record of who reviewed a round six weeks after it closed.
+    if (existing.state === "closed")
+      throw new ReviewStateConflictError("A closed round's pool cannot be changed");
     const keeping = new Set(reviewerIds);
     const removed = existing.reviewerIds.filter((reviewerId) => !keeping.has(reviewerId));
     if (
@@ -240,21 +260,40 @@ export class MemoryReviewRepository implements ReviewRepository {
         .filter((criterion) => !criterion.type || criterion.type === "numeric")
         .map((criterion) => [criterion.id, criterion.weight ?? 1]),
     );
-    const values = completed.flatMap(({ scores }) =>
+    /*
+     * Counted the way the D1 statement counts, which is not the same as "how many completed".
+     *
+     * That statement is `COUNT(DISTINCT e.assignment_id)` over the rows that survive the join
+     * against the round's criteria, so an evaluation whose criterion ids the rubric no longer
+     * contains contributes to neither the mean nor the count. Counting `completed.length` here
+     * instead made the two disagree the moment a round's rubric could differ from the evaluations
+     * stored under it. `updateRound`'s lock now makes that state unreachable through the service;
+     * the twin still counts the same way, because a twin that agrees only while a rule holds is a
+     * twin that will disagree the day the rule moves.
+     */
+    const contributing = completed.filter(({ scores }) =>
+      scores.some(
+        (item) => typeof (item.value ?? item.score) === "number" && numeric.has(item.criterionId),
+      ),
+    );
+    const values = contributing.flatMap(({ scores }) =>
       scores.flatMap((item) => {
         const value = item.value ?? item.score;
         const weight = numeric.get(item.criterionId);
         return typeof value === "number" && weight ? [{ value, weight }] : [];
       }),
     );
+    const divisor = values.reduce((total, item) => total + item.weight, 0);
+    // No contributing value means no row, which is what the `INSERT … SELECT … GROUP BY` does
+    // when its join matches nothing. Writing `0/0` here stored NaN, which serializes to `null`
+    // and is then refused by `reviewOutcomeSchema` — a stored value no reader can parse.
+    if (!divisor) return;
     this.outcomes.set(`${event.eventId}:${event.proposalId}:${round}`, {
       eventId: event.eventId,
       proposalId: event.proposalId,
       round,
-      completedEvaluationCount: completed.length,
-      averageScore:
-        values.reduce((total, item) => total + item.value * item.weight, 0) /
-        values.reduce((total, item) => total + item.weight, 0),
+      completedEvaluationCount: contributing.length,
+      averageScore: values.reduce((total, item) => total + item.value * item.weight, 0) / divisor,
       updatedAt: event.occurredAt,
     });
   }
