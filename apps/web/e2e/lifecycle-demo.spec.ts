@@ -107,9 +107,18 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
  * the SPA starts no document load and the idle state is already satisfied before the workspace
  * fetch is issued — and on this app `networkidle` never resolves at all. Waiting for a control
  * inside `main` is the signal that the page has something to measure.
+ *
+ * The first control is not enough on its own, and the gap was not theoretical: every workspace
+ * paints its own toolbar before its fetch resolves, so this returned while the content was still
+ * a row of skeletons. The overflow audit below then measured a `/speakers` board with no cards
+ * on it and passed — and the one run in four where the cards did arrive first is how a real
+ * 390px defect surfaced as a flake instead of a failure. Waiting for the shared `.skeleton`
+ * blocks to go is waiting for the fetched content itself, which is the thing being audited.
+ * This is the same trap `openEveryToolPanel` documents below, on the other side of the fetch.
  */
 async function settled(page: Page) {
   await expect(page.locator("main").locator("button, a[href]").first()).toBeVisible();
+  await expect(page.locator("main .skeleton")).toHaveCount(0);
 }
 
 /**
