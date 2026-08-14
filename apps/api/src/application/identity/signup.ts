@@ -84,13 +84,18 @@ export interface SignupDirectory {
   /** `INSERT OR IGNORE`, so a role a concurrent callback already granted is safe to repeat. */
   grantOrganizer(eventId: string, userId: string): Promise<void>;
   /**
-   * Make an existing account an organizer of an organization.
+   * Make an existing account an organizer of an organization, if it belongs to none.
    *
-   * Only `completeWorkspace` calls it, and only for an account that holds no organization at all
-   * — a submitter-door identity signing in through the organizer door. `INSERT OR IGNORE`, so two
-   * tabs converge.
+   * Only `completeWorkspace` calls it, and only for an account that holds no organization at all —
+   * a submitter-door identity signing in through the organizer door.
+   *
+   * **The "if it belongs to none" is the contract, not a description of the caller.** It returns
+   * `false` when the account already had a membership, and that answer is what arbitrates two
+   * concurrent sign-ins: each racer created its own organization, and without a condition in the
+   * statement both memberships would land and the person would end up holding two conferences
+   * nothing can delete. The loser discards what it made.
    */
-  joinOrganization(organizationId: string, userId: string): Promise<void>;
+  joinOrganization(organizationId: string, userId: string): Promise<boolean>;
   /**
    * How many people belong to this organization.
    *
@@ -420,8 +425,25 @@ export class SignupService {
       const organization = await workspace.provisionOrganization({
         name: organizationNameFor(actor.name),
       });
+      /*
+       * **Storage picks the winner, and this is the whole of that promise.**
+       *
+       * Two tabs are ordinary here for exactly the reason the top of this file gives — a person
+       * with two open tabs produces two callbacks (issue #166) — and this branch has no natural
+       * arbiter of its own: `provisionOrganization` mints a fresh id every call, so two racers
+       * create two organizations, and `INSERT OR IGNORE` on `(organization_id, user_id)` would let
+       * *both* memberships land. Each would then get its own first event under its own
+       * provisioning key, and the person would be left holding two conferences named after
+       * themselves, with nothing in this repository able to delete either.
+       *
+       * So the membership insert is conditional on the account holding **no** membership at all,
+       * and the row count is the answer: the loser wrote nothing, discards the organization it
+       * created, and adopts the winner's workspace by re-reading. That is the same shape
+       * `recoverFromFailedIdentity` uses one level up, for the same reason.
+       */
+      let joined: boolean;
       try {
-        await directory.joinOrganization(organization.id, actor.id);
+        joined = await directory.joinOrganization(organization.id, actor.id);
       } catch (failure) {
         // ERROR-INTENT: rethrown, after removing the organization this call created and could not
         // use. An unreferenced organization is invisible to the product and is the row a
@@ -429,6 +451,15 @@ export class SignupService {
         // the ordering grounds the top of this file states — never suppressed.
         await workspace.discardUnusedOrganization(organization.id);
         throw failure;
+      }
+      if (!joined) {
+        // Somebody else's callback got there first. Nothing here is theirs to keep.
+        await workspace.discardUnusedOrganization(organization.id);
+        const winner = (await directory.findByUserId(actor.id)) ?? actor;
+        // Re-entered rather than recursed once: the winner may itself still be mid-provisioning,
+        // in which case this actor now holds their organization and takes the loop below, which
+        // is idempotent per person per organization through the events domain's own key.
+        return winner.organizations.length === 0 ? winner : this.completeWorkspace(winner);
       }
       /*
        * Re-read before creating the event, so the creation is authorized by the membership that

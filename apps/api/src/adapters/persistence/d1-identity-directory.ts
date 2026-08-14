@@ -3,6 +3,7 @@ import type { DemoPersona } from "../../application/identity/demo-session";
 import type { Actor, Capability, EventAccess } from "../../application/identity/actor";
 import { ATTEMPT_LIFETIME_MS } from "../../application/identity/google-oauth";
 import type { WorkspaceIntent } from "../../application/identity/google-oauth";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 
 interface D1Result<T> {
   results?: T[];
@@ -12,7 +13,12 @@ interface D1Result<T> {
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   all<T>(): Promise<D1Result<T>>;
-  run<T = unknown>(): Promise<D1Result<T>>;
+  /**
+   * `meta` is required here because one write in this adapter is conditional, and a conditional
+   * write that matched no row is `success: true` exactly as one that landed is. See
+   * `d1-write-result.ts`; `joinOrganization` is the caller that depends on it.
+   */
+  run<T = unknown>(): Promise<D1Result<T> & D1WriteResult>;
 }
 export interface IdentityDatabasePort {
   prepare(query: string): D1Statement;
@@ -334,33 +340,51 @@ export class D1IdentityDirectory implements IdentityDirectory {
   }
 
   /**
-   * Make an existing account an organizer of an organization, and say so on its `users` row.
+   * Make an existing account an organizer of an organization **if it belongs to none**, and say so
+   * on its `users` row. Reports whether this call is the one that did it.
    *
    * The one caller is `SignupService.completeWorkspace`, giving a workspace to an account that
    * was created without one — a submitter who came in through a public call page and has since
-   * signed in through the organizer door. `INSERT OR IGNORE`, because two tabs doing this at once
-   * must converge rather than fail, and the persona is moved off `public` in the same batch so
-   * the console offers the workspaces the membership has just made reachable.
+   * signed in through the organizer door.
+   *
+   * **`WHERE NOT EXISTS` rather than `INSERT OR IGNORE`, and the difference is a defect.** Two
+   * concurrent callbacks each create their *own* organization before reaching this, so the
+   * conflict `INSERT OR IGNORE` absorbs — the same `(organization_id, user_id)` pair — never
+   * happens: both rows are distinct and both would land, leaving one person holding two
+   * conferences and two "Your first event"s that nothing in this repository can delete. The
+   * condition makes storage pick a winner, and `changedRows` is how the loser finds out.
+   *
+   * The persona lift is unconditional on the old value rather than only from `public`: an account
+   * being given a conference of its own is that conference's organizer, whatever it was before,
+   * and the console picks the workspaces it offers from the persona whenever no event is selected.
+   * It is scoped to the same `WHERE NOT EXISTS`, so a loser relabels nobody.
    *
    * It writes a membership and nothing else: the event and the role on it are the events domain's
    * and are created afterwards, against the actor this membership authorizes.
    */
-  async joinOrganization(organizationId: string, userId: string): Promise<void> {
-    const results = await this.database.batch([
-      this.database
-        .prepare(
-          "INSERT OR IGNORE INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
-        )
-        .bind(organizationId, userId),
-      this.database
-        .prepare("UPDATE users SET persona = 'organizer' WHERE id = ? AND persona = 'public'")
-        .bind(userId),
-    ]);
-    const failed = results.find((result) => !result.success);
-    if (failed)
+  async joinOrganization(organizationId: string, userId: string): Promise<boolean> {
+    const insert = await this.database
+      .prepare(
+        "INSERT INTO organization_memberships (organization_id,user_id,role) " +
+          "SELECT ?,?,'organizer' WHERE NOT EXISTS " +
+          "(SELECT 1 FROM organization_memberships WHERE user_id = ?)",
+      )
+      .bind(organizationId, userId, userId)
+      .run();
+    if (!insert.success)
       throw new Error(
-        `D1 failed to record organization membership: ${failed.error ?? "unknown error"}`,
+        `D1 failed to record organization membership: ${insert.error ?? "unknown error"}`,
       );
+    // A missing `meta.changes` is a failure here, never a silent 0 or 1: this count is what tells
+    // the caller whether to keep the organization it just created or discard it.
+    if (changedRows(insert, "record organization membership") === 0) return false;
+    const persona = await this.database
+      .prepare("UPDATE users SET persona = 'organizer' WHERE id = ?")
+      .bind(userId)
+      .run();
+    if (!persona.success)
+      throw new Error(`D1 failed to record organizer persona: ${persona.error ?? "unknown error"}`);
+    return true;
   }
 
   async findByEmail(email: string): Promise<Actor | null> {

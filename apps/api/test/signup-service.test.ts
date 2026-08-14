@@ -150,13 +150,21 @@ class FakeDirectory implements SignupDirectory {
     if (input.organizationId !== null) this.memberships.set(input.userId, [input.organizationId]);
   }
 
-  /** `INSERT OR IGNORE` in D1, and the persona moves off `public` in the same batch. */
-  async joinOrganization(organizationId: string, userId: string): Promise<void> {
+  /**
+   * The conditional insert, faithful to *why* it is conditional.
+   *
+   * D1 runs `INSERT … WHERE NOT EXISTS (SELECT 1 FROM organization_memberships WHERE user_id = ?)`
+   * and reports the row count. A fake that wrote unconditionally would reproduce the defect it
+   * exists to prevent — two concurrent sign-ins each keeping their own organization — silently,
+   * which is exactly what the previous `INSERT OR IGNORE` version did.
+   */
+  async joinOrganization(organizationId: string, userId: string): Promise<boolean> {
     this.calls.push("joinOrganization");
-    const held = this.memberships.get(userId) ?? [];
-    if (!held.includes(organizationId)) this.memberships.set(userId, [...held, organizationId]);
+    if ((this.memberships.get(userId) ?? []).length > 0) return false;
+    this.memberships.set(userId, [organizationId]);
     const user = this.users.get(userId);
-    if (user?.persona === "public") this.users.set(userId, { ...user, persona: "organizer" });
+    if (user) this.users.set(userId, { ...user, persona: "organizer" });
+    return true;
   }
 
   /** The same derivation `D1IdentityDirectory.resolve` performs, from the same two tables. */
@@ -480,6 +488,63 @@ describe("SignupService", () => {
       await service.signInWithGoogle(identity());
       expect(workspace.organizations).toHaveLength(1);
       expect(workspace.events).toHaveLength(1);
+    });
+
+    it("gives that person one workspace when two tabs ask at the same moment", async () => {
+      /*
+       * The race this branch has no *natural* arbiter for, and the reason the membership insert is
+       * conditional. Two open tabs are ordinary here — this file's header says so — and each racer
+       * mints its own organization before reaching the membership, so the conflict `INSERT OR
+       * IGNORE` would absorb never happens: both rows are distinct, both land, and the person is
+       * left holding two conferences named after themselves with two "Your first event"s. Nothing
+       * in this repository deletes either.
+       *
+       * With the condition, storage picks one; the loser discards what it made and adopts the
+       * winner's workspace.
+       */
+      const { directory, workspace, service } = build();
+      await service.signInWithGoogle(identity(), "submitter");
+
+      const [first, second] = await Promise.all([
+        service.signInWithGoogle(identity()),
+        service.signInWithGoogle(identity()),
+      ]);
+
+      expect(workspace.organizations).toHaveLength(1);
+      expect(workspace.events).toHaveLength(1);
+      // The loser's organization was created and then removed, rather than left unreferenced —
+      // an orphan is the row `GAP-019`'s data-aware restore refuses on for ever.
+      expect(workspace.discarded).toHaveLength(1);
+      // Both callers are signed in, and to the same workspace.
+      expect(first.actor.organizations).toEqual(second.actor.organizations);
+      expect(directory.memberships.get(first.actor.id)).toHaveLength(1);
+    });
+
+    it("still leaves a linked speaker holding an event role alone", async () => {
+      /*
+       * The guard that stops "complete the workspace" meaning "give everyone an event" is the
+       * *role*, not the absent organization — the submitter door creates accounts holding neither,
+       * and one of those signing in at the front door is asking. This is the other side of that
+       * line, kept as its own case because the version of it that lived in the resume test was
+       * edited when the rule changed, which is how a case stops being covered.
+       */
+      const { directory, workspace, service } = build();
+      directory.seed({
+        id: "seed-speaker",
+        name: "Sam Speaker",
+        persona: "speaker",
+        email: "speaker@greenroom.test",
+        roles: [{ eventId: "event-someone-elses", role: "speaker" }],
+      });
+      directory.providerAccounts.set("google:speaker-subject", "seed-speaker");
+
+      const speaker = await service.signInWithGoogle(
+        identity({ subject: "speaker-subject", email: "speaker@greenroom.test" }),
+      );
+
+      expect(speaker.actor.organizations).toEqual([]);
+      expect(workspace.organizations).toEqual([]);
+      expect(workspace.events).toEqual([]);
     });
 
     it("discards the organization when the membership write fails, rather than orphaning it", async () => {
