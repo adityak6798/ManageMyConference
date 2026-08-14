@@ -193,6 +193,21 @@
 }
 .page-body {
   display: grid;
+  /*
+   * The zero floor every page in the console depends on, and did not have.
+   *
+   * A grid track with no declared minimum is floored by its item's *min-content*, and a card is
+   * not a scroll container, so one long unbreakable cell — an email address is the ordinary case
+   * — set the width of the entire page. The overview measured 19px past a 390px viewport with
+   * every visible box apparently inside it, because the offending string was inside a
+   * `.table-wrap` that was itself being handed a width wider than the screen. The table already
+   * scrolls its own overflow; what it could not do was stop widening its ancestors.
+   *
+   * `minmax(0, 1fr)` is the same floor `.grid-auto` below and `.pipeline-columns` in `crm.css`
+   * already declare. Items still stretch to the full width, so nothing else about the layout
+   * moves.
+   */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--s-5);
   align-content: start;
   padding: var(--s-6);
