@@ -376,6 +376,7 @@ export async function announceCfpDeadlines(environment: Environment) {
   return enqueueCfpDeadlineNotices({
     calls: new D1CfpRepository(environment.DB),
     enqueue: service,
+    alreadyEnqueued: (organizationId, key) => service.alreadyEnqueued(organizationId, key),
     eventOf: (eventId) => events.describeForNotice(eventId),
     findRecipient: (userId) => directory.findRecipient(userId),
     organizersOf: (eventId) => directory.listOrganizersForEvent(eventId),
@@ -1104,6 +1105,19 @@ export default {
          * the event.
          */
         if (error instanceof UnverifiedRecipientCapError && organizationId) {
+          /*
+           * `subject` is the structured-logging bag every caller already passes, and its first
+           * entry is the identifier the message is *about* — the proposal, the profile, the
+           * task. `taskAssigned` is the only caller with two, and it names `taskId` first for
+           * this reason. Object literals preserve insertion order for string keys, so this is a
+           * stated convention rather than an accident; the fallback keeps the record on the
+           * event if a future caller passes nothing.
+           *
+           * No occurrence in the key, so an organizer who retries the same decision three times
+           * gets one entry rather than three of the same permanent fact. A *different* decision
+           * carries a different subject id and records again, which is the distinction that
+           * matters when reading the timeline.
+           */
           const subjectId = Object.values(subject)[0] ?? eventId;
           await auditRecorder.record({
             organizationId,
@@ -1377,7 +1391,7 @@ export default {
           channel: "email",
           recipientRef: recipient,
           /*
-           * The one place in this file that sends to an address nobody proved they control
+           * The one place in this file where an **anonymous** submitter chose the address
            * (issue #132). `lifecycleRecipientForAccount` returns the account's address when there
            * is an account and the form answer when there is not, so the absence of
            * `submitterUserId` *is* the answer to "was this verified" — and it is passed on rather
@@ -1385,6 +1399,15 @@ export default {
            *
            * `declared` puts this delivery under `UNVERIFIED_RECIPIENT_CAP`. It does not make the
            * address verified: `DEBT-012` stands, bounded.
+           *
+           * It is not the only unproven address this file writes to — `fact.speakerEmail` above
+           * is typed into a speaker profile and nobody proves that one either — and it is
+           * deliberately the only one marked `declared`. The cap bounds *who can aim the mail*:
+           * a speaker address is chosen by an authenticated organizer of that event, who can
+           * already send to any address through the composer, so capping it would restrain
+           * somebody the product does not restrain anyway. This address is chosen by whoever
+           * filled in a public form. `DEBT-012` records the addresses; this line records which
+           * of them an untrusted party picked.
            */
           recipientTrust: fact.submitterUserId ? "account" : "declared",
           payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },

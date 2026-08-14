@@ -204,6 +204,37 @@ export const lifecycleRecipient = (subject: {
   return subject.account.asked ? subject.account.email || null : null;
 };
 
+/**
+ * The address two unverified recipients count as *the same mailbox* for the cap (issue #132).
+ *
+ * The cap is meant to bound one attacker filling one person's inbox, and an attacker chooses the
+ * string. Comparing raw `recipient_ref` gives them a hundred separate budgets for the price of a
+ * hundred keystrokes: `Victim@x`, `vIctim@x`, `victim+1@x` … all reach one mailbox and all counted
+ * separately, so the stated bound — a hundred proposals cost three messages — was simply false.
+ *
+ * Two normalizations, and each is chosen rather than inherited:
+ *
+ * - **Case.** Addresses are case-insensitive in every deployment anybody runs, and this repository
+ *   already lower-cases on the identity and CRM paths.
+ * - **The `+tag` sub-address.** Every provider that implements it delivers to the base mailbox, so
+ *   for *counting* they are one person. This deliberately conflates addresses that a provider
+ *   without sub-addressing would treat as distinct, and the direction of that error is the safe
+ *   one: it makes the cap bind sooner, never later. The alternative — honouring the tag — hands
+ *   the attacker an unbounded keyspace, which is the whole exposure.
+ *
+ * **Used only for counting, never for addressing.** The delivery still goes to the exact string
+ * the caller supplied; nothing here rewrites a recipient. A non-address reference — `session:99`,
+ * a projection's resource ref — has no `@` and is returned lower-cased and otherwise untouched,
+ * which is correct because those are never `declared` in the first place.
+ */
+export const recipientCapKey = (recipientRef: string): string => {
+  const address = recipientRef.trim().toLowerCase();
+  const at = address.lastIndexOf("@");
+  if (at <= 0) return address;
+  const plus = address.indexOf("+");
+  return plus > 0 && plus < at ? address.slice(0, plus) + address.slice(at) : address;
+};
+
 export interface MessageTemplate {
   readonly id: string;
   readonly organizationId: string;
@@ -225,6 +256,15 @@ export interface Delivery {
   readonly templateId: string | null;
   readonly templateVersion: number | null;
   readonly recipientRef: string;
+  /**
+   * How much `recipientRef` was worth trusting when this delivery was written (issue #132).
+   *
+   * `account` — an address somebody proved control of by signing in. `declared` — a form answer
+   * nobody verified, which is what a guest CFP proposal supplies. Stored rather than re-derived
+   * because the cap counts rows written in the past, and the caller that knew is long gone by
+   * then. See migration `1708`.
+   */
+  readonly recipientTrust: "account" | "declared";
   readonly payload: Readonly<Record<string, unknown>>;
   /**
    * The message as sent, rendered from `templateVersion` against `payload` at enqueue and never

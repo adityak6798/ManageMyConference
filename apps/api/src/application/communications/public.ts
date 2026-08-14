@@ -191,6 +191,15 @@ export type PreparedDeliveryWriter<TStatement> = (
  */
 export interface CommunicationsEnqueue {
   enqueue(request: DeliveryRequest): Promise<EnqueuedDelivery>;
+  /**
+   * Whether this organization already has a delivery under this key. One indexed read.
+   *
+   * For a caller that runs on a timer and would otherwise pay to *build* a message it is about to
+   * converge away: the scheduled deadline reminder resolves an address per recipient, and after
+   * the first tick the answer is always "already told". `enqueue` still converges on its own —
+   * this is not a substitute for the key, and a caller that skips it is correct, only slower.
+   */
+  alreadyEnqueued(organizationId: string, idempotencyKey: string): Promise<boolean>;
   prepareEnqueue(request: DeliveryRequest): Promise<PreparedDelivery>;
   enqueueCalendarInvite(
     request: CalendarInviteEnqueueRequest,

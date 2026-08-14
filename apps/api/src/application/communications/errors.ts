@@ -48,10 +48,14 @@ export class MessageTemplateMissingError extends CommunicationsNotFoundError {
  * run into a hundred messages to a stranger. The cap bounds that at `UNVERIFIED_RECIPIENT_CAP`
  * per `(event, address)`.
  *
- * Its own type rather than a conflict, because the two callers want different things from it: the
- * lifecycle path records it on the event's timeline so an organizer learns their decision message
- * did not go out, and the transport answers `409`. **The action that caused it always succeeds**
- * — a proposal is never refused because somebody else mail-bombed that address.
+ * Its own type rather than a conflict, because the caller that catches it wants something
+ * specific: the lifecycle path records it on the event's timeline, so an organizer learns their
+ * decision message did not go out. **The action that caused it always succeeds** — a proposal is
+ * never refused because somebody else mail-bombed that address.
+ *
+ * No transport translates it, and none needs to: `recipientTrust` is absent from every request
+ * schema, so a capped delivery is unreachable over HTTP. Said here rather than left implied,
+ * because the obvious reading of a typed error is that some route answers it.
  */
 export class UnverifiedRecipientCapError extends Error {
   constructor(

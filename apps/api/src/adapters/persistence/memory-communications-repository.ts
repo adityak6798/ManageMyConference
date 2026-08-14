@@ -5,6 +5,7 @@ import {
   DeliveryRecoveryConflictError,
   TemplateVersionTakenError,
 } from "../../application/communications/ports";
+import { recipientCapKey } from "../../domain/communications/delivery";
 import type {
   Delivery,
   DeliveryAttempt,
@@ -89,12 +90,22 @@ export class MemoryCommunicationsRepository implements CommunicationsRepository 
     );
   }
 
+  /**
+   * The adapter's two predicates, faithfully: declared recipients only, compared on the mailbox
+   * rather than the string.
+   *
+   * A fake that compared `recipientRef` directly would reproduce two real defects invisibly — a
+   * cap an attacker escapes by changing the case or adding a `+tag`, and a legitimate decline
+   * refused because the product's own follow-up mail to an accepted guest spent the budget.
+   */
   async countDeliveriesTo(organizationId: string, eventId: string, recipientRef: string) {
+    const key = recipientCapKey(recipientRef);
     return [...this.deliveries.values()].filter(
       (item) =>
         item.organizationId === organizationId &&
         item.eventId === eventId &&
-        item.recipientRef === recipientRef,
+        item.recipientTrust === "declared" &&
+        recipientCapKey(item.recipientRef) === key,
     ).length;
   }
 

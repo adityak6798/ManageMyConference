@@ -138,14 +138,31 @@ export const TEMPLATE_ALLOCATION_ATTEMPTS = 5;
  * How many messages one event may send to an address nobody has proved they control (issue #132).
  *
  * Three, and the number is chosen rather than defaulted. A guest applicant's whole legitimate
- * traffic is a decision and its reversals: accept, then a decline if the organizer changes their
- * mind, then a reinstatement. Three covers that with nothing to spare, and it is small enough
- * that a hundred guest proposals naming one victim cost that victim three messages rather than a
- * hundred.
+ * traffic on the **declared** path is a decision and its reversals: accept, then a decline if the
+ * organizer changes their mind, then a reinstatement. Three covers that with nothing to spare, and
+ * it is small enough that a hundred guest proposals naming one victim cost that victim three
+ * messages rather than a hundred.
+ *
+ * **Two things the count deliberately does, because the first version of it did neither and both
+ * were defects a review pass reproduced:**
+ *
+ * - It counts **only `declared` deliveries**. Counting every message to the address instead spent
+ *   the budget on the product's own follow-up: accepting a guest proposal writes the decision, then
+ *   the speaker welcome the acceptance provisions, then the first onboarding task — three, to the
+ *   same address, none of them abusive — and the organizer's later decline was refused. The
+ *   applicant was never told. `recipient_trust` (migration `1708`) is what makes the scope
+ *   possible.
+ * - It counts by **mailbox rather than by string**, through `recipientCapKey`. The attacker types
+ *   the address, so `Victim@x`, `vIctim@x` and `victim+1@x` were three separate budgets and the
+ *   bound above was simply untrue.
  *
  * It is a bound on *amplification*, not a verification. An unverified address still receives up
  * to three messages, and the only thing that would change is a confirmed address — see
  * `DEBT-012` and the residual recorded in `GAP-027`.
+ *
+ * The read is not atomic with the write that follows, and no compare-and-swap is available here:
+ * two enqueues landing together can both pass at cap-1. The overshoot is bounded by request
+ * concurrency rather than unbounded, which is the honest way to state "three".
  */
 export const UNVERIFIED_RECIPIENT_CAP = 3;
 
@@ -603,6 +620,14 @@ export class CommunicationsService implements CommunicationsEnqueue {
     };
   }
 
+  /** See `CommunicationsEnqueue.alreadyEnqueued`. */
+  async alreadyEnqueued(organizationId: string, idempotencyKey: string): Promise<boolean> {
+    return (
+      (await this.dependencies.repository.findByIdempotencyKey(organizationId, idempotencyKey)) !==
+      null
+    );
+  }
+
   async enqueueCalendarInvite(
     request: CalendarInviteEnqueueRequest,
   ): Promise<CalendarInviteEnqueueResult> {
@@ -818,6 +843,9 @@ export class CommunicationsService implements CommunicationsEnqueue {
       templateId: template?.id ?? null,
       templateVersion: template?.version ?? null,
       recipientRef: input.recipientRef,
+      // Stored, not re-derived: the cap counts rows written in the past, and the caller that
+      // knew how much the address was worth trusting is long gone by then.
+      recipientTrust: input.recipientTrust ?? "account",
       payload: input.payload,
       renderedSubject: rendered?.subject ?? null,
       renderedBody: rendered?.body ?? null,

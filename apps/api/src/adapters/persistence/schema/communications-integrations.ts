@@ -68,6 +68,13 @@ export function defineCommunicationsIntegrationsSchema(references: {
       // enqueued before migration 1700.
       renderedSubject: text("rendered_subject"),
       renderedBody: text("rendered_body"),
+      /**
+       * How much the recipient address was worth trusting when this was written (migration
+       * `1708`, which is why it is declared last: `ADD COLUMN` appends). `declared` is a form answer nobody verified; it is what the `#132` cap counts,
+       * and scoping the count to it is what stops the product's own follow-up mail to an accepted
+       * guest spending the budget its later decline needs.
+       */
+      recipientTrust: text("recipient_trust").notNull().default("account"),
     },
     (table) => [
       unique().on(table.organizationId, table.idempotencyKey),
@@ -86,6 +93,10 @@ export function defineCommunicationsIntegrationsSchema(references: {
         "communication_deliveries_channel",
         sql`${table.channel} IN ('email', 'airtable', 'accelevents', 'event')`,
       ),
+      check(
+        "communication_deliveries_recipient_trust",
+        sql`${table.recipientTrust} IN ('account', 'declared')`,
+      ),
       check("communication_deliveries_payload_json", sql`json_valid(${table.payloadJson})`),
       check(
         "communication_deliveries_state",
@@ -100,6 +111,12 @@ export function defineCommunicationsIntegrationsSchema(references: {
         table.organizationId,
         table.eventId,
         table.createdAt,
+      ),
+      // What the `#132` cap's count can use before it normalizes the address; migration `1708`.
+      index("communication_deliveries_recipient_cap_idx").on(
+        table.organizationId,
+        table.eventId,
+        table.recipientTrust,
       ),
     ],
   );

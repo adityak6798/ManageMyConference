@@ -31,6 +31,7 @@ const delivery = (overrides: Partial<Delivery> = {}): Delivery => ({
   templateId: "template-1",
   templateVersion: 1,
   recipientRef: "ada@example.test",
+  recipientTrust: "account" as const,
   payload: { speakerName: "Ada" },
   renderedSubject: "You're speaking",
   renderedBody: "Hello Ada",
@@ -248,6 +249,7 @@ describe("provider request shapes", () => {
       delivery({
         channel: "airtable",
         recipientRef: "session:99",
+        recipientTrust: "account" as const,
         projectionVersion: 4,
         payload: { Title: "Opening Keynote", Tracks: ["Platform"] },
       }),
@@ -283,6 +285,7 @@ describe("provider request shapes", () => {
       delivery({
         channel: "airtable",
         recipientRef: "session:99",
+        recipientTrust: "account" as const,
         projectionVersion: 4,
         // A payload carrying the merge column. Airtable matches `fieldsToMergeOn` against the
         // value in the submitted record, so if this won, this projection would upsert over a

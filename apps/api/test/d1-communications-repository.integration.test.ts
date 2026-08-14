@@ -34,6 +34,7 @@ describe("D1CommunicationsRepository", () => {
       templateId: "template-speaker-v1",
       templateVersion: 1,
       recipientRef: `speaker${index}@example.test`,
+      recipientTrust: "account" as const,
       payload: { speakerName: `Speaker ${index}` },
       renderedSubject: "Welcome",
       renderedBody: `Hello Speaker ${index}`,
@@ -154,6 +155,7 @@ describe("D1CommunicationsRepository", () => {
       templateId: null,
       templateVersion: null,
       recipientRef: "session:99",
+      recipientTrust: "account" as const,
       payload: { title: "D1 Session" },
       renderedSubject: null,
       renderedBody: null,
@@ -238,6 +240,7 @@ describe("D1CommunicationsRepository", () => {
       templateId: null,
       templateVersion: null,
       recipientRef: "session:77",
+      recipientTrust: "account" as const,
       renderedSubject: null,
       renderedBody: null,
       state: "queued" as const,
@@ -403,6 +406,67 @@ describe("D1CommunicationsRepository", () => {
       .first<{ state: string; attempt_count: number }>();
     expect(row).toEqual({ state: "succeeded", attempt_count: 1 });
   });
+
+  it("counts the unverified-recipient cap by mailbox and by trust, in SQL", async () => {
+    /*
+     * `countDeliveriesTo` states one rule twice — once as `recipientCapKey` in the domain, for the
+     * value it binds, and once as a `CASE` expression over the stored column. Two statements of
+     * one rule drift, and the direction of drift here is an attacker getting a fresh budget per
+     * spelling, so this drives real rows through the SQL rather than through the fake.
+     */
+    const migrated = await createMigratedDatabase({ label: "communications-cap", seed: true });
+    runtime = migrated.runtime;
+    const repository = new D1CommunicationsRepository(migrated.database);
+    const organizationId = "00000000-0000-4000-8000-000000000010";
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const write = (id: string, recipientRef: string, recipientTrust: "account" | "declared") =>
+      repository.enqueue({
+        id,
+        organizationId,
+        eventId,
+        idempotencyKey: id,
+        triggerType: "decision.recorded" as const,
+        channel: "email" as const,
+        templateId: null,
+        templateVersion: null,
+        recipientRef,
+        recipientTrust,
+        payload: {},
+        renderedSubject: "Subject",
+        renderedBody: "Body",
+        projectionVersion: null,
+        state: "queued" as const,
+        attemptCount: 0,
+        nextAttemptAt: "2026-08-10T12:00:00.000Z",
+        leaseToken: null,
+        createdAt: "2026-08-10T12:00:00.000Z",
+        updatedAt: "2026-08-10T12:00:00.000Z",
+      });
+
+    await write("cap-1", "victim@example.test", "declared");
+    await write("cap-2", "Victim@Example.test", "declared");
+    await write("cap-3", "victim+conference@example.test", "declared");
+    // Account-trust mail to the same mailbox, which must not consume the guest's budget.
+    await write("cap-4", "victim@example.test", "account");
+    // A different mailbox entirely.
+    await write("cap-5", "someone@example.test", "declared");
+
+    // All three spellings are one mailbox, and the account row is not counted.
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "VICTIM+anything@example.test"),
+    ).resolves.toBe(3);
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "someone@example.test"),
+    ).resolves.toBe(1);
+    // And the count is per event: another event's rows are a different budget.
+    await expect(
+      repository.countDeliveriesTo(
+        organizationId,
+        "00000000-0000-4000-8000-000000000002",
+        "victim@example.test",
+      ),
+    ).resolves.toBe(0);
+  });
 });
 
 describe("migration 1704, after invitations already exist", () => {
@@ -488,6 +552,7 @@ describe("migration 1704, after invitations already exist", () => {
           triggerType: "speaker.calendar_invite",
           channel: "email",
           recipientRef: "return@example.test",
+          recipientTrust: "account" as const,
           templateKey: "speaker-calendar-invite",
           payload: {
             speakerName: "Speaker",
@@ -806,6 +871,7 @@ describe("a schedule publication and the record announcing it", () => {
             triggerType: "schedule.published",
             channel: "event",
             recipientRef: `event:${event.eventId}`,
+            recipientTrust: "account" as const,
             payload: { ...event },
           }),
         ) as never[];
