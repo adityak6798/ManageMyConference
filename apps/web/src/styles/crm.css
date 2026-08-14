@@ -170,11 +170,9 @@
 .crm .pipeline-board {
   display: grid;
   /*
-   * `minmax(0, 1fr)`, not `auto`. A grid track defaults to a min-content floor, so the eight
-   * columns inside the scroller below sized this track to their *total* width and the whole
-   * console panned sideways — 213px of horizontal overflow at 390px, caught by the layout
-   * check in the accessibility gate rather than by looking at it. Declaring a zero minimum is
-   * what lets `overflow-x` on the child actually clip.
+   * `minmax(0, 1fr)`, not `auto`: a grid track defaults to a min-content floor, and a track
+   * holding a horizontal scroller is exactly where that bites. The same declaration this
+   * stylesheet already makes at its root, for the same reason.
    */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--s-3);
@@ -195,6 +193,14 @@
   padding-bottom: var(--s-2);
   /* The scroll container needs a zero floor or the columns push the page sideways instead. */
   min-width: 0;
+  /*
+   * The same trap `.table-wrap` above carries a note about, and it caught this board too.
+   * `.visually-hidden` is `position: absolute`, so inside an *unpositioned* scroll container it
+   * resolves against the viewport, escapes the clip, and stretches the document — 213px of
+   * horizontal overflow at 390px with every visible box comfortably inside. Anchoring the
+   * container keeps the card's "In Contacted" label where it belongs.
+   */
+  position: relative;
 }
 .crm .pipeline-column {
   display: grid;
