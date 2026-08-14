@@ -16,9 +16,16 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
 
-  const before = await page.request.get(`/api/events/${seededEventId}/cfp/proposals`);
-  expect(before.ok()).toBe(true);
-  const seededProposalCount = ((await before.json()).proposals as unknown[]).length;
+  let seededProposalCount: number | undefined;
+  await expect
+    .poll(async () => {
+      const before = await page.request.get(`/api/events/${seededEventId}/cfp/proposals`);
+      if (!before.ok()) return before.status();
+      seededProposalCount = ((await before.json()).proposals as unknown[]).length;
+      return before.status();
+    })
+    .toBe(200);
+  if (seededProposalCount === undefined) throw new Error("Seeded proposals never became readable");
 
   const switcher = page.getByRole("combobox", { name: "Event workspace" });
   await expect(switcher).toContainText("Greenroom Demo Summit");
