@@ -23,6 +23,7 @@ import {
   CfpClosedError,
   CfpRoutingConfigurationError,
   CfpDraftConflictError,
+  CfpProposalStateConflictError,
   CfpProposalNotFoundError,
   CfpStateError,
   CfpUnavailableError,
@@ -460,6 +461,12 @@ export const cfpRoutes: RouteModule = {
      * are opposite things to tell somebody.
      */
     if (error instanceof CfpClosedError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    // And a proposal that has moved on is the same kind of answer for the same reason: the
+    // request is well formed and the resource exists, and what refuses it is the state it is in.
+    // Its own error type exists so it cannot fall through to `CfpStateError`'s 400, which would
+    // tell an applicant their answers were wrong about a proposal they had already submitted.
+    if (error instanceof CfpProposalStateConflictError)
       return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     // Indistinguishable from a proposal that does not exist, deliberately: see
     // `CfpProposalNotFoundError`.

@@ -1315,6 +1315,34 @@ that lost to a concurrent submit was told the call for proposals had closed whil
 the same wrong sentence the anonymous 409 had just been repaired for, in the sibling path. The
 explainer now has a branch per predicate, and its docstring says why the last one is a trap.
 
+**An eighth pass looked somewhere the previous seven had not — the applicant's own surface — and
+found the worst defect of the issue there.** Submitting an unsaved proposal is two calls: create the
+draft, then submit it. The row exists after the first whatever the second does, and the page did not
+adopt it until the submit *succeeded*. So after a refused submit, the applicant's next Save draft
+took the create branch again with the same idempotency key, `createDraft` converged on the existing
+row **without updating its answers**, and the page said "Saved. You can come back to this proposal
+any time." The correction they had just typed was discarded, and what is on screen after a dropped
+write is identical to what is on screen after a kept one — which is why seven passes over the
+backend seams never saw it. The draft is now adopted the moment it exists.
+
+Three more from the same pass, each about telling the applicant something untrue. The lifecycle
+branch added the round before was *shadowed* by the revision check — every lifecycle change also
+advances `revision`, so both realistic races still answered "this changed in another tab" about a
+proposal that had been submitted; lifecycle is checked first now, which cannot mis-answer. That
+branch also threw a `CfpStateError`, which the transport answers **400 `VALIDATION_FAILED`** — the
+third time on this branch that a state conflict was reported as a bad request, so it has its own
+error type and its own 409 rather than the nearest existing class. And the public form's error
+notice, which served one action when it carried a blanket "Not submitted — " prefix, now serves
+five: sign-out, demo sign-in, identity, save and submit. It rendered "Not submitted — This proposal
+has already been submitted." The prefix is gone; every message already names what failed.
+
+**The browser spec was also not re-runnable, contrary to its own header.** Proposals belong to an
+account and nothing deletes one, so a second run against the same server met the first run's rows
+and the "still one proposal" assertion — the point of the step it guards — was the first thing to
+break. Every title it writes now carries a per-run marker and every count is scoped by it. The
+header claimed re-runnability on the strength of a `finally` that restores the window, which is a
+different property.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`

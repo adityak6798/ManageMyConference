@@ -14,11 +14,26 @@
  * Re-runnable, and it has to be: the seeded fixture is shared and this file mutates the live call.
  * The deadline test restores the window in a `finally`, so a failed assertion cannot leave
  * `lifecycle.spec.ts` and `public-event.spec.ts` — both of which submit through the open form —
- * facing a closed one. For the same reason the decision recorded below is a *decline*: accepting
+ * facing a closed one.
+ *
+ * Re-runnability needs one more thing here than a `finally`, because proposals **accumulate**:
+ * they belong to an account and no product affordance deletes one, so a second run against the
+ * same server meets the first run's rows. Every title this file writes therefore carries `RUN`, a
+ * per-run marker, and every locator and count is scoped by it. Without that the spec passed
+ * exactly once per reset — and its "still one proposal" assertion, which is the point of the
+ * step it guards, was the first thing to break. For the same reason the decision recorded below is a *decline*: accepting
  * would add a content session to the demo event and break `lifecycle-demo.spec.ts`'s count of it.
  * See the note at that call.
  */
 import { expect, test } from "@playwright/test";
+
+/**
+ * Distinguishes this run's proposals from an earlier run's against the same server.
+ *
+ * A proposal cannot be deleted, so rows accumulate. Titles are the only thing the dashboard
+ * offers to tell them apart by, and `toHaveCount(1)` is meaningless without it.
+ */
+const RUN = `r${Date.now().toString(36)}`;
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const SLUG = "greenroom-demo-summit";
@@ -165,10 +180,12 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
   await expect(page.getByText("Designing the calm conference")).toHaveCount(0);
 
   // ---- a title-only draft -------------------------------------------------------
-  await page.getByLabel("Proposal title").fill("Draft that survives a sign-out");
+  await page.getByLabel("Proposal title").fill(`Draft that survives a sign-out ${RUN}`);
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status")).toContainText("You can come back to this proposal");
-  const listed = page.locator(".pub-proposal", { hasText: "Draft that survives a sign-out" });
+  const listed = page.locator(".pub-proposal", {
+    hasText: `Draft that survives a sign-out ${RUN}`,
+  });
   await expect(listed).toBeVisible();
   await expect(listed.getByText("Draft", { exact: true })).toBeVisible();
 
@@ -177,24 +194,32 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
   // Signed out, the dashboard is gone entirely rather than showing an empty one.
   await expect(page.getByRole("heading", { name: "Your proposals" })).toHaveCount(0);
   await signInAs(page, "Sam Speaker");
-  const resumed = page.locator(".pub-proposal", { hasText: "Draft that survives a sign-out" });
+  const resumed = page.locator(".pub-proposal", {
+    hasText: `Draft that survives a sign-out ${RUN}`,
+  });
   await expect(resumed).toBeVisible();
 
   // ---- finishing and submitting it ----------------------------------------------
   await resumed.getByRole("button", { name: /^Continue / }).click();
-  await expect(page.getByLabel("Proposal title")).toHaveValue("Draft that survives a sign-out");
-  await page.getByLabel("Proposal title").fill("Idempotent conference workflows");
+  await expect(page.getByLabel("Proposal title")).toHaveValue(
+    `Draft that survives a sign-out ${RUN}`,
+  );
+  await page.getByLabel("Proposal title").fill(`Idempotent conference workflows ${RUN}`);
   await page
     .getByLabel("Abstract")
-    .fill("A practical session about retries that converge on one proposal.");
+    .fill(`A practical session about retries that converge on one proposal. ${RUN}`);
   await page.getByLabel("Your name").fill("Sam Speaker");
   await page.getByLabel("Contact email").fill("sam@example.test");
   await page.getByRole("button", { name: "Submit proposal" }).click();
   await expect(page.getByRole("status")).toContainText("Proposal submitted");
-  const submitted = page.locator(".pub-proposal", { hasText: "Idempotent conference workflows" });
+  const submitted = page.locator(".pub-proposal", {
+    hasText: `Idempotent conference workflows ${RUN}`,
+  });
   await expect(submitted.getByText("Under consideration")).toBeVisible();
-  // Still one proposal: submitting the draft moved it rather than adding a second row.
-  await expect(page.locator(".pub-proposal")).toHaveCount(1);
+  // Still one proposal *of this run's*: submitting the draft moved it rather than adding a second
+  // row. Scoped by `RUN` because an earlier run's rows are still on this dashboard — an absolute
+  // count here is the assertion that made this spec pass exactly once per reset.
+  await expect(page.locator(".pub-proposal", { hasText: RUN })).toHaveCount(1);
 
   // ---- a second submitter sees none of it ---------------------------------------
   const mine = await page.request.get(`/api/events/${EVENT_ID}/cfp/proposals`);
@@ -202,7 +227,7 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
   await signOut(page);
   await signInAs(page, "Pat Attendee");
   await expect(page.getByText(/Nothing yet/)).toBeVisible();
-  await expect(page.getByText("Idempotent conference workflows")).toHaveCount(0);
+  await expect(page.getByText(`Idempotent conference workflows ${RUN}`)).toHaveCount(0);
   // 404 rather than 403: the two answers must be indistinguishable, or proposal ids are
   // enumerable from any account.
   const foreign = await page.request.get(`/api/events/${EVENT_ID}/cfp/proposals/${proposalId}`);
@@ -221,8 +246,8 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
   // Every value the applicant typed reaches the organizer unchanged — the round trip issue #190
   // asks for, asserted on the projection the console renders rather than on the rendering.
   expect(proposal).toMatchObject({
-    title: "Idempotent conference workflows",
-    abstract: "A practical session about retries that converge on one proposal.",
+    title: `Idempotent conference workflows ${RUN}`,
+    abstract: `A practical session about retries that converge on one proposal. ${RUN}`,
     submitterName: "Sam Speaker",
     submitter: { email: "sam@example.test" },
   });
@@ -268,7 +293,7 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
    * carries can direct it.
    */
   expect(confirmation?.recipientRef).toBe("speaker@greenroom.test");
-  expect(confirmation?.renderedBody).toContain("Idempotent conference workflows");
+  expect(confirmation?.renderedBody).toContain(`Idempotent conference workflows ${RUN}`);
 
   // ---- and the submitter reads it on their own page -----------------------------
   // The organizer's own session has to end first: the sign-in doors are offered to a visitor who
@@ -281,7 +306,7 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
   // neither of which is anybody's business but the organizers'.
   await expect(
     page
-      .locator(".pub-proposal", { hasText: "Idempotent conference workflows" })
+      .locator(".pub-proposal", { hasText: `Idempotent conference workflows ${RUN}` })
       .getByText("Not accepted"),
   ).toBeVisible();
   await expect(page.getByText(/under_review|reviewed/)).toHaveCount(0);
@@ -293,7 +318,7 @@ test("a configured deadline closes the public call and locks the proposals behin
 }) => {
   await normalizeCall(page);
   await signInAs(page, "Sam Speaker");
-  await page.getByLabel("Proposal title").fill("Written before the deadline");
+  await page.getByLabel("Proposal title").fill(`Written before the deadline ${RUN}`);
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status")).toContainText("You can come back to this proposal");
 
@@ -320,7 +345,7 @@ test("a configured deadline closes the public call and locks the proposals behin
     );
     await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
     // The draft is still readable and no longer editable — and the page says which.
-    const locked = page.locator(".pub-proposal", { hasText: "Written before the deadline" });
+    const locked = page.locator(".pub-proposal", { hasText: `Written before the deadline ${RUN}` });
     await expect(locked).toBeVisible();
     await expect(locked.getByRole("button", { name: /^Continue / })).toHaveCount(0);
     await expect(page.getByText(/read but not changed/)).toBeVisible();
@@ -328,7 +353,13 @@ test("a configured deadline closes the public call and locks the proposals behin
     // The lock is at the application boundary, not only in the UI.
     const listed = await page.request.get(`/api/events/${EVENT_ID}/cfp/proposals`);
     expect(listed.ok(), `listing proposals failed: ${await listed.text()}`).toBe(true);
-    const draft = ((await listed.json()).proposals as { id: string; revision: number }[])[0];
+    // Named rather than indexed: `listProposalsForOwner` is oldest-first, so `[0]` is this
+    // account's *first* proposal — which after the test above is a submitted one, not the draft
+    // this test just wrote.
+    const draft = (
+      (await listed.json()).proposals as { id: string; revision: number; title: string }[]
+    ).find(({ title }) => title === `Written before the deadline ${RUN}`);
+    expect(draft, "the draft this test wrote was not in the listing").toBeTruthy();
     const refused = await page.request.put(`/api/events/${EVENT_ID}/cfp/proposals/${draft?.id}`, {
       data: { answers: { title: "Late edit" }, expectedRevision: draft?.revision ?? 1 },
     });

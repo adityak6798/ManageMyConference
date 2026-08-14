@@ -202,7 +202,24 @@ export function PublicCfpView({
    */
   const submitOwned = () =>
     guarded(async () => {
-      const target = editing ?? (await createProposalDraft(eventId, answers, submissionKey));
+      let target = editing;
+      if (!target) {
+        /*
+         * Adopt the draft the *moment* it exists, before the submit that may fail.
+         *
+         * The create and the submit are two calls, so anything between them can refuse — a closed
+         * call, a field the browser's own validation cannot pre-catch, a 500. The row exists
+         * either way. Leaving `editing` null until the submit succeeded meant the applicant's next
+         * Save draft took the *create* branch again with the same key, which converges on the row
+         * that already exists **without updating its answers** — and then said "Saved." So a
+         * correction typed after a failed submit was discarded, and the page said it was kept.
+         *
+         * Adopting here makes every path after this a revision of a proposal we know about.
+         */
+        target = await createProposalDraft(eventId, answers, submissionKey);
+        setEditing(target);
+        setSubmissionKey(crypto.randomUUID());
+      }
       const submitted = await submitOwnedProposal(eventId, target.id, answers, target.revision);
       setEditing(null);
       setAnswers({});
@@ -541,7 +558,13 @@ export function PublicCfpView({
           className={notice.tone === "error" ? "pub-notice is-error" : "pub-notice"}
           role={notice.tone === "error" ? "alert" : "status"}
         >
-          {notice.tone === "error" ? "Not submitted — " : ""}
+          {/*
+            No blanket prefix. This notice used to serve one action — an anonymous submission — so
+            "Not submitted — " was always true of it. It now carries sign-out, demo sign-in, save,
+            and identity failures too, where it was at best irrelevant and at worst
+            self-contradicting: "Not submitted — This proposal has already been submitted." Every
+            message reaching here already names what failed, which is the property to keep.
+          */}
           {notice.text}
         </p>
       ) : (

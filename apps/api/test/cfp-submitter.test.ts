@@ -17,6 +17,7 @@ import {
   type CfpNotificationPort,
   CfpDraftConflictError,
   CfpProposalNotFoundError,
+  CfpProposalStateConflictError,
   CfpService,
   CfpStateError,
   CfpValidationError,
@@ -437,9 +438,11 @@ describe("a proposal that belongs to an account", () => {
       complete,
       draft.revision,
     );
+    // A conflict with the resource's state — 409 — rather than a `CfpStateError`, which the
+    // transport answers 400 "your input was wrong" about a proposal the applicant already sent.
     await expect(
       service.submitProposal(pat, eventId, submitted.id, complete, submitted.revision),
-    ).rejects.toBeInstanceOf(CfpStateError);
+    ).rejects.toBeInstanceOf(CfpProposalStateConflictError);
   });
 
   it("converges a retried create on the draft the first attempt made", async () => {
@@ -694,28 +697,47 @@ describe("a proposal that belongs to an account", () => {
     );
   });
 
-  it("blames the submission rather than the deadline when a revision loses to its own submit", async () => {
+  it("blames the submission rather than the deadline when a write loses to its own submit", async () => {
     /*
-     * The branch that has to be added whenever a predicate is added to the guarded write.
+     * The branch that has to be added whenever a predicate is added to the guarded write — and
+     * the order that decides whether it does anything.
      *
      * `explainRefusedWrite` reaches its last sentence by elimination, so a new member of the
-     * write's conjunction with no branch here does not produce the wrong error *code* — it
-     * produces a confident wrong *sentence*, borrowed from whichever cause happens to be last.
-     * Adding the lifecycle predicate did exactly that: a revision that lost to a concurrent submit
-     * was told the call for proposals had closed, while it was open and nothing about the deadline
-     * had changed. The message is all the applicant gets — the envelope carries no state — so a
-     * wrong one sends them to look at the wrong thing.
+     * write's conjunction with no branch produces a confident wrong *sentence* rather than a
+     * wrong code: a proposal that had just been submitted was reported as a call that had closed.
+     * Order matters as much as presence. Every lifecycle change also advances `revision`, so
+     * checking revision first answers both realistic races — a double-click on Submit, and a
+     * revision that lost to a concurrent submit — with "this changed in another tab", telling the
+     * applicant to reload a draft that is no longer a draft. Lifecycle is therefore checked first,
+     * which cannot mis-answer: a lifecycle mismatch is never merely a stale revision.
+     *
+     * Both cases are driven here rather than one, because a first version of this test reached the
+     * branch only through a combination no client produces.
      */
     const { service, repository } = await open();
     const draft = await service.createDraft(pat, eventId, "k1", complete);
+    // Captured while it is still a draft, so the spy below can hold a read back to this moment.
     const stale = await repository.findProposalForOwner(eventId, draft.id, pat.id);
     await service.submitProposal(pat, eventId, draft.id, complete, draft.revision);
 
+    // A double-click on Submit: the second call carries the revision the first one read.
+    const resubmit = await service
+      .submitProposal(pat, eventId, draft.id, complete, draft.revision)
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(resubmit).toBeInstanceOf(CfpProposalStateConflictError);
+    expect((resubmit as Error).message).toMatch(/already been submitted/);
+    expect((resubmit as Error).message).not.toMatch(/closed|another tab/);
+
     /*
-     * The race itself. Revising an *already* submitted proposal is supported — the service
-     * re-reads and takes the submitted branch — so the only way to reach this branch is for the
-     * row to move between the request's own read and its write, which is what the predicate
-     * exists for. The first read returns the pre-submit snapshot; everything after it is real.
+     * And the write that loses to the submit, rather than the *read* that does.
+     *
+     * A revision whose own read already sees the submitted row is a plain stale-revision conflict
+     * and is reported as one — correctly. The write's lifecycle predicate is for the narrower case
+     * where the row moves between the request's read and its write, which needs the read to be
+     * held back: the first one returns the pre-submit snapshot and everything after it is real.
      */
     const real = repository.findProposalForOwner.bind(repository);
     let reads = 0;
@@ -724,14 +746,14 @@ describe("a proposal that belongs to an account", () => {
       return reads === 1 ? stale : real(...args);
     });
 
-    const refusal = await service.saveProposal(pat, eventId, draft.id, complete, 2).then(
+    const revised = await service.saveProposal(pat, eventId, draft.id, complete, 2).then(
       () => null,
       (error: unknown) => error,
     );
-
-    expect(refusal).toBeInstanceOf(CfpStateError);
-    expect((refusal as Error).message).toMatch(/already been submitted/);
-    expect((refusal as Error).message).not.toMatch(/closed/);
+    expect(revised).toBeInstanceOf(CfpProposalStateConflictError);
+    expect((revised as Error).message).toMatch(/already been submitted/);
+    // Not the deadline, and not "another tab": both send the applicant somewhere unhelpful.
+    expect((revised as Error).message).not.toMatch(/closed|another tab/);
   });
 
   it("keeps a revised draft following the live form rather than freezing one", async () => {

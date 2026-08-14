@@ -20,6 +20,7 @@ export {
   CfpRoutingConfigurationError,
   CfpDraftConflictError,
   CfpProposalNotFoundError,
+  CfpProposalStateConflictError,
   CfpService,
   CfpStateError,
   CfpUnavailableError,

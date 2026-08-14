@@ -56,7 +56,6 @@ export interface ProposalOwnerWrite {
   readonly lifecycle: ProposalLifecycle;
 }
 
-/** A `ProposalOwnerWrite` that also moves the proposal out of draft, so it records the decision. */
 /**
  * A `ProposalOwnerWrite` that also moves the proposal out of draft, so it records the decision.
  *

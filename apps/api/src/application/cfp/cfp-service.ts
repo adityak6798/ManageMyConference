@@ -26,6 +26,16 @@ export class CfpUnavailableError extends Error {}
 export class CfpStateError extends Error {}
 export class CfpRoutingConfigurationError extends Error {}
 export class CfpDraftConflictError extends Error {}
+/**
+ * The proposal is no longer in the state the write was built for.
+ *
+ * Its own type rather than a `CfpStateError`, because the transport answers that one with **400
+ * `VALIDATION_FAILED`** — "your input was wrong" — and this is a conflict with the resource's
+ * state, exactly like a stale revision or a closed call, both of which answer `409`. Two earlier
+ * repairs on this branch were about precisely that mismatch on sibling paths; reaching for the
+ * nearest existing error class would have made it three.
+ */
+export class CfpProposalStateConflictError extends Error {}
 /** The call is not taking writes: not yet open, closed by the organizer, or past its deadline. */
 export class CfpClosedError extends Error {
   constructor(
@@ -648,7 +658,11 @@ export class CfpService {
     const form = await this.openForm(eventId);
     const existing = await this.owned(eventId, proposalId, submitter.id);
     if (existing.lifecycle !== "draft")
-      throw new CfpStateError("This proposal has already been submitted");
+      // The same 409 the storage guard's explainer gives for the same fact — a proposal that has
+      // moved on is a conflict with the resource's state, not a fault in the request. This is the
+      // branch a double-click on Submit actually reaches, since the pre-read sees the row the
+      // first click submitted.
+      throw new CfpProposalStateConflictError("This proposal has already been submitted.");
     const fieldErrors = validateAnswers(form.fields, answers);
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
     const at = this.now().toISOString();
@@ -734,14 +748,30 @@ export class CfpService {
       submitterUserId,
     );
     if (!current) throw new CfpProposalNotFoundError("Proposal not found");
+    /*
+     * Lifecycle **before** revision, and the order is the whole of whether this branch does
+     * anything.
+     *
+     * Every lifecycle change also advances `revision` — `submitProposal` does
+     * `revision = revision + 1` — so a row that moved draft→submitted under a caller fails *both*
+     * predicates, and checking revision first answers every realistic race with "this changed in
+     * another tab": a double-click on Submit, and a revision that lost to a concurrent submit
+     * while carrying the revision it actually read. Both are then told to reload a draft that is
+     * no longer a draft. The reverse order cannot mis-answer, because a lifecycle mismatch is
+     * never *merely* a stale revision, and a matching lifecycle falls through to the revision
+     * check unchanged.
+     *
+     * This was written the other way round first, which made the branch structurally present and
+     * behaviourally empty — reachable only by a combination no client in this system produces.
+     */
+    if ((current.lifecycle ?? "submitted") !== expectedLifecycle)
+      // One sentence rather than two. The mismatch can only be draft→submitted: the other
+      // direction is a regression that migration `1201`'s `cfp_submission_lifecycle_no_regression`
+      // refuses, and a stale read shows an older state rather than a newer one. A branch for a
+      // case that cannot happen is a claim nobody can check.
+      throw new CfpProposalStateConflictError("This proposal has already been submitted.");
     if ((current.revision ?? 1) !== expectedRevision)
       throw new CfpDraftConflictError("This proposal changed in another tab or window");
-    if ((current.lifecycle ?? "submitted") !== expectedLifecycle)
-      throw new CfpStateError(
-        expectedLifecycle === "draft"
-          ? "This proposal has already been submitted"
-          : "This proposal was still a draft when the change was saved",
-      );
     // Owner, revision and lifecycle all still match, so what is left is the window: an organizer
     // closed the call between this request's read and its write.
     const form = await this.getPublished(eventId);

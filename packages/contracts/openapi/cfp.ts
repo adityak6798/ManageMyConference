@@ -195,7 +195,9 @@ export const cfpPaths: OpenApiFragment = {
         // A bearer credential — an event token or an API client — is refused here.
         403: errorResponse,
         404: errorResponse,
-        // A stale `expectedRevision`, or a call that closed before the write landed.
+        // Three conflicts, one code: a stale `expectedRevision`, a call that closed before the
+        // write landed, or a proposal that has since been submitted and so is no longer the thing
+        // this write describes.
         409: errorResponse,
         500: errorResponse,
       },

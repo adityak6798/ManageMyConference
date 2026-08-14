@@ -127,6 +127,92 @@ afterEach(() => {
 });
 
 describe("the signed-in applicant's proposals", () => {
+  it("does not tell an applicant a submission failed when what failed was signing out", async () => {
+    /*
+     * This notice used to serve one action, so a blanket "Not submitted — " prefix was always
+     * true of it. It now carries sign-out, demo sign-in, save and identity failures too, where
+     * the prefix was at best irrelevant and at worst self-contradicting — the lifecycle conflict
+     * rendered as "Not submitted — This proposal has already been submitted."
+     */
+    const test = mount({
+      proposals: [proposal()],
+      write: (url) =>
+        url === "/api/session"
+          ? jsonResponse(
+              { error: { code: "INTERNAL_ERROR", message: "no", correlationId: "x" } },
+              500,
+            )
+          : undefined,
+    });
+    await screen.findByRole("heading", { name: /Your proposals/ });
+    fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("Signing out did not work. Close the browser to be sure.");
+    expect(notice.textContent).not.toContain("Not submitted");
+    expect(test.calls.some(({ url }) => url === "/api/auth/signout")).toBe(true);
+  });
+
+  it("keeps a correction typed after a failed submit, rather than saying it saved it", async () => {
+    /*
+     * Silent data loss, and the notice that made it invisible.
+     *
+     * Submitting an unsaved proposal is two calls: create the draft, then submit it. The row
+     * exists after the first one whatever the second does — and a submit can be refused for
+     * things the browser cannot pre-catch. If the page does not adopt that draft until the submit
+     * *succeeds*, the applicant's next Save draft takes the create branch again, with the same
+     * idempotency key, and `createDraft` converges on the row that already exists **without
+     * updating its answers**. The correction they just typed is dropped, and the page says
+     * "Saved. You can come back to this proposal any time."
+     *
+     * The assertion is on the request, not the rendering: what is on screen after a discarded
+     * write is exactly what is on screen after a kept one, which is what made this survive seven
+     * review passes.
+     */
+    let submits = 0;
+    const test = mount({
+      write: (url, init) => {
+        if (url.endsWith("/submit")) {
+          submits += 1;
+          return jsonResponse(
+            { error: { code: "INTERNAL_ERROR", message: "Nope.", correlationId: "x" } },
+            500,
+          );
+        }
+        if (url === proposalsPath && init.method === "POST")
+          return jsonResponse({ proposal: proposal({ answers: { title: "First try" } }) }, 201);
+        if (init.method === "PUT")
+          return jsonResponse({
+            proposal: proposal({ answers: { title: "Corrected" }, revision: 2 }),
+          });
+        return undefined;
+      },
+    });
+
+    const title = await screen.findByLabelText(/Proposal title/);
+    fireEvent.change(title, { target: { value: "First try" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+    await waitFor(() => expect(submits).toBe(1));
+
+    // The applicant fixes it and saves rather than submitting again.
+    fireEvent.change(await screen.findByLabelText(/Proposal title/), {
+      target: { value: "Corrected" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));
+    // A revision of the draft that already exists — not a second create that converges on it and
+    // throws the new answers away.
+    const writes = test.calls.filter(({ url }) => url.startsWith(proposalsPath));
+    expect(
+      writes.filter(({ url, method }) => url === proposalsPath && method === "POST"),
+    ).toHaveLength(1);
+    expect(writes.at(-1)).toMatchObject({
+      method: "PUT",
+      body: { answers: { title: "Corrected" } },
+    });
+  });
+
   it("lists nothing as an invitation rather than as an error", async () => {
     mount();
     expect(await screen.findByRole("heading", { name: "Your proposals" })).toBeVisible();
