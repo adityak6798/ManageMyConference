@@ -11,7 +11,7 @@ import type {
   ReviewConflict,
   ReviewOutcome,
 } from "../../domain/review/review";
-import type { ReviewRound } from "../../domain/review/round";
+import { type ReviewRound, sameCriteria } from "../../domain/review/round";
 import type { ReviewSuggestion } from "../../domain/review/suggestion";
 
 export class MemoryReviewRepository implements ReviewRepository {
@@ -67,7 +67,7 @@ export class MemoryReviewRepository implements ReviewRepository {
     // could change under evaluations already completed, and the next completion would recompute
     // the aggregate over all of them under criteria they were never scored against.
     if (
-      (JSON.stringify(existing.criteria ?? null) !== JSON.stringify(round.criteria ?? null) ||
+      (!sameCriteria(existing.criteria ?? null, round.criteria ?? null) ||
         existing.anonymized !== round.anonymized) &&
       [...this.assignments.values()].some(
         (assignment) =>

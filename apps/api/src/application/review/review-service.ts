@@ -12,6 +12,7 @@ import {
 } from "../../domain/review/review";
 import {
   roundAdmits,
+  sameCriteria,
   type ReviewRound,
   type ReviewRoundPoolMode,
   type ReviewRoundState,
@@ -691,10 +692,10 @@ export class ReviewService implements AcceptedProposalQuery {
     const inRound = (await this.dependencies.repository.listAssignments(eventId)).filter(
       (assignment) => (assignment.round ?? 1) === sequence,
     );
-    // Compared as stored — `criteria` is `null` for "score against the event plan", and JSON
-    // equality is what `configurePlan` compares the event rubric by for the same reason.
-    const rubricMoved =
-      JSON.stringify(existing.criteria ?? null) !== JSON.stringify(input.criteria ?? null);
+    // Compared canonically rather than as serialized text: `criteria` makes a round trip through
+    // Zod, which rebuilds each criterion in schema order, so a client that reads a round and
+    // writes it straight back would otherwise be refused for an edit it did not make.
+    const rubricMoved = !sameCriteria(existing.criteria ?? null, input.criteria ?? null);
     if (inRound.length && rubricMoved)
       throw new ReviewValidationError({
         criteria: [
@@ -731,7 +732,15 @@ export class ReviewService implements AcceptedProposalQuery {
       closesAt: input.closesAt ?? null,
       state: input.state,
       anonymized: input.anonymized,
-      criteria: input.criteria ?? null,
+      /*
+       * The *stored* rubric when it has not moved, rather than the one that arrived.
+       *
+       * They are the same rubric — `sameCriteria` above just said so — but not the same bytes,
+       * because Zod rebuilt each criterion in schema order. The guarded UPDATE compares
+       * `criteria_json IS ?` against the column, so writing the re-ordered form would fail a
+       * predicate that exists to catch a *changed* rubric and refuse a no-op edit.
+       */
+      criteria: rubricMoved ? (input.criteria ?? null) : existing.criteria,
       poolMode: input.poolMode,
       updatedAt: this.dependencies.now().toISOString(),
     };

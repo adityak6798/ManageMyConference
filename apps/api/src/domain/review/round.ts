@@ -80,6 +80,37 @@ export type ReviewRound = {
   readonly updatedAt: string;
 };
 
+/**
+ * Whether two rubrics are the same rubric.
+ *
+ * Key order is not part of the answer, and that is the whole reason this exists rather than a
+ * `JSON.stringify` comparison. A round's scorecard makes a round trip through Zod on its way back
+ * in, and `z.object().parse` rebuilds each criterion in *schema* order rather than in the order it
+ * arrived — so a client that reads a round and writes it straight back sends a semantically
+ * identical rubric whose serialization differs, and a lock comparing raw strings refuses an edit
+ * that changed nothing.
+ *
+ * `null` means "score against the event plan", and is equal only to itself.
+ */
+export const sameCriteria = (
+  left: readonly ReviewCriterion[] | null,
+  right: readonly ReviewCriterion[] | null,
+): boolean => {
+  const canonical = (criteria: readonly ReviewCriterion[] | null) =>
+    criteria === null
+      ? "null"
+      : JSON.stringify(
+          criteria.map((criterion) =>
+            Object.fromEntries(
+              Object.entries(criterion)
+                .filter(([, value]) => value !== undefined)
+                .sort(([a], [b]) => a.localeCompare(b)),
+            ),
+          ),
+        );
+  return canonical(left) === canonical(right);
+};
+
 /** The rubric a round is actually scored against. */
 export const roundCriteria = (
   round: Pick<ReviewRound, "criteria"> | null,
