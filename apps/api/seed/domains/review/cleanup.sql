@@ -77,3 +77,16 @@ WHERE event_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
 );
+-- `review_assignment_caps` holds no seeded row today, and nothing in the demo writes one — but it
+-- carries a foreign key to the event and another to the reviewer's account, so the first cap an
+-- organizer sets on a demo event turns the next reset into the same bare
+-- `FOREIGN KEY constraint failed` that `review_suggestions` produced above. Scoped now, while the
+-- reason is written down, rather than after a reset has failed in front of somebody.
+DELETE FROM review_assignment_caps
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);

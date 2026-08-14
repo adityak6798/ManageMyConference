@@ -78,51 +78,62 @@ export async function composeSeed() {
 }
 
 /**
- * Every `DELETE` in the composed seed has to name what it is deleting.
+ * Every `DELETE` in the composed seed has to carry a `WHERE`.
  *
- * The demo and a real conference share one deployment, so an unscoped `DELETE FROM <table>` in
- * this file is a loaded gun: it reads as "restore the demo" and means "empty the table". Scoping
- * every cleanup to the ids the seed inserts is what makes the restore safe to run beside somebody
- * else's workspace, and this is what keeps it scoped — a fragment that gains a bare delete fails
- * `npm run schema:check` rather than being discovered by a restore that destroyed something.
+ * The demo and a real conference share one deployment, so a bare `DELETE FROM <table>` in this
+ * file is a loaded gun: it reads as "restore the demo" and means "empty the table". A fragment
+ * that gains one fails `npm run schema:check` rather than being discovered by a restore that
+ * destroyed somebody's work.
  *
- * A table that genuinely is demo-only, where emptying it is right, says so in the fragment with
- * `-- SEED-SCOPE-EXEMPT: <reason>` on the line before. There are none today; the marker exists so
- * that the answer is written down rather than argued at review time.
+ * **What this does not do, stated so nobody mistakes it for more.** It checks that a predicate is
+ * *present*, not that the predicate *scopes* anything: a delete whose `WHERE` is `1=1` passes. No
+ * regex can decide the second question, and a check whose name promises it would be worse than
+ * one that does not. The real guarantee is behavioural and lives in
+ * `apps/api/test/demo-reset-guard.integration.test.ts`, which applies the actual `reset.sql` to a
+ * database holding a live self-serve signup and asserts the person, their provider link and their
+ * event all survive — twice. This is the cheap check that catches the accident; that is the one
+ * that catches the mistake.
+ *
+ * Parsing is deliberately conservative: comments are stripped and statements are split on `;`
+ * before anything is matched, so a `WHERE` inside a trailing comment, a `WHERE` belonging to the
+ * *next* statement on the same line, and a `DELETE` split across lines all read correctly. Quoted
+ * identifiers (`"users"`, `` `users` ``, `[users]`) are recognized, because SQLite accepts them
+ * and a check that does not is a check with a door in it.
+ *
+ * A table that genuinely is demo-only, where emptying it is right, says so with
+ * `-- SEED-SCOPE-EXEMPT: <reason>` in the comment block immediately before the statement. There
+ * are none today; the marker exists so the answer is written down rather than argued at review
+ * time.
  */
 export function unscopedDeletes(sql) {
   const found = [];
-  const lines = sql.split("\n");
-  let exempt = false;
-  let pending = null;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("-- SEED-SCOPE-EXEMPT:")) {
-      exempt = true;
+  // Split into statements first, keeping the comment text that precedes each one so an exemption
+  // can be attached to the statement it was written for and to no other.
+  let rest = sql;
+  let pendingExemption = false;
+  while (rest.length > 0) {
+    const end = rest.indexOf(";");
+    const statement = end === -1 ? rest : rest.slice(0, end + 1);
+    rest = end === -1 ? "" : rest.slice(end + 1);
+    const exempted = /--\s*SEED-SCOPE-EXEMPT:/i.test(statement) || pendingExemption;
+    // Strip line comments before looking at the SQL, so nothing in prose can satisfy the check.
+    const code = statement
+      .replace(/--[^\n]*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (code === "") {
+      // A comment-only chunk carries its marker forward to the next real statement.
+      pendingExemption = exempted;
       continue;
     }
-    if (pending) {
-      // The `WHERE` may sit on the line after `DELETE FROM <table>`, which is how every scoped
-      // statement in this repository is written.
-      if (/^WHERE\b/i.test(trimmed)) pending = null;
-      else {
-        found.push(pending);
-        pending = null;
-      }
-    }
-    const match = /^DELETE\s+FROM\s+([a-z_]+)(.*)$/i.exec(trimmed);
-    if (!match) {
-      if (trimmed && !trimmed.startsWith("--")) exempt = false;
-      continue;
-    }
-    if (exempt) {
-      exempt = false;
-      continue;
-    }
-    if (/\bWHERE\b/i.test(match[2])) continue;
-    pending = match[1];
+    pendingExemption = false;
+    const match =
+      /^DELETE\s+FROM\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))/i.exec(code);
+    if (!match) continue;
+    if (exempted) continue;
+    if (/\bWHERE\b/i.test(code)) continue;
+    found.push(match[1] ?? match[2] ?? match[3] ?? match[4]);
   }
-  if (pending) found.push(pending);
   return found;
 }
 

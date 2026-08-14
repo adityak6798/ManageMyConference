@@ -49,12 +49,15 @@ test("a fragment never runs into its neighbour's first line", async () => {
   }
 });
 
-test("no cleanup in the composed seed empties a table", async () => {
+test("every cleanup in the composed seed carries a predicate", async () => {
   /*
-   * The demo and a real conference share one deployment, so an unscoped `DELETE FROM <table>` in
-   * `seed/reset.sql` reads as "restore the demo" and means "empty the table". Every cleanup is
-   * scoped to the ids the seed inserts; this is what keeps it that way, and it is asserted on the
+   * The demo and a real conference share one deployment, so a bare `DELETE FROM <table>` in
+   * `seed/reset.sql` reads as "restore the demo" and means "empty the table". Asserted on the
    * composition because the fragments belong to nine domains and the guarantee is the file's.
+   *
+   * This is the cheap check. What actually proves the reset cannot destroy somebody's workspace is
+   * `apps/api/test/demo-reset-guard.integration.test.ts`, which applies this very file to a
+   * database holding a live signup.
    */
   assert.deepEqual(unscopedDeletes(await composeSeed()), []);
 });
@@ -65,12 +68,45 @@ test("the scope check catches a bare delete, and honours a stated exemption", ()
   assert.deepEqual(unscopedDeletes("DELETE FROM widgets WHERE id IN ('a');"), []);
   // The `WHERE` on its own line, which is how every scoped statement here is written.
   assert.deepEqual(unscopedDeletes("DELETE FROM widgets\nWHERE id IN (\n  'a'\n);"), []);
-  // Prose between the two lines does not satisfy it.
-  assert.deepEqual(unscopedDeletes("DELETE FROM widgets\n-- why\nWHERE id IN ('a');"), ["widgets"]);
+  // Prose between the two lines does not break the pairing — the statement is what is read.
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets\n-- why\nWHERE id IN ('a');"), []);
   assert.deepEqual(unscopedDeletes("-- SEED-SCOPE-EXEMPT: demo-only\nDELETE FROM widgets;"), []);
   // The exemption covers one statement, not the rest of the file.
   assert.deepEqual(
     unscopedDeletes("-- SEED-SCOPE-EXEMPT: demo-only\nDELETE FROM a;\nDELETE FROM b;"),
     ["b"],
   );
+});
+
+test("the scope check is not fooled by the shapes a review pass tried", () => {
+  /*
+   * Each of these passed the first version, and each is legal SQLite. They are kept as cases
+   * rather than described, because "we thought about it" is not a guard.
+   */
+  // The keywords split across lines.
+  assert.deepEqual(unscopedDeletes("DELETE\nFROM widgets;"), ["widgets"]);
+  // Quoted identifiers, all three spellings SQLite accepts.
+  assert.deepEqual(unscopedDeletes('DELETE FROM "widgets";'), ["widgets"]);
+  assert.deepEqual(unscopedDeletes("DELETE FROM `widgets`;"), ["widgets"]);
+  assert.deepEqual(unscopedDeletes("DELETE FROM [widgets];"), ["widgets"]);
+  // A `WHERE` that lives only in a trailing comment satisfies nothing.
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets; -- nothing WHERE this points"), [
+    "widgets",
+  ]);
+  // The next statement's `WHERE` does not cover the one before it, on one line or two.
+  assert.deepEqual(unscopedDeletes("DELETE FROM a; DELETE FROM b WHERE id = 'x';"), ["a"]);
+  // An exemption marker attaches to its own statement, not to whatever follows a blank run.
+  assert.deepEqual(
+    unscopedDeletes("-- SEED-SCOPE-EXEMPT: one\nDELETE FROM a;\n\n\n-- unrelated\nDELETE FROM b;"),
+    ["b"],
+  );
+});
+
+test("the scope check does not claim to prove scoping, only presence", () => {
+  /*
+   * The honest limit, asserted so the docstring and the behaviour cannot drift apart. A regex
+   * cannot decide whether a predicate narrows anything, and a check whose name promised that would
+   * be worse than one that does not — it would retire the behavioural test that actually proves it.
+   */
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets WHERE 1=1;"), []);
 });

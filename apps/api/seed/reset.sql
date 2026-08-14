@@ -107,7 +107,7 @@ WHERE organization_id IN (
 );
 
 -- Templates are organization-scoped, and scoping this one matters more than it looks: migration
--- `1706` provisions the nine lifecycle defaults for **every** organization, so an unscoped delete
+-- `1706` provisions the lifecycle defaults for **every** organization, so an unscoped delete
 -- here would silently strip a real conference of every message it can send (issue #217) and leave
 -- nothing to put them back — `data.sql` below restores the demo organization's copies only.
 DELETE FROM message_templates
@@ -464,6 +464,19 @@ WHERE event_id IN (
   )
 );
 DELETE FROM review_plans
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+-- `review_assignment_caps` holds no seeded row today, and nothing in the demo writes one — but it
+-- carries a foreign key to the event and another to the reviewer's account, so the first cap an
+-- organizer sets on a demo event turns the next reset into the same bare
+-- `FOREIGN KEY constraint failed` that `review_suggestions` produced above. Scoped now, while the
+-- reason is written down, rather than after a reset has failed in front of somebody.
+DELETE FROM review_assignment_caps
 WHERE event_id IN (
   SELECT id FROM events
   WHERE organization_id IN (
@@ -880,7 +893,13 @@ INSERT INTO message_templates (id, organization_id, template_key, version, chann
   -- The submission confirmation (issue #190). It says only that the proposal arrived and where to
   -- read its state; it carries no reviewer material and no scores, which is the boundary decision
   -- `D6` drew for decision notifications and this message stays well inside.
-  ('template-proposal-submitted-v1', '00000000-0000-4000-8000-000000000010', 'proposal-submitted', 1, 'email', 'We have your proposal', 'Hello {{submitterName}}, thank you — "{{proposalTitle}}" is with the programme team. You can read or revise it from your proposals page while the call is open, and its decision will appear there.', '2026-08-10T12:00:00.000Z');
+  ('template-proposal-submitted-v1', '00000000-0000-4000-8000-000000000010', 'proposal-submitted', 1, 'email', 'We have your proposal', 'Hello {{submitterName}}, thank you — "{{proposalTitle}}" is with the programme team. You can read or revise it from your proposals page while the call is open, and its decision will appear there.', '2026-08-10T12:00:00.000Z'),
+  -- The two scheduled deadline messages (issue #210). Seeded rather than left to be provisioned
+  -- lazily so the demo's state after a reset is the state migration `1706` establishes for every
+  -- organization: a reset that restored nine of eleven would leave the demo quietly different
+  -- from every other workspace until something happened to send one.
+  ('template-cfp-deadline-reminder-v1', '00000000-0000-4000-8000-000000000010', 'cfp-deadline-reminder', 1, 'email', 'Your draft for {{eventName}} is not submitted yet', 'Hello {{submitterName}}, the call for proposals for {{eventName}} closes {{closesAt}} and you still have {{draftCount}} unsubmitted on your proposals page. Open it and press Submit if you want it considered; if you have changed your mind, nothing else is needed and we will not write about it again.', '2026-08-10T12:00:00.000Z'),
+  ('template-cfp-call-closed-v1', '00000000-0000-4000-8000-000000000010', 'cfp-call-closed', 1, 'email', 'Your call for proposals has closed', 'Hello {{organizerName}}, the call for proposals for {{eventName}} closed {{closesAt}} and is no longer taking submissions. The proposals you received are waiting in the review queue.', '2026-08-10T12:00:00.000Z');
 
 -- Delivery history for the demo, shaped exactly as the lifecycle triggers now write it.
 --

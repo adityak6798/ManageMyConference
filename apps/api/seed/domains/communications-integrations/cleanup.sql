@@ -76,7 +76,7 @@ WHERE organization_id IN (
 );
 
 -- Templates are organization-scoped, and scoping this one matters more than it looks: migration
--- `1706` provisions the nine lifecycle defaults for **every** organization, so an unscoped delete
+-- `1706` provisions the lifecycle defaults for **every** organization, so an unscoped delete
 -- here would silently strip a real conference of every message it can send (issue #217) and leave
 -- nothing to put them back — `data.sql` below restores the demo organization's copies only.
 DELETE FROM message_templates

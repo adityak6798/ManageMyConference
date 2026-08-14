@@ -10,17 +10,17 @@
 -- `00000000-0000-4000-8000-000000000010`. For every other organization — every self-serve Google
 -- signup, and every organization on a deployment nobody seeded — `CommunicationsService.prepare`
 -- threw `Template version not found`, `notifyLifecycle` swallowed it as it is designed to, the
--- lifecycle action succeeded, and no delivery row was ever written. Nine triggers, invisibly.
+-- lifecycle action succeeded, and no delivery row was ever written. Every trigger, invisibly.
 --
 -- The deployed database already holds at least one self-serve organization, from the first real
 -- Google sign-in (issue #216). This is the backfill that requirement asks for: it runs once, and
--- afterwards every organization in the database holds the same nine version-1 rows the demo does.
+-- afterwards every organization in the database holds the same version-1 rows the demo does.
 --
 -- ## Why this is a backfill and not the whole fix
 --
 -- An organization created *after* this migration runs would still have none, so
 -- `CommunicationsService` provisions the same catalogue on resolution and on the organizer's
--- template list. All three routes write version 1 of the same nine keys and
+-- template list. All three routes write version 1 of the same keys and
 -- `(organization_id, template_key, version)` is unique, so they converge rather than collide.
 -- `apps/api/src/domain/communications/default-templates.ts` is the catalogue and holds the
 -- reasoning; `default-templates.integration.test.ts` asserts this file and that one agree, so the
@@ -28,7 +28,7 @@
 --
 -- ## Why `NOT EXISTS` is on (organization, key) and not on (organization, key, version)
 --
--- The demo organization already holds version 1 of all nine under different ids
+-- The demo organization already holds version 1 of these under different ids
 -- (`template-speaker-v1` and friends), and an organization that has customized a message holds
 -- its own version 1 or 2. Either way the key is present and nothing here should touch it: the
 -- guard is "does this organization have this template at all", so this migration adds a message
@@ -49,8 +49,8 @@
 -- ## The last two are issue #210's, and they arrive here rather than in their own migration
 --
 -- `cfp-deadline-reminder` and `cfp-call-closed` are the scheduled deadline messages. They belong
--- to the same catalogue and to the same lane as the nine above, and splitting them into a second
--- backfill would mean two migrations doing one thing with the same guard. Migration `1707` widens
+-- to the same catalogue and to the same lane as the templates above, and splitting them into a
+-- second backfill would mean two migrations doing one thing with the same guard. Migration `1707` widens
 -- `communication_deliveries.trigger_type` so the deliveries they render can be written at all.
 
 INSERT INTO message_templates (

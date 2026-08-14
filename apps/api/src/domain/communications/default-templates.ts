@@ -7,8 +7,8 @@
  * until this existed the only rows anywhere were in the demo seed. For every other organization —
  * every self-serve Google signup, and every organization on a deployment nobody seeded —
  * `CommunicationsService.prepare` threw `Template version not found`, `notifyLifecycle` caught it
- * as it is designed to, and the lifecycle action succeeded while **nothing was ever sent**. Nine
- * triggers, silently, on every organization but one (issue #217).
+ * as it is designed to, and the lifecycle action succeeded while **nothing was ever sent** — every
+ * lifecycle trigger, silently, on every organization but one (issue #217).
  *
  * ## Why a copy per organization rather than a system-owned row
  *
@@ -43,8 +43,9 @@
  * delivery sent last week still names the text it was sent with.
  *
  * The text is deliberately identical to `apps/api/seed/domains/communications-integrations/
- * data.sql`, which held these nine for the demo organization before any other organization could
- * have them. `default-templates.integration.test.ts` asserts migration `1706` and this file agree,
+ * data.sql`, which held these for the demo organization before any other organization could have
+ * them, and which still restores all of them so a reset leaves the demo holding what every other
+ * organization holds. `default-templates.integration.test.ts` asserts migration `1706` and this file agree,
  * so the two cannot drift.
  *
  * @spec PRD-COM-001
