@@ -26,6 +26,9 @@ export const cfpWorkspace: WorkspaceModule = {
       key={`${event.id}:${session?.actor.id}:${activeRole}`}
       eventId={event.id}
       organizer={activeRole === "organizer"}
+      // The submission deadline is entered and shown in the event's own zone, never the
+      // operator's: a `datetime-local` input carries no timezone at all.
+      timezone={event.timezone}
     />
   ),
 };

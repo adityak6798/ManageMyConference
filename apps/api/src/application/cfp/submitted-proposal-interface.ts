@@ -28,6 +28,15 @@ export interface SubmittedProposal {
   readonly submitterName: string;
   /** Organizer-only contact details, or `null` when the form collected no email. */
   readonly submitter: ProposalSubmitter | null;
+  /**
+   * The account that owns this proposal, or `null` for a guest submission.
+   *
+   * It is here so that a message *about* a decision can be addressed to the person who proved
+   * control of a mailbox rather than to whatever `submitter.email` a form collected — the
+   * unverified-recipient exposure issue #132 describes. It is an identity reference and never a
+   * contact detail, so the reviewer projection drops it with the rest of the submitter.
+   */
+  readonly submitterUserId: string | null;
   /** Never contains an `email`-typed answer; those surface only through `submitter`. */
   readonly answers: readonly {
     readonly fieldId: string;

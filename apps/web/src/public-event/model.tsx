@@ -204,6 +204,32 @@ function zoneAbbreviation(timezone: string, referenceDate: string) {
   return parts.find((part) => part.type === "timeZoneName")?.value ?? "";
 }
 
+/**
+ * The zone abbreviation **of the instant being shown**, rather than of the event's own week.
+ *
+ * `zoneAbbreviation` answers for the week the programme runs, which is right for a session: a
+ * schedule is read as one block of days. It is wrong for anything outside it, and a CFP deadline
+ * usually is — a call closing in December for a conference in September crosses a DST boundary,
+ * so the event-week label said `PDT` beside a time that was actually `PST`. The clock time was
+ * right and the zone name was not, which is the shape a reader converts from and lands an hour
+ * out, at a deadline.
+ */
+function instantZone(timezone: string, instant: string) {
+  const at = new Date(instant);
+  if (Number.isNaN(at.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "short",
+  }).formatToParts(at);
+  return parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+}
+
+/** A full date and time in the event's zone, labelled with that zone as it stands at that instant. */
+export const fullTimeWithZone = (instant: string, timezone: string) => {
+  const zone = instantZone(timezone, instant);
+  return `${fullTime(instant, timezone)}${zone ? ` ${zone}` : ""}`;
+};
+
 function duration(session: PublicSession) {
   if (!session.startsAt || !session.endsAt) return "";
   const minutes = Math.round(

@@ -26,7 +26,17 @@ export type TriggerType =
   | "speaker.task_reminder"
   /** An organizer sending a speaker the iTIP invitation for one of their sessions. */
   | "speaker.calendar_invite"
-  | "decision.recorded";
+  | "decision.recorded"
+  /**
+   * A submitter's own proposal reaching the organizers, confirmed back to the account that wrote
+   * it.
+   *
+   * The recipient is resolved from the session that submitted, never from a form answer, which is
+   * what made this message shippable at all — decision `D5` deferred it while the only available
+   * address was an unverified field on an anonymous form (`#132`). The anonymous door still sends
+   * nothing.
+   */
+  | "proposal.submitted";
 
 /**
  * Which channels each trigger may legitimately use.
@@ -51,6 +61,7 @@ export const TRIGGER_CHANNELS = {
   "speaker.task_reminder": ["email"],
   "speaker.calendar_invite": ["email"],
   "decision.recorded": ["email"],
+  "proposal.submitted": ["email"],
   "projection.requested": ["airtable", "accelevents"],
   "schedule.published": ["event"],
 } as const satisfies Record<TriggerType, readonly DeliveryChannel[]>;
@@ -73,8 +84,99 @@ export const isProjectionChannel = (
  * transaction as the publication itself.
  */
 export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerType[]).filter(
-  (trigger) => !triggerAllowsChannel(trigger, "event"),
+  (trigger) =>
+    !triggerAllowsChannel(trigger, "event") &&
+    /*
+     * `proposal.submitted` is the second exclusion, and it is narrower than the domain-event one.
+     * A submission confirmation's recipient is resolved from the session that submitted the
+     * proposal — that is the whole property that made it shippable (`#132`, decision `D5`) — so a
+     * request naming an arbitrary address would hand back exactly the mail primitive the account
+     * binding removes. `requestTriggerTypeSchema` in the contracts package states the same
+     * exclusion at the HTTP boundary; this keeps the derived set from disagreeing with it, which
+     * it silently did until a review pass compared the two.
+     */
+    trigger !== "proposal.submitted",
 );
+
+/**
+ * Which of a subject's two possible addresses a lifecycle message is sent to.
+ *
+ * Some subjects have both: an address they proved control of by signing in, and an address they
+ * typed into a public form. The two are not equally trustworthy, and the difference matters most
+ * for the messages that carry something private — an accept or a decline names a decision the
+ * organizer has not announced anywhere else.
+ *
+ * The rule is stated here rather than at each call site, and it is about *which subject* rather
+ * than which address: **an account-bound subject is written to at its account, or not at all.**
+ * The form address is reached only when there is no account — a guest submission, which is a
+ * supported way to apply (`PRD-CFP-002`) and where telling nobody is the only alternative. That
+ * remaining guest path is the residue of issue #132, which stays open: closing it needs a
+ * per-(event, recipient) cap or a double opt-in, a product decision with storage behind it.
+ *
+ * An account that holds **no** address therefore yields `null` rather than falling through. That
+ * was a fallback once, and it was wrong: an owned proposal's form answer is still an address
+ * nobody verified and possibly a stranger's, so using it on the account-bound path reintroduces
+ * exactly the misdirection preferring the account removes. The account holder is not left without
+ * recourse — a decision is on their own dashboard (`PRD-CFP-004`), which is why the product's
+ * guarantee is the dashboard and not the message.
+ *
+ * `null` means there is nobody to write to, which callers report rather than paper over — a
+ * delivery to a non-address burns an attempt and fails with the provider's refusal instead of
+ * the reason.
+ *
+ * **A lookup that failed is not an account with no address, and the difference is the type's.**
+ * Collapsing them would let a transient read error choose the *less* trustworthy address — the
+ * exact exposure the preference exists to remove — so the account argument carries the outcome of
+ * asking rather than an address. `asked: false` yields `null`: nothing is sent, and a human is
+ * left to it. Stating that here rather than as a rule each caller must remember is the point; the
+ * composition root that resolves the address is not the place to re-decide it.
+ */
+export type AccountAddressLookup =
+  /** Identity answered. `email` is `null` when the account genuinely has none linked. */
+  | { readonly asked: true; readonly email: string | null }
+  /** Identity could not be asked. Not evidence about the account, and not a reason to fall back. */
+  | { readonly asked: false };
+
+/**
+ * The rule again, taking the account's **id** rather than a pre-built lookup.
+ *
+ * `lifecycleRecipient` distinguishes guest from account by whether `account` is present, which
+ * means a caller has to encode "there is no account" as an absent field — and the composition root
+ * encoded it as `{ asked: true, email: null }` instead. That was right while an account with no
+ * address fell through to the form address, and became wrong the instant that fallback was
+ * removed: the sentinel is an account object, so every guest decision resolved to `null` and
+ * stopped being sent, silently, with nothing failing.
+ *
+ * This shape removes the encoding step. `accountId === null` *is* the guest case, `askIdentity` is
+ * called only when there is somebody to ask, and there is no intermediate value for a caller to
+ * get wrong. Prefer it at any call site that starts from an id.
+ */
+export async function lifecycleRecipientForAccount(subject: {
+  /** The account owning the record this message is about, or `null` for a guest. */
+  readonly accountId: string | null;
+  readonly declaredEmail?: string | null | undefined;
+  /** Asks identity for the account's address, reporting whether it could be asked at all. */
+  readonly askIdentity: (accountId: string) => Promise<AccountAddressLookup>;
+}): Promise<string | null> {
+  if (!subject.accountId) return lifecycleRecipient({ declaredEmail: subject.declaredEmail });
+  return lifecycleRecipient({
+    account: await subject.askIdentity(subject.accountId),
+    declaredEmail: subject.declaredEmail,
+  });
+}
+
+export const lifecycleRecipient = (subject: {
+  /** What asking identity for the owning account's address produced, if there is an account. */
+  readonly account?: AccountAddressLookup | undefined;
+  /** The address a public form collected. Unverified by construction. */
+  readonly declaredEmail?: string | null | undefined;
+}): string | null => {
+  // No account at all — a guest submission. The form address is the only one there is.
+  if (!subject.account) return subject.declaredEmail || null;
+  // There is an account, so its answer is final and the form address is never consulted again.
+  // `asked: false` is not an answer, so it sends nothing.
+  return subject.account.asked ? subject.account.email || null : null;
+};
 
 export interface MessageTemplate {
   readonly id: string;

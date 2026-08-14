@@ -24,6 +24,7 @@ import {
   loadCfp,
   loadCfpRoutingStatuses,
   saveCfp,
+  saveCfpWindow,
 } from "../api/cfp";
 import "../styles/cfp.css";
 import { IconCheck, IconForm, IconGlobe, IconLink, IconPlus, IconWarning } from "../ui/icons";
@@ -31,21 +32,37 @@ import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/p
 import { ApplicantCfpForm } from "./ApplicantCfpForm";
 import { PublicFormPreview } from "./controls";
 import {
+  DECISION_STATUSES,
   DEFAULT_TITLE,
   describe,
   FIELD_TYPES,
   formatDate,
+  fromZonedInput,
+  zonedInputExists,
   isNotFound,
   loadPublicSubmissionUrl,
   shape,
   starter,
+  toZonedInput,
   typeLabel,
 } from "./model";
 // This state-owning composer intentionally exceeds 400 lines. Its draft ordering, selected field,
 // preview, publication transition, and applicant answers are one lifecycle; the remaining long
 // sections are single-use render branches, which issue #70 explicitly says not to extract merely
 // for size. Reused controls and pure model operations live in controls.tsx and model.ts.
-export function CfpWorkspace({ eventId, organizer }: { eventId: string; organizer: boolean }) {
+export function CfpWorkspace({
+  eventId,
+  organizer,
+  /**
+   * The event's IANA zone. Every deadline in this composer is entered and shown in it — never in
+   * the operator's own, which is what an unconverted `datetime-local` would silently mean.
+   */
+  timezone,
+}: {
+  eventId: string;
+  organizer: boolean;
+  timezone: string;
+}) {
   const [form, setForm] = useState<CfpFormDto | null>(null);
   const [fields, setFields] = useState<CfpField[]>(starter);
   const [title, setTitle] = useState(DEFAULT_TITLE);
@@ -66,7 +83,10 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
   const [routingStatusReload, setRoutingStatusReload] = useState(0);
 
   const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [busy, setBusy] = useState<"save" | "publish" | "state" | null>(null);
+  const [busy, setBusy] = useState<"save" | "publish" | "state" | "window" | null>(null);
+  // Wall-clock strings in the event's zone, which is what a `datetime-local` input speaks.
+  const [opensAtInput, setOpensAtInput] = useState("");
+  const [closesAtInput, setClosesAtInput] = useState("");
   const [previewTab, setPreviewTab] = useState("draft");
 
   const feedback = useActionFeedback();
@@ -189,6 +209,18 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
     };
   }, [eventId, organizer]);
 
+  /*
+   * The window inputs follow the server's answer rather than being edited free of it.
+   *
+   * Unlike the form's questions there is no "unsaved window" state to protect: the window is live
+   * state with one control, so whatever the API last returned is what the call actually has, and
+   * showing anything else would be the composer disagreeing with the public page.
+   */
+  useEffect(() => {
+    setOpensAtInput(toZonedInput(form?.opensAt ?? null, timezone));
+    setClosesAtInput(toZonedInput(form?.closesAt ?? null, timezone));
+  }, [form?.opensAt, form?.closesAt, timezone]);
+
   const draftShape = useMemo(
     () => shape({ title, description, fields, routing }),
     [title, description, fields, routing],
@@ -197,6 +229,32 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
 
   const dirty = baseline !== null && baseline !== draftShape;
   const liveStatus = form?.publishedStatus ?? null;
+  /*
+   * What applicants are actually in, which is not `liveStatus` once a window exists.
+   *
+   * The server computes it — a composer that decided from the operator's own clock would report
+   * an open call minutes after the deadline it published. `liveStatus` still decides what the
+   * close/reopen control does, because that control changes the organizer's half of the answer.
+   */
+  const effective = form?.effectiveStatus ?? liveStatus ?? "unpublished";
+  /*
+   * The destinations a routing rule may actually name.
+   *
+   * `accepted` and `declined` are configured on every event, so they are in `routingStatuses` — but
+   * reaching one is the effect of a recorded decision, which is what creates the session and tells
+   * the submitter. A rule assigning one told an applicant they had been accepted with nothing behind
+   * it, so the API refuses it; offering it here would be a control that builds an unsaveable rule.
+   */
+  const routableStatuses = useMemo(
+    () => routingStatuses.filter((status) => !DECISION_STATUSES.includes(status.key)),
+    [routingStatuses],
+  );
+  /** So a rule holding a status this control no longer offers can still be named, not left blank. */
+  const statusLabels = useMemo(
+    () => new Map(routingStatuses.map(({ key, label }) => [key, label])),
+    [routingStatuses],
+  );
+  const deadlinePassed = effective === "closed" && liveStatus === "open";
   const divergesFromLive = publishedShape !== null && publishedShape !== draftShape;
   const absoluteUrl = publicUrl ? new URL(publicUrl, window.location.origin).toString() : null;
 
@@ -274,6 +332,30 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
       setBusy(null);
     }
   }, [announce, description, eventId, fields, form?.version, routing, title]);
+
+  const persistWindow = useCallback(
+    async (window: { opensAt: string | null; closesAt: string | null }) => {
+      setBusy("window");
+      try {
+        const saved = await saveCfpWindow(eventId, window);
+        setForm(saved);
+        announce(
+          "success",
+          window.closesAt
+            ? "Submission window saved. Applicants see the deadline on the public form."
+            : window.opensAt
+              ? "Submission window saved. The call opens at the time you set."
+              : "Submission window cleared. The call is bounded only by the open and closed controls.",
+        );
+      } catch (reason: unknown) {
+        // ERROR-INTENT: the announcement is the user-facing failure state for this control.
+        announce("error", describe(reason, "The submission window could not be saved."));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [announce, eventId],
+  );
 
   const transition = useCallback(
     async (state: "publish" | "close" | "reopen") => {
@@ -524,6 +606,108 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
             </p>
           )}
         </div>
+      </Card>
+
+      {/*
+        The scheduled window, and the precedence rule stated where the controls are.
+        Live state, like open and closed: saving it takes effect at once and publishes no form
+        edits. It is a separate card rather than a field of the composer for exactly that reason.
+      */}
+      <Card labelledBy="cfp-window" title="Submission window" tight>
+        <p className="cfp-window-rule">
+          Both gates have to allow a submission. The schedule cannot open a call you have closed,
+          and <strong>Reopen live CFP</strong> cannot open one whose deadline has passed — move or
+          clear the deadline to take submissions again. Times are {timezone}, the event&rsquo;s own
+          timezone.
+        </p>
+        <div className="form-row cfp-window-controls">
+          <div className="field">
+            <label htmlFor="cfp-opens-at">Opens</label>
+            <input
+              id="cfp-opens-at"
+              type="datetime-local"
+              value={opensAtInput}
+              onChange={(event) => setOpensAtInput(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cfp-closes-at">Deadline</label>
+            <input
+              id="cfp-closes-at"
+              type="datetime-local"
+              value={closesAtInput}
+              onChange={(event) => setClosesAtInput(event.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy !== null}
+            onClick={() => {
+              /*
+               * A wall time that does not exist is refused rather than shifted.
+               *
+               * On a spring-forward date the local clock jumps an hour, so a deadline typed inside
+               * the gap — 02:30 where 02:00–02:59 never happens — converts to the instant *before*
+               * it and the organizer's deadline silently moves an hour earlier. Saving it is worse
+               * than refusing it, because the announced deadline is then a time nobody chose.
+               */
+              const missing = [
+                ["Opens", opensAtInput] as const,
+                ["Deadline", closesAtInput] as const,
+              ].filter(([, value]) => !zonedInputExists(value, timezone));
+              if (missing.length > 0) {
+                announce(
+                  "error",
+                  `${missing.map(([label]) => label).join(" and ")} ${
+                    missing.length > 1 ? "name times that do not" : "names a time that does not"
+                  } exist in ${timezone}: the clock skips that hour when daylight saving begins. Choose a time before or after it.`,
+                );
+                return;
+              }
+              // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
+              void persistWindow({
+                opensAt: fromZonedInput(opensAtInput, timezone),
+                closesAt: fromZonedInput(closesAtInput, timezone),
+              });
+            }}
+          >
+            {busy === "window" ? "Saving…" : "Save window"}
+          </button>
+          {form?.opensAt || form?.closesAt ? (
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy !== null}
+              onClick={() => {
+                // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
+                void persistWindow({ opensAt: null, closesAt: null });
+              }}
+            >
+              Clear window
+            </button>
+          ) : null}
+        </div>
+        {/*
+          The one sentence that is not derivable from the two inputs: what applicants get right
+          now. Taken from the server's own answer, because a composer that decided from the
+          operator's clock would report an open call minutes after the deadline it published.
+
+          Not a live region. This workspace has exactly one — `useActionFeedback`'s, beside the
+          toolbar — and saving the window announces through it; a second would mean a screen reader
+          gets whichever of the two React updated last.
+        */}
+        <p className="cfp-window-state">
+          {effective === "open"
+            ? "Applicants can submit now."
+            : effective === "scheduled"
+              ? "Applicants see the opening date and no form."
+              : effective === "closed"
+                ? deadlinePassed
+                  ? "The deadline has passed, so applicants cannot submit even though the call is marked open."
+                  : "Applicants cannot submit."
+                : "Nothing is published, so applicants cannot reach this form at all."}
+        </p>
       </Card>
 
       {liveStatus && dirty ? (
@@ -908,14 +1092,17 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
               <button
                 type="button"
                 className="secondary"
-                disabled={!routingStatuses.length}
+                disabled={!routableStatuses.length}
                 onClick={() =>
                   setRouting([
                     ...routing,
                     {
                       id: `route-${crypto.randomUUID()}`,
                       when: { fieldId: fields[0]?.id ?? "", operator: "in", values: [] },
-                      routeTo: { status: routingStatuses[0]?.key ?? "" },
+                      // Seeded from the *routable* set, not the configured one: seeding from a
+                      // decision status would create a rule the API refuses and the select below
+                      // cannot even display, since it is filtered out of the options.
+                      routeTo: { status: routableStatuses[0]?.key ?? "" },
                     },
                   ])
                 }
@@ -1044,11 +1231,44 @@ export function CfpWorkspace({ eventId, organizer }: { eventId: string; organize
                             )
                           }
                         >
-                          {routingStatuses.map((status) => (
+                          {/*
+                            Accepted and Declined are configured on every event but are not
+                            routable: reaching one is the effect of a recorded decision, which is
+                            what creates the session and tells the submitter. Offering them here
+                            let an organizer build a rule that told an applicant "Accepted" with
+                            no decision behind it — the API refuses such a rule, and the control
+                            should not propose one.
+                          */}
+                          {routableStatuses.map((status) => (
                             <option key={status.key} value={status.key}>
                               {status.label}
                             </option>
                           ))}
+                          {/*
+                            A form saved before that rule existed can still hold such a route, and
+                            a `select` whose value matches no option renders *blank* — so the
+                            organizer would see an empty control, an unexplained 400 on save, and
+                            no way to tell which of their rules was the problem. The stored value
+                            is shown, named as no longer allowed, and cannot be chosen again.
+
+                            The `length === 0` branch is not defensive noise. `routingStatuses`
+                            starts empty and is filled asynchronously, and stays empty for good if
+                            that read fails — so a single branch here labelled *every* rule as no
+                            longer routable, including perfectly valid ones, in a select holding
+                            nothing else to choose. Not knowing which statuses exist is not the
+                            same as knowing this one is gone, so that case renders the stored value
+                            plainly: the control says what the rule says and saves unchanged.
+                          */}
+                          {routableStatuses.some(
+                            ({ key }) => key === rule.routeTo.status,
+                          ) ? null : routingStatuses.length === 0 ? (
+                            <option value={rule.routeTo.status}>{rule.routeTo.status}</option>
+                          ) : (
+                            <option value={rule.routeTo.status} disabled>
+                              {statusLabels.get(rule.routeTo.status) ?? rule.routeTo.status} — no
+                              longer a routing destination, choose another or remove this rule
+                            </option>
+                          )}
                         </select>
                       </label>
                     </div>

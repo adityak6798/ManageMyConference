@@ -34,6 +34,8 @@ const build = (
     notifications?: ReviewNotificationPort;
     /** `null` models a published form that collected no contact address. */
     submitter?: { name: string; email: string } | null;
+    /** The owning account, or `null` for the guest submission this fixture defaults to. */
+    submitterUserId?: string | null;
   } = {},
 ) => {
   // The people identity-access reports as reviewers of this event. The seeded organizer holds
@@ -53,6 +55,7 @@ const build = (
         options.submitter === undefined
           ? { name: "Robin Submitter", email: "robin@example.test" }
           : options.submitter,
+      submitterUserId: options.submitterUserId ?? null,
       answers: [
         { fieldId: "format", label: "Session format", type: "select", value: "Workshop" },
         {
@@ -237,7 +240,7 @@ describe("review workflow", () => {
   });
 
   it("masks the submitter in the reviewer queue while organizers see the contact", async () => {
-    const { service } = build();
+    const { service } = build({ submitterUserId: "20000000-0000-4000-8000-00000000000a" });
     const organizer = await resolveSeededDemoActor("organizer");
     const reviewer = await resolveSeededDemoActor("reviewer");
     await service.configurePlan(organizer, eventId, [
@@ -250,13 +253,38 @@ describe("review workflow", () => {
       submitterName: "Robin Submitter",
       submitter: { name: "Robin Submitter", email: "robin@example.test" },
     });
+    // The organizer gets the contact details and *not* the owning account id. That id exists so a
+    // decision message can be addressed to the account rather than to a form answer; no organizer
+    // surface needs it, `proposalSchema` does not declare it, and this response is serialized
+    // without a schema parse that would strip it. It is a stable identifier for one person across
+    // every event, so reaching the wire by accident is the failure worth pinning.
+    expect(organizerView.proposals[0]).not.toHaveProperty("submitterUserId");
+    expect(JSON.stringify(organizerView)).not.toContain("20000000-0000-4000-8000-00000000000a");
+    // And on the two other reads that answer a request with proposals. `organizerWorkspace` was
+    // the only one scrubbed at first, so both of these carried the id to the wire — the same
+    // audience, but the invariant is "not on the wire" rather than "not to a stranger".
+    const moved = await service.bulkTransition(organizer, eventId, [proposalId], "under_review");
+    expect(moved[0]).not.toHaveProperty("submitterUserId");
+    const decided = await service.decide(organizer, eventId, [proposalId], "declined");
+    expect(decided.proposals[0]).not.toHaveProperty("submitterUserId");
+    expect(JSON.stringify(decided)).not.toContain("20000000-0000-4000-8000-00000000000a");
 
     // Blind review is a real mask at the projection edge, not a constant the adapter happens
     // to emit: the same stored proposal loses its submitter on the way to a reviewer.
     const queue = await service.reviewerQueue(reviewer, eventId);
-    expect(queue[0]?.proposal).toMatchObject({ submitterName: "Applicant", submitter: null });
+    expect(queue[0]?.proposal).toMatchObject({
+      submitterName: "Applicant",
+      submitter: null,
+    });
+    // The owning account goes with the address, and it is the one a mask is easiest to forget: it
+    // carries no name and no `@`, so the two string assertions below would not catch it. It is a
+    // stable identifier for one person across every event, so a reviewer who kept it could join
+    // two masked proposals to the same applicant. Dropped rather than nulled — a key set to null
+    // is still an undeclared key on a response nothing parses.
+    expect(queue[0]?.proposal).not.toHaveProperty("submitterUserId");
     expect(JSON.stringify(queue)).not.toContain("robin@example.test");
     expect(JSON.stringify(queue)).not.toContain("Robin Submitter");
+    expect(JSON.stringify(queue)).not.toContain("20000000-0000-4000-8000-00000000000a");
   });
 
   it("hides a person's name from reviewers without hiding a field that merely says 'name'", async () => {
@@ -891,12 +919,45 @@ describe("what a review action asks to have sent (issues #52, #66)", () => {
         outcome: "accepted",
         submitterName: "Robin Submitter",
         submitterEmail: "robin@example.test",
+        // A guest submission: there is no account, so the form answer is the only address there
+        // is. The account-bound case is the test below.
+        submitterUserId: null,
         proposalTitle: "Test proposal",
         // First decision on this proposal. The revision is what lets an observer tell a retry
         // from a reinstatement; the cases below drive both (issue #99, migration 1311).
         revision: 1,
       },
     ]);
+  });
+
+  it("reports the owning account with the decision, so the message need not use the form's address", async () => {
+    /*
+     * The half of issue #132 this domain owns.
+     *
+     * A decision is the most sensitive thing this system mails an applicant, and its only
+     * possible recipient used to be an `email`-typed answer nobody verified — so anyone could
+     * have a stranger's decision delivered to them by typing that stranger's address. Review
+     * cannot fix that alone: it holds no addresses. What it can do is report *who* the proposal
+     * belongs to alongside what the form claimed, and let the composition root prefer the address
+     * identity holds for that account. This asserts the fact carries both.
+     *
+     * Reporting both rather than resolving one here is the boundary: an address is identity's to
+     * answer for, and a domain that started resolving them would need identity as a dependency.
+     */
+    const notifications = recorder();
+    const owner = "20000000-0000-4000-8000-00000000000a";
+    const { service } = build({ notifications: notifications.port, submitterUserId: owner });
+    const organizer = await resolveSeededDemoActor("organizer");
+
+    await service.decide(organizer, eventId, [proposalId], "declined");
+
+    expect(notifications.decided[0]).toMatchObject({
+      submitterUserId: owner,
+      // Still reported, and deliberately: the account may hold no address, and a decline the
+      // applicant never hears is worse than one sent to the address they gave.
+      submitterEmail: "robin@example.test",
+      outcome: "declined",
+    });
   });
 
   it("holds the revision on a retry and advances it on a reinstatement", async () => {

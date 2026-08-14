@@ -1063,3 +1063,504 @@ new instant and returns.
 **No migration and no table.** The answer is a fold over `outcome_json`, which #175 already
 stored and #188 already read back, so this lane took no number in the `1400` block and none in
 any other.
+
+### Issue #190 rulings
+
+The account-bound CFP lifecycle, worked as one pull request. Seven decisions a later reader would
+otherwise have to re-derive from the diff.
+
+**The public CFP keeps one address, and publication stays its precondition.** The lane brief asked
+whether an account-bound flow needs its own address, since `/events/:slug/cfp` is only reachable once
+the event site is published. It does not, and the reason is that the slug *is* the event's public
+identity: publishing is the act that creates one, the site is publishable with an empty programme —
+which is exactly what a conference does when it opens a call months early — and inventing a second
+public address would give one call two URLs that get shared, ranked and bookmarked independently. The
+submitter's dashboard therefore lives on that same page rather than at a new route, which also keeps
+`main.tsx`'s public/console split and the workspace registry untouched. What this costs is stated
+rather than hidden: a call cannot be opened before the event site is published, and the composer
+already says so where the public link would be.
+
+**The window is live state, not form content.** `opens_at` and `closes_at` are columns on
+`cfp_forms`, deliberately absent from `published_json`, with their own `PUT .../cfp/window`. The
+alternative — fields of `saveCfpInputSchema` — means extending a deadline republishes whatever
+unrelated draft edits are sitting in the composer, and closing early needs a republish at all. That
+is the same reason `close` and `reopen` are not fields of `save`, and this follows it.
+
+**Both gates must permit, and Reopen refuses rather than no-ops.** `cfpEffectiveState` is one
+function: the schedule cannot open a call an organizer has closed, and reopening a call whose
+deadline has passed is a `400` naming the deadline as the thing to move. A `200` there would report
+"Published · open" over a form that refuses every submission — a column changed and nothing an
+applicant can see. A *future* `opensAt` is deliberately not refused, because reopening and then
+scheduling an opening is a real intention.
+
+**The deadline is stored as an instant and edited as a wall clock.** An announced deadline must not
+move because somebody later corrected the event's timezone, so storage holds an instant;
+`<input type="datetime-local">` carries no zone at all, so the conversion happens in
+`apps/web/src/cfp/model.ts` against the *event's* zone rather than the operator's — two passes, so a
+deadline an hour either side of a daylight-saving change lands on the time that was typed. The
+storage guards then compare those columns as **text**, which is only chronological while every value
+has the canonical `toISOString()` shape; `CfpService` normalises through `Date` before writing, and
+that agreement is pinned in both the service and the D1 suite.
+
+**Ownership is a nullable column, and that is the whole guest rule.** An anonymous submission records
+no `submitter_user_id`, so it reaches no dashboard, cannot be edited, and cannot be claimed — a
+trigger refuses any `UPDATE` that changes the column, so "claiming" is not a code path that was left
+unwritten but one the database refuses. The demo fixture's own proposals are all anonymous, including
+the accepted one whose *answers* name a seeded speaker, which makes the seed evidence for the rule
+rather than a contradiction of it. A submitter is authorized by owning the row rather than by an
+event capability; [authorization](../architecture/authorization.md#a-submitter-is-authorized-by-ownership-not-by-a-capability)
+states why, because that is where the next reader will look for the missing capability check.
+
+**A draft is separated by `lifecycle`, and the `status` value is defence in depth.** `lifecycle` is
+what all four read paths of `D1SubmittedProposalAdapter` filter on. A draft row *additionally* carries
+`status = 'cfp:draft'`, a value **no event can configure** because `proposalStatusSchema` matches
+`^[a-z0-9_-]+$` and so cannot express the colon — so a status-keyed triage read cannot reach one even
+if a fifth read path is added later without the predicate, and a draft cannot pin a configured status
+against deletion through `cfp_status_delete_rejects_in_use`. It read `'draft'` when this paragraph was
+first written, which a review pass caught: that *is* a legal triage key, and the paragraph was
+asserting an invariant nothing enforced. See "what the review passes changed" below. The two are held in agreement by a
+trigger pair rather than by convention, and `d1-cfp-account-binding.integration.test.ts` enumerates
+the read paths so a leak fails a test rather than appearing in somebody's queue.
+
+**Migration `1705` is cross-domain, and it is the piece `D5` was waiting for.** Decision `D5` deferred
+the submission confirmation because the only address available was an unverified form field. Account
+binding answers that — the recipient is resolved from the *session* through identity's directory, so
+nothing a request carries can direct it — but the message still needed a trigger value, and
+`communication_deliveries.trigger_type` is a pinned `CHECK` on a communications-owned table with
+**three** child tables — `communication_attempts`, `outbound_projection_state` and
+`calendar_invite_states`, the last added by `1704` after `1703` was written. `1705` therefore rebuilds
+three rather than copying `1703`'s two, takes its number from the communications block per
+`migrations/README.md`, and is replayed over the seeded fixture in the same file `1703`'s replay lives
+in. It *did* copy the two, which is the blocker recorded below. `proposal.submitted` is deliberately **absent** from
+`requestTriggerTypeSchema`: an organizer authoring one to an arbitrary address would hand back
+precisely the primitive the binding removed.
+
+**What this does not do: `#132` narrows and stays open.** The anonymous door is unchanged and still
+accepts an address nobody verified, so the exposure `#132` describes still exists for the one message
+that addresses it — a decision notification for an anonymous proposal, still carrying only the fact of
+a decision (`D6`). What narrowed is real and worth stating in four parts.
+
+The *new* message queues only to a session-derived address, so the account-bound path adds no
+exposure at all. A decision is now readable on the submitter's own dashboard, so the product no
+longer *depends* on mail to communicate one. An address in a form now buys ownership of nothing,
+enforced by a trigger.
+
+And the fourth is the one that touches the message `#132` was actually filed about. **An
+account-bound proposal's accept or decline is now sent to the address identity holds for its
+owner**, not to the `email`-typed form answer. `SubmittedProposal` carries `submitterUserId`,
+`decisionRecorded` reports it beside `submitterEmail`, and `lifecycleRecipient` in the
+communications domain states the rule once — an account-bound subject is written to at its account
+or not at all, and the form address is reached only when there is no account. Review
+reports both and resolves neither, because an address is identity's to answer for and a domain that
+started resolving them would need identity as a dependency; the composition root is where the two
+meet, so that is where the choice is made. The reviewer projection drops `submitterUserId` with the
+name and the address — it is a stable identifier for one person across every event, so a blind queue
+that kept it would let a reviewer join two masked proposals to the same applicant, and neither of
+the two string assertions guarding that test would have caught it.
+
+So the exposure is now bounded to *guest* submissions rather than to all of them. The fallback to
+the form address is deliberate and is why this narrows rather than closes: a guest submission is a
+supported way to apply (`PRD-CFP-002`) and refusing to write to it would mean telling nobody. The
+per-`(event, recipient)` cap or double opt-in that `#132` actually asks for is still a product
+decision plus storage, and was not taken here. `DEBT-013`'s enrichment guard is unchanged and still
+binding: the moment a decision notification carries reviewer comments or scores, an unverified
+address becomes a disclosure of somebody's review, and the guest path must be verified before the
+message is enriched.
+
+`GAP-027` records the residuals: nothing announces a deadline before it passes, this deployment
+offers a submitter one sign-in door and it is a seeded persona, and no confirmation has reached a real
+mailbox.
+
+#### What the review passes changed, and one of them was a blocker
+
+Five adversarial passes ran against the risk map, three of them over the repairs the earlier ones
+provoked. The design survived all five; its execution did not, and the defects are recorded below
+because each is a shape that will recur — three of them twice, on a sibling nobody had looked at.
+
+**A rebuild migration copied a recipe that had gone out of date.** `1705` follows `1703`'s ordering
+statement for statement — and `1703` had *two* child tables, while `1704` had since added a third.
+`calendar_invite_states` was left pointing at the parent being dropped, so `DROP TABLE
+communication_deliveries` fails with `FOREIGN KEY constraint failed` on exactly the deployments that
+have ever sent a calendar invitation, and a fresh database is fine. That is verbatim the failure
+`1703`'s own header exists to prevent. The suite could not see it because `seed/reset.sql` leaves
+that table empty and the existing replay asserted rows only in the two tables the migration under
+test happened to rebuild. The replay now discovers children through `pragma_foreign_key_list`,
+refuses to run unless **every** one of them is populated, and checks afterwards that each foreign
+key still resolves to the parent and still refuses a dangling id. Reverting the fix reproduces the
+production error against that test, which is how the fix was confirmed rather than assumed.
+
+**A caller-supplied idempotency key was unique per event, not per account.** `UNIQUE (event_id,
+idempotency_key)` made a second account's `INSERT OR IGNORE` a no-op, and the convergence read that
+followed was not owner-scoped — so the second caller was handed the *first account's* proposal: id,
+answers and decision state, with a 201. Two reviewers reproduced it independently, one through the
+fake and one through D1. Both halves are fixed, because either alone leaves something wrong: the
+reads are scoped (a collision is now a refusal rather than a disclosure) *and* an owned proposal's
+stored key is namespaced by its owner (so a collision between two accounts cannot happen, and an
+unlucky key does not lock somebody out of creating a draft at all).
+
+**A migration header asserted an invariant nothing enforced.** The draft sentinel was the bare word
+`draft`, and the header said no event configures a triage status by that name — but
+`proposalStatusSchema` accepts `^[a-z0-9_-]+$`, so it is a perfectly legal key, and an organizer who
+configured one turned a bulk transition, a routed submission and a status delete into failures. The
+sentinel is now `cfp:draft`, which that pattern cannot express: the property is enforced by review's
+own input schema instead of asserted about it. The general lesson is the one worth keeping — a
+comment claiming a guarantee is worse than no comment, because it stops the next reader looking.
+
+**Routing was a third door into a decision.** `accepted` and `declined` are configured on every
+event (migration `0021`), so a routing rule could name one, and until this issue nothing showed an
+applicant their triage status. The submitter dashboard reads it, so "track = Keynote → Accepted"
+would have told somebody they were accepted with no decision recorded, no session and no organizer
+having decided anything. `save` now refuses such a rule, `resolveRoute` ignores one already stored,
+and the composer stops offering the two as destinations.
+
+**And four smaller ones**: the five submitter routes accepted an event-scoped bearer token without
+ever consulting the event it was scoped to (and an API-client credential reached them and died on a
+foreign key as a 500) — both are refused at the transport now, because *how the caller
+authenticated* is a fact only the transport holds; `identityDirectory.findRecipient` sat between the
+two swallow wrappers in the composition root, so a transient read could answer 500 over a submission
+that had already committed and whose retry is then refused as "already submitted"; the console's own
+applicant form branched on `status` rather than `effectiveStatus`, offering a working form over a
+call past its deadline; and an event whose proposals were all drafts could delete the default
+`submitted` status, leaving the applicant's Submit aborting on a trigger name.
+
+**The verification passes then found one regression the repairs themselves introduced**, which is
+the reason a repair round gets its own review rather than being taken on trust. Refusing a decision
+route in `CfpService.save` made the *event-template* CFP slice refuse a whole category: a template
+captured from an event that already held such a rule previewed as "copies" and then discarded the
+entire form — title, fields and all — because `partitionRouting` only ever asked whether a status
+was *configured*, and `accepted` always is. The slice now partitions on that too, so the rule is
+named back to the organizer as incompatible and the form arrives without it, which is the promise
+that module was already making. Two smaller ones came with it: the bearer refusal had no test
+anywhere (the CFP HTTP suite runs in demo mode, where the bearer branch is unreachable, so it was
+structurally incapable of covering it), and the guard was five copies inside handlers rather than
+middleware on the prefix — a sixth route would have inherited nothing and failed nothing.
+
+**A third pass found one more major, and it is the same shape as the first pass's.** A revision
+rewrote `answers_json` and left `form_fields_json` and `cfp_version` on the snapshot the proposal
+was *submitted* against — while `saveProposal` validates against the form as published **now**, and
+refuses any key the current form does not name. So after an organizer renamed a question, an
+applicant's revision stored answers whose keys matched nothing in the row's own snapshot, and every
+projection reads an answer by looking its field up there: the proposal went blank in triage, blank
+in every reviewer's queue, blank on the applicant's own dashboard, and its contact address —
+resolved from the first `email`-typed field of that snapshot — became null, so the decision was
+logged unaddressable and never sent. `submitProposal` always carried both; `saveProposalAnswers`
+did not. That is `GAP-025`'s lesson again, and the fake had the same hole as the statement, so no
+test using it could have caught the divergence. Both now write the snapshot with the answers, and
+the repair is confirmed by reverting it.
+
+Three smaller ones came with it, each a sibling of something already repaired. The anonymous
+door's closed-window race still answered `400 VALIDATION_FAILED` — telling a guest their form
+answers were wrong as the organizer closed the call — where `createDraft` had been moved to `409`;
+the three account-bound writes parsed an attacker-controlled body before establishing there was an
+account at all, which the same file states as a rule twice; and the confirmation was announced
+*after* a read-back, putting a fallible read between a one-way action and the message that says it
+happened — the very shape `recipientFor` exists to prevent, one layer up. Two header claims were
+corrected rather than defended: migration `1201`'s "submitting is one-way … a property of the
+database" is true of `UPDATE` and not of `INSERT OR REPLACE`, which resolves a conflict as
+delete-then-insert and fires no `BEFORE UPDATE` trigger (nothing writes that table that way, and
+the weaker true statement is the one worth having); and `normalizeInstant`'s rationale named an
+offset spelling the window contract actually refuses.
+
+**And a pass over *that* repair found the one that matters most, because it was a security defect
+introduced by a security fix.** Preferring the account's address was written as
+`accountEmail: owner?.email` — and `recipientFor` swallows a failed identity lookup and answers
+`null`, which is indistinguishable from an account that holds no address. So a transient read error
+at the moment an organizer decided fell *through* to the form-supplied address: an accept or decline
+delivered to whatever a stranger had typed into a public form, which is verbatim the exposure the
+preference exists to remove. It does not heal, either — the delivery key names the decision's
+occurrence and the insert is `ON CONFLICT DO NOTHING`, so a retry converges on the row already
+addressed wrongly. The sibling path did not have the bug: `reviewerAssigned` treats a null lookup as
+unaddressable and sends nothing.
+
+The fix is a type rather than a rule to remember. `lifecycleRecipient` now takes the *outcome* of
+asking identity — `{ asked: true, email }` or `{ asked: false }` — and returns `null` for the
+second, so the distinction is the domain's and the composition root cannot collapse it. Removing
+that one line fails the test that names it. Two claims this repair round had itself written were
+false under a failed lookup and are now conditioned: `PRD-COM-001` and the data-flow narrative.
+
+**A sixth pass then found that the fix's *other* half was still one line from being wrong, and
+that a repair had opened a race.** Two lessons, both about where a rule lives.
+
+`recipientFor` returned the address and let the composition root build the discriminated pair, so
+the entire fail-closed property came down to one hand-written line — and a line reading
+`{ asked: true, … }` unconditionally reintroduces the vulnerability while typechecking cleanly and
+passing every test, because nothing tests that file's wiring. `recipientFor` now answers in the
+shape the rule is decided from, so there is no line left to get wrong. A rule enforced by a type
+one call site re-derives is not enforced.
+
+And branching the snapshot on lifecycle made `saveProposalAnswers` unsafe: the branch is chosen
+from a row read *before* the write, the caller supplies the expected revision, and the statement
+had no lifecycle predicate — so a revision naming a number the row had not reached yet could land
+the draft branch on a row a concurrent submit had already made `submitted`, blanking
+`form_fields_json` and with it every organizer and reviewer projection of that proposal. Both
+statements now assert the lifecycle they were built for. This is the third time in this issue that
+a decision made from an earlier read had to be re-asserted in the write's own `WHERE`; the pattern
+is worth naming, because the fake had the same hole both times.
+
+Also: `submitterUserId` was scrubbed from `organizerWorkspace` and still went out on `decide` and
+`bulkTransition`, whose responses are serialized without a schema parse — the invariant is "not on
+the wire", not "not to a stranger", and one of three call sites is not an invariant.
+
+**A seventh pass found the lifecycle predicate had itself gone one step too far, twice.** Binding
+the lifecycle in `submitProposal`'s statement turned a *fixed* precondition into a caller-supplied
+argument: submitting is one-way, so the row must be a draft, and a caller passing `submitted` would
+have re-submitted an already-submitted proposal — new `submitted_at`, re-resolved route, second
+confirmation — with `1201`'s no-regression trigger silent, because it refuses only
+`submitted` → `draft`. Nothing tested it, and the fake still refused what D1 now accepted, which is
+adapter/fake drift in the direction no service test can see. `ProposalSubmitWrite` now **omits**
+`lifecycle` and the statement states `'draft'` literally; the other write keeps the argument,
+because it genuinely chooses between two snapshots.
+
+And adding a member to the write's conjunction without adding a branch to `explainRefusedWrite`
+made that explainer confidently wrong: it reaches its last sentence by elimination, so a revision
+that lost to a concurrent submit was told the call for proposals had closed while it was open —
+the same wrong sentence the anonymous 409 had just been repaired for, in the sibling path. The
+explainer now has a branch per predicate, and its docstring says why the last one is a trap.
+
+**An eighth pass looked somewhere the previous seven had not — the applicant's own surface — and
+found the worst defect of the issue there.** Submitting an unsaved proposal is two calls: create the
+draft, then submit it. The row exists after the first whatever the second does, and the page did not
+adopt it until the submit *succeeded*. So after a refused submit, the applicant's next Save draft
+took the create branch again with the same idempotency key, `createDraft` converged on the existing
+row **without updating its answers**, and the page said "Saved. You can come back to this proposal
+any time." The correction they had just typed was discarded, and what is on screen after a dropped
+write is identical to what is on screen after a kept one — which is why seven passes over the
+backend seams never saw it. The draft is now adopted the moment it exists.
+
+Three more from the same pass, each about telling the applicant something untrue. The lifecycle
+branch added the round before was *shadowed* by the revision check — every lifecycle change also
+advances `revision`, so both realistic races still answered "this changed in another tab" about a
+proposal that had been submitted; lifecycle is checked first now, which cannot mis-answer. That
+branch also threw a `CfpStateError`, which the transport answers **400 `VALIDATION_FAILED`** — the
+third time on this branch that a state conflict was reported as a bad request, so it has its own
+error type and its own 409 rather than the nearest existing class. And the public form's error
+notice, which served one action when it carried a blanket "Not submitted — " prefix, now serves
+five: sign-out, demo sign-in, identity, save and submit. It rendered "Not submitted — This proposal
+has already been submitted." The prefix is gone; every message already names what failed.
+
+**The browser spec was also not re-runnable, contrary to its own header.** Proposals belong to an
+account and nothing deletes one, so a second run against the same server met the first run's rows
+and the "still one proposal" assertion — the point of the step it guards — was the first thing to
+break. Every title it writes now carries a per-run marker and every count is scoped by it. The
+header claimed re-runnability on the strength of a `finally` that restores the window, which is a
+different property.
+
+**A ninth pass, told to look at the surfaces rather than the seams, found four more — and two of
+them were the previous round's own repairs not doing what their commit message said.** The
+lifecycle-before-revision reorder was **untested**: swapping the two `if` blocks back left all 887
+tests green, because the test passed the *post*-submit revision, which makes the revision predicate
+match and the order irrelevant. The new 409 mapping was untested too — deleting it turned a
+double-submit into a **500** with the suite still green. Both now have assertions that fail against
+the reverted code, one of them at the transport, where the header already said status codes belong.
+
+The other two were the surfaces themselves. The public event home page rendered a *scheduled* call
+as **"Closed"**: `effectiveStatus` gained a fourth value and the pill still had two, so a visitor a
+month before a call opened was told it had ended, one click from a page saying "Opening soon" with
+the date. And a deadline was labelled with the zone abbreviation of the *event's own week*, which is
+right for a session and wrong for a deadline — a call closing in December for a conference in
+September rendered `12:00 PM PDT` when the answer is `PST`. Clock time right, zone name an hour out,
+at the one number on the page that has to be right. The label now comes from the instant.
+
+Three smaller ones round it out, all about the same live region. Removing the blanket
+`"Not submitted — "` prefix was right, but the notice *preferred the server's message*, and the
+API's generic refusal is "Something went wrong." — so a failed submit spoke exactly that and nothing
+else. It now always names the action and adds the server's reason after it. Adopting the draft early
+fixed the data loss and left the dashboard saying "Nothing yet." above a form claiming to edit a
+draft, so the list refreshes with it. And the transport threw away the sentence the service composes
+for a revision conflict, telling somebody who lost a race on a *submitted* proposal to "reload the
+latest draft".
+
+**A tenth pass found that the window had quietly rewritten an existing endpoint's status codes,
+and that is the one finding of this issue that changed a decision rather than a line.**
+`POST /api/public/events/{eventId}/submissions` answered `404 NOT_FOUND` for a closed call
+and `400` when its insert lost a race. Routing it through `openForm` moved the first to `409`, and
+a repair earlier in this issue moved the second there too — both improvements, and both breaking:
+`api-compatibility.md` classes "repurposing a status or error code" as a change that ships
+additively and waits 180 days, a procedure no endpoint here has completed. Worse, the same branch
+had written into `docs/interfaces/README.md` that this endpoint was *unchanged*.
+
+So the codes are put back and the endpoint keeps what it documented, with the reasoning at the
+translation and in the interfaces document: the **reasons** a call can be shut have grown a member
+and the **answers** have not. 409 is still the right code and the five new routes give it — they
+are new, so they are free to. Two lessons worth keeping. A refusal that travels through a shared
+helper inherits that helper's status, so adding a state to one domain silently repriced a public
+contract nobody was looking at. And "this endpoint is unchanged" is exactly the sentence to check
+against the code rather than against intent.
+
+Also from that pass: the refresh added the round before to stop the dashboard contradicting the
+form was awaited *inside* the submit's guarded action, so a failed list read — a decorative request
+— prevented the submit from being attempted at all and reported that the proposal could not be
+submitted. It is now fire-and-forget with an `ERROR-INTENT`, and a test drives a failing list read
+through a successful submit. It was also, like two repairs before it, untested: deleting it left
+all 350 web tests green.
+
+**An eleventh pass found the sibling of the *tenth* pass's repair, which makes three rounds in a
+row where a fix was applied to one call site and not the other.** The list refresh had been moved
+out of the submit's failure path in one place and left, awaited, in the place immediately after the
+submit had committed. A failed read there reported "The proposal could not be submitted." over a
+proposal that **was** submitted — with the form already cleared and the idempotency key already
+rotated, so the applicant retyped, pressed Submit, and created a *second* proposal. On a one-way
+action that is the worst outcome this surface can produce, and the test written for the first half
+stopped one assertion short of catching it.
+
+There is now **one** refresh, in `guarded`'s `finally`, after every action and part of none. That
+removes the gating in both places at once, and removes an ordering race the two-call version had
+introduced — the dashboard could render "Draft · Continue" beside a notice saying the proposal was
+submitted. The rule this issue kept relearning is worth stating plainly: **a view must never gate
+an action, and a repair to one call site is not a repair.** `GAP-025` exists for the same reason.
+
+That pass also checked the previous round's compatibility argument against `origin/main` rather
+than against the branch, and found half of it wrong in a way that mattered. The status codes were
+right — 404 and 400 are what `main` answered. But the *error code* named throughout was
+`CFP_UNAVAILABLE`, which is the name of an error **class**: `apiErrorCodeSchema` has no such member
+and the wire has always carried `NOT_FOUND`. Six places said it, including this ledger and the
+interfaces document — one of them inherited from `main`. All corrected, and the interfaces document
+now says so rather than quietly changing.
+
+Two smaller ones: the translation that pins the status was replacing `openForm`'s sentence, so a
+guest arriving a month early was told the call had closed — the message travels now, and is
+asserted; and the transport carrying the service's conflict wording is a visible change on a
+pre-existing endpoint, which is compatible but was undocumented.
+
+**A twelfth pass was pointed at the applicant component's state machine rather than at the
+repair, and found the two worst defects of the issue there — both in code this issue added, and
+neither reachable from any seam earlier passes had examined.**
+
+**The list's buttons were live during an in-flight write.** `Continue …` binds the form to a
+proposal immediately; a save still in flight sets `editing` when it resolves. Press one during the
+other and the form holds proposal B's answers under proposal A's id — and the next save sends them
+at a current revision, so nothing refuses it and the page says "Saved." while A is destroyed.
+`Start another proposal` is the worse door: it clears the form, so a whole new proposal is typed
+and then written over the previous one as a `PUT`, with no create issued at all. Every other
+control on the page was already gated on `submitting`; these two were not.
+
+**And a draft could become permanently unsavable.** A stored proposal is a snapshot of the form it
+was written against, while the server validates a revision against the form as published *now* —
+so a draft holding an answer to a question the organizer has since removed, or since hidden behind
+a condition, failed every save and every submit. The error could not even be shown: field errors
+render inside the loop over *visible* fields, so one keyed to a removed field has nowhere to go.
+The applicant saw "Review the highlighted proposal fields" with nothing highlighted, and there is
+no delete. Answers are now pruned on the way in, exactly as the change handler already pruned them
+on every keystroke.
+
+The pass also refused the previous round's own claim. Collapsing the refreshes into one did **not**
+remove the ordering race, it relocated it: the single call fires after `setSubmitting(false)`, so
+the controls are live again while it is in flight and a *second* action can overtake it — save,
+then submit, then the save's older list lands and repaints the row as a draft with a Continue
+button, beside a notice saying the proposal was submitted. A generation counter now drops stale
+answers. And the line the whole round was about had no unit coverage at all; deleting it left 351
+tests green. That is the fourth consecutive round in which this one line has been wrong.
+
+**And a thirteenth pass caught the sentence above being false when it was first written.** The
+round claimed the refresh line "now has a test"; it did not. Mutation showed four of that commit's
+behaviours shipping uncovered — the refresh call, the generation counter, the `refreshes` option,
+and the hidden-field half of the prune — each of which could be deleted with all 353 web tests
+still green. Only the browser gate would have noticed, which is the slowest signal there is. All
+four are covered now, each verified by reverting it and watching a named test fail. The lesson is
+narrower than "write tests": a claim *about coverage* is exactly as checkable as the code, and this
+one went into a commit message and a plan document without being run.
+
+**A fourteenth pass then found that the fix for that had itself shipped two behaviours with no
+assertion, and one of them was a regression.** Preferring the copy in hand over the list row is
+right after a *successful* write and wrong after a refused one — `editing` is replaced only on
+success while the list refreshes either way, so a 409 from another tab left the in-hand copy
+stale, and pressing `Continue` on the row the conflict message points at rebound the same stale
+revision and was refused identically. Whichever copy carries the higher revision now wins, and
+both directions are pinned. (An escape did exist — `Start another proposal` clears `editing`, after
+which `Continue` binds the fresh row — so "no way out but a reload", which this ledger and a commit
+message both said, was an overstatement of an otherwise real trap.)
+
+That pass also found the reordering that de-flaked the window test had quietly stopped checking
+the guarantee the test is named for: `waitFor` succeeds the instant the request is *issued*, so a
+second write following it was invisible, and "must not publish the form" was no longer asserted.
+
+**And it found three more load-dependent flakes, one of them in the test the previous round had
+just "fixed".** Two are the same shape and worth naming as a family: a control seeded from props
+or a URL in a passive effect is *findable* before that effect has run, so a value typed in the gap
+is silently cleared by the effect's own reset — the window's deadline went out as `null`, and the
+invitation token never reached the button. The third was a synchronous assertion on a sentence
+still in flight. None is in product code, but the first two shadow a real narrowness: an effect
+that resets a controlled input after first paint clobbers anything typed in that window.
+
+Three flakes across three rounds were found only under **load** — several copies of the suite
+running at once. That is worth stating precisely, because the first version of this paragraph said
+the load came from `npm run check` running the workspaces concurrently, and it does not: `npm test`
+runs workspace scripts **serially** (measured — the API suite finishes before the web suite starts,
+every run). No gate applies that load. So this class of flake is not caught by any gate here; it
+was caught by a reviewer choosing to run the suite sixty times against other work on the same box.
+Sixteen green runs of the web suite alone said nothing about any of them, and neither would sixteen
+green runs of `npm run check`.
+
+**Copilot's review, after the branch was rebased onto `main`, found two things fifteen human-shaped
+passes did not — and both were in the seams those passes had declared clean.**
+
+**The account preference still failed open for an account with no address.** `lifecycleRecipient`
+fell through to the form answer there, which is the exposure preferring the account exists to
+remove: an owned proposal's form answer is still unverified and possibly a stranger's. The rule is
+now about which *subject* rather than which address — an account-bound subject is written to at its
+account or not at all — and the form address is reached only when there is no account. `PRD-CFP-004`
+had said exactly this about the *confirmation* since the beginning; the decision path simply did not
+match its own spec, and nobody read the two side by side.
+
+**And the two-pass zone conversion cannot represent a wall time that does not exist.** On a
+spring-forward date the clock skips an hour, so a deadline typed as `02:30` converted to the same
+instant as `01:30` and the organizer's announced deadline moved an hour earlier with nothing on
+screen to say so. `zonedInputExists` is the round trip itself, and the composer refuses rather than
+saves. It is deliberately not folded into `fromZonedInput`, whose `null` already means *no bound* —
+collapsing a skipped time into that would clear the deadline being set.
+
+A third finding is real and **wider than this branch**: every lifecycle template exists only in the
+demo seed for one organization, so on any other organization all nine messages — including the
+`decision-accepted` and `decision-declined` that predate this issue — resolve no template, and
+`notifyLifecycle` swallows the refusal. Filed as issue #217 rather than repaired here, because it
+is one provisioning decision across four domains and this branch neither introduced nor widened it.
+
+**And the fix for Copilot's first finding shipped a blocker of its own, which is the fourth time on
+this branch that a repair broke the sibling of the thing it fixed.** Removing the fallback for an
+account with no address was right. But the composition root encoded a *guest* as
+`{ asked: true, email: null }` — a stand-in account object, correct while that fallback existed and
+wrong the instant it went — so `lifecycleRecipient` read it as "this account has no address" and
+**every guest decision stopped being sent**, silently, with all 902 tests green.
+
+The rule's shape was the trap: it distinguishes guest from account by whether a field is *present*,
+so a caller has to encode absence, and the one caller encoded it wrongly. `lifecycleRecipientForAccount`
+takes the account **id** instead — `null` *is* the guest case, identity is asked only when there is
+somebody to ask, and there is no intermediate value to get wrong. The unit assertions had pinned
+the guest case as `lifecycleRecipient({ declaredEmail })`, a shape production never constructs,
+which is why nothing connected the rule to its only caller; the new test drives the root's own
+shape and fails against both encodings of the bug.
+
+**One request from that pass was refused, and the refusal is the interesting part.** A reviewer
+asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
+its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`
+has a foreign key to `events`, which D1 enforces, so the fixture needs an `events` and an
+`organizations` row, and `npm run context -- check` then reports *Domain 'cfp' reads table 'events'
+owned by 'events'*. Moving those two inserts into the platform-owned harness moves the same
+finding to `platform`. What remains is putting the fixture in a `.sql` file so the table names stop
+appearing in scanned source — which is defeating the check rather than satisfying it. The replay
+was reverted and the attempt recorded at the test, because the gate is right: a CFP file must not
+depend on the events schema, and the coverage that costs is one `UPDATE … WHERE updated_at IS NULL`
+whose failure mode is a NULL every reader already `COALESCE`s.
+
+**One out-of-lane repair, taken rather than filed.** `apps/web/test/shell-error-surface.test.tsx`
+is the shell's, not the CFP's, and this branch does not touch the code it covers — but it made
+`gate:test-build` nondeterministic, and a suite that fails at random teaches people to re-run it.
+Its fixture answered the content read and left the checklist read — `speaker-task-templates` —
+to a 404 fallback that renders an error notice into the same live region, so whether that 404
+landed before or after the retry decided whether the final `queryByRole("alert")` saw "No fixture".
+Measured on this machine: **11 failures in 12 runs** before, **0 in 12** after. It is the same class
+as issue #200 and does not close it.
+
+The first attempt stubbed a *second* unanswered read as well, on the theory that both raced. A
+review pass measured them separately and only the checklist one does: the accelevents client
+swallows a failure into a null integration and announces nothing. Worse, that second stub returned
+a body its own schema rejects, so it was indistinguishable from the 404 it replaced — a fixture
+that looks like coverage and is not. It was removed, which is why the account above names one read
+rather than two.
+
+**One cross-domain UI edit, announced here as the rules require.** `OrganizerReviewWorkspace.tsx` is
+review-owned and gains a notice routing an organizer into the members workspace when no reviewer is
+staffed — issue #190's reviewer-provisioning discoverability, which the issue allows to be satisfied
+by routing into the existing workflow rather than building a second one. It is covered by
+`apps/web/test/review-decisions.test.tsx`, which asserts both that the notice names the role and the
+event and that it disappears once a reviewer exists.

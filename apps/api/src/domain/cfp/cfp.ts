@@ -45,7 +45,19 @@ export const CFP_FIELD_MAX_LENGTHS: Readonly<Record<CfpFieldType, number>> = {
  */
 export const cfpFieldMaxLength = (field: Pick<CfpField, "type" | "maxLength">): number =>
   field.maxLength ?? CFP_FIELD_MAX_LENGTHS[field.type];
-export interface CfpForm {
+/**
+ * The scheduled half of "may a proposal be submitted right now".
+ *
+ * Two UTC instants, either of which may be absent — an unbounded call is the state every CFP
+ * shipped in before this existed, and it stays the default. Both are live state rather than form
+ * content: see `apps/api/migrations/1201_cfp_submission_window_and_account_binding.sql` for why
+ * extending a deadline must not republish a form.
+ */
+export interface CfpSubmissionWindow {
+  readonly opensAt: string | null;
+  readonly closesAt: string | null;
+}
+export interface CfpForm extends CfpSubmissionWindow {
   readonly eventId: string;
   readonly title: string;
   readonly description: string;
@@ -56,6 +68,63 @@ export interface CfpForm {
   readonly publishedAt: string | null;
   readonly publishedStatus: "open" | "closed" | null;
 }
+/**
+ * Whether a call is taking submissions, and why not when it is not.
+ *
+ * `scheduled` is a distinct answer rather than a flavour of `closed` because the two say opposite
+ * things to an applicant: one is "come back on the 3rd", the other is "you have missed it".
+ */
+export type CfpEffectiveState = "unpublished" | "scheduled" | "open" | "closed";
+
+/**
+ * The precedence between the schedule and the organizer's own close/reopen control, in one place.
+ *
+ * **Both gates must permit.** The schedule cannot open a call an organizer has closed, and the
+ * organizer's Reopen cannot open one whose deadline has passed — to take submissions again after a
+ * deadline, the deadline has to move, which is the only act that changes what applicants were
+ * told. `CfpService.changeState` refuses a reopen that would have no effect rather than answering
+ * 200 to a request that changed nothing.
+ *
+ * A closed deadline outranks a future opening: a window whose two ends have both gone by reads as
+ * `closed`, never as "about to open".
+ *
+ * Publishing decides what the form asks and never what state the call is in — that rule predates
+ * the window (`PRD-CFP-001`) and the window does not weaken it: publishing a form whose event has
+ * a future `opensAt` leaves the call `scheduled`.
+ */
+export function cfpEffectiveState(
+  live: {
+    readonly status: CfpForm["status"];
+  } & CfpSubmissionWindow,
+  now: Date,
+): CfpEffectiveState {
+  if (live.status === "draft") return "unpublished";
+  if (live.status === "closed") return "closed";
+  const at = now.getTime();
+  if (live.closesAt && Date.parse(live.closesAt) <= at) return "closed";
+  if (live.opensAt && at < Date.parse(live.opensAt)) return "scheduled";
+  return "open";
+}
+
+/** Where a proposal is in the submitter's own lifecycle, as opposed to the organizer's triage. */
+export type ProposalLifecycle = "draft" | "submitted";
+
+/**
+ * The `status` a draft row carries, and it is **unspellable** as a configured triage status.
+ *
+ * Defence in depth rather than a second lifecycle marker: `lifecycle` is what every reader filters
+ * on, and this is what keeps a draft out of a status-keyed triage read that forgot to.
+ *
+ * The colon is the point. A first version used the bare word `draft`, and asserted in a migration
+ * header that no event configures such a status — an assumption nothing enforced:
+ * `proposalStatusSchema` accepts `^[a-z0-9_-]+$`, so `draft` is a perfectly legal triage key, and an
+ * organizer who configured one turned three legitimate writes into 500s (a bulk transition into that
+ * bucket, a routed submission, and a status delete pinned by a draft nobody could see). A key
+ * containing `:` cannot pass that pattern, so the property is now enforced by review's own input
+ * schema rather than asserted about it — and no `cfp_statuses` row can ever collide with this value.
+ */
+export const CFP_DRAFT_STATUS = "cfp:draft";
+
 export interface ProposalSubmission {
   readonly id: string;
   readonly eventId: string;
@@ -65,4 +134,35 @@ export interface ProposalSubmission {
   readonly fields: readonly CfpField[];
   readonly resolvedRoute?: CfpResolvedRoute | null | undefined;
   readonly submittedAt: string;
+  /** The account this proposal belongs to, or `null` for an anonymous submission. */
+  readonly submitterUserId?: string | null | undefined;
+  readonly lifecycle?: ProposalLifecycle | undefined;
+  /** Optimistic-concurrency token: every write names the revision it read. */
+  readonly revision?: number | undefined;
+  readonly updatedAt?: string | undefined;
+  /** The organizer's triage status, which the submitter view narrows before showing. */
+  readonly status?: string | undefined;
+}
+
+/**
+ * The proposal's own name, for the one message its submitter reads back.
+ *
+ * Deliberately narrower than the organizer projection's title rule in
+ * `d1-submitted-proposal-adapter.ts`, which also masks person-name fields and falls back through
+ * a stored snapshot. This one answers a different question — what to call the thing in a
+ * confirmation addressed to the person who wrote it — and answering it here keeps the CFP domain
+ * from depending on a projection built for organizers.
+ */
+export function proposalTitleOf(
+  fields: readonly CfpField[],
+  answers: Readonly<Record<string, string>>,
+): string | null {
+  const titled = answers.title?.trim();
+  if (titled) return titled;
+  for (const field of fields) {
+    if (field.type !== "short_text") continue;
+    const value = answers[field.id]?.trim();
+    if (value) return value;
+  }
+  return null;
 }

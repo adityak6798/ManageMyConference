@@ -6,7 +6,7 @@
 | platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | `JNY-010` | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | events | `PRD-EVT-001`, `PRD-EVT-002` | — | `ACC-IDENTITY-EVENTS`, `ACC-EVENT-TEMPLATES` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-CFP-003`, `PRD-CFP-004`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | review | `PRD-REV-001` | `JNY-003` | `ACC-REVIEW` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | content | `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001` | `JNY-004`, `JNY-005` | `ACC-SPEAKER` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | crm | `PRD-CRM-001` | `JNY-008` | `ACC-CRM` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -38,15 +38,22 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-CFP`
+- `test` / `repository-fact`: [apps/api/test/cfp-draft-isolation.test.ts](../../apps/api/test/cfp-draft-isolation.test.ts)
 - `test` / `repository-fact`: [apps/api/test/cfp-http.test.ts](../../apps/api/test/cfp-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/cfp-service.test.ts](../../apps/api/test/cfp-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/cfp-submitter-http.test.ts](../../apps/api/test/cfp-submitter-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/cfp-submitter.test.ts](../../apps/api/test/cfp-submitter.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-cfp-account-binding.integration.test.ts](../../apps/api/test/d1-cfp-account-binding.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-cfp-repository.integration.test.ts](../../apps/api/test/d1-cfp-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/seed-state.integration.test.ts](../../apps/api/test/seed-state.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/00-seed-state.spec.ts](../../apps/web/e2e/00-seed-state.spec.ts)
+- `test` / `repository-fact`: [apps/web/e2e/cfp-submitter.spec.ts](../../apps/web/e2e/cfp-submitter.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/cfp.spec.ts](../../apps/web/e2e/cfp.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/cfp-composer.test.tsx](../../apps/web/test/cfp-composer.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-republish-closed.test.tsx](../../apps/web/test/cfp-republish-closed.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/cfp-submitter-dashboard.test.tsx](../../apps/web/test/cfp-submitter-dashboard.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/cfp-window.test.tsx](../../apps/web/test/cfp-window.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
@@ -419,6 +426,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/cfp/cfp-service.ts](../../apps/api/src/application/cfp/cfp-service.ts)
 - `code` / `repository-fact`: [apps/api/src/application/cfp/template-slice.ts](../../apps/api/src/application/cfp/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/cfp.ts](../../apps/api/src/transport/http/routes/cfp.ts)
+- `code` / `repository-fact`: [apps/web/src/public-event/PublicCfpView.tsx](../../apps/web/src/public-event/PublicCfpView.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
@@ -430,12 +438,25 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/cfp.ts](../../apps/api/src/adapters/persistence/schema/cfp.ts)
 - `code` / `repository-fact`: [apps/api/src/application/cfp/cfp-service.ts](../../apps/api/src/application/cfp/cfp-service.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/cfp.ts](../../apps/api/src/transport/http/routes/cfp.ts)
+- `code` / `repository-fact`: [apps/web/src/public-event/PublicCfpView.tsx](../../apps/web/src/public-event/PublicCfpView.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/cfp.ts](../../packages/contracts/src/domains/cfp.ts)
+
+### `PRD-CFP-003`
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+
+### `PRD-CFP-004`
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
+- `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 
 ### `PRD-CNT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/content.ts](../../apps/api/src/adapters/persistence/schema/content.ts)
@@ -476,6 +497,7 @@
 - `code` / `repository-fact`: [apps/web/src/CommunicationsWorkspace.tsx](../../apps/web/src/CommunicationsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/communications/ComposePanel.tsx](../../apps/web/src/communications/ComposePanel.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)

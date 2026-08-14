@@ -49,8 +49,17 @@ const form = (overrides: Record<string, unknown> = {}) => ({
   version: 1,
   publishedAt: null,
   publishedStatus: null,
+  // The scheduled window and the state it resolves to, which every CFP response now carries.
+  // Unbounded here: these tests are about the form's own draft/live split, and the window has its
+  // own test below.
+  opensAt: null,
+  closesAt: null,
+  effectiveStatus: "unpublished",
   ...overrides,
 });
+
+/** The event's zone, which is what the composer enters and shows every deadline in. */
+const TIMEZONE = "America/Los_Angeles";
 
 /** Records every write so a test can assert *what* was sent and in *which order*. */
 function stubApi(routes: (url: string, init?: RequestInit) => Promise<Response> | undefined) {
@@ -92,7 +101,7 @@ describe("publishing what is on screen", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: form() });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "Call for talks" },
@@ -122,7 +131,7 @@ describe("publishing what is on screen", () => {
         });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Form title"), { target: { value: "Renamed" } });
     fireEvent.click(screen.getByRole("button", { name: "Publish CFP" }));
@@ -147,7 +156,7 @@ describe("publishing what is on screen", () => {
         return errorResponse(
           409,
           "CONFLICT",
-          "This draft changed elsewhere. Reload the latest draft before saving again.",
+          "This CFP draft changed in another editor. Reload the latest draft before saving again.",
         );
       if (url.startsWith("/api/events/")) {
         organizerLoads += 1;
@@ -160,14 +169,14 @@ describe("publishing what is on screen", () => {
       }
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "My unsaved edit" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed in another editor");
     expect(screen.getByLabelText("Form title")).toHaveValue("My unsaved edit");
     expect(writes(calls)[0]?.body.expectedVersion).toBe(4);
     fireEvent.click(screen.getByRole("button", { name: "Reload latest draft" }));
@@ -188,7 +197,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: twoQuestions() });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Move Proposal title down" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
@@ -203,7 +212,7 @@ describe("building the question list", () => {
 
   it("refuses to remove the last question, which the API would reject as an empty form", async () => {
     stubApi((url) => (url.startsWith("/api/events/") ? jsonResponse({ cfp: form() }) : undefined));
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     expect(await screen.findByRole("button", { name: "Remove Proposal title" })).toBeDisabled();
   });
@@ -215,7 +224,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: form() });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Field type"), { target: { value: "select" } });
     fireEvent.change(screen.getByLabelText("Options (comma separated)"), {
@@ -250,7 +259,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: conditionalForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     await screen.findByRole("button", { name: "Remove Session abstract" });
     const abstract = question("Session abstract");
@@ -279,7 +288,7 @@ describe("building the question list", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: routedForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     const routingCard = await screen.findByRole("region", { name: "Submission routing" });
     fireEvent.click(within(routingCard).getByRole("button", { name: "Add routing rule" }));
@@ -295,6 +304,99 @@ describe("building the question list", () => {
     ]);
   });
 
+  it("names a stored route to a decision rather than rendering a blank control", async () => {
+    /*
+     * The case the dropdown filter creates rather than the one it prevents.
+     *
+     * `accepted` and `declined` stopped being offered as destinations, but a form saved before
+     * that rule can still hold one — and a `select` whose value matches no option renders empty.
+     * The organizer would have seen a blank control, an unexplained 400 on save, and nothing
+     * saying which of their rules was the problem. This is the template slice's repair applied to
+     * the surface an organizer actually edits on.
+     */
+    const legacyForm = form({
+      fields: [
+        field({ id: "track", type: "select", label: "Track", options: ["Workshop", "Keynote"] }),
+      ],
+      routing: [
+        {
+          id: "legacy",
+          when: { fieldId: "track", operator: "in", values: ["Keynote"] },
+          routeTo: { status: "accepted" },
+        },
+      ],
+    });
+    stubApi((url) => {
+      if (url.endsWith("/cfp/routing-statuses"))
+        return jsonResponse({
+          statuses: [
+            { key: "under_review", label: "Under review" },
+            { key: "accepted", label: "Accepted" },
+            { key: "declined", label: "Declined" },
+          ],
+        });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: legacyForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    const routingCard = await screen.findByRole("region", { name: "Submission routing" });
+    const destination = within(routingCard).getByLabelText("Triage status");
+    // The stored value is still the control's value, so the organizer sees which rule is wrong.
+    expect(destination).toHaveValue("accepted");
+    const shown = within(destination as HTMLSelectElement).getByRole("option", {
+      name: /Accepted — no longer a routing destination/,
+    });
+    // Named, and unchoosable: the option exists to explain the current value, not to offer it.
+    expect(shown).toBeDisabled();
+    // And it is the only way `accepted` appears — it is not back in the list of destinations.
+    expect(
+      within(destination as HTMLSelectElement).queryByRole("option", { name: "Accepted" }),
+    ).toBeNull();
+    expect(
+      within(destination as HTMLSelectElement).queryByRole("option", { name: "Declined" }),
+    ).toBeNull();
+  });
+
+  it("says nothing about a rule's destination while it does not know which statuses exist", async () => {
+    /*
+     * The failure mode the label above creates if it is left ungated.
+     *
+     * `routingStatuses` starts empty and is filled asynchronously, and stays empty for good if
+     * that read fails. Without the guard the "no longer a routing destination" option renders for
+     * **every** rule, including perfectly valid ones — under its raw key, because the labels are
+     * empty too, in a select holding nothing else to choose. The organizer is then told to pick
+     * another destination with none on offer, next to a notice saying existing rules are
+     * unchanged.
+     */
+    const routedForm = form({
+      fields: [
+        field({ id: "track", type: "select", label: "Track", options: ["Workshop", "Keynote"] }),
+      ],
+      routing: [
+        {
+          id: "valid",
+          when: { fieldId: "track", operator: "in", values: ["Keynote"] },
+          routeTo: { status: "under_review" },
+        },
+      ],
+    });
+    stubApi((url) => {
+      // The statuses read fails; everything else answers.
+      if (url.endsWith("/cfp/routing-statuses")) return jsonResponse({ error: {} }, 500);
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: routedForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    const routingCard = await screen.findByRole("region", { name: "Submission routing" });
+    const destination = within(routingCard).getByLabelText("Triage status");
+    expect(destination).toHaveValue("under_review");
+    expect(
+      within(destination as HTMLSelectElement).queryByText(/no longer a routing destination/),
+    ).toBeNull();
+  });
+
   it("refuses an empty equals condition before sending the draft", async () => {
     const conditionalForm = form({
       fields: [field(), field({ id: "abstract", label: "Session abstract" })],
@@ -302,7 +404,7 @@ describe("building the question list", () => {
     const calls = stubApi((url) =>
       url.startsWith("/api/events/") ? jsonResponse({ cfp: conditionalForm }) : undefined,
     );
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     await screen.findByRole("button", { name: "Remove Session abstract" });
     const abstract = question("Session abstract");
@@ -333,7 +435,7 @@ describe("the live form beside the draft", () => {
       if (url.startsWith("/api/events/")) return jsonResponse({ cfp: draft });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer />);
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
     return calls;
   }
 
@@ -373,6 +475,11 @@ describe("the public submission form", () => {
   const openForm = form({
     status: "open",
     publishedStatus: "open",
+    // The applicant surface branches on `effectiveStatus`, not `status`: a published call whose
+    // deadline has passed is `open` and `closed` at the same time, and only the second answer is
+    // the one an applicant experiences. A fixture that set only `status` described a call that
+    // cannot exist.
+    effectiveStatus: "open",
     publishedAt: "2026-08-01T12:00:00.000Z",
     fields: [
       field(),
@@ -392,7 +499,7 @@ describe("the public submission form", () => {
       if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: openForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText(/Proposal title/), {
       target: { value: "Shipping a CFP" },
@@ -418,6 +525,7 @@ describe("the public submission form", () => {
     const conditional = form({
       status: "open",
       publishedStatus: "open",
+      effectiveStatus: "open",
       fields: [
         field({ id: "category", type: "select", label: "Category", options: ["Talk", "Workshop"] }),
         field({
@@ -430,7 +538,7 @@ describe("the public submission form", () => {
     stubApi((url) =>
       url.startsWith("/api/public/events/") ? jsonResponse({ cfp: conditional }) : undefined,
     );
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     expect(await screen.findByLabelText("Category *")).toBeInTheDocument();
     expect(screen.queryByLabelText("Equipment needs *")).toBeNull();
@@ -449,7 +557,7 @@ describe("the public submission form", () => {
       if (url.startsWith("/api/public/events/")) return jsonResponse({ cfp: openForm });
       return undefined;
     });
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText(/Proposal title/), {
       target: { value: "A title well past the limit" },
@@ -464,9 +572,36 @@ describe("the public submission form", () => {
 
   it("offers no form at all when nothing is published, rather than a dead submit button", async () => {
     stubApi(() => undefined);
-    render(<CfpWorkspace eventId={eventId} organizer={false} />);
+    render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
 
     expect(await screen.findByText("This call for proposals is not available")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+  });
+  it("shows the console applicant a scheduled and a closed call, not a form it cannot submit", async () => {
+    /*
+     * This surface branched on `status`, which describes the publication rather than whether a
+     * submission is possible — so a published call past its deadline rendered a green "Open for
+     * submissions" pill over a whole working form that answers 409. Both non-open states get their
+     * own words, because "not open yet" and "you have missed it" are opposite messages.
+     */
+    for (const [effectiveStatus, heading, pill] of [
+      ["scheduled", "Submissions have not opened yet", "Opening soon"],
+      ["closed", "Submissions are closed", "Closed"],
+    ] as const) {
+      cleanup();
+      stubApi((url) =>
+        url.startsWith("/api/")
+          ? jsonResponse({
+              cfp: form({ status: "open", publishedStatus: "open", effectiveStatus }),
+            })
+          : undefined,
+      );
+      render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
+
+      expect(await screen.findByText(heading)).toBeVisible();
+      expect(screen.getByText(pill)).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+      expect(screen.queryByText("Open for submissions")).toBeNull();
+    }
   });
 });

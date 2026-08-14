@@ -36,6 +36,12 @@ export const CFP_TEMPLATE_SLICE_KEY = "cfp";
  */
 const REVIEW_TRIAGE_STATUSES: SliceProvision = "review:triage-statuses";
 
+/**
+ * The two destinations a routing rule may never name, restated for the same reason the provision
+ * above is: CFP must not reach into review's modules. `CfpService` holds the same pair.
+ */
+const DECISION_STATUSES: readonly string[] = ["accepted", "declined"];
+
 interface CfpTemplatePayload {
   readonly title: string;
   readonly description: string;
@@ -53,6 +59,18 @@ type CfpTemplateCommands = Pick<CfpService, "getForOrganizer" | "routingStatuses
 const EXCLUDED: readonly SliceEntry[] = [
   { id: "published", label: "The live published form and its publication date" },
   { id: "submissions", label: "Submitted proposals and their answers" },
+  /*
+   * The window is excluded rather than remapped, and it is the one exclusion here that had a real
+   * alternative. `DateRemap` exists precisely to shift a template's dates onto a new event's
+   * range, and a deadline is a date — so remapping it would have "worked".
+   *
+   * It would also have announced a deadline nobody chose. A submission deadline is a commitment
+   * made to a specific audience; derived from a previous conference's dates it is arithmetic
+   * presented as a promise, and the applicant cannot tell the difference. A destination whose
+   * window is absent reads as an unbounded call, which is both true and visibly unfinished, so
+   * the organizer sets one deliberately.
+   */
+  { id: "window", label: "The scheduled submission window (open and close timestamps)" },
 ];
 
 /** Said whenever review is applying first, because then it, not this event, decides the rules. */
@@ -195,7 +213,13 @@ export function cfpTemplateSlice(service: CfpTemplateCommands): EventConfigurati
       return {
         outcome: "applied",
         reason: refused.length
-          ? "Copied as a draft. Routing rules naming statuses the destination does not configure were left out."
+          ? // Two different things get refused here — a status this event does not configure, and a
+            // status that is a *decision* and so is never routed to — and each refused rule already
+            // carries its own reason in `incompatible`. This sentence used to name only the first,
+            // so an organizer whose template routed to `accepted` was told the destination does not
+            // configure it, directly beside a line saying the opposite. It now points at the list
+            // rather than paraphrasing half of it.
+            "Copied as a draft. Some routing rules were left out; each is listed with its reason."
           : "Copied as a draft.",
         applied: appliedEntries(payload, usable),
         incompatible: refused,
@@ -227,6 +251,15 @@ function appliedEntries(
  * review is still to write is not a refusal but a dependency, and it is `pending` rather than
  * `refused` so that the preview promises what the apply will do. Only a preview passes it — an
  * apply reads the statuses after review wrote them.
+ *
+ * **A decision destination is refused for a second reason, and it took a regression to find.**
+ * `accepted` and `declined` are configured on every event (migration `0021`), so a rule naming one
+ * passed the check above and went into `usable` — and `CfpService.save` now refuses such a rule
+ * outright, because reaching a decision is the effect of a *recorded* decision and the submitter's
+ * dashboard reads that status. So a template captured from an event that already held such a rule
+ * previewed as "copies", then discarded the **whole CFP category** on apply: no form, no fields, no
+ * title. Partitioning on it here restores this module's own promise — every rule dropped is named
+ * back to the organizer, and the form arrives without it.
  */
 async function partitionRouting(
   service: CfpTemplateCommands,
@@ -241,7 +274,12 @@ async function partitionRouting(
   const pending: CfpRoutingRule[] = [];
   const refused: SliceEntry[] = [];
   for (const rule of routing)
-    if (configured.has(rule.routeTo.status)) usable.push(rule);
+    if (DECISION_STATUSES.includes(rule.routeTo.status))
+      refused.push({
+        id: rule.id,
+        label: `Routing rule to “${rule.routeTo.status}”, which is recorded by an accept or decline rather than by routing`,
+      });
+    else if (configured.has(rule.routeTo.status)) usable.push(rule);
     else if (statusesArriving) pending.push(rule);
     else
       refused.push({

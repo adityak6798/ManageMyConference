@@ -25,6 +25,7 @@
     "communication_attempts": "communications-integrations",
     "communication_attempts_next": "communications-integrations",
     "outbound_projection_state_next": "communications-integrations",
+    "calendar_invite_states_next": "communications-integrations",
     "outbound_projection_state": "communications-integrations",
     "calendar_invite_states": "communications-integrations",
     "crm_prospects": "crm",

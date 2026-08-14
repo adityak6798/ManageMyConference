@@ -115,6 +115,25 @@ describe("where a failed load is explained", () => {
           return contentFails
             ? refusal("content-trace", "Sessions could not be read.")
             : json({ sessions: [], speakers: [], tasks: [], assets: [], messages: [] });
+        /*
+         * The checklist read, answered rather than left to `noFixture`.
+         *
+         * It is not what this test is about, but its failure renders a `Notice tone="error"` — so
+         * it lands in the same shared live region, and whether its 404 arrived before or after the
+         * retry's success decided whether the final `queryByRole("alert")` saw an alert reading
+         * "No fixture". Measured on this machine: 11 failures in 12 runs before, 0 in 12 after.
+         *
+         * The workspace fires one *other* unstubbed read, `integrations/accelevents`, and it is
+         * deliberately left alone: its client swallows a failure into a null integration and
+         * announces nothing, so it never raced anything. A first attempt at this fix stubbed it
+         * anyway, with a body its own schema rejects — a fixture that looks like coverage and is
+         * not, and one that made this comment's account of the race untrue.
+         *
+         * An incomplete fixture does not make a test wrong; it makes it nondeterministic, and a
+         * suite that fails at random teaches people to re-run it.
+         */
+        if (url.endsWith(`/api/events/${eventId}/speaker-task-templates`))
+          return json({ templates: [] });
         return noFixture();
       }),
     );

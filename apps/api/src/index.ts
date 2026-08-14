@@ -46,6 +46,7 @@ import {
   type ScheduleSweepResult,
   sweepDriftedSchedules,
 } from "./application/agenda/public";
+import type { CfpNotificationPort } from "./application/cfp/cfp-service";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
@@ -55,6 +56,7 @@ import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
   CommunicationsService,
+  lifecycleRecipientForAccount,
 } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
@@ -607,12 +609,6 @@ export default {
       () => crypto.randomUUID(),
       identityDirectory,
     );
-    const cfpService = new CfpService(
-      new D1CfpRepository(environment.DB),
-      () => crypto.randomUUID(),
-      () => new Date(),
-      new D1SubmittedProposalAdapter(environment.DB),
-    );
     const now = () => new Date();
     /*
      * The audit timeline (issue #99). Constructed here rather than beside the other platform
@@ -1122,6 +1118,56 @@ export default {
         );
       },
     };
+    /*
+     * Resolve a lifecycle recipient without letting the lookup fail the thing that already happened.
+     *
+     * `recordLifecycle` and `notifyLifecycle` each swallow their own failures, and every lifecycle
+     * port's docstring says an implementation must not throw — but the recipient read sat *between*
+     * the two, unwrapped, so a transient D1 error answered 500 over an action that had already
+     * committed. For a submitted proposal that is the worst shape available: submission is one-way,
+     * so the applicant's retry is then refused with "already submitted" and no confirmation is ever
+     * queued. Both ports below resolve through this instead.
+     *
+     * A failure logs here and the caller then logs `unaddressable` — two lines for one incident,
+     * deliberately: this one carries the reason, and that one is also true, because the caller
+     * genuinely has no address to use.
+     */
+    const recipientFor = async (userId: string, subject: Record<string, string>) => {
+      try {
+        const found = await identityDirectory.findRecipient(userId);
+        /*
+         * Shaped as an `AccountAddressLookup` so it can be handed to `lifecycleRecipient`
+         * unchanged.
+         *
+         * An earlier version returned the recipient and let the caller build the discriminated
+         * pair, which put the whole fail-closed property back in one hand-written line — and a
+         * line that reads `{ asked: true, … }` unconditionally reintroduces the vulnerability
+         * while typechecking. `name` rides along for the callers that render it; `email` and
+         * `asked` are the two fields the rule is decided from, and nothing downstream re-derives
+         * them.
+         */
+        return { asked: true as const, email: found?.email ?? null, name: found?.name ?? null };
+      } catch (error) {
+        // ERROR-INTENT: reported at error level with the identifiers needed to send the message by
+        // hand, and swallowed so the committed action is still reported as the success it was.
+        logger.error(
+          { ...subject, error: error instanceof Error ? error.message : String(error) },
+          "lifecycle.notification.failed",
+        );
+        /*
+         * `asked: false` is the whole reason this returns a pair rather than a recipient.
+         *
+         * "This account has no linked address" and "we could not find out" are different facts,
+         * and a caller that collapses them picks a *worse* address on the strength of a transient
+         * error. The decision notification below is where that matters: falling through to the
+         * form-supplied address on a failed lookup would send an accept or decline to whatever a
+         * public form was told, which is precisely the exposure the account preference exists to
+         * remove — and the delivery key holds the revision, so a retry converges on the row
+         * already addressed wrongly rather than correcting it.
+         */
+        return { asked: false as const };
+      }
+    };
     const reviewNotifications: ReviewNotificationPort = {
       async reviewerAssigned(fact) {
         // Recorded before the message is resolved, deliberately: a reviewer with no linked
@@ -1132,23 +1178,28 @@ export default {
           targetType: "review-round",
           targetId: `${fact.reviewerId}:r${fact.round}`,
         });
-        const reviewer = await identityDirectory.findRecipient(fact.reviewerId);
+        const reviewer = await recipientFor(fact.reviewerId, {
+          eventId: fact.eventId,
+          reviewerId: fact.reviewerId,
+        });
         // No address means nobody to write to. Logged rather than queued, because a delivery to
         // a non-address would burn an attempt and fail terminally with a code that describes the
         // provider's refusal rather than the reason: this reviewer has no email linked.
-        if (!reviewer?.email) {
+        if (!reviewer.asked || !reviewer.email) {
           logger.warn(
             { eventId: fact.eventId, reviewerId: fact.reviewerId },
             "lifecycle.notification.unaddressable",
           );
           return;
         }
+        const reviewerAddress = reviewer.email;
+        const reviewerName = reviewer.name;
         await notifyLifecycle(fact.eventId, { reviewerId: fact.reviewerId }, () => ({
           idempotencyKey: `reviewer-assigned:${fact.eventId}:${fact.reviewerId}:r${fact.round}`,
           triggerType: "reviewer.assigned",
           channel: "email",
-          recipientRef: reviewer.email as string,
-          payload: { reviewerName: reviewer.name, round: fact.round },
+          recipientRef: reviewerAddress,
+          payload: { reviewerName, round: fact.round },
           templateKey: "reviewer-assignment",
         }));
       },
@@ -1168,7 +1219,49 @@ export default {
           targetId: fact.proposalId,
           occurrence: `r${fact.revision}`,
         });
-        if (!fact.submitterEmail) {
+        /*
+         * Prefer the address identity holds for the owning account over the one the form
+         * collected (issue #132).
+         *
+         * A decision is the most sensitive thing this system mails an applicant, and until
+         * issue #190 its only possible recipient was an `email`-typed form answer that nobody
+         * verified — so anyone could have a stranger's decision delivered to them by typing that
+         * stranger's address. For an account-bound proposal the owner proved control of their
+         * mailbox to sign in, and the trigger in `1201` makes the owner immutable, so this is a
+         * strictly better address for exactly the same message.
+         *
+         * A guest submission still uses the form answer, which is why this **narrows** #132 rather
+         * than closing it: the per-(event, recipient) cap or double opt-in that anonymous path
+         * needs is a product decision with storage behind it, and is not taken here.
+         *
+         * An owned proposal whose account holds no address sends **nothing** — it does not fall
+         * back. That fallback was here and it was wrong: the form answer on an owned proposal is
+         * still unverified and possibly a stranger's, so using it would reintroduce the exact
+         * misdirection preferring the account removes. The owner is not left in the dark, because
+         * a decision is on their own dashboard; that is why `PRD-CFP-004` makes the dashboard the
+         * guarantee and the message a courtesy.
+         */
+        /*
+         * `undefined` for a guest, not a stand-in account, and the difference is the whole rule.
+         *
+         * `lifecycleRecipient` decides on *whether there is an account*: absent means guest and
+         * reaches the form address, present means the account's answer is final. A guest was
+         * represented here as `{ asked: true, email: null }` — which was right while an account
+         * with no address fell through to the form, and became wrong the moment that fallback was
+         * removed, because the sentinel is an account object and so answered "this account has no
+         * address": every guest decision stopped being sent, silently.
+         *
+         * `recipientFor` answers in the shape the rule is decided from, so an account passes
+         * straight through and there is no line here that could collapse "failed" into "no
+         * address" either.
+         */
+        const recipient = await lifecycleRecipientForAccount({
+          accountId: fact.submitterUserId,
+          declaredEmail: fact.submitterEmail,
+          askIdentity: (accountId) =>
+            recipientFor(accountId, { eventId: fact.eventId, proposalId: fact.proposalId }),
+        });
+        if (!recipient) {
           logger.warn(
             { eventId: fact.eventId, proposalId: fact.proposalId },
             "lifecycle.notification.unaddressable",
@@ -1182,12 +1275,75 @@ export default {
           idempotencyKey: `decision:${fact.eventId}:${fact.proposalId}:${fact.outcome}:r${fact.revision}`,
           triggerType: "decision.recorded",
           channel: "email",
-          recipientRef: fact.submitterEmail as string,
+          recipientRef: recipient,
           payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
           templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
         }));
       },
     };
+    /*
+     * The submission confirmation (issue #190), and the one line that makes it safe.
+     *
+     * `findRecipient` resolves the address from the **user id the session carried**, so the
+     * recipient of this message is by construction somebody who proved control of that mailbox at
+     * sign-in. Nothing a submitter typed into the form reaches it. That is the difference between
+     * this message and the one decision `D5` refused to ship: the anonymous door sends nothing, and
+     * an address on a form buys ownership of nothing (`#132`).
+     *
+     * An account with no linked address is logged rather than queued, exactly as an unaddressable
+     * reviewer is — a delivery to a non-address burns an attempt and fails with a provider code
+     * that describes the refusal instead of the reason.
+     */
+    const cfpNotifications: CfpNotificationPort = {
+      async proposalSubmitted(fact) {
+        await recordLifecycle(fact.eventId, {
+          action: "cfp.proposal_submitted",
+          targetType: "proposal",
+          targetId: fact.proposalId,
+        });
+        const submitter = await recipientFor(fact.submitterUserId, {
+          eventId: fact.eventId,
+          proposalId: fact.proposalId,
+        });
+        if (!submitter.asked || !submitter.email) {
+          logger.warn(
+            { eventId: fact.eventId, proposalId: fact.proposalId },
+            "lifecycle.notification.unaddressable",
+          );
+          return;
+        }
+        const submitterAddress = submitter.email;
+        const submitterName = submitter.name;
+        await notifyLifecycle(fact.eventId, { proposalId: fact.proposalId }, () => ({
+          // One confirmation per proposal, not per revision: a submitter who fixes a typo and saves
+          // again has not submitted a second proposal, and telling them twice would say they had.
+          idempotencyKey: `proposal-submitted:${fact.eventId}:${fact.proposalId}`,
+          triggerType: "proposal.submitted",
+          channel: "email",
+          recipientRef: submitterAddress,
+          payload: {
+            submitterName,
+            // The proposal's own name, or a neutral stand-in: a form that asks for no title at all
+            // is a form an organizer may legitimately have published.
+            proposalTitle: fact.proposalTitle ?? "your proposal",
+          },
+          templateKey: "proposal-submitted",
+        }));
+      },
+    };
+    /*
+     * Constructed here rather than beside the other domain services, because it takes the port
+     * above and `notifyLifecycle` is defined in terms of the audit recorder and the events service.
+     * Every reader of `cfpService` — the public projection slice, the template slice, and the
+     * transport dependencies — is below this line.
+     */
+    const cfpService = new CfpService(
+      new D1CfpRepository(environment.DB),
+      () => crypto.randomUUID(),
+      now,
+      new D1SubmittedProposalAdapter(environment.DB),
+      cfpNotifications,
+    );
     /*
      * The AI suggestion port (#110), resolved once per request and never able to take review down.
      *
@@ -1400,7 +1556,11 @@ export default {
             version: form.version,
             title: form.title,
             description: form.description,
-            status: form.status === "closed" ? "closed" : "open",
+            // The state applicants are in, not the publication flag. Reading `form.status` alone
+            // put "open for submissions" on the published site and in the organizer's publication
+            // preview for a call whose deadline had passed — the same misleading claim the composer
+            // was corrected for, on the one surface a visitor actually reads.
+            status: form.effectiveStatus === "open" ? "open" : "closed",
             publishedAt: form.publishedAt,
           };
         },

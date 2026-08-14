@@ -177,6 +177,12 @@ feature-by-feature verdict.
   sightings are recorded in the [wave coordination ledger](../exec-plans/competition-waves.md),
   where they were observed: the ephemeral-port measurement of 2026-08-12, and a second crash on
   2026-08-13 carrying the same `Broken pipe` message as the one below. In that
+  A fourth hosted sighting on 2026-08-14, in the `browser` job of run `31803323240` (issue #190's
+  branch): `reference-slice.spec.ts` failed with `apiRequestContext.get: socket hang up` and the
+  runtime printed the same `Broken pipe` line dozens of times. One test failed rather than 22, and
+  the same commit's suite had passed locally three times immediately before and passed again after,
+  so this one degraded rather than collapsed — worth recording because it shows the crash is not
+  always all-or-nothing, and a single red spec is the harder shape to attribute. In that
   second case every subsequent request failed with
   `ECONNREFUSED 127.0.0.1:8787`, so 22 of 30 tests failed with a 500 where they assert 401 or 200 —
   a signature that reads as a mass authorization regression and is not one. The rerun of that same
@@ -577,3 +583,44 @@ feature-by-feature verdict.
   recorded here rather than silently resolved by the deletion.
 
   Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`.
+
+- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Six limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain. One further limit belongs to `#132` rather than here: a *guest* proposal has no account, so its decision is still addressed to an unverified form answer.
+
+  **Nothing announces the deadline before it passes** (issue #210). The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
+
+  **A submitter can only sign in through a door this deployment offers, and it offers one.** `DEMO_MODE=true` turns emailed-code sign-in off and no Google client is configured (`GAP-019`, `GAP-020`), so the only identities that exist here are the four seeded personas — which is what the public call's sign-in card offers, and why the browser journey signs in as `Sam Speaker`. A real submitter creating a *new* account is the Identity lane's outcome-3 path (`SignupService.signInWithGoogle`), which today provisions an organization and a "Your first event" alongside the person's proposals. Nothing in this lane makes that worse and nothing in it fixes it.
+
+  **No lifecycle message reaches any organization but the seeded one** (issue #217). Every
+  template — this issue's confirmation and the eight that predate it — exists only in
+  `seed/reset.sql` for organization `00000000-0000-4000-8000-000000000010`, so on any other
+  organization `prepare` refuses and `notifyLifecycle` swallows it. Invisible today because
+  `GAP-019` leaves one organization here and no provider is configured; not invisible the moment
+  either changes. Found by Copilot review on the #190 PR, filed rather than repaired there because
+  it is one provisioning decision across four domains.
+
+  **The confirmation reaches no mailbox, and some accounts get none at all.** `COMMUNICATIONS_PROVIDERS` is unset, so `DeterministicProvider` marks every delivery sent. The confirmation's recipient and rendered body are asserted against delivery history, which is the strongest claim available without a provider, and it is not the claim "a submitter received an email". Separately, an account with no row in `identity_emails` is recorded as `lifecycle.notification.unaddressable` and receives nothing — reachable today with the seeded `Pat Attendee`, who has no address, which is why the dashboard rather than the message is the guarantee `PRD-CFP-004` makes. And "linked" is not "verified": `identity_emails` carries no verification column, so the strength of the address is whatever the sign-in door established, which on this deployment is a persona button.
+
+  **An anonymous caller can squat one account's proposal key.** A proposal an account owns is stored under `proposal:<userId>:<clientKey>`, which makes a collision between two accounts impossible; the anonymous path keeps the bare key it has always used, because narrowing `submitProposalInputSchema` to forbid the separator would be a breaking input change under [api-compatibility](../interfaces/api-compatibility.md). So an anonymous submission *could* spell a prefixed key and take it, costing that account a refused create — not a disclosure, since the convergence read is owner-scoped either way — and requiring the caller to guess both a user id and the client's UUID. Recorded rather than closed because the fix is a contract change with a 180-day deprecation, for a residual nobody can reach by accident.
+
+  **One smaller residual on the applicant's own screen, found by the fifteenth review pass and left deliberately.** Pressing `Continue` on the proposal already being edited reloads
+  its stored answers over anything typed and unsaved, saying only "Editing …" — silent loss of the
+  applicant's work on a surface whose spec is otherwise emphatic that drops are announced. Nothing
+  wrong is persisted and the loss is visible on screen; it is recorded rather than repaired because
+  the five repair commits before it each introduced the defect the next review pass found, and it
+  is not worth that risk on this branch. Tracked by issue #211. Owner: cfp.
+
+  **A second one was recorded here and then withdrawn**, which is worth leaving written down. The
+  claim was that `CfpWorkspace` seeds its window inputs in a passive effect and so an organizer
+  typing a deadline before the form load resolves has it cleared. The next pass checked it: the
+  card is behind a `loadingCfp` skeleton, so the read *has* returned before the control exists, and
+  the only remaining window is between that commit and the effect — sub-frame, reachable by a
+  synchronous `fireEvent` and not by a person typing. It is a test-driver artifact, which is
+  exactly what the flake fix treated it as. Left here because a withdrawn residual is otherwise
+  indistinguishable from one nobody looked at, and because the commit that recorded it existed to
+  deflate over-claims and introduced one.
+
+  Owner: cfp, with the first limit shared with communications-integrations. Governing ID:
+  `PRD-CFP-003`, `PRD-CFP-004`, `PRD-COM-001`, `ACC-CFP`. Closure: a scheduled deadline reminder
+  whose trigger and consent rule are decided by communications; a real sign-in door on a deployment
+  where a submitter's first sign-in provisions nothing but their own identity; and one confirmation
+  observed arriving in a real inbox from a staged provider.

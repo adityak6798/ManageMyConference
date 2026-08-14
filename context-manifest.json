@@ -134,6 +134,11 @@
         "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
       },
       {
+        "path": "apps/web/src/api/identity.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The browser's identity client \u2014 who this document is, which doors the deployment offers, and the four ways through them \u2014 and the same kind of surface as api/cfp.ts one entry above. Three unrelated roots read it: the console shell, the landing page, and the public CFP, which offers a submitter a way to sign in so their drafts and decisions belong to an account (issue #190). It was already declared its own module rather than living in api/events.ts precisely because the landing page must not import the console's domain client; the public bundle has the same constraint and the same need. It holds no session state and no capability logic \u2014 the httpOnly cookie means only the API can answer either question."
+      },
+      {
         "path": "apps/web/src/api/config.ts",
         "governing": "ARC-001",
         "reason": "The browser transport's shared origin and fetch adapter. Every domain API client uses it so development proxying, same-origin deployment, and optional split hosting resolve requests consistently."
@@ -548,6 +553,8 @@
       "specs": [
         "PRD-CFP-001",
         "PRD-CFP-002",
+        "PRD-CFP-003",
+        "PRD-CFP-004",
         "PRD-ABS-001"
       ],
       "journeys": [
@@ -588,7 +595,15 @@
         "apps/web/test/cfp-republish-closed.test.tsx",
         "apps/web/e2e/cfp.spec.ts",
         "apps/api/src/transport/http/routes/cfp.ts",
-        "apps/web/src/workspaces/cfp.tsx"
+        "apps/web/src/workspaces/cfp.tsx",
+        "apps/api/migrations/1201_cfp_submission_window_and_account_binding.sql",
+        "apps/api/test/cfp-submitter.test.ts",
+        "apps/api/test/cfp-submitter-http.test.ts",
+        "apps/api/test/d1-cfp-account-binding.integration.test.ts",
+        "apps/web/test/cfp-window.test.tsx",
+        "apps/web/test/cfp-submitter-dashboard.test.tsx",
+        "apps/web/e2e/cfp-submitter.spec.ts",
+        "apps/api/test/cfp-draft-isolation.test.ts"
       ]
     },
     {
@@ -864,6 +879,7 @@
         "apps/api/migrations/1700_delivery_rendered_message.sql",
         "apps/api/migrations/1703_delivery_domain_event_triggers.sql",
         "apps/api/migrations/1704_calendar_invite_states.sql",
+        "apps/api/migrations/1705_delivery_proposal_submitted_trigger.sql",
         "apps/web/src/api/communications.ts",
         "apps/web/src/CommunicationsWorkspace.tsx",
         "apps/web/src/communications",

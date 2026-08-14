@@ -46,6 +46,10 @@ describe("D1CfpRepository", () => {
       version: 2,
       publishedAt: "2026-08-10T00:00:00.000Z",
       publishedStatus: "open" as const,
+      // An unbounded call: the window is live state on the row and every existing assertion in
+      // this file is about a call with no deadline. The scheduled cases are their own test below.
+      opensAt: null,
+      closesAt: null,
     };
     await expect(repository.saveForm(form, 1)).resolves.toBe(true);
     await repository.savePublished(form, true, form.version);
@@ -205,6 +209,9 @@ describe("D1CfpRepository", () => {
       abstract: "Custom session content",
       submitterName: "private@example.com",
       submitter: { name: "private@example.com", email: "private@example.com" },
+      // Anonymous: an address typed into a public form owns nothing, which is what keeps a
+      // decision message for this proposal on the guest path rather than on the account one.
+      submitterUserId: null,
       status: "submitted",
       answers: [
         { fieldId: "level", label: "Experience level", type: "select", value: "Advanced" },

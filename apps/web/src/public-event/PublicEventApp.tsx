@@ -318,12 +318,23 @@ export function PublicEventApp() {
     );
 
   /*
-   * One answer about the call, used by every view that mentions it. The live form decides;
-   * the snapshot only supplies wording until it arrives. "unknown" is a real state and is
-   * rendered as one: no pill, and a link that promises reading rather than submitting.
+   * One answer about the call, used by every view that mentions it.
+   *
+   * Display only facts from the active publication. The separately loaded form supplies fields for
+   * submission, but may have advanced after this projection response was read, so a form of a
+   * different version is not allowed to speak for the call this page is showing.
+   *
+   * Note what this rule does once a deadline exists: the projection reports the call's *effective*
+   * status, so a call whose deadline has passed reads `closed` there while the live form's own
+   * published flag is still `open` — and the last clause below therefore fails **by construction**
+   * on exactly the calls this lane is about. That is correct for form content and wrong for the
+   * window, which is why the schedule is passed to `PublicCfpView` separately, from `liveCfp`.
+   *
+   * Where the schedule does decide the status it is `effectiveStatus`, which the server computes,
+   * rather than `status` plus the two window timestamps: deriving it here would put the visitor's
+   * own clock in charge of whether a deadline has passed, and a skewed laptop would offer a form
+   * the server refuses.
    */
-  // Display only facts from the active publication. The separately loaded form supplies
-  // fields for submission, but may have advanced after this projection response was read.
   const cfpVersionMatches =
     liveCfp !== null &&
     liveCfp.version === snapshot?.publication?.provenance?.cfpVersion &&
@@ -331,17 +342,39 @@ export function PublicEventApp() {
     liveCfp.description === projection.cfp.description &&
     (liveCfp.status === "closed" ? "closed" : "open") === projection.cfp.status;
   const versionedCfp = cfpVersionMatches ? liveCfp : null;
-  const cfpStatus: "open" | "closed" = projection.cfp.status;
   const cfpTitle = projection.cfp.title;
   const cfpDescription = projection.cfp.description;
+  /*
+   * The publication decides the status; the schedule is the one thing it cannot express.
+   *
+   * Two rules meet here and both are kept. The publication is authoritative for what this page
+   * *says* — a live form that has advanced past this snapshot is not an authority on the call this
+   * page is showing, so a mismatch still reads as the published state and the CFP page explains
+   * separately that its form cannot be used. But a scheduled window opens and closes a call with
+   * **no republish at all**, so `projection.cfp.status` only ever reports what was true when the
+   * snapshot was written: it has no way to say "opens on the 3rd" or "the deadline passed an hour
+   * ago". `effectiveStatus` is computed server-side on the live read and is the only source for
+   * those two.
+   *
+   * So the schedule overlays the published status, and only from a form of the same version — a
+   * call the snapshot calls open reads as `scheduled` or `closed` when its own window says so, and
+   * everything else falls back to what was published.
+   */
+  const scheduleState = versionedCfp?.effectiveStatus;
+  const cfpStatus: "open" | "scheduled" | "closed" =
+    scheduleState === "scheduled" || scheduleState === "closed"
+      ? scheduleState
+      : projection.cfp.status;
   const cfpStatusLine =
-    cfpStatus === "closed"
-      ? "Submissions closed."
-      : versionedCfp?.status === "open"
-        ? "Open for submissions."
-        : cfpUnavailable || liveCfp
-          ? "Submission form unavailable."
-          : "Checking submission availability…";
+    cfpStatus === "scheduled"
+      ? "Not open yet."
+      : cfpStatus === "closed"
+        ? "Submissions closed."
+        : versionedCfp?.status === "open"
+          ? "Open for submissions."
+          : cfpUnavailable || liveCfp
+            ? "Submission form unavailable."
+            : "Checking submission availability…";
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
@@ -594,8 +627,24 @@ export function PublicEventApp() {
               {/* The invitation and status come from the same active publication version as
                   every other fact on this page. */}
               <div className="pub-cta-side">
+                {/*
+                  Four states, four labels. `cfpStatus` gained `scheduled` when the submission
+                  window shipped, and a two-way `open ? "Open" : "Closed"` collapsed it into
+                  "Closed" — so a visitor landing here a month before a call opens read that it
+                  had ended, one click away from a page saying "Opening soon" with the date. "Opens
+                  on the 3rd" and "you have missed it" are opposite messages, which is the rule the
+                  CFP page states and this pill was breaking.
+
+                  There is no "unknown" arm any more: the publication always supplies a status, and
+                  a live form that cannot be read or has advanced no longer blanks this — it falls
+                  back to what was published, which the CFP page explains separately.
+                */}
                 <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
-                  {cfpStatus === "open" ? "Open" : "Closed"}
+                  {cfpStatus === "open"
+                    ? "Open"
+                    : cfpStatus === "scheduled"
+                      ? "Opening soon"
+                      : "Closed"}
                 </Pill>
                 <a className="pub-button" {...linkProps(`${base}/cfp`)}>
                   {cfpStatus === "open" ? "Submit a proposal" : "Read the CFP"}
@@ -1163,8 +1212,19 @@ export function PublicEventApp() {
             }
             status={cfpStatus}
             statusLine={cfpStatusLine}
+            // From `liveCfp`, not `versionedCfp`: the window is live state that reaches applicants
+            // without a republish, so it is stated even when the form itself is withheld.
+            schedule={
+              liveCfp
+                ? {
+                    opensAt: liveCfp.opensAt ?? null,
+                    closesAt: liveCfp.closesAt ?? null,
+                  }
+                : null
+            }
             title={cfpTitle}
             description={cfpDescription}
+            timezone={model.timezone}
           />
         ) : null}
 

@@ -30,20 +30,37 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
     }
   }
 
+  /*
+   * The state applicants are actually in, which is not `status` once a window exists.
+   *
+   * `status` describes the publication; `effectiveStatus` is the server's answer to "may somebody
+   * submit right now", and it is the only one that accounts for a deadline or an opening date. This
+   * surface branched on `status` and so offered a whole working form — and an "Open for
+   * submissions" pill — over a call that answers 409 to every submission.
+   *
+   * The `?? form.status` branch is unreachable and is kept as a type-level total, not as a
+   * compatibility story: `cfpFormSchema` requires `effectiveStatus` and `loadCfp` decodes through
+   * it, so a response lacking the field throws in `decodeResponse` and never reaches this component.
+   */
+  const effective = form.effectiveStatus ?? form.status;
+  const open = effective === "open";
+
   return (
     <Card
       labelledBy="cfp-public-title"
       title={form.title || DEFAULT_TITLE}
       hint={form.description || undefined}
       actions={
-        form.status === "open" ? (
+        open ? (
           <Pill tone="ok">Open for submissions</Pill>
+        ) : effective === "scheduled" ? (
+          <Pill tone="neutral">Opening soon</Pill>
         ) : (
           <Pill tone="neutral">Closed</Pill>
         )
       }
     >
-      {form.status === "open" ? (
+      {open ? (
         <form onSubmit={submit} className="cfp-public-form">
           {form.fields
             .filter((field) => conditionMatches(field.visibleWhen, answers))
@@ -72,6 +89,12 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
             {notice ? <p role="status">{notice}</p> : null}
           </div>
         </form>
+      ) : effective === "scheduled" ? (
+        // "Not open yet" and "you have missed it" are opposite messages; a single closed state
+        // tells roughly half the visitors who see it the wrong one.
+        <EmptyState title="Submissions have not opened yet" icon={<IconForm size={20} />}>
+          The form appears here when the call opens.
+        </EmptyState>
       ) : (
         <EmptyState title="Submissions are closed" icon={<IconForm size={20} />}>
           This event is no longer accepting proposals.

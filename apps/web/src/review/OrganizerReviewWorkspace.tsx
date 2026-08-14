@@ -525,6 +525,25 @@ export function OrganizerReviewWorkspace({
   return (
     <>
       {loading ? <p role="status">Updating abstract triage…</p> : null}
+      {/*
+        Where a reviewer comes from, said on the surface that needs one.
+        Assigning and distributing are both disabled with an empty reviewer team, and an organizer
+        met two greyed-out buttons and no explanation of what to do about it. Provisioning already
+        exists and is complete — the members workspace invites by address and grants the reviewer
+        role — so this routes into that workflow rather than adding a second way to do it here
+        (issue #190's reviewer-provisioning discoverability).
+      */}
+      {data.reviewers.length === 0 ? (
+        <Notice tone="info">
+          <span>
+            No reviewers are staffed on this event yet, so abstracts cannot be assigned or
+            distributed. Invite one from{" "}
+            <a href={`/members?event=${eventId}`}>Members &amp; access</a> — choose the{" "}
+            <strong>reviewer</strong> role, and they reach a reviewer-only queue with no organizer
+            access.
+          </span>
+        </Notice>
+      ) : null}
       <div className="triage-status-filters">
         <Tabs
           items={tabs}

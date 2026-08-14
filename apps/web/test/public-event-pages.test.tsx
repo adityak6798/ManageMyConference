@@ -550,6 +550,12 @@ describe("what the public surface says about the call for proposals", () => {
       version: 4,
       publishedAt: "2026-08-01T16:00:00.000Z",
       publishedStatus: status,
+      // No scheduled window, and `effectiveStatus` therefore equal to the live status. These tests
+      // are about the snapshot-versus-live-form split; the window's own states are covered by
+      // `cfp-window.test.tsx`.
+      opensAt: null,
+      closesAt: null,
+      effectiveStatus: status,
     },
   });
 
@@ -586,6 +592,49 @@ describe("what the public surface says about the call for proposals", () => {
 
   const answering = (status: "open" | "closed") => () =>
     Promise.resolve(new Response(JSON.stringify(liveForm(status)), { status: 200 }));
+
+  it("says a scheduled call is opening soon rather than calling it closed", async () => {
+    /*
+     * The state a two-way pill folded away.
+     *
+     * `effectiveStatus` gained `scheduled` with the submission window, and the CTA rendered
+     * `open ? "Open" : "Closed"` — so a visitor arriving a month before a call opens was told it
+     * had ended, one click from a page saying "Opening soon" with the date. "Opens on the 3rd" and
+     * "you have missed it" are opposite messages, which is the rule the CFP page states and this
+     * pill was breaking. The assertion is on both surfaces, because agreeing with itself is the
+     * property that failed.
+     */
+    serve(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            cfp: {
+              ...liveForm("open").cfp,
+              opensAt: "2026-12-01T08:00:00.000Z",
+              effectiveStatus: "scheduled",
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const { container } = mountAt(`/events/${SLUG}`);
+    await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
+
+    const side = await waitFor(() => {
+      const node = container.querySelector(".pub-cta-side");
+      expect(node?.textContent).toContain("Opening soon");
+      return node as HTMLElement;
+    });
+    expect(side.textContent).not.toContain("Closed");
+    // Still no offer to submit — the call is not taking anything yet.
+    expect(within(side).queryByRole("link", { name: "Submit a proposal" })).toBeNull();
+
+    fireEvent.click(within(side).getByRole("link", { name: "Read the CFP" }));
+    await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
+    expect(container.textContent).toContain("Submissions open");
+    expect(container.textContent).not.toContain("Submissions closed.");
+  });
 
   it("does not mix a later closed form into an open programme version", async () => {
     expect(projection.cfp.status).toBe("open");
@@ -630,6 +679,76 @@ describe("what the public surface says about the call for proposals", () => {
     expect(container.textContent).toContain("Submissions closed.");
   });
 
+  it("states the deadline on a call whose live form no longer matches the publication", async () => {
+    /*
+     * The regression the version gate caused, and the reason the schedule is a separate prop.
+     *
+     * A passed deadline closes the call *effectively*: the projection reports `closed` while the
+     * live form's own published flag is still `open`, because nobody republished — that is the
+     * whole point of a window. So the last clause of `cfpVersionMatches` compares "open" against
+     * "closed" and fails **by construction** on exactly the calls a deadline governs, and the
+     * deadline line, read from the withheld form, disappeared with it. The applicant was left with
+     * a bare "Closed", which reads as a decision somebody made this morning.
+     *
+     * Withholding the form's *fields* here is still right. The window is not form content.
+     */
+    fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `/api/public/events/${EVENT_ID}/cfp`)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              cfp: {
+                ...liveForm("open").cfp,
+                closesAt: "2026-01-31T23:59:00.000Z",
+                effectiveStatus: "closed",
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      if (url.includes(`/api/public/events/${SLUG}`))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              projection: { ...projection, cfp: { ...projection.cfp, status: "closed" } },
+              publication: {
+                version: 7,
+                publishedAt: null,
+                provenance: {
+                  agendaVersion: 3,
+                  agendaPublishedAt: "2026-08-01T15:00:00.000Z",
+                  cfpVersion: 4,
+                  cfpPublishedAt: "2026-08-01T16:00:00.000Z",
+                  contentDigest: "fnv1a32:12345678",
+                  cause: "source-reconciled",
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      return Promise.resolve(new Response("{}", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = mountAt(`/events/${SLUG}`);
+    await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
+
+    fireEvent.click(await screen.findByRole("link", { name: "Read the CFP" }));
+    await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
+
+    // The date, stated in the event's zone, even though the form itself is being withheld.
+    const deadline = await waitFor(() => {
+      const node = container.querySelector(".pub-cfp-deadline");
+      expect(node?.textContent).toContain("Submissions closed");
+      return node as HTMLElement;
+    });
+    expect(deadline.textContent).toContain("January 31, 2026");
+    // And still no form, and no offer to submit: the version rule holds for the fields.
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+    expect(screen.queryByLabelText("Proposal title")).toBeNull();
+  });
+
   it("keeps the versioned state while explaining that its form cannot be read", async () => {
     serve(() =>
       Promise.resolve(
@@ -654,7 +773,11 @@ describe("what the public surface says about the call for proposals", () => {
 
     fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Submission form unavailable.");
+    // Awaited, not asserted synchronously: the heading comes from the projection while this
+    // sentence comes from the *live CFP* read, which is still in flight when the heading paints.
+    // The sync form failed roughly 2 runs in 86 under load, showing the state one tick earlier.
+    // The sentence itself is main's, which this branch's status-line merge kept.
+    expect(await screen.findByText("Submission form unavailable.")).toBeInTheDocument();
     expect(container.textContent).not.toContain("Open for submissions.");
     // The reason is stated as a reading failure, not as a rejected submission.
     expect(await screen.findByRole("alert")).toHaveTextContent("The CFP is not published.");

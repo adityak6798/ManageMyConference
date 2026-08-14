@@ -22,9 +22,14 @@ import {
   enqueueDueTaskReminders,
 } from "../src/application/communications/task-reminders";
 import { CommunicationsConflictError } from "../src/application/communications/errors";
-import { TRIGGER_CHANNELS } from "../src/domain/communications/delivery";
+import {
+  lifecycleRecipient,
+  lifecycleRecipientForAccount,
+  REQUESTABLE_TRIGGERS,
+  TRIGGER_CHANNELS,
+} from "../src/domain/communications/delivery";
 import type { Actor } from "../src/application/identity/actor";
-import { triggerChannels } from "@greenroom/contracts";
+import { requestTriggerTypeSchema, triggerChannels } from "@greenroom/contracts";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -141,6 +146,149 @@ describe("the trigger and channel vocabulary", () => {
     // what stops them drifting: a trigger added to one and forgotten in the other fails here,
     // rather than becoming a 400 nobody can explain or a CHECK violation in production.
     expect(triggerChannels).toEqual(TRIGGER_CHANNELS);
+    /*
+     * And the *requestable* sets agree too, which the channel comparison above does not cover.
+     * `REQUESTABLE_TRIGGERS` is derived by exclusion and `requestTriggerTypeSchema` is written out,
+     * so the two drift silently: adding `proposal.submitted` to the domain put it in the derived
+     * set while the contract deliberately withheld it, and nothing failed.
+     */
+    expect([...REQUESTABLE_TRIGGERS].sort()).toEqual([...requestTriggerTypeSchema.options].sort());
+  });
+
+  it("prefers the address an account proved over the one a form collected", () => {
+    /*
+     * The rule issue #190 narrowed #132 with, stated once here rather than at each call site.
+     *
+     * Which *subject* is the whole of it: an account-bound one is written to at its account, or
+     * not at all. The account's address is preferred because the
+     * person proved control of that mailbox to sign in, while a form address is whatever
+     * somebody typed. A decision notice is the message where that difference is worst — it names
+     * an outcome the organizer has published nowhere else.
+     */
+    expect(
+      lifecycleRecipient({
+        account: { asked: true, email: "owner@example.test" },
+        declaredEmail: "typed@example.test",
+      }),
+    ).toBe("owner@example.test");
+    /*
+     * An account that holds no address sends **nothing**, rather than falling back.
+     *
+     * The fallback was there once and it was wrong: an owned proposal's form answer is still an
+     * address nobody verified and possibly a stranger's, so reaching for it on the account-bound
+     * path reintroduces exactly the misdirection preferring the account removes. The account
+     * holder still learns the outcome — a decision is on their own dashboard — which is why
+     * `PRD-CFP-004` makes the dashboard the guarantee and not the message.
+     */
+    expect(
+      lifecycleRecipient({
+        account: { asked: true, email: null },
+        declaredEmail: "typed@example.test",
+      }),
+    ).toBeNull();
+    // No account at all — a guest proposal, and the only path the form address is reached from.
+    // This is why #132 stays open rather than closing here: telling nobody is the alternative.
+    expect(lifecycleRecipient({ declaredEmail: "typed@example.test" })).toBe("typed@example.test");
+    // An empty string is not an address, and on an account it is still not a reason to use the
+    // form's. `||` is load-bearing here and `??` would not be.
+    expect(
+      lifecycleRecipient({
+        account: { asked: true, email: "" },
+        declaredEmail: "typed@example.test",
+      }),
+    ).toBeNull();
+    // Nobody to write to, reported as such rather than as an empty recipient a provider would
+    // refuse with a message about its own syntax.
+    expect(
+      lifecycleRecipient({ account: { asked: true, email: null }, declaredEmail: null }),
+    ).toBeNull();
+    expect(lifecycleRecipient({})).toBeNull();
+  });
+
+  it("starts from the account id, so a guest cannot be encoded as an account with no address", async () => {
+    /*
+     * The shape the composition root actually builds, which is where this went wrong.
+     *
+     * `lifecycleRecipient` tells guest from account by whether `account` is present, so a caller
+     * has to *encode* "there is no account" as an absent field. The root encoded it as
+     * `{ asked: true, email: null }` — correct while an account with no address fell through to
+     * the form address, and wrong the instant that fallback was removed: the sentinel is an
+     * account object, so it answered "this account has no address" and **every guest decision
+     * stopped being sent**, silently, with all 902 API tests still green. The unit assertions
+     * above pinned the guest case as `lifecycleRecipient({ declaredEmail })` — a shape production
+     * never constructs — so nothing connected the rule to its only caller.
+     *
+     * `lifecycleRecipientForAccount` removes the encoding step: `accountId === null` *is* the
+     * guest case and there is no intermediate value to get wrong. These drive it the way the root
+     * does, including that identity is not asked at all when there is nobody to ask.
+     */
+    const asked: string[] = [];
+    const askIdentity = async (accountId: string) => {
+      asked.push(accountId);
+      return accountId === "user-with-address"
+        ? ({ asked: true, email: "owner@example.test" } as const)
+        : accountId === "user-unreachable"
+          ? ({ asked: false } as const)
+          : ({ asked: true, email: null } as const);
+    };
+
+    // A guest: the form address, and identity is never consulted.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: null,
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBe("typed@example.test");
+    expect(asked).toEqual([]);
+
+    // An account with an address: its own, never the form's.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: "user-with-address",
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBe("owner@example.test");
+
+    // An account holding none: nothing, because the form answer on an owned record is still
+    // unverified. The dashboard is the guarantee there.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: "user-without-address",
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBeNull();
+
+    // And a lookup that failed is not evidence about the account either way.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: "user-unreachable",
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBeNull();
+    expect(asked).toEqual(["user-with-address", "user-without-address", "user-unreachable"]);
+  });
+
+  it("sends nothing when the account could not be asked, rather than falling back", () => {
+    /*
+     * The distinction the type exists for, and the reason it is a type rather than a comment.
+     *
+     * A failed identity lookup is not evidence that the account has no address. Treating it as
+     * one falls through to the address a *public form* was told — so a transient read error at
+     * the moment an organizer decides would deliver an accept or decline to whatever address an
+     * applicant typed, which is precisely the exposure preferring the account address removes.
+     * And it does not heal: the delivery key names the decision's occurrence, so a retry
+     * converges on the row already addressed wrongly.
+     */
+    expect(
+      lifecycleRecipient({ account: { asked: false }, declaredEmail: "typed@example.test" }),
+    ).toBeNull();
+    // Even with no fallback available, the answer is the same — silence, and a caller that
+    // reports it, rather than a guess.
+    expect(lifecycleRecipient({ account: { asked: false }, declaredEmail: null })).toBeNull();
   });
 });
 

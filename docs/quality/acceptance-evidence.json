@@ -83,12 +83,19 @@
       "suites": ["test-build", "d1", "e2e"],
       "specs": [
         "apps/api/test/cfp-service.test.ts",
+        "apps/api/test/cfp-submitter.test.ts",
+        "apps/api/test/cfp-draft-isolation.test.ts",
         "apps/api/test/cfp-http.test.ts",
+        "apps/api/test/cfp-submitter-http.test.ts",
         "apps/api/test/d1-cfp-repository.integration.test.ts",
+        "apps/api/test/d1-cfp-account-binding.integration.test.ts",
         "apps/api/test/seed-state.integration.test.ts",
         "apps/web/test/cfp-composer.test.tsx",
+        "apps/web/test/cfp-window.test.tsx",
+        "apps/web/test/cfp-submitter-dashboard.test.tsx",
         "apps/web/e2e/00-seed-state.spec.ts",
         "apps/web/e2e/cfp.spec.ts",
+        "apps/web/e2e/cfp-submitter.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts"
       ]
     },
