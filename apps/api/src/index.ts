@@ -1230,11 +1230,16 @@ export default {
          * mailbox to sign in, and the trigger in `1201` makes the owner immutable, so this is a
          * strictly better address for exactly the same message.
          *
-         * A guest submission still falls back to the form answer, which is why this **narrows**
-         * #132 rather than closing it: the per-(event, recipient) cap or double opt-in that
-         * anonymous path needs is a product decision with storage behind it, and is not taken
-         * here. When the owner's account has no address, the fallback is the form answer rather
-         * than silence — the proposal is still theirs, and the decision is still theirs to hear.
+         * A guest submission still uses the form answer, which is why this **narrows** #132 rather
+         * than closing it: the per-(event, recipient) cap or double opt-in that anonymous path
+         * needs is a product decision with storage behind it, and is not taken here.
+         *
+         * An owned proposal whose account holds no address sends **nothing** — it does not fall
+         * back. That fallback was here and it was wrong: the form answer on an owned proposal is
+         * still unverified and possibly a stranger's, so using it would reintroduce the exact
+         * misdirection preferring the account removes. The owner is not left in the dark, because
+         * a decision is on their own dashboard; that is why `PRD-CFP-004` makes the dashboard the
+         * guarantee and the message a courtesy.
          */
         const owner = fact.submitterUserId
           ? await recipientFor(fact.submitterUserId, {

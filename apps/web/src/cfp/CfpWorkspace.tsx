@@ -38,6 +38,7 @@ import {
   FIELD_TYPES,
   formatDate,
   fromZonedInput,
+  zonedInputExists,
   isNotFound,
   loadPublicSubmissionUrl,
   shape,
@@ -643,6 +644,27 @@ export function CfpWorkspace({
             className="secondary"
             disabled={busy !== null}
             onClick={() => {
+              /*
+               * A wall time that does not exist is refused rather than shifted.
+               *
+               * On a spring-forward date the local clock jumps an hour, so a deadline typed inside
+               * the gap — 02:30 where 02:00–02:59 never happens — converts to the instant *before*
+               * it and the organizer's deadline silently moves an hour earlier. Saving it is worse
+               * than refusing it, because the announced deadline is then a time nobody chose.
+               */
+              const missing = [
+                ["Opens", opensAtInput] as const,
+                ["Deadline", closesAtInput] as const,
+              ].filter(([, value]) => !zonedInputExists(value, timezone));
+              if (missing.length > 0) {
+                announce(
+                  "error",
+                  `${missing.map(([label]) => label).join(" and ")} ${
+                    missing.length > 1 ? "name times that do not" : "names a time that does not"
+                  } exist in ${timezone}: the clock skips that hour when daylight saving begins. Choose a time before or after it.`,
+                );
+                return;
+              }
               // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
               void persistWindow({
                 opensAt: fromZonedInput(opensAtInput, timezone),

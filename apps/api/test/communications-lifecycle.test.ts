@@ -169,23 +169,32 @@ describe("the trigger and channel vocabulary", () => {
         declaredEmail: "typed@example.test",
       }),
     ).toBe("owner@example.test");
-    // The fallback is why #132 stays open rather than closing here: a guest submission is a
-    // supported way to apply, and refusing to write to it would mean telling nobody.
+    /*
+     * An account that holds no address sends **nothing**, rather than falling back.
+     *
+     * The fallback was there once and it was wrong: an owned proposal's form answer is still an
+     * address nobody verified and possibly a stranger's, so reaching for it on the account-bound
+     * path reintroduces exactly the misdirection preferring the account removes. The account
+     * holder still learns the outcome — a decision is on their own dashboard — which is why
+     * `PRD-CFP-004` makes the dashboard the guarantee and not the message.
+     */
     expect(
       lifecycleRecipient({
         account: { asked: true, email: null },
         declaredEmail: "typed@example.test",
       }),
-    ).toBe("typed@example.test");
-    // No account at all — a guest proposal.
+    ).toBeNull();
+    // No account at all — a guest proposal, and the only path the form address is reached from.
+    // This is why #132 stays open rather than closing here: telling nobody is the alternative.
     expect(lifecycleRecipient({ declaredEmail: "typed@example.test" })).toBe("typed@example.test");
-    // An empty string is not an address. `||` is load-bearing here and `??` would not be.
+    // An empty string is not an address, and on an account it is still not a reason to use the
+    // form's. `||` is load-bearing here and `??` would not be.
     expect(
       lifecycleRecipient({
         account: { asked: true, email: "" },
         declaredEmail: "typed@example.test",
       }),
-    ).toBe("typed@example.test");
+    ).toBeNull();
     // Nobody to write to, reported as such rather than as an empty recipient a provider would
     // refuse with a message about its own syntax.
     expect(

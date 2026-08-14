@@ -185,6 +185,24 @@ const zoneOffset = (utcMillis: number, timeZone: string) => {
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
+/**
+ * Whether this wall-clock time exists in this zone on this date.
+ *
+ * A spring-forward date has a gap — in `America/Los_Angeles` on 2026-03-08 the clock goes from
+ * 01:59 to 03:00 — and every value inside it converts to the instant the hour before, so a
+ * deadline typed as `02:30` is stored as `01:30`. The check is the round trip itself: if reading
+ * the instant back does not give the wall time that produced it, that wall time never happened.
+ *
+ * Separate from `fromZonedInput` rather than folded into it, because the two answers are different
+ * kinds. `fromZonedInput` returns `null` for *no bound*, which is a legitimate thing to save; a
+ * time that does not exist is a value to refuse and explain, and collapsing it into "no deadline"
+ * would clear a deadline the organizer was setting.
+ */
+export function zonedInputExists(local: string, timeZone: string): boolean {
+  const instant = fromZonedInput(local, timeZone);
+  return instant === null || toZonedInput(instant, timeZone) === local;
+}
+
 /** An instant as the `YYYY-MM-DDTHH:mm` a `datetime-local` input shows, in the event's zone. */
 export function toZonedInput(instant: string | null, timeZone: string): string {
   if (!instant) return "";
@@ -200,6 +218,12 @@ export function toZonedInput(instant: string | null, timeZone: string): string {
  * Two passes, because the offset depends on the answer: the first uses the offset at the naive
  * instant and the second re-reads it at the corrected one, which is what makes a deadline set an
  * hour either side of a daylight-saving change land on the time the organizer typed.
+ *
+ * **It cannot represent a wall time that does not exist**, and callers must not pretend otherwise
+ * — see `zonedInputExists`. On a spring-forward date the local clock jumps from 01:59 to 03:00, so
+ * `02:30` names no instant; both passes land on the same instant as `01:30` and the deadline the
+ * organizer typed silently moves an hour earlier. Returning `null` would be worse still, because
+ * `null` here means *no bound at all*.
  */
 export function fromZonedInput(local: string, timeZone: string): string | null {
   if (!local) return null;

@@ -20,10 +20,12 @@ message and the one decision `D5` refused to ship, and it is why `#132` narrows 
 unauthenticated form can still be filled in with somebody else's address, but no send is directed by
 it, and a decision is now readable on the submitter's own dashboard without any mail at all. A
 decision notification follows the same preference through one rule stated in the communications
-domain, `lifecycleRecipient`: the address identity holds for the owning account wins whenever there
-is one, and the form-supplied address is the fallback — for a proposal with no account, or an
-account that holds no address, and for neither of those when the lookup itself *failed*, which
-sends nothing rather than falling through to the address a public form was told. Review reports both `submitterUserId` and
+domain, `lifecycleRecipient`, and the rule is about which *subject* rather than which address: an
+account-bound proposal is written to at its account or not at all. The form-supplied address is
+reached only when there is no account. An account holding none sends nothing — falling through
+there would put a decision on an unverified address attached to an owned record, which is the
+exposure preferring the account exists to remove — and so does a lookup that *failed*, which is not
+evidence about the account either way. Review reports both `submitterUserId` and
 `submitterEmail` and resolves neither — an address is identity's to answer for — so the composition
 root, where a lifecycle fact meets identity's answer about the same person, is where the choice is
 made. A *guest* proposal has no account, so its decision still addresses the form-supplied address

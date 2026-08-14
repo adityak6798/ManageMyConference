@@ -11,7 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CfpWorkspace } from "../src/CfpWorkspace";
-import { fromZonedInput, toZonedInput } from "../src/cfp/model";
+import { fromZonedInput, toZonedInput, zonedInputExists } from "../src/cfp/model";
 import { PublicCfpView } from "../src/public-event/PublicCfpView";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -40,6 +40,44 @@ describe("a deadline is entered in the event's timezone", () => {
     expect(fromZonedInput("2026-11-01T01:30", LA)).toBe("2026-11-01T08:30:00.000Z");
     expect(fromZonedInput("2026-11-01T03:30", LA)).toBe("2026-11-01T11:30:00.000Z");
     expect(toZonedInput("2026-11-01T11:30:00.000Z", LA)).toBe("2026-11-01T03:30");
+  });
+
+  it("refuses a wall time the clock skips, rather than moving the deadline an hour", async () => {
+    /*
+     * The spring-forward gap. On 2026-03-08 in Los Angeles the clock goes 01:59 → 03:00, so
+     * 02:30 names no instant at all — and the two-pass conversion lands it on the same instant as
+     * 01:30. Saving it moved the organizer's announced deadline an hour earlier than they typed,
+     * with nothing on screen to say so, which is worse than refusing it.
+     *
+     * `null` is not available as the answer: `fromZonedInput` returns `null` for *no bound*, so
+     * collapsing a skipped time into that would clear the deadline being set.
+     */
+    expect(zonedInputExists("2026-03-08T02:30", LA)).toBe(false);
+    // The hours either side of the gap are ordinary, and so is the autumn overlap.
+    for (const real of ["2026-03-08T01:30", "2026-03-08T03:30", "2026-11-01T01:30"])
+      expect(zonedInputExists(real, LA)).toBe(true);
+    // No bound and a malformed value are not "skipped times" — they have their own meanings.
+    expect(zonedInputExists("", LA)).toBe(true);
+    expect(zonedInputExists("not-a-date", LA)).toBe(true);
+
+    // And the composer refuses it rather than sending it.
+    const writes: { url: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method) writes.push({ url: String(input) });
+        return jsonResponse({ cfp: form() });
+      }),
+    );
+    render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    const deadline = await screen.findByLabelText("Deadline");
+    await waitFor(() => expect(screen.getByLabelText("Opens")).toHaveValue(""));
+    fireEvent.change(deadline, { target: { value: "2026-03-08T02:30" } });
+    await waitFor(() => expect(deadline).toHaveValue("2026-03-08T02:30"));
+    fireEvent.click(screen.getByRole("button", { name: "Save window" }));
+
+    expect(await screen.findByText(/does not exist in America\/Los_Angeles/)).toBeInTheDocument();
+    expect(writes).toHaveLength(0);
   });
 
   it("treats an empty input as no bound at all, in both directions", () => {

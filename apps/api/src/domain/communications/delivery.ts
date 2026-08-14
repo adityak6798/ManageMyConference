@@ -106,12 +106,19 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
  * for the messages that carry something private — an accept or a decline names a decision the
  * organizer has not announced anywhere else.
  *
- * The rule is one line and it is stated here rather than at each call site: **an account address
- * wins whenever there is one.** The form address remains the fallback rather than being refused,
- * because a guest submission is a supported way to apply (`PRD-CFP-002`) and the alternative is
- * telling nobody. That fallback is the residue of issue #132, which stays open: closing it needs
- * a per-(event, recipient) cap or a double opt-in, which is a product decision with storage
- * behind it.
+ * The rule is stated here rather than at each call site, and it is about *which subject* rather
+ * than which address: **an account-bound subject is written to at its account, or not at all.**
+ * The form address is reached only when there is no account — a guest submission, which is a
+ * supported way to apply (`PRD-CFP-002`) and where telling nobody is the only alternative. That
+ * remaining guest path is the residue of issue #132, which stays open: closing it needs a
+ * per-(event, recipient) cap or a double opt-in, a product decision with storage behind it.
+ *
+ * An account that holds **no** address therefore yields `null` rather than falling through. That
+ * was a fallback once, and it was wrong: an owned proposal's form answer is still an address
+ * nobody verified and possibly a stranger's, so using it on the account-bound path reintroduces
+ * exactly the misdirection preferring the account removes. The account holder is not left without
+ * recourse — a decision is on their own dashboard (`PRD-CFP-004`), which is why the product's
+ * guarantee is the dashboard and not the message.
  *
  * `null` means there is nobody to write to, which callers report rather than paper over — a
  * delivery to a non-address burns an attempt and fails with the provider's refusal instead of
@@ -136,8 +143,11 @@ export const lifecycleRecipient = (subject: {
   /** The address a public form collected. Unverified by construction. */
   readonly declaredEmail?: string | null | undefined;
 }): string | null => {
-  if (subject.account && !subject.account.asked) return null;
-  return (subject.account?.asked ? subject.account.email : null) || subject.declaredEmail || null;
+  // No account at all — a guest submission. The form address is the only one there is.
+  if (!subject.account) return subject.declaredEmail || null;
+  // There is an account, so its answer is final and the form address is never consulted again.
+  // `asked: false` is not an answer, so it sends nothing.
+  return subject.account.asked ? subject.account.email || null : null;
 };
 
 export interface MessageTemplate {

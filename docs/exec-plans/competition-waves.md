@@ -1489,6 +1489,30 @@ was caught by a reviewer choosing to run the suite sixty times against other wor
 Sixteen green runs of the web suite alone said nothing about any of them, and neither would sixteen
 green runs of `npm run check`.
 
+**Copilot's review, after the branch was rebased onto `main`, found two things fifteen human-shaped
+passes did not — and both were in the seams those passes had declared clean.**
+
+**The account preference still failed open for an account with no address.** `lifecycleRecipient`
+fell through to the form answer there, which is the exposure preferring the account exists to
+remove: an owned proposal's form answer is still unverified and possibly a stranger's. The rule is
+now about which *subject* rather than which address — an account-bound subject is written to at its
+account or not at all — and the form address is reached only when there is no account. `PRD-CFP-004`
+had said exactly this about the *confirmation* since the beginning; the decision path simply did not
+match its own spec, and nobody read the two side by side.
+
+**And the two-pass zone conversion cannot represent a wall time that does not exist.** On a
+spring-forward date the clock skips an hour, so a deadline typed as `02:30` converted to the same
+instant as `01:30` and the organizer's announced deadline moved an hour earlier with nothing on
+screen to say so. `zonedInputExists` is the round trip itself, and the composer refuses rather than
+saves. It is deliberately not folded into `fromZonedInput`, whose `null` already means *no bound* —
+collapsing a skipped time into that would clear the deadline being set.
+
+A third finding is real and **wider than this branch**: every lifecycle template exists only in the
+demo seed for one organization, so on any other organization all nine messages — including the
+`decision-accepted` and `decision-declined` that predate this issue — resolve no template, and
+`notifyLifecycle` swallows the refusal. Filed as issue #217 rather than repaired here, because it
+is one provisioning decision across four domains and this branch neither introduced nor widened it.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`
