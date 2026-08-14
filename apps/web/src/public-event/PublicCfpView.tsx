@@ -10,7 +10,7 @@
  * @spec PRD-CFP-001 PRD-CFP-002
  */
 import { cfpConditionMatches, type SessionDto } from "@greenroom/contracts";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   CfpApiError,
   type CfpFormDto,
@@ -98,8 +98,22 @@ export function PublicCfpView({
   // a null session rather than as a failure — so holding one is the whole test.
   const signedIn = session !== null;
 
+  /**
+   * Reload the dashboard, and apply only the newest answer.
+   *
+   * The refresh is fire-and-forget and fires after `setSubmitting(false)`, so the controls are
+   * live again while it is still in flight and a second action can start before the first's read
+   * returns. Without a generation the older answer can land last: save, then submit, then the
+   * *save's* list arrives and repaints the row as a draft with a Continue button — beside a
+   * notice saying the proposal was submitted, and offering a Submit whose only outcome is a 409.
+   * Making the refresh non-blocking is what introduced that; the earlier awaited version could
+   * not overlap. This keeps the non-blocking behaviour and drops stale answers instead.
+   */
+  const refreshGeneration = useRef(0);
   const refreshProposals = useCallback(async () => {
-    setProposals(await loadMyProposals(eventId));
+    const generation = ++refreshGeneration.current;
+    const listed = await loadMyProposals(eventId);
+    if (generation === refreshGeneration.current) setProposals(listed);
   }, [eventId]);
 
   useEffect(() => {
@@ -112,7 +126,13 @@ export function PublicCfpView({
         if (!live) return;
         setSession(identity.session);
         setDoors(identity.doors);
-        if (identity.session) await refreshProposals();
+        /*
+         * Reloaded separately from the identity probe, so a failed *list* read is not reported as
+         * a failed sign-in check: the catch below renders an identity sentence, and "Something
+         * went wrong, contact support" is the wrong thing to say about an empty dashboard.
+         */
+        // ERROR-INTENT: an absent list is what a failed read leaves, and the page renders that.
+        if (identity.session) void refreshProposals().catch(() => undefined);
       })
       .catch((reason: unknown) => {
         // ERROR-INTENT: rendered rather than rethrown. A visitor whose identity could not be read
@@ -146,7 +166,19 @@ export function PublicCfpView({
     });
   }
 
-  async function guarded(action: () => Promise<void>, fallback: string) {
+  /**
+   * Run one applicant action, render its outcome, and reload the dashboard afterwards.
+   *
+   * `refreshes` is false for the two actions that end this page's session — signing out and
+   * signing in as a demo persona both reload the window — where a proposals read is guaranteed to
+   * answer 401 or to be thrown away, and exists only because the guard tested "is somebody signed
+   * in" rather than "does this action leave a list worth reading".
+   */
+  async function guarded(
+    action: () => Promise<void>,
+    fallback: string,
+    { refreshes = true }: { refreshes?: boolean } = {},
+  ) {
     setSubmitting(true);
     setNotice(null);
     setFieldErrors({});
@@ -178,7 +210,7 @@ export function PublicCfpView({
        * outcome is already rendered, and the next action or page load reads it again.
        */
       // ERROR-INTENT: a list that failed to reload is stale and nothing more.
-      if (signedIn) void refreshProposals().catch(() => undefined);
+      if (refreshes && signedIn) void refreshProposals().catch(() => undefined);
     }
   }
 
@@ -257,9 +289,34 @@ export function PublicCfpView({
       });
     }, "The proposal could not be submitted.");
 
+  /**
+   * Answers this proposal holds that the form as published *now* would refuse.
+   *
+   * A stored proposal is a snapshot of the form it was written against, and an organizer may have
+   * republished since: removed a question, or changed a condition so an answered question is
+   * hidden. The server validates a revision against the **current** form and refuses both shapes
+   * — so loading the answers verbatim produced a draft that could never be saved and never be
+   * submitted, with an error the page could not even point at: `fieldErrors` is rendered inside
+   * the loop over visible fields, so an error keyed to a removed or hidden one has nowhere to
+   * go. The applicant sees "Review the highlighted proposal fields" and no highlighted field, and
+   * there is no delete, so the row is stranded.
+   *
+   * This is the same pruning the change handler already does on every keystroke; it just was not
+   * done on the way in.
+   */
+  const answersTheFormStillAccepts = (stored: Readonly<Record<string, string>>) => {
+    const fields = liveCfp?.fields ?? [];
+    const kept: Record<string, string> = {};
+    for (const [id, value] of Object.entries(stored))
+      if (fields.some((field) => field.id === id)) kept[id] = value;
+    for (const field of fields)
+      if (!cfpConditionMatches(field.visibleWhen, kept)) delete kept[field.id];
+    return kept;
+  };
+
   const openForEditing = (proposal: SubmitterProposalDto) => {
     setEditing(proposal);
-    setAnswers({ ...proposal.answers });
+    setAnswers(answersTheFormStillAccepts(proposal.answers));
     setFieldErrors({});
     // Announced rather than only rendered: the form below has just changed underneath somebody who
     // pressed a button in the list above it, and that is not visible to a screen reader.
@@ -330,8 +387,22 @@ export function PublicCfpView({
         <section className="pub-section" aria-labelledby="pub-my-proposals">
           <div className="pub-section-head">
             <h2 id="pub-my-proposals">Your proposals</h2>
+            {/*
+              Disabled while a write is in flight, like every other control on this page.
+              Switching which proposal the form is bound to *during* a save rebinds `answers`
+              while the resolving save is still about to set `editing` — so the next save sent
+              one proposal's answers under another's id, overwriting it, and the page said
+              "Saved." `Start another proposal` was the worse of the two: it clears the form, so a
+              whole new proposal was typed and then written over the previous one as a `PUT`,
+              with no create issued at all.
+            */}
             {formOpen && editing ? (
-              <button type="button" className="pub-button" onClick={startFresh}>
+              <button
+                type="button"
+                className="pub-button"
+                disabled={submitting}
+                onClick={startFresh}
+              >
                 Start another proposal
               </button>
             ) : null}
@@ -352,10 +423,14 @@ export function PublicCfpView({
               onClick={() => {
                 // ERROR-INTENT: handlers cannot await; `guarded` renders the failure and the
                 // reload is what re-reads this page's identity from the API.
-                void guarded(async () => {
-                  await signOut();
-                  window.location.reload();
-                }, "Signing out did not work. Close the browser to be sure.");
+                void guarded(
+                  async () => {
+                    await signOut();
+                    window.location.reload();
+                  },
+                  "Signing out did not work. Close the browser to be sure.",
+                  { refreshes: false },
+                );
               }}
             >
               Sign out
@@ -394,6 +469,9 @@ export function PublicCfpView({
                       <button
                         type="button"
                         className="pub-button"
+                        // See `Start another proposal`: rebinding the form mid-write is how one
+                        // proposal's answers end up saved over another's.
+                        disabled={submitting}
                         onClick={() => openForEditing(proposal)}
                       >
                         {proposal.lifecycle === "draft"
@@ -449,10 +527,15 @@ export function PublicCfpView({
                     onClick={() => {
                       // ERROR-INTENT: handlers cannot await, and a demo sign-in has to re-read
                       // the page's own identity, so the outcome is rendered by the reload.
-                      void guarded(async () => {
-                        await startDemoSession(identity.persona);
-                        window.location.reload();
-                      }, "That demo identity could not be used.");
+                      void guarded(
+                        async () => {
+                          await startDemoSession(identity.persona);
+                          window.location.reload();
+                        },
+                        "That demo identity could not be used.",
+                        // Signing *in* also reloads, and `signedIn` is still false here anyway.
+                        { refreshes: false },
+                      );
                     }}
                   >
                     Continue as {identity.label}

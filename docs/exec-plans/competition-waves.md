@@ -1420,6 +1420,36 @@ guest arriving a month early was told the call had closed — the message travel
 asserted; and the transport carrying the service's conflict wording is a visible change on a
 pre-existing endpoint, which is compatible but was undocumented.
 
+**A twelfth pass was pointed at the applicant component's state machine rather than at the
+repair, and found the two worst defects of the issue there — both in code this issue added, and
+neither reachable from any seam earlier passes had examined.**
+
+**The list's buttons were live during an in-flight write.** `Continue …` binds the form to a
+proposal immediately; a save still in flight sets `editing` when it resolves. Press one during the
+other and the form holds proposal B's answers under proposal A's id — and the next save sends them
+at a current revision, so nothing refuses it and the page says "Saved." while A is destroyed.
+`Start another proposal` is the worse door: it clears the form, so a whole new proposal is typed
+and then written over the previous one as a `PUT`, with no create issued at all. Every other
+control on the page was already gated on `submitting`; these two were not.
+
+**And a draft could become permanently unsavable.** A stored proposal is a snapshot of the form it
+was written against, while the server validates a revision against the form as published *now* —
+so a draft holding an answer to a question the organizer has since removed, or since hidden behind
+a condition, failed every save and every submit. The error could not even be shown: field errors
+render inside the loop over *visible* fields, so one keyed to a removed field has nowhere to go.
+The applicant saw "Review the highlighted proposal fields" with nothing highlighted, and there is
+no delete. Answers are now pruned on the way in, exactly as the change handler already pruned them
+on every keystroke.
+
+The pass also refused the previous round's own claim. Collapsing the refreshes into one did **not**
+remove the ordering race, it relocated it: the single call fires after `setSubmitting(false)`, so
+the controls are live again while it is in flight and a *second* action can overtake it — save,
+then submit, then the save's older list lands and repaints the row as a draft with a Continue
+button, beside a notice saying the proposal was submitted. A generation counter now drops stale
+answers. And the line the whole round was about had no unit coverage at all; deleting it left 351
+tests green. That is the fourth consecutive round in which this one line has been wrong, which is
+its own argument for the test that now covers it.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`

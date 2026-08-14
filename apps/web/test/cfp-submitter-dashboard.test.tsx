@@ -181,6 +181,83 @@ describe("the signed-in applicant's proposals", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Proposal submitted.");
   });
 
+  it("cannot be rebound to another proposal while a write is in flight", async () => {
+    /*
+     * The list's buttons are writes-in-waiting, and they were the only live controls on the page
+     * during a save.
+     *
+     * `Continue …` sets `answers` immediately; the save that is still in flight sets `editing`
+     * when it resolves. Press one during the other and the form is bound to proposal A while
+     * holding proposal B's answers — and the next save sends B's content under A's id, at a
+     * current revision, so nothing refuses it. The page says "Saved." and A is gone.
+     * `Start another proposal` is worse: it clears the form, so a whole new proposal is typed and
+     * then written over the previous one as a PUT, with no create issued at all.
+     */
+    let releaseSave: (() => void) | undefined;
+    const test = mount({
+      proposals: [
+        proposal({ id: "50000000-0000-4000-8000-00000000000a", title: "Alpha" }),
+        proposal({ id: "50000000-0000-4000-8000-00000000000b", title: "Beta" }),
+      ],
+      write: (url, init) =>
+        init.method === "PUT"
+          ? new Promise((resolve) => {
+              releaseSave = () => resolve(new Response(JSON.stringify({ proposal: proposal() })));
+            })
+          : undefined,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    // Every control that could rebind the form is out of reach until the write settles.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Continue Beta/ })).toBeDisabled(),
+    );
+    expect(screen.getByRole("button", { name: /Continue Alpha/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start another proposal" })).toBeDisabled();
+
+    releaseSave?.();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Continue Beta/ })).not.toBeDisabled(),
+    );
+    expect(test.calls.filter(({ method }) => method === "PUT")).toHaveLength(1);
+  });
+
+  it("drops answers the republished form would refuse, rather than stranding the draft", async () => {
+    /*
+     * A stored proposal is a snapshot of the form it was written against; the server validates a
+     * revision against the form as published **now**.
+     *
+     * So a draft holding an answer to a question the organizer has since removed — or since
+     * hidden behind a condition — failed every save and every submit. And the error could not be
+     * shown: `fieldErrors` renders inside the loop over *visible* fields, so one keyed to a
+     * removed field has nowhere to go. The applicant saw "Review the highlighted proposal fields"
+     * with nothing highlighted, and there is no delete, so the row was stranded for good.
+     */
+    const test = mount({
+      proposals: [
+        proposal({
+          answers: { title: "Kept", retired: "Answer to a question that no longer exists" },
+        }),
+      ],
+      write: (url, init) =>
+        init.method === "PUT"
+          ? jsonResponse({ proposal: proposal({ answers: { title: "Kept" }, revision: 2 }) })
+          : undefined,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));
+    // The retired answer is not sent, so the write the server would have refused is never made.
+    expect(test.calls.find(({ method }) => method === "PUT")?.body).toEqual({
+      answers: { title: "Kept" },
+      expectedRevision: 1,
+    });
+  });
+
   it("does not tell an applicant a submission failed when what failed was signing out", async () => {
     /*
      * This notice used to serve one action, so a blanket "Not submitted — " prefix was always
