@@ -279,6 +279,55 @@ export class D1CfpRepository implements CfpRepository {
       throw new Error(`D1 failed to list owned proposals: ${result.error ?? "unknown error"}`);
     return (result.results ?? []).map(submission);
   }
+  /**
+   * The calls closing inside a window, and who still has a draft on each (issue #210).
+   *
+   * Two reads rather than one join, and the shape is the reason: a call with fifty drafts would
+   * come back as fifty rows carrying the same deadline, and the caller wants one message per
+   * *account* rather than one per draft. So the deadlines are read first, bounded, and the draft
+   * holders are grouped per call in a second statement over exactly those event ids.
+   *
+   * `published_at IS NOT NULL` is the filter that keeps this honest: a call nobody published has
+   * no applicants and no deadline anybody has seen, and a message about it would announce
+   * something that was never offered.
+   *
+   * The second statement counts **drafts only** — `lifecycle = 'draft'` — so an account that has
+   * submitted everything it wrote is absent rather than reminded, which is half of the acceptance
+   * this exists for.
+   */
+  async listDeadlineNotices(window: { from: string; to: string }, limit: number) {
+    const calls = await this.database
+      .prepare(
+        "SELECT event_id, closes_at FROM cfp_forms WHERE published_at IS NOT NULL AND closes_at IS NOT NULL AND closes_at >= ? AND closes_at < ? ORDER BY closes_at, event_id LIMIT ?",
+      )
+      .bind(window.from, window.to, limit)
+      .all<{ event_id: string; closes_at: string }>();
+    if (!calls.success)
+      throw new Error(`D1 failed to list closing calls: ${calls.error ?? "unknown error"}`);
+    const rows = calls.results ?? [];
+    if (rows.length === 0) return [];
+    const holders = await this.database
+      .prepare(
+        `SELECT event_id, submitter_user_id, COUNT(*) AS drafts FROM cfp_submissions WHERE lifecycle = 'draft' AND submitter_user_id IS NOT NULL AND event_id IN (${rows
+          .map(() => "?")
+          .join(", ")}) GROUP BY event_id, submitter_user_id ORDER BY event_id, submitter_user_id`,
+      )
+      .bind(...rows.map(({ event_id }) => event_id))
+      .all<{ event_id: string; submitter_user_id: string; drafts: number }>();
+    if (!holders.success)
+      throw new Error(`D1 failed to list draft holders: ${holders.error ?? "unknown error"}`);
+    const byEvent = new Map<string, { userId: string; draftCount: number }[]>();
+    for (const row of holders.results ?? [])
+      byEvent.set(row.event_id, [
+        ...(byEvent.get(row.event_id) ?? []),
+        { userId: row.submitter_user_id, draftCount: Number(row.drafts) },
+      ]);
+    return rows.map((row) => ({
+      eventId: row.event_id,
+      closesAt: row.closes_at,
+      draftHolders: byEvent.get(row.event_id) ?? [],
+    }));
+  }
   async createSubmission(proposal: ProposalSubmission) {
     const result = await this.database
       .prepare(

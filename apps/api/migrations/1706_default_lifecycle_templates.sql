@@ -1,6 +1,6 @@
 -- @spec PRD-COM-001
 --
--- Give every organization that already exists the nine lifecycle templates (issue #217).
+-- Give every organization that already exists the eleven lifecycle templates (issues #217, #210).
 --
 -- ## What was wrong
 --
@@ -37,14 +37,21 @@
 -- The `1706-` id prefix makes a provisioned default recognizable in the database without joining,
 -- and keeps it distinct from both the seed's ids and the UUIDs the service mints.
 --
--- ## Why nine statements rather than one cross join
+-- ## Why one statement per template rather than one cross join
 --
--- The obvious form is one `INSERT … SELECT` over `organizations` cross-joined to the nine
--- defaults as a `SELECT … UNION ALL …` subquery. D1 refuses it: `too many terms in compound
--- SELECT: SQLITE_ERROR`, because workerd's SQLite is built with a far smaller
--- `SQLITE_MAX_COMPOUND_SELECT` than the default. Nine independent statements is what it accepts,
--- and each carries its own `NOT EXISTS` guard, so a partially provisioned organization is filled
--- in per key rather than all-or-nothing.
+-- The obvious form is one `INSERT … SELECT` over `organizations` cross-joined to the defaults as
+-- a `SELECT … UNION ALL …` subquery. D1 refuses it: `too many terms in compound SELECT:
+-- SQLITE_ERROR`, because workerd's SQLite is built with a far smaller `SQLITE_MAX_COMPOUND_SELECT`
+-- than the default. Independent statements are what it accepts, and each carries its own
+-- `NOT EXISTS` guard, so a partially provisioned organization is filled in per key rather than
+-- all-or-nothing.
+--
+-- ## The last two are issue #210's, and they arrive here rather than in their own migration
+--
+-- `cfp-deadline-reminder` and `cfp-call-closed` are the scheduled deadline messages. They belong
+-- to the same catalogue and to the same lane as the nine above, and splitting them into a second
+-- backfill would mean two migrations doing one thing with the same guard. Migration `1707` widens
+-- `communication_deliveries.trigger_type` so the deliveries they render can be written at all.
 
 INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
@@ -206,4 +213,40 @@ FROM organizations o
 WHERE NOT EXISTS (
   SELECT 1 FROM message_templates existing
   WHERE existing.organization_id = o.id AND existing.template_key = 'proposal-submitted'
+);
+
+INSERT INTO message_templates (
+  id, organization_id, template_key, version, channel, subject, body, created_at
+)
+SELECT
+  '1706-' || o.id || '-cfp-deadline-reminder',
+  o.id,
+  'cfp-deadline-reminder',
+  1,
+  'email',
+  'Your draft for {{eventName}} is not submitted yet',
+  'Hello {{submitterName}}, the call for proposals for {{eventName}} closes {{closesAt}} and you still have {{draftCount}} unsubmitted on your proposals page. Open it and press Submit if you want it considered; if you have changed your mind, nothing else is needed and we will not write about it again.',
+  '2026-08-14T00:00:00.000Z'
+FROM organizations o
+WHERE NOT EXISTS (
+  SELECT 1 FROM message_templates existing
+  WHERE existing.organization_id = o.id AND existing.template_key = 'cfp-deadline-reminder'
+);
+
+INSERT INTO message_templates (
+  id, organization_id, template_key, version, channel, subject, body, created_at
+)
+SELECT
+  '1706-' || o.id || '-cfp-call-closed',
+  o.id,
+  'cfp-call-closed',
+  1,
+  'email',
+  'Your call for proposals has closed',
+  'Hello {{organizerName}}, the call for proposals for {{eventName}} closed {{closesAt}} and is no longer taking submissions. The proposals you received are waiting in the review queue.',
+  '2026-08-14T00:00:00.000Z'
+FROM organizations o
+WHERE NOT EXISTS (
+  SELECT 1 FROM message_templates existing
+  WHERE existing.organization_id = o.id AND existing.template_key = 'cfp-call-closed'
 );

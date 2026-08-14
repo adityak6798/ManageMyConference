@@ -16,7 +16,14 @@
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { D1CommunicationsRepository } from "../src/adapters/persistence/d1-communications-repository";
+import { D1EventRepository } from "../src/adapters/persistence/d1-event-repository";
+import {
+  D1IdentityDirectory,
+  preparedOrganizerGrant,
+} from "../src/adapters/persistence/d1-identity-directory";
 import { CommunicationsService } from "../src/application/communications/communications-service";
+import { EventService } from "../src/application/events/event-service";
+import { SignupService } from "../src/application/identity/signup";
 import { DEFAULT_TEMPLATES } from "../src/domain/communications/default-templates";
 import {
   applyMigrations,
@@ -25,23 +32,47 @@ import {
 } from "./support/seeded-d1";
 
 const SEEDED_ORGANIZATION = "00000000-0000-4000-8000-000000000010";
-const SECOND_ORGANIZATION = "20000000-0000-4000-8000-0000000000aa";
-const SECOND_EVENT = "20000000-0000-4000-8000-0000000000bb";
 
-/** A self-serve organization and its first event, exactly as signup writes them. */
 type Database = MigratedDatabase["database"];
 
+/**
+ * A second organization and its first event, written by a **real self-serve signup**.
+ *
+ * Not SQL, and not a hand-assembled actor: `organizations`, `events` and `users` belong to two
+ * other domains, and the organization issue #217 is actually about is the one a Google signup
+ * creates. Driving the real flow means the fixture holds whatever that flow holds — the
+ * membership, the event role, the address — rather than whatever a test author remembered.
+ */
 const createSecondOrganization = async (database: Database) => {
-  await database
-    .prepare("INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)")
-    .bind(SECOND_ORGANIZATION, "Second conference", "2026-08-14T09:00:00.000Z")
-    .run();
-  await database
-    .prepare(
-      "INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(SECOND_EVENT, SECOND_ORGANIZATION, "Your first event", "UTC", "2026-08-14T09:00:00.000Z")
-    .run();
+  const directory = new D1IdentityDirectory(database as never);
+  const events = new EventService({
+    repository: new D1EventRepository(database as never, preparedOrganizerGrant),
+    newId: () => crypto.randomUUID(),
+    now: () => new Date("2026-08-14T09:00:00.000Z"),
+  });
+  const signup = new SignupService({
+    directory,
+    workspace: {
+      provisionOrganization: (command) => events.provisionOrganization(command),
+      createFirstEvent: (actor, command) => events.provisionFirstEvent(actor, command),
+      eventsInOrganization: async (actor, organizationId) =>
+        (await events.list(actor)).filter((event) => event.organizationId === organizationId),
+      discardUnusedOrganization: (organizationId) =>
+        events.discardUnusedOrganization(organizationId),
+    },
+    newId: () => crypto.randomUUID(),
+    now: () => 1_760_000_000_000,
+  });
+  const outcome = await signup.signInWithGoogle({
+    subject: "104729183746501928374",
+    email: "nadia@example.test",
+    emailVerified: true,
+    name: "Nadia Newcomer",
+  });
+  return {
+    organizationId: outcome.actor.organizations[0]?.id as string,
+    eventId: outcome.actor.eventAccess[0]?.eventId as string,
+  };
 };
 
 const serviceFor = (database: Database) => {
@@ -65,13 +96,13 @@ describe("lifecycle templates for every organization", () => {
      */
     const migrated = await createMigratedDatabase({ label: "templates-second-org", seed: true });
     runtime = migrated.runtime;
-    await createSecondOrganization(migrated.database);
+    const second = await createSecondOrganization(migrated.database);
     const service = serviceFor(migrated.database);
 
     const enqueued = await service.enqueue({
-      organizationId: SECOND_ORGANIZATION,
-      eventId: SECOND_EVENT,
-      idempotencyKey: `speaker-invite:${SECOND_EVENT}:profile-1`,
+      organizationId: second.organizationId,
+      eventId: second.eventId,
+      idempotencyKey: `speaker-invite:${second.eventId}:profile-1`,
       triggerType: "speaker.invited",
       channel: "email",
       recipientRef: "newcomer@example.test",
@@ -88,7 +119,7 @@ describe("lifecycle templates for every organization", () => {
     // Pinned to a real template row of its own, not to the demo organization's copy.
     expect(stored?.templateId).not.toBeNull();
     const template = await new D1CommunicationsRepository(migrated.database).findTemplate(
-      SECOND_ORGANIZATION,
+      second.organizationId,
       "speaker-invite",
     );
     expect(template?.id).toBe(stored?.templateId);
@@ -109,10 +140,10 @@ describe("lifecycle templates for every organization", () => {
       through: "1705_delivery_proposal_submitted_trigger.sql",
     });
     runtime = migrated.runtime;
-    await createSecondOrganization(migrated.database);
+    const second = await createSecondOrganization(migrated.database);
     const before = await migrated.database
       .prepare("SELECT COUNT(*) AS tally FROM message_templates WHERE organization_id = ?")
-      .bind(SECOND_ORGANIZATION)
+      .bind(second.organizationId)
       .first<{ tally: number }>();
     expect(before?.tally).toBe(0);
 
@@ -125,7 +156,7 @@ describe("lifecycle templates for every organization", () => {
       .prepare(
         "SELECT template_key, version, subject, body FROM message_templates WHERE organization_id = ? ORDER BY template_key",
       )
-      .bind(SECOND_ORGANIZATION)
+      .bind(second.organizationId)
       .all<Row>();
     expect(after.results.map(({ template_key }: Row) => template_key).sort()).toEqual(
       DEFAULT_TEMPLATES.map(({ key }) => key).sort(),
@@ -164,13 +195,13 @@ describe("lifecycle templates for every organization", () => {
      */
     const migrated = await createMigratedDatabase({ label: "templates-customized", seed: true });
     runtime = migrated.runtime;
-    await createSecondOrganization(migrated.database);
+    const second = await createSecondOrganization(migrated.database);
     const service = serviceFor(migrated.database);
-    await service.provisionDefaultTemplates(SECOND_ORGANIZATION);
+    await service.provisionDefaultTemplates(second.organizationId);
     const repository = new D1CommunicationsRepository(migrated.database);
     await repository.createTemplate({
       id: "their-own-welcome",
-      organizationId: SECOND_ORGANIZATION,
+      organizationId: second.organizationId,
       key: "speaker-invite",
       version: 2,
       channel: "email",
@@ -179,11 +210,11 @@ describe("lifecycle templates for every organization", () => {
       createdAt: "2026-08-14T11:00:00.000Z",
     });
 
-    await service.provisionDefaultTemplates(SECOND_ORGANIZATION);
+    await service.provisionDefaultTemplates(second.organizationId);
     const enqueued = await service.enqueue({
-      organizationId: SECOND_ORGANIZATION,
-      eventId: SECOND_EVENT,
-      idempotencyKey: `speaker-invite:${SECOND_EVENT}:profile-2`,
+      organizationId: second.organizationId,
+      eventId: second.eventId,
+      idempotencyKey: `speaker-invite:${second.eventId}:profile-2`,
       triggerType: "speaker.invited",
       channel: "email",
       recipientRef: "newcomer@example.test",
@@ -199,15 +230,15 @@ describe("lifecycle templates for every organization", () => {
   it("is idempotent, so provisioning twice writes one set", async () => {
     const migrated = await createMigratedDatabase({ label: "templates-idempotent", seed: true });
     runtime = migrated.runtime;
-    await createSecondOrganization(migrated.database);
+    const second = await createSecondOrganization(migrated.database);
     const service = serviceFor(migrated.database);
 
-    await service.provisionDefaultTemplates(SECOND_ORGANIZATION);
-    await service.provisionDefaultTemplates(SECOND_ORGANIZATION);
+    await service.provisionDefaultTemplates(second.organizationId);
+    await service.provisionDefaultTemplates(second.organizationId);
 
     const tally = await migrated.database
       .prepare("SELECT COUNT(*) AS tally FROM message_templates WHERE organization_id = ?")
-      .bind(SECOND_ORGANIZATION)
+      .bind(second.organizationId)
       .first<{ tally: number }>();
     expect(tally?.tally).toBe(DEFAULT_TEMPLATES.length);
   });

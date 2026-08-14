@@ -59,6 +59,7 @@ import {
   lifecycleRecipientForAccount,
   MessageTemplateMissingError,
 } from "./application/communications/public";
+import { enqueueCfpDeadlineNotices } from "./application/communications/cfp-deadline-notices";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
 import type {
@@ -357,6 +358,30 @@ export async function remindDueSpeakerTasks(environment: Environment) {
     onFailure(fields) {
       // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
       console.warn(JSON.stringify({ level: "warn", message: "task.reminder.failed", ...fields }));
+    },
+  });
+}
+
+/**
+ * Announce a CFP deadline before it passes, and its closure after (issue #210).
+ *
+ * Composed here for the same reason the task reminder is: it needs the CFP domain's calls, the
+ * events domain's name and timezone, and identity's addresses, and none of those three may reach
+ * into another's tables. Each arrives as its own declared interface.
+ */
+export async function announceCfpDeadlines(environment: Environment) {
+  const { events, service } = scheduledCommunications(environment);
+  const directory = new D1IdentityDirectory(environment.DB);
+  return enqueueCfpDeadlineNotices({
+    calls: new D1CfpRepository(environment.DB),
+    enqueue: service,
+    eventOf: (eventId) => events.describeForNotice(eventId),
+    findRecipient: (userId) => directory.findRecipient(userId),
+    organizersOf: (eventId) => directory.listOrganizersForEvent(eventId),
+    now: () => new Date(),
+    onFailure(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(JSON.stringify({ level: "warn", message: "cfp.deadline.failed", ...fields }));
     },
   });
 }
@@ -1914,7 +1939,10 @@ export default {
    * is no ordering here that would make a queued delivery more correct.
    */
   async scheduled(_controller: unknown, environment: Environment): Promise<void> {
-    await remindDueSpeakerTasks(environment);
+    // Both reminder passes run before the drain and are awaited, so a message decided this minute
+    // goes out this minute. Neither can stall it: both report rather than throw, including when
+    // their own read fails.
+    await Promise.all([remindDueSpeakerTasks(environment), announceCfpDeadlines(environment)]);
     await Promise.all([
       drainOutbox(environment),
       pruneItineraries(environment),

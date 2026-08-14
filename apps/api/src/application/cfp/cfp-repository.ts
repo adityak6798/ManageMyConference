@@ -6,6 +6,7 @@ import type {
   ProposalLifecycle,
   ProposalSubmission,
 } from "../../domain/cfp/cfp";
+import type { CfpDeadlineNotice } from "./public";
 
 /**
  * A write to one proposal an account owns.
@@ -123,6 +124,14 @@ export interface CfpRepository {
     eventId: string,
     submitterUserId: string,
   ): Promise<readonly ProposalSubmission[]>;
+  /**
+   * Published calls closing inside `[from, to)`, each with the accounts holding an unsubmitted
+   * draft on it. Implements `CommunicationsCfpQuery.listDeadlineNotices`; see `public.ts`.
+   */
+  listDeadlineNotices(
+    window: { from: string; to: string },
+    limit: number,
+  ): Promise<readonly CfpDeadlineNotice[]>;
   createDraft(draft: ProposalDraftCreate): Promise<ProposalSubmission | null>;
   saveProposalAnswers(write: ProposalOwnerWrite): Promise<boolean>;
   submitProposal(write: ProposalSubmitWrite): Promise<boolean>;

@@ -908,6 +908,8 @@
         "apps/api/migrations/1703_delivery_domain_event_triggers.sql",
         "apps/api/migrations/1704_calendar_invite_states.sql",
         "apps/api/migrations/1705_delivery_proposal_submitted_trigger.sql",
+        "apps/api/test/default-templates.integration.test.ts",
+        "apps/api/test/cfp-deadline-notices.test.ts",
         "apps/web/src/api/communications.ts",
         "apps/web/src/CommunicationsWorkspace.tsx",
         "apps/web/src/communications",

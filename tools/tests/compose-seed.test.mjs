@@ -61,13 +61,13 @@ test("no cleanup in the composed seed empties a table", async () => {
 
 test("the scope check catches a bare delete, and honours a stated exemption", () => {
   // A guard nobody has seen fail is a guard nobody knows works.
-  assert.deepEqual(unscopedDeletes("DELETE FROM users;"), ["users"]);
-  assert.deepEqual(unscopedDeletes("DELETE FROM users WHERE id IN ('a');"), []);
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets;"), ["widgets"]);
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets WHERE id IN ('a');"), []);
   // The `WHERE` on its own line, which is how every scoped statement here is written.
-  assert.deepEqual(unscopedDeletes("DELETE FROM users\nWHERE id IN (\n  'a'\n);"), []);
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets\nWHERE id IN (\n  'a'\n);"), []);
   // Prose between the two lines does not satisfy it.
-  assert.deepEqual(unscopedDeletes("DELETE FROM users\n-- why\nWHERE id IN ('a');"), ["users"]);
-  assert.deepEqual(unscopedDeletes("-- SEED-SCOPE-EXEMPT: demo-only\nDELETE FROM users;"), []);
+  assert.deepEqual(unscopedDeletes("DELETE FROM widgets\n-- why\nWHERE id IN ('a');"), ["widgets"]);
+  assert.deepEqual(unscopedDeletes("-- SEED-SCOPE-EXEMPT: demo-only\nDELETE FROM widgets;"), []);
   // The exemption covers one statement, not the rest of the file.
   assert.deepEqual(
     unscopedDeletes("-- SEED-SCOPE-EXEMPT: demo-only\nDELETE FROM a;\nDELETE FROM b;"),

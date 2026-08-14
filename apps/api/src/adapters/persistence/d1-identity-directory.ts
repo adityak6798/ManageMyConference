@@ -476,6 +476,19 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return (result.results ?? []).map((row) => ({ ...row, email: row.email ?? null }));
   }
 
+  /** The speaker list's sibling, on the organizer role. See the interface for why it is separate. */
+  async listOrganizersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT DISTINCT u.id, u.name, e.email FROM users u JOIN event_roles r ON r.user_id = u.id LEFT JOIN identity_emails e ON e.user_id = u.id WHERE r.event_id = ? AND r.role = 'organizer' ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string; email: string | null }>();
+    if (!result.success)
+      throw new Error(`D1 failed to list event organizers: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map((row) => ({ ...row, email: row.email ?? null }));
+  }
+
   async findRecipient(userId: string) {
     const result = await this.database
       .prepare(

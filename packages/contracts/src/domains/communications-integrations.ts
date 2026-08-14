@@ -21,10 +21,12 @@ export const triggerTypeSchema = z.enum([
   "speaker.calendar_invite",
   "decision.recorded",
   "proposal.submitted",
+  "cfp.deadline_approaching",
+  "cfp.call_closed",
 ]);
 /**
  * What an organizer's `POST /api/communications/deliveries` may name — everything except the
- * domain-event pair and `proposal.submitted`.
+ * domain-event pair, `proposal.submitted`, and the two scheduled CFP deadline messages.
  *
  * A submission confirmation is absent for a narrower reason than the domain events: it is not
  * something an organizer authors. Its recipient is resolved from the session that submitted the
@@ -32,6 +34,12 @@ export const triggerTypeSchema = z.enum([
  * request naming an arbitrary address would hand back exactly the primitive that binding removed.
  * The refusal is a 400 naming the field rather than a coherence check deeper in, and it is visible
  * in the published OpenAPI.
+ *
+ * `cfp.deadline_approaching` and `cfp.call_closed` are absent on the same grounds (issue #210).
+ * The scheduler decides who is reminded — the accounts holding an unsubmitted draft, and the
+ * organizers of the event — and resolves every address through identity from an account id.
+ * Letting a request name one with an arbitrary `recipientRef` would be organizer-authored mail to
+ * any address, wearing the label of a message the product sends on its own.
  *
  * A domain event records that something already happened inside this system, and downstream
  * consumers trust it precisely because it was committed in the same transaction as the fact it
@@ -69,6 +77,8 @@ export const triggerChannels: Record<
   "speaker.calendar_invite": ["email"],
   "decision.recorded": ["email"],
   "proposal.submitted": ["email"],
+  "cfp.deadline_approaching": ["email"],
+  "cfp.call_closed": ["email"],
   "projection.requested": ["airtable", "accelevents"],
   "schedule.published": ["event"],
 };

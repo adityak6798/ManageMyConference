@@ -74,10 +74,12 @@ export function defineCommunicationsIntegrationsSchema(references: {
       // The union both wave-3 communications branches agreed on, so a rebuild in either does not
       // drop the other's values. Five triggers and the `event` channel have no producer here yet;
       // migration 1750's header says why they are permitted anyway. `proposal.submitted` joined it
-      // in migration 1705, from the CFP lane that produces it (issue #190).
+      // in migration 1705, from the CFP lane that produces it (issue #190), and the two
+      // `cfp.*` values in migration 1707 — the first deliveries on a *scheduled* rather than
+      // event-driven trigger (issue #210).
       check(
         "communication_deliveries_trigger_type",
-        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted')`,
+        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')`,
       ),
       // `event` carries a domain event rather than an outbound call; see migration 1703.
       check(

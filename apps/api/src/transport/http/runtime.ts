@@ -12,7 +12,6 @@
 import type { ApiErrorEnvelope } from "@greenroom/contracts";
 import type { Context } from "hono";
 import type { Actor } from "../../application/identity/actor";
-import type { WorkspaceIntent } from "../../application/identity/google-oauth";
 import type { SigningSecrets } from "../../application/identity/real-auth";
 import type { SessionStore } from "../../application/identity/session-store";
 
@@ -59,10 +58,14 @@ export interface GoogleAuthProvider {
    * identity is given a conference workspace. `submitter` withholds it — somebody who pressed
    * this button on a public call page came to keep track of a proposal — and grants nothing, so
    * it is not an authorization input. Omitted means `organizer`, which is the front door.
+   *
+   * Spelled out here rather than imported as identity-access's `WorkspaceIntent`: this module is
+   * platform's, the transport describes the *behaviour* it needs and never the other domain's
+   * types, and the composition root satisfies both by structure.
    */
   start(
     now: number,
-    workspaceIntent?: WorkspaceIntent,
+    workspaceIntent?: "organizer" | "submitter",
   ): Promise<{ authorizationUrl: string; attemptId: string }>;
   /**
    * Spend one of this browser's outstanding attempts and sign the caller in.

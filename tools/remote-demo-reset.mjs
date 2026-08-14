@@ -11,13 +11,13 @@
  * accounts.
  *
  * `assertOnlySeededData` reads the **data**. It was written when `seed/reset.sql` was a full
- * teardown — `DELETE FROM users`, `organizations`, `events`, unscoped — which was exactly right
- * for a database holding nothing but seed data and catastrophic for one holding an organization
+ * teardown — an unscoped `DELETE` of every row in the three guarded tables — which was exactly
+ * right for a database holding nothing but seed data and catastrophic for one holding an organization
  * somebody signed up for, since there is no backup and no export. So the reset asks the database
  * what it contains first, and refuses if it finds anything the seed does not name.
  *
  * **The seed is no longer a full teardown, and this guard is deliberately unchanged.** Every
- * cleanup in it is now scoped to the ids the seed inserts, so a restore rebuilds the demo beside
+ * cleanup in it now names the ids it deletes, so a restore rebuilds the demo beside
  * a real conference instead of in place of it — `apps/api/test/demo-reset-guard.integration
  * .test.ts` runs one against a live signup and asserts the signup survives. What that changes is
  * the *cost* of proceeding, not whether a real organization on this deployment is worth stopping

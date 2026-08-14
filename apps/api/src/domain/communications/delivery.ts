@@ -36,7 +36,20 @@ export type TriggerType =
    * address was an unverified field on an anonymous form (`#132`). The anonymous door still sends
    * nothing.
    */
-  | "proposal.submitted";
+  | "proposal.submitted"
+  /**
+   * A submitter holding an **unsubmitted draft** told that the call is about to close (issue
+   * #210).
+   *
+   * The first `trigger_type` on a *scheduled* rather than event-driven trigger, which is why it
+   * is a value of its own rather than a reuse of `proposal.submitted`: `trigger_type` is what the
+   * delivery history, the webhook fan-out and the schedule-mail consumer read to decide what a
+   * row *is*, and a reminder is not a confirmation. Its occurrence is the deadline instant, so
+   * moving a deadline is a new fact rather than a repeat of an old one.
+   */
+  | "cfp.deadline_approaching"
+  /** An organizer told that their own call for proposals has closed (issue #210). */
+  | "cfp.call_closed";
 
 /**
  * Which channels each trigger may legitimately use.
@@ -62,6 +75,8 @@ export const TRIGGER_CHANNELS = {
   "speaker.calendar_invite": ["email"],
   "decision.recorded": ["email"],
   "proposal.submitted": ["email"],
+  "cfp.deadline_approaching": ["email"],
+  "cfp.call_closed": ["email"],
   "projection.requested": ["airtable", "accelevents"],
   "schedule.published": ["event"],
 } as const satisfies Record<TriggerType, readonly DeliveryChannel[]>;
@@ -95,7 +110,18 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
      * exclusion at the HTTP boundary; this keeps the derived set from disagreeing with it, which
      * it silently did until a review pass compared the two.
      */
-    trigger !== "proposal.submitted",
+    trigger !== "proposal.submitted" &&
+    /*
+     * The two deadline messages are excluded on the same grounds, and it is worth being explicit
+     * about which grounds. Neither is authored by an organizer: the scheduler decides who is
+     * reminded, from the drafts an event holds and the roles on it, and both recipients are
+     * resolved through identity from an account id. A request naming `cfp.deadline_approaching`
+     * with an arbitrary `recipientRef` would be an organizer-authored mail to any address of
+     * their choosing wearing the label of a message the product sends on its own — which is the
+     * primitive `#132` is about, arriving by the back door.
+     */
+    trigger !== "cfp.deadline_approaching" &&
+    trigger !== "cfp.call_closed",
 );
 
 /**

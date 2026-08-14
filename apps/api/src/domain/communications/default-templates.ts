@@ -109,6 +109,24 @@ export const DEFAULT_TEMPLATES: readonly DefaultTemplate[] = [
     subject: "We have your proposal",
     body: 'Hello {{submitterName}}, thank you — "{{proposalTitle}}" is with the programme team. You can read or revise it from your proposals page while the call is open, and its decision will appear there.',
   },
+  /*
+   * The two scheduled deadline messages (issue #210). Both are addressed from an account id
+   * through identity, never from a form answer, and both carry the deadline in the event's own
+   * timezone as the scheduler rendered it — a message that says "closes soon" without saying when
+   * is the thing this exists to replace.
+   */
+  {
+    key: "cfp-deadline-reminder",
+    channel: "email",
+    subject: "Your draft for {{eventName}} is not submitted yet",
+    body: "Hello {{submitterName}}, the call for proposals for {{eventName}} closes {{closesAt}} and you still have {{draftCount}} unsubmitted on your proposals page. Open it and press Submit if you want it considered; if you have changed your mind, nothing else is needed and we will not write about it again.",
+  },
+  {
+    key: "cfp-call-closed",
+    channel: "email",
+    subject: "Your call for proposals has closed",
+    body: "Hello {{organizerName}}, the call for proposals for {{eventName}} closed {{closesAt}} and is no longer taking submissions. The proposals you received are waiting in the review queue.",
+  },
 ];
 
 /** Whether a key is one this catalogue provisions, so a miss can be told from a typo. */

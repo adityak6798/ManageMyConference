@@ -257,6 +257,33 @@ export class EventService {
     return event?.name ?? null;
   }
 
+  /**
+   * The same system-trust read, carrying every fact a message *about the event* has to say.
+   *
+   * Its two siblings above each answer one question — who owns this, what is it called — and both
+   * were enough while every lifecycle message was about a **person**. A scheduled CFP deadline
+   * message is about the event: "the call for proposals for X closes at Y". It needs the owning
+   * organization to address the delivery, the name to say which conference, and the timezone to
+   * state the deadline in, and none of the three is communications' or CFP's to read from
+   * `events`. Three reads where one will do is also three round trips inside a cron tick.
+   *
+   * Kept beside `nameOf` rather than replacing it: that method has callers who want only the
+   * name, and widening their return type to make this one unnecessary would put an organization
+   * id and a timezone into call sites that asked for neither. Addressing facts, exactly as
+   * `organizationOf` is — nothing here confers access.
+   */
+  async describeForNotice(
+    eventId: string,
+  ): Promise<{ organizationId: string; name: string; timezone: string } | null> {
+    const event = await this.dependencies.repository.findById(eventId, {
+      organizationIds: [],
+      eventIds: [eventId],
+    });
+    return event
+      ? { organizationId: event.organizationId, name: event.name, timezone: event.timezone }
+      : null;
+  }
+
   async belongsToOrganization(eventId: string, organizationId: string): Promise<boolean> {
     return (
       (await this.dependencies.repository.findById(eventId, {
