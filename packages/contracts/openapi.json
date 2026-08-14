@@ -15007,6 +15007,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "400": {
@@ -15030,6 +15035,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15060,6 +15066,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -15084,6 +15095,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15114,6 +15126,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -15138,6 +15155,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15168,6 +15186,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -15192,6 +15215,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15223,6 +15247,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "500": {
@@ -15246,6 +15275,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15276,6 +15306,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           }
@@ -15443,6 +15478,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "400": {
@@ -15466,6 +15506,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15496,6 +15537,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -15520,6 +15566,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15550,6 +15597,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -15574,6 +15626,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15604,6 +15657,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           },
@@ -15628,6 +15686,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15659,6 +15718,11 @@
                   ]
                 }
               }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
             }
           },
           "500": {
@@ -15682,6 +15746,7 @@
                             "AGENDA_CONFLICT",
                             "RATE_LIMITED",
                             "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
                             "INTERNAL_ERROR"
                           ]
                         },
@@ -15712,6 +15777,11 @@
                     "error"
                   ]
                 }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
               }
             }
           }
