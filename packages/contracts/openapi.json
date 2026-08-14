@@ -10266,8 +10266,8 @@
                   },
                   "timezone": {
                     "type": "string",
-                    "minLength": 1,
-                    "default": "America/Los_Angeles"
+                    "default": "America/Los_Angeles",
+                    "description": "An IANA time zone id, for example America/Los_Angeles. An alias is accepted and stored canonicalized (US/Pacific becomes America/Los_Angeles); a fixed offset such as +05:30 is refused, because it never observes a daylight transition."
                   }
                 },
                 "required": [
@@ -10793,7 +10793,8 @@
                     "maxLength": 120
                   },
                   "timezone": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "An IANA time zone id, for example America/Los_Angeles. An alias is accepted and stored canonicalized (US/Pacific becomes America/Los_Angeles); a fixed offset such as +05:30 is refused, because it never observes a daylight transition."
                   }
                 },
                 "required": [
