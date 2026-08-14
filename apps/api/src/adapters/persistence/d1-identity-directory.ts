@@ -22,7 +22,14 @@ interface D1Statement {
 }
 export interface IdentityDatabasePort {
   prepare(query: string): D1Statement;
-  batch<T = unknown>(statements: D1Statement[]): Promise<D1Result<T>[]>;
+  /**
+   * Batched results carry the same row-count contract single writes do.
+   *
+   * `joinOrganization` decides whether it won a race from the *batched* insert's `meta.changes`,
+   * and a conditional write that matched nothing is `success: true` exactly as one that landed is.
+   * Typing this as a bare `D1Result` would make that read a silent `undefined`.
+   */
+  batch<T = unknown>(statements: D1Statement[]): Promise<(D1Result<T> & D1WriteResult)[]>;
 }
 
 interface UserRow {
@@ -357,34 +364,43 @@ export class D1IdentityDirectory implements IdentityDirectory {
    * The persona lift is unconditional on the old value rather than only from `public`: an account
    * being given a conference of its own is that conference's organizer, whatever it was before,
    * and the console picks the workspaces it offers from the persona whenever no event is selected.
-   * It is scoped to the same `WHERE NOT EXISTS`, so a loser relabels nobody.
+   *
+   * **One batch, because the two halves are one fact.** They were two `run()`s, and a failure
+   * between them left the membership written and the persona still `public` — with no other
+   * writer anywhere that lifts it, and no second chance, because the caller only reaches this
+   * while the account holds no membership. The batch is a transaction, so the second statement
+   * sees the first's row: gating the lift on that membership existing is what makes a loser
+   * relabel nobody, and it says so in SQL rather than relying on an early return above it.
    *
    * It writes a membership and nothing else: the event and the role on it are the events domain's
    * and are created afterwards, against the actor this membership authorizes.
    */
   async joinOrganization(organizationId: string, userId: string): Promise<boolean> {
-    const insert = await this.database
-      .prepare(
-        "INSERT INTO organization_memberships (organization_id,user_id,role) " +
-          "SELECT ?,?,'organizer' WHERE NOT EXISTS " +
-          "(SELECT 1 FROM organization_memberships WHERE user_id = ?)",
-      )
-      .bind(organizationId, userId, userId)
-      .run();
-    if (!insert.success)
-      throw new Error(
-        `D1 failed to record organization membership: ${insert.error ?? "unknown error"}`,
-      );
+    const results = await this.database.batch([
+      this.database
+        .prepare(
+          "INSERT INTO organization_memberships (organization_id,user_id,role) " +
+            "SELECT ?,?,'organizer' WHERE NOT EXISTS " +
+            "(SELECT 1 FROM organization_memberships WHERE user_id = ?)",
+        )
+        .bind(organizationId, userId, userId),
+      this.database
+        .prepare(
+          "UPDATE users SET persona = 'organizer' WHERE id = ? AND EXISTS " +
+            "(SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ?)",
+        )
+        .bind(userId, organizationId, userId),
+    ]);
+    for (const result of results)
+      if (!result.success)
+        throw new Error(
+          `D1 failed to record organization membership: ${result.error ?? "unknown error"}`,
+        );
     // A missing `meta.changes` is a failure here, never a silent 0 or 1: this count is what tells
     // the caller whether to keep the organization it just created or discard it.
-    if (changedRows(insert, "record organization membership") === 0) return false;
-    const persona = await this.database
-      .prepare("UPDATE users SET persona = 'organizer' WHERE id = ?")
-      .bind(userId)
-      .run();
-    if (!persona.success)
-      throw new Error(`D1 failed to record organizer persona: ${persona.error ?? "unknown error"}`);
-    return true;
+    const [insert] = results;
+    if (!insert) throw new Error("D1 returned no result for the organization membership insert");
+    return changedRows(insert, "record organization membership") > 0;
   }
 
   async findByEmail(email: string): Promise<Actor | null> {
