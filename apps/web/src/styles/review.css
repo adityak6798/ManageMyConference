@@ -770,3 +770,134 @@
     margin-left: 0;
   }
 }
+
+/* ------------------------- review rounds ------------------------- */
+
+/*
+ * The round bar sits between the search toolbar and the table because everything below it is
+ * scoped by it: which round an assignment lands in, which reviewers may take it, and how many
+ * each may hold. It reads as a statement of context rather than as a second row of actions.
+ */
+.triage-round-bar {
+  align-items: flex-end;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2, transparent);
+}
+.triage-round-bar select,
+.triage-round-bar input[type="number"] {
+  width: auto;
+  min-width: 9rem;
+}
+.triage-round-summary {
+  margin: 0 0 var(--s-1);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+/* `.triage-select-all` is styled once, above, where `#206`'s sweep put it. A second rule here
+   would win on order and quietly undo it. */
+.triage-sort select {
+  width: auto;
+  min-width: 12rem;
+}
+
+.review-rounds-table td .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.round-create,
+.round-editor {
+  display: grid;
+  gap: var(--s-4);
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.round-editor h4 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+.round-editor-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: var(--s-4);
+}
+.round-editor fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.round-pool {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.field-error {
+  margin: var(--s-1) 0 0;
+  color: var(--danger, #b42318);
+  font-size: var(--text-xs);
+}
+
+/* ---------------------- progress and reminders -------------------- */
+
+.reminder-controls {
+  min-width: 0;
+  margin: var(--s-4) 0 0;
+  padding: var(--s-4) 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.reminder-controls select {
+  width: auto;
+  min-width: 14rem;
+}
+.reminder-picks {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ------------------- submitted reviews on the detail --------------- */
+
+/*
+ * What the reviewers actually said. The scores grid is the same two-column `dl` the reviewer's
+ * own completed card uses, so a number an organizer reads here is laid out exactly as the person
+ * who entered it saw it.
+ */
+.submitted-reviews ul {
+  display: grid;
+  gap: var(--s-4);
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.submitted-reviews li {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.submitted-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-2);
+}
+.submitted-review-head .sub {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+/* The comment is prose a person wrote, so it keeps its line breaks and stays readable-width. */
+.submitted-review-note {
+  max-width: 68ch;
+  margin: var(--s-2) 0 0;
+  white-space: pre-wrap;
+}

@@ -23,12 +23,21 @@ export function EvaluationCard({
   item,
   reload,
   suggestionsEnabled,
+  readOnlyReason = null,
 }: {
   eventId: string;
   item: QueueItem;
   reload: () => Promise<void>;
   /** Whether this deployment has an assistant at all. False hides the panel entirely. */
   suggestionsEnabled: boolean;
+  /**
+   * Why this assignment cannot be worked on, or `null` when it can.
+   *
+   * Today that is only a round which is closed, a draft, or outside its window. The server refuses
+   * the save either way; this exists so the reviewer meets the refusal *before* filling in a form,
+   * rather than after — which is the difference between a rule and an ambush.
+   */
+  readOnlyReason?: string | null;
 }) {
   const [notes, setNotes] = useState(item.evaluation?.notes ?? "");
   const [scores, setScores] = useState<Record<string, number | string>>(() =>
@@ -167,6 +176,11 @@ export function EvaluationCard({
           scored.
         </Notice>
       ) : null}
+      {readOnlyReason ? (
+        <Notice tone="warn" role="alert">
+          {readOnlyReason}
+        </Notice>
+      ) : null}
 
       {/*
        * Above the form, because a draft is something to read before scoring rather than something
@@ -177,7 +191,8 @@ export function EvaluationCard({
        * are pushed into the open form rather than waiting for a reload: the reviewer should see
        * what they just took, in the fields they are about to submit.
        */}
-      {suggestionsEnabled && item.plan ? (
+      {/* No drafting into a round that will not accept what comes out of it. */}
+      {suggestionsEnabled && item.plan && !readOnlyReason ? (
         <SuggestionPanel
           eventId={eventId}
           item={item}
@@ -317,14 +332,14 @@ export function EvaluationCard({
           <button
             type="submit"
             className="secondary"
-            disabled={busy || !item.plan}
+            disabled={busy || !item.plan || Boolean(readOnlyReason)}
             aria-describedby={unscored.length ? "score-guard" : undefined}
           >
             Save draft
           </button>
           <button
             type="button"
-            disabled={busy || !item.plan}
+            disabled={busy || !item.plan || Boolean(readOnlyReason)}
             aria-describedby={unscored.length ? "score-guard" : undefined}
             onClick={() => {
               // ERROR-INTENT: React event handlers cannot await; save announces failures.
@@ -333,7 +348,7 @@ export function EvaluationCard({
           >
             Complete evaluation
           </button>
-          {conflicting ? null : (
+          {conflicting || readOnlyReason ? null : (
             <button
               type="button"
               className="ghost"
