@@ -340,6 +340,21 @@ export function PublicCfpView({
     return kept;
   };
 
+  /**
+   * Whether two answer sets are the same text under the same questions.
+   *
+   * Only ever compares the *pruned* form of both sides, so a stored answer the published form no
+   * longer accepts cannot make an untouched form look edited — that answer is not on screen and
+   * was never the applicant's to lose here.
+   */
+  const sameAnswers = (
+    left: Readonly<Record<string, string>>,
+    right: Readonly<Record<string, string>>,
+  ) => {
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length && keys.every((id) => left[id] === right[id]);
+  };
+
   const openForEditing = (proposal: SubmitterProposalDto) => {
     /*
      * Rebind from the copy in hand when it is the same proposal.
@@ -357,6 +372,37 @@ export function PublicCfpView({
      */
     const current =
       editing?.id === proposal.id && editing.revision >= proposal.revision ? editing : proposal;
+    /*
+     * Pressing the button on the proposal **already open in the form** used to reload the stored
+     * copy over whatever had been typed, and say only "Editing …. Change what you need" — the one
+     * path on this surface where the applicant's typing was discarded with no statement at all
+     * (issue #211). `PRD-CFP-004` requires the opposite: a drop is stated before the save that
+     * makes it permanent, not discovered afterwards.
+     *
+     * So typing wins. The rebind still happens — `editing` moves to whichever copy is newer, so
+     * the escape from a conflict raised by another tab survives — but the answers on screen are
+     * left alone and the notice says both halves of what that means.
+     *
+     * "Typed something" is measured against the copy the form was **bound** to, never against the
+     * newer one in the list: an applicant who has typed nothing while another tab saved has no
+     * unsaved changes to keep, and telling them they had would strand them on stale text. So they
+     * take the reload path exactly as before, and it costs them nothing.
+     */
+    const unsaved =
+      editing?.id === proposal.id &&
+      !sameAnswers(answers, answersTheFormStillAccepts(editing.answers));
+    if (unsaved) {
+      setEditing(current);
+      setFieldErrors({});
+      setNotice({
+        tone: "ok",
+        text:
+          current === editing
+            ? `Still editing ${current.title ?? "your proposal"}. Your unsaved changes are still on the form; nothing was loaded over them.`
+            : `Still editing ${current.title ?? "your proposal"}. Your unsaved changes are still on the form, and the stored copy has changed since you opened it — saving will replace it with what is on screen.`,
+      });
+      return;
+    }
     const kept = answersTheFormStillAccepts(current.answers);
     const dropped = Object.keys(current.answers).length - Object.keys(kept).length;
     setEditing(current);

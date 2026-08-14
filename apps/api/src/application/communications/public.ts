@@ -58,6 +58,7 @@ export {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  MessageTemplateMissingError,
 } from "./errors";
 export type {
   DeliveryChannel,

@@ -17,10 +17,12 @@ import {
   TemplateValueError,
   renderTemplate,
 } from "../../domain/communications/template";
+import { DEFAULT_TEMPLATES } from "../../domain/communications/default-templates";
 import {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  MessageTemplateMissingError,
 } from "./errors";
 import {
   type CommunicationsRepository,
@@ -135,6 +137,7 @@ export {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  MessageTemplateMissingError,
 } from "./errors";
 
 const decodeCursor = (cursor: string) => {
@@ -229,17 +232,72 @@ export class CommunicationsService implements CommunicationsEnqueue {
   }
 
   /**
+   * Give an organization the lifecycle templates it has never had. Idempotent, and safe to race.
+   *
+   * The repair for issue #217: nine lifecycle triggers resolve a template scoped to the
+   * organization, and no migration ever wrote one for any organization but the seeded demo — so
+   * every self-serve signup's messages resolved nothing, were swallowed by `notifyLifecycle` as
+   * designed, and never existed. See `domain/communications/default-templates.ts` for why the fix
+   * is a copy the organization owns rather than a system-wide fallback row.
+   *
+   * **Only ever writes version 1 of a key with no rows at all.** An organization that has
+   * published its own version of a template keeps it: this reads what is there first and adds only
+   * the keys missing from that list, so a customized message is never overwritten and a template
+   * somebody deliberately rewrote is never reverted by a later call.
+   *
+   * **Losing a race is success, not failure.** Two lifecycle actions on a fresh organization can
+   * both find the key missing; the unique index on `(organization_id, template_key, version)`
+   * arbitrates and the loser absorbs its own refusal, because the row it wanted now exists and
+   * that is the whole point of the call. Every other storage failure propagates.
+   *
+   * Deliberately **not** authorized: it is called from the resolution path of a lifecycle message
+   * that has no request actor, and it can only write rows this catalogue defines into the
+   * organization the delivery already named. `templates` below authorizes before reaching it.
+   */
+  async provisionDefaultTemplates(organizationId: string): Promise<void> {
+    const existing = await this.dependencies.repository.listTemplates(organizationId);
+    const held = new Set(existing.map((template) => template.key));
+    const now = this.dependencies.now().toISOString();
+    for (const template of DEFAULT_TEMPLATES) {
+      if (held.has(template.key)) continue;
+      try {
+        await this.dependencies.repository.createTemplate({
+          ...template,
+          organizationId,
+          version: 1,
+          id: this.dependencies.newId(),
+          createdAt: now,
+        });
+      } catch (error) {
+        // ERROR-INTENT: a taken version means a concurrent caller provisioned the same default a
+        // moment ago, which is the outcome this call wanted. Absorbed here; everything else
+        // propagates.
+        if (!(error instanceof TemplateVersionTakenError)) throw error;
+      }
+    }
+  }
+
+  /**
    * Every version of every template in the organization, by key, newest version first.
    *
    * Versions are immutable, so "editing" a template is publishing a new version and the old one
    * stays readable — a delivery sent last week names the version it used, and this is where an
    * organizer goes to read what that version actually said.
+   *
+   * **Provisions the defaults before listing, which is a write on a read and is meant.** This is
+   * the surface an organizer opens to edit their organization's messages, and before issue #217
+   * it answered a self-serve organization with an empty list — a page saying, in effect, that the
+   * product sends nothing and there is nothing to change. Provisioning is idempotent, does nothing
+   * at all on the second call, and is authorized by the `communications:manage` check above.
+   * `SignupService.completeWorkspace` is the same shape — a read of somebody's identity that
+   * finishes provisioning an earlier attempt left half-done.
    */
   async templates(
     actor: Actor | null,
     organizationId: string,
   ): Promise<readonly MessageTemplate[]> {
     this.organization(actor, organizationId);
+    await this.provisionDefaultTemplates(organizationId);
     return this.dependencies.repository.listTemplates(organizationId);
   }
 
@@ -331,12 +389,17 @@ export class CommunicationsService implements CommunicationsEnqueue {
   ) {
     const authorized = this.organization(actor, input.organizationId);
     await this.event(authorized, input.eventId, input.organizationId);
-    const template = await this.dependencies.repository.findTemplate(
+    const template = await this.resolveTemplate(
       input.organizationId,
       input.templateKey,
       input.templateVersion,
     );
-    if (!template) throw new CommunicationsNotFoundError("Template version not found");
+    if (!template)
+      throw new MessageTemplateMissingError(
+        input.organizationId,
+        input.templateKey,
+        input.templateVersion,
+      );
     if (template.channel !== "email")
       throw new CommunicationsInputError("Only email templates can be sent to speakers");
 
@@ -622,6 +685,30 @@ export class CommunicationsService implements CommunicationsEnqueue {
     return existing ?? this.prepare(request);
   }
 
+  /**
+   * The template a delivery will carry, provisioning this organization's defaults on a miss.
+   *
+   * The second read is what makes issue #217 impossible to reach through this path rather than
+   * merely unlikely: an organization created after migration `1706` ran, or one whose creation
+   * raced the migration, resolves its first lifecycle message by materializing the catalogue and
+   * then finding the row. It costs one extra read only on the miss — after that the key exists
+   * and the first `findTemplate` answers.
+   *
+   * A **pinned version** is never provisioned for. Asking for version 4 of a template whose
+   * organization holds three is a caller mistake, and writing version 1 in response would answer a
+   * different question than the one asked.
+   */
+  private async resolveTemplate(
+    organizationId: string,
+    key: string,
+    version: number | undefined,
+  ): Promise<MessageTemplate | null> {
+    const found = await this.dependencies.repository.findTemplate(organizationId, key, version);
+    if (found || version !== undefined) return found;
+    await this.provisionDefaultTemplates(organizationId);
+    return this.dependencies.repository.findTemplate(organizationId, key);
+  }
+
   private async prepare(
     input: DeliveryRequest,
     options: { scopeChecked?: boolean; template?: MessageTemplate } = {},
@@ -640,14 +727,14 @@ export class CommunicationsService implements CommunicationsEnqueue {
     const template =
       options.template ??
       (input.templateKey
-        ? await this.dependencies.repository.findTemplate(
-            input.organizationId,
-            input.templateKey,
-            input.templateVersion,
-          )
+        ? await this.resolveTemplate(input.organizationId, input.templateKey, input.templateVersion)
         : null);
     if (input.templateKey && !template)
-      throw new CommunicationsNotFoundError("Template version not found");
+      throw new MessageTemplateMissingError(
+        input.organizationId,
+        input.templateKey,
+        input.templateVersion,
+      );
     // One rule, read off the trigger/channel table, replacing four conditionals that between
     // them encoded the same mapping and could not express a channel that is neither email nor a
     // projection.

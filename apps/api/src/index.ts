@@ -57,6 +57,7 @@ import {
   CommunicationsNotFoundError,
   CommunicationsService,
   lifecycleRecipientForAccount,
+  MessageTemplateMissingError,
 } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
@@ -991,8 +992,11 @@ export default {
       subject: Record<string, string>,
       request: (organizationId: string) => Omit<DeliveryRequest, "organizationId" | "eventId">,
     ): Promise<void> => {
+      // Held outside the try so the catch can put a configuration failure on this event's own
+      // timeline, which needs the organization the failure happened in.
+      let organizationId: string | null = null;
       try {
-        const organizationId = await organizationOf(eventId);
+        organizationId = await organizationOf(eventId);
         // Not an error to swallow quietly: an event with no owning organization means the id is
         // wrong or the row is gone, and either way there is nobody to address the message to.
         if (!organizationId) throw new Error("Event has no owning organization");
@@ -1025,6 +1029,36 @@ export default {
           { eventId, ...subject, error: error instanceof Error ? error.message : String(error) },
           "lifecycle.notification.failed",
         );
+        /*
+         * The catch above was written for a **transient** failure — a D1 read that rejects — and
+         * issue #217 showed it hiding a different class entirely. A missing lifecycle template is
+         * permanent and total for that organization: the action succeeds, no delivery row is
+         * written, and from every surface an organizer can see it is indistinguishable from a
+         * message that went out. A Worker log line is not a surface an organizer reads.
+         *
+         * So that one class also lands on the event's own timeline, beside the action that
+         * should have sent it — the same place `communications.delivery_enqueued` goes, which is
+         * exactly the record whose absence is the symptom. The catch itself stays: nothing here
+         * fails the committed action, and this is a second report rather than a rethrow.
+         *
+         * Keyed on `(event, template key)` with no occurrence, so a condition that repeats every
+         * time anybody triggers that message records **once** rather than filling the timeline
+         * with the same permanent fact. Defaults are provisioned on resolution now, so reaching
+         * this at all means something an operator has to look at.
+         */
+        if (error instanceof MessageTemplateMissingError && organizationId)
+          await auditRecorder.record({
+            organizationId,
+            eventId,
+            action: "communications.template_missing",
+            targetType: "message-template",
+            targetId: error.templateKey,
+            idempotencyKey: lifecycleAuditKey({
+              action: "communications.template_missing",
+              eventId,
+              targetId: error.templateKey,
+            }),
+          });
       }
     };
     /**

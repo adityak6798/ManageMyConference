@@ -220,6 +220,134 @@ describe("the organizer's window controls", () => {
   });
 });
 
+describe("a saved window converges on the state the server computed", () => {
+  /*
+   * Issue #222. The application boundary already enforced a deadline correctly; what was stale
+   * was everything on screen that describes it. A window save changes what applicants are in
+   * *without* changing the publication, so `setForm(saved)` alone left the Live tab — "the same
+   * bytes an applicant receives" — and every warning derived from it showing the previous answer
+   * until somebody reloaded by hand.
+   *
+   * Every assertion here is about state the **server** returned. Nothing recomputes a window
+   * against the browser's clock, which is the other half of what these tests protect.
+   */
+  const composer = (options: {
+    initial: Record<string, unknown>;
+    afterSave: Record<string, unknown> | "refuse";
+  }) => {
+    const reads: string[] = [];
+    let saved = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "PUT" && url.endsWith("/cfp/window")) {
+          if (options.afterSave === "refuse")
+            return jsonResponse(
+              {
+                error: {
+                  code: "VALIDATION_FAILED",
+                  message: "The deadline must be after the opening time.",
+                  correlationId: "trace-window",
+                },
+              },
+              422,
+            );
+          saved = true;
+          return jsonResponse({ cfp: form(options.afterSave) });
+        }
+        if (!init?.method) reads.push(url);
+        // Every read after the write answers with the saved state, which is what a re-read of the
+        // live form would genuinely see.
+        return jsonResponse({
+          cfp: form(saved && options.afterSave !== "refuse" ? options.afterSave : options.initial),
+        });
+      }),
+    );
+    render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    return { reads };
+  };
+
+  const saveDeadline = async (value: string) => {
+    const deadline = await screen.findByLabelText("Deadline");
+    await waitFor(() => expect(screen.getByLabelText("Opens")).toHaveValue(""));
+    fireEvent.change(deadline, { target: { value } });
+    await waitFor(() => expect(deadline).toHaveValue(value));
+    fireEvent.click(screen.getByRole("button", { name: "Save window" }));
+  };
+
+  it("renders the closed state at once when the saved deadline is already past", async () => {
+    const test = composer({
+      initial: { effectiveStatus: "open", publishedStatus: "open" },
+      afterSave: {
+        closesAt: "2026-08-01T00:00:00.000Z",
+        publishedStatus: "open",
+        effectiveStatus: "closed",
+      },
+    });
+
+    await saveDeadline("2026-07-31T17:00");
+
+    // The status line applicants are described by, without a reload.
+    expect(
+      await screen.findByText(/deadline has passed, so applicants cannot submit/),
+    ).toBeInTheDocument();
+    // And the announcement says the call is shut rather than promising applicants a date.
+    expect(screen.getByText(/already passed, so the call is closed/)).toBeInTheDocument();
+    /*
+     * The **public** form is read again, so the Live tab — the same bytes an applicant receives —
+     * stops showing an open call too. Counted on that exact URL rather than on "a CFP read",
+     * because the composer issues three unrelated reads at mount and a loose count passes without
+     * the re-read this asserts.
+     */
+    const publicReads = () =>
+      test.reads.filter((url) => url === `/api/public/events/${eventId}/cfp`).length;
+    await waitFor(() => expect(publicReads()).toBe(2));
+  });
+
+  it("renders the reopened state when the deadline moves back into the future", async () => {
+    // The other direction, which a fix that only ever added a closed banner would fail.
+    composer({
+      initial: {
+        closesAt: "2026-08-01T00:00:00.000Z",
+        publishedStatus: "open",
+        effectiveStatus: "closed",
+      },
+      afterSave: {
+        closesAt: "2026-10-01T06:59:00.000Z",
+        publishedStatus: "open",
+        effectiveStatus: "open",
+      },
+    });
+    expect(
+      await screen.findByText(/deadline has passed, so applicants cannot submit/),
+    ).toBeInTheDocument();
+
+    await saveDeadline("2026-09-30T23:59");
+
+    expect(await screen.findByText("Applicants can submit now.")).toBeInTheDocument();
+    expect(screen.queryByText(/deadline has passed, so applicants cannot submit/)).toBeNull();
+  });
+
+  it("leaves the previous state intact when the save is refused", async () => {
+    /*
+     * No optimistic close. The composer must not claim a state the server never accepted — an
+     * organizer who is told the call is shut, and whose applicants are still submitting, has been
+     * given the one wrong answer this whole surface exists to avoid.
+     */
+    composer({
+      initial: { effectiveStatus: "open", publishedStatus: "open" },
+      afterSave: "refuse",
+    });
+
+    await saveDeadline("2026-09-30T23:59");
+
+    expect(await screen.findByText(/deadline must be after the opening time/)).toBeInTheDocument();
+    expect(screen.getByText("Applicants can submit now.")).toBeInTheDocument();
+    expect(screen.queryByText(/applicants cannot submit/)).toBeNull();
+  });
+});
+
 describe("what the applicant is shown when the call is not open", () => {
   const view = (overrides: Record<string, unknown>, status: "scheduled" | "closed" | "open") =>
     render(

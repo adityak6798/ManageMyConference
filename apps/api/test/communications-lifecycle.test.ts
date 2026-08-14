@@ -49,7 +49,7 @@ const speakers = [
   { id: "user-jordan", name: "Jordan Bell", email: null },
 ];
 
-const harness = (options: { speakers?: typeof speakers } = {}) => {
+const harness = (options: { speakers?: typeof speakers; templateKey?: string } = {}) => {
   let id = 0;
   const now = new Date("2026-08-10T12:00:00.000Z");
   const repository = new MemoryCommunicationsRepository();
@@ -73,6 +73,7 @@ const harness = (options: { speakers?: typeof speakers } = {}) => {
     enqueue: service,
     speakerDirectory: directory,
     calendarUrl: (event: string) => `https://greenroom.test/api/events/${event}/x.ics`,
+    ...(options.templateKey ? { templateKey: options.templateKey } : {}),
   });
   const provider = new DeterministicProvider();
   const worker = new OutboxWorker(
@@ -361,8 +362,35 @@ describe("a schedule publication reaching the outbox", () => {
     ).toHaveLength(2);
   });
 
-  it("fails terminally, not endlessly, when the schedule template does not exist", async () => {
+  it("provisions the default schedule template rather than failing on a fresh organization", async () => {
+    /*
+     * Issue #217, at the trigger it was easiest to see. Nothing seeds a template here, and before
+     * the default catalogue this delivery went terminal with `SCHEDULE_TEMPLATE_MISSING` — which
+     * is exactly what every self-serve organization got for all nine lifecycle messages.
+     */
     const test = harness();
+    await publicationEvent(test);
+
+    await test.worker.runOne();
+
+    const record = (await test.repository.list(organizationId, eventId)).find(
+      ({ channel }) => channel === "event",
+    );
+    expect(record?.state).toBe("succeeded");
+    // And the fan-out it produced carries the default's rendered text, so the message exists
+    // rather than merely not failing.
+    const sent = (await test.repository.list(organizationId, eventId)).filter(
+      ({ channel }) => channel === "email",
+    );
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent[0]?.renderedSubject).toBe("The schedule is published");
+  });
+
+  it("fails terminally, not endlessly, when the schedule template does not exist", async () => {
+    // A key outside the default catalogue, because every key inside it is now provisioned on
+    // resolution. A deployment that configures its own key and never publishes it is what is
+    // left of this failure, and it must still be terminal rather than retried for ever.
+    const test = harness({ templateKey: "schedule-published-bespoke" });
     await publicationEvent(test);
 
     await test.worker.runOne();

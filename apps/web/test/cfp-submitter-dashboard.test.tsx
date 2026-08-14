@@ -763,6 +763,47 @@ describe("the signed-in applicant's proposals", () => {
     expect(screen.getByLabelText(/Proposal title/)).toHaveValue("My version");
   });
 
+  it("keeps typing when the proposal already open is re-opened, and says so", async () => {
+    /*
+     * Issue #211: pressing the same row's button reloaded the stored copy over whatever had been
+     * typed and said only "Editing …. Change what you need" — a silent discard on the one surface
+     * whose spec (`PRD-CFP-004`) requires a drop to be stated *before* the save that makes it
+     * permanent. Reverting `openForEditing` to the unconditional `setAnswers` fails both
+     * assertions below.
+     */
+    mount({ proposals: [proposal()] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Half an idea/ }));
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "My version" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue Half an idea/ }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("My version");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Your unsaved changes are still on the form",
+    );
+  });
+
+  it("reloads the newer stored copy when the same row is re-opened untouched", async () => {
+    /*
+     * The other half of #211's fix, and the reason it is measured against the *bound* copy: an
+     * applicant who has typed nothing has nothing to keep, so the rebind that lets them escape a
+     * conflict raised by another tab still reloads. Keeping the old text here would strand them
+     * on it.
+     */
+    const test = mount({ proposals: [proposal()] });
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Half an idea/ }));
+
+    test.setProposals([
+      proposal({ title: "Saved elsewhere", answers: { title: "Saved elsewhere" }, revision: 2 }),
+    ]);
+    // A write is what refreshes the list; the failed save leaves `editing` at revision 1.
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await screen.findByRole("button", { name: /Continue Saved elsewhere/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /Continue Saved elsewhere/ }));
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("Saved elsewhere");
+  });
+
   it("shows a decision, and stops offering edits once the call has closed", async () => {
     mount({
       status: "closed",

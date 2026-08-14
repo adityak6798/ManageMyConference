@@ -129,25 +129,49 @@ export function PublicEventApp() {
     setLiveCfp(null);
     setCfpUnavailable(null);
     if (!projection || !CFP_AWARE_VIEWS.has(section)) return;
+    const eventId = projection.event.eventId;
     let live = true;
-    // ERROR-INTENT: React effects cannot await; both outcomes below are rendered.
-    void loadCfp(projection.event.eventId, false)
-      .then((form) => {
-        if (!live) return;
-        setLiveCfp(form);
-        setCfpUnavailable(null);
-      })
-      .catch((reason: unknown) => {
-        if (!live) return;
-        setLiveCfp(null);
-        setCfpUnavailable(
-          reason instanceof CfpApiError
-            ? reason.message
-            : "The call for proposals could not be loaded.",
-        );
-      });
+    const read = () =>
+      // ERROR-INTENT: React effects cannot await; both outcomes below are rendered.
+      void loadCfp(eventId, false)
+        .then((form) => {
+          if (!live) return;
+          setLiveCfp(form);
+          setCfpUnavailable(null);
+        })
+        .catch((reason: unknown) => {
+          if (!live) return;
+          setLiveCfp(null);
+          setCfpUnavailable(
+            reason instanceof CfpApiError
+              ? reason.message
+              : "The call for proposals could not be loaded.",
+          );
+        });
+    read();
+    /*
+     * Read again when this tab comes back to the front (issue #222).
+     *
+     * `effectiveStatus` is the server's answer to "may somebody submit right now", and a
+     * scheduled window changes it **with no republish** — so a page that read it once and kept
+     * the answer goes stale the moment an organizer moves a deadline, and keeps offering a form
+     * the server will refuse. The evaluator found exactly that: the deadline was enforced, and
+     * the public warning still said the call was open until somebody reloaded by hand.
+     *
+     * Visibility rather than an interval, and this is the trade being made. It converges the case
+     * that actually happens — the deadline is changed in one tab and the public page is in
+     * another — at the cost of one read when a visitor returns to the tab, and it adds no polling
+     * to a page that may be open on a conference screen all day. A page left in the foreground
+     * across a deadline still shows the previous answer until the visitor acts; the server refuses
+     * the submission either way, so what is at stake is the wording rather than the enforcement.
+     */
+    const onVisible = () => {
+      if (document.visibilityState === "visible") read();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       live = false;
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [projection, section]);
 

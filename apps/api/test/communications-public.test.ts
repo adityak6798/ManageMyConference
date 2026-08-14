@@ -305,6 +305,10 @@ describe("sending a template to an event's speakers", () => {
 
     const templates = await service.templates(organizer, organizationId);
 
-    expect(templates.map(({ version }) => version)).toEqual([2, 1]);
+    // Filtered to the key under test: listing also provisions this organization's nine lifecycle
+    // defaults (issue #217), each at version 1, and they are not what this asserts.
+    expect(
+      templates.filter(({ key }) => key === "speaker-welcome").map(({ version }) => version),
+    ).toEqual([2, 1]);
   });
 });
