@@ -35,6 +35,8 @@ import {
 import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "../ui/primitives";
 
 import {
+  assetVersionGroups,
+  SOCIAL_PLATFORMS,
   bytesToBase64,
   type CalendarLinkSession,
   googleCalendarUrl,
@@ -62,6 +64,7 @@ type ProfileDraft = {
   pronouns: string;
   organization: string;
   bio: string;
+  socialLinks: Record<string, string>;
 };
 
 /** The session as the add-to-calendar builders read it; unscheduled leaves every field absent. */
@@ -80,6 +83,12 @@ function profileDraft(profile: SpeakerProfile): ProfileDraft {
     pronouns: profile.pronouns,
     organization: profile.organization,
     bio: profile.bio,
+    // Every platform is a controlled input, so an absent link is "" here and is dropped again
+    // on the way out. Leaving them undefined made the boxes uncontrolled on first paint and
+    // React then warned on the first keystroke.
+    socialLinks: Object.fromEntries(
+      SOCIAL_PLATFORMS.map(({ key }) => [key, profile.socialLinks?.[key] ?? ""]),
+    ),
   };
 }
 
@@ -104,12 +113,23 @@ export function SpeakerView({
   const profileFeedback = useActionFeedback();
   const uploadFeedback = useActionFeedback();
   const uploadFormRef = useRef<HTMLFormElement>(null);
+  /*
+   * Which request this upload answers, held in state rather than read off the form at submit.
+   *
+   * The form has to say which session the chosen request belongs to *before* the file is sent —
+   * "upload the slides" and "upload the slides for your Thursday workshop" are different
+   * instructions — and a value only read on submit cannot be rendered while the speaker is
+   * choosing. The association itself is recorded by the server from the task, not sent from here.
+   */
+  const [uploadTaskId, setUploadTaskId] = useState("");
 
   // Re-seed the form whenever the stored profile changes; the previous uncontrolled
   // inputs kept showing the values from first paint even after a save or a refetch.
   const saved = useMemo(() => profileDraft(profile), [profile]);
   const savedSignature = JSON.stringify(saved);
   const [draft, setDraft] = useState<ProfileDraft>(saved);
+  /** Per-platform refusals from the server, keyed the way the field errors arrive. */
+  const [socialErrors, setSocialErrors] = useState<Record<string, string[]>>({});
   const [syncedTo, setSyncedTo] = useState(savedSignature);
   if (syncedTo !== savedSignature) {
     setSyncedTo(savedSignature);
@@ -124,6 +144,21 @@ export function SpeakerView({
       new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime(),
   );
   const openTasks = tasks.filter(({ status }) => status === "open");
+  /*
+   * The talk a request is about, by id.
+   *
+   * A task may name a session this speaker is not on — an organizer can ask a co-presenter for
+   * the room's handout — so an id with no title here is printed as itself rather than dropped.
+   * Saying "a session you cannot see" would be worse than saying nothing; saying nothing at all
+   * is what the portal did before, and it is why "upload your slides" was ambiguous for anybody
+   * with two sessions.
+   */
+  const sessionTitles = useMemo(
+    () => new Map(workspace.sessions.map((session) => [session.id, session.title])),
+    [workspace.sessions],
+  );
+  const sessionTitle = (sessionId: string) => sessionTitles.get(sessionId) ?? sessionId;
+  const uploadTask = tasks.find(({ id }) => id === uploadTaskId);
   const overdue = openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length;
   // A session's time is where the published agenda places it, resolved by the server on every
   // read, so this card and the .ics download can never disagree with the public schedule.
@@ -151,15 +186,33 @@ export function SpeakerView({
   function saveProfile(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy) return;
+    setSocialErrors({});
+    // Blank means "no link", so an emptied box is sent as an absence rather than as "".
+    const socialLinks = Object.fromEntries(
+      Object.entries(draft.socialLinks).filter(([, value]) => value.trim()),
+    );
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
-    void run(() => updateSpeakerProfile(profile.id, draft)).then((result) =>
+    void run(() => updateSpeakerProfile(profile.id, { ...draft, socialLinks })).then((result) => {
+      if (!result.ok) {
+        // The server names the platform it refused, so the message lands on that box rather
+        // than as one sentence over a form with seven inputs in it.
+        const fields = contentFieldErrors(result.error);
+        setSocialErrors(
+          Object.fromEntries(
+            SOCIAL_PLATFORMS.flatMap(({ key }) => {
+              const messages = fields[`socialLinks.${key}`];
+              return messages ? [[key, messages] as const] : [];
+            }),
+          ),
+        );
+      }
       profileFeedback.announce(
         result.ok ? "success" : "error",
         result.ok
           ? "Profile saved. Organizers see this version."
           : withReference("Your profile could not be saved.", result.error),
-      ),
-    );
+      );
+    });
   }
 
   /**
@@ -195,11 +248,20 @@ export function SpeakerView({
     if (busy) return;
     const input = formEvent.currentTarget.elements.namedItem("asset") as HTMLInputElement;
     const file = input.files?.[0];
-    const taskId = String(new FormData(formEvent.currentTarget).get("taskId") ?? "");
+    const taskId = uploadTaskId;
     if (!file) {
       uploadFeedback.announce("error", "Choose a file before uploading.");
       return;
     }
+    /*
+     * The task travels; the session does not.
+     *
+     * A request bound to a session is stored on the upload too, and the server reads that
+     * association off the task rather than taking it from here. It has to: a speaker may be
+     * asked for a session's handout without being one of that session's speakers, and a
+     * `sessionId` sent from the portal is checked against the sessions this speaker is on — so
+     * the honest-looking version of this line would refuse exactly the requests it was added for.
+     */
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(async () => {
       const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
@@ -211,7 +273,10 @@ export function SpeakerView({
         ...(taskId ? { taskId } : {}),
       });
     }).then((result) => {
-      if (result.ok) uploadFormRef.current?.reset();
+      if (result.ok) {
+        uploadFormRef.current?.reset();
+        setUploadTaskId("");
+      }
       uploadFeedback.announce(
         result.ok ? "success" : "error",
         result.ok
@@ -305,7 +370,18 @@ export function SpeakerView({
                   const days = daysUntil(task.dueAt, now);
                   return (
                     <tr key={task.id}>
-                      <td className="primary-cell">{task.title}</td>
+                      <td className="primary-cell">
+                        {task.title}
+                        {/* What is being asked for and which talk it is about, on the row that
+                            asks for it. Both were stored and neither was ever shown, so a
+                            speaker had to guess whether a task wanted a file at all — and, with
+                            two sessions, which one it wanted the file for. */}
+                        <span className="sub">
+                          {task.type === "file-request" ? "File request" : "General task"}
+                          {task.sessionId ? ` · ${sessionTitle(task.sessionId)}` : ""}
+                          {task.instructions ? ` · ${task.instructions}` : ""}
+                        </span>
+                      </td>
                       <td>
                         {shortDate(task.dueAt)}
                         <span className="sub">
@@ -407,6 +483,44 @@ export function SpeakerView({
                 {draft.bio.length} of 2000 characters.
               </p>
             </div>
+            {/* Structured rather than a line in the bio: the published programme turns each of
+                these into a link with the platform as its accessible name, which it cannot do
+                with "@sam on Mastodon" written in prose. */}
+            <fieldset className="field profile-form-wide profile-social">
+              <legend>Links</legend>
+              <p className="hint" id="profile-social-hint">
+                Shown on the published programme once an organizer publishes. Leave a box blank to
+                remove that link.
+              </p>
+              {SOCIAL_PLATFORMS.map(({ key, label }) => (
+                <div className="field" key={key}>
+                  <label htmlFor={`profile-social-${key}`}>{label}</label>
+                  <input
+                    id={`profile-social-${key}`}
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://"
+                    value={draft.socialLinks[key] ?? ""}
+                    onChange={(changeEvent) =>
+                      setDraft({
+                        ...draft,
+                        socialLinks: { ...draft.socialLinks, [key]: changeEvent.target.value },
+                      })
+                    }
+                    maxLength={300}
+                    aria-describedby={
+                      socialErrors[key] ? `profile-social-${key}-error` : "profile-social-hint"
+                    }
+                    aria-invalid={socialErrors[key] ? true : undefined}
+                  />
+                  {socialErrors[key] ? (
+                    <p className="error-text" id={`profile-social-${key}-error`}>
+                      {socialErrors[key]?.join(" ")}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </fieldset>
             <div className="profile-form-actions profile-form-wide">
               <button type="submit" aria-disabled={busy}>
                 {busy ? "Saving…" : "Save profile"}
@@ -441,19 +555,36 @@ export function SpeakerView({
                 PNG, JPEG, or PDF.
               </p>
             </div>
-            <label>
-              Requested task
-              <select name="taskId" defaultValue="">
+            <div className="field">
+              <label htmlFor="upload-task">Requested task</label>
+              <select
+                id="upload-task"
+                name="taskId"
+                value={uploadTaskId}
+                onChange={(changeEvent) => setUploadTaskId(changeEvent.target.value)}
+                aria-describedby="upload-task-hint"
+              >
                 <option value="">General upload</option>
                 {tasks
                   .filter((task) => task.type === "file-request")
                   .map((task) => (
                     <option key={task.id} value={task.id}>
                       {task.title}
+                      {task.sessionId ? ` — ${sessionTitle(task.sessionId)}` : ""}
                     </option>
                   ))}
               </select>
-            </label>
+              {/* Which talk the chosen request is about, said before the file is sent rather
+                  than discovered afterwards: a speaker with two sessions has two decks, and
+                  "upload your slides" alone does not say which one this is. */}
+              <p className="hint" id="upload-task-hint">
+                {uploadTask?.sessionId
+                  ? `Filed against “${sessionTitle(uploadTask.sessionId)}”.`
+                  : uploadTask
+                    ? "Filed against this request. It is not tied to a session."
+                    : "A general upload is not tied to any request."}
+              </p>
+            </div>
             <button type="submit" aria-disabled={busy}>
               {busy ? "Uploading…" : "Upload asset"}
             </button>
@@ -484,16 +615,24 @@ export function SpeakerView({
           </div>
           {workspace.assets.length ? (
             <ul className="upload-list">
-              {workspace.assets.map((asset) => {
+              {/* One entry per deliverable rather than per upload. Re-uploading a deck used to
+                  render a second row with the same name and the same date, and nothing said
+                  which one an organizer would download. */}
+              {assetVersionGroups(workspace.assets).map(({ groupId, latest: asset, prior }) => {
                 const isPhoto = asset.id === profile.photoAssetId;
                 return (
-                  <li key={asset.id}>
+                  <li key={groupId}>
                     <span className="upload-name">
                       {asset.name}
-                      <span className="sub">Uploaded {shortDate(asset.uploadedAt)}</span>
+                      <span className="sub">
+                        {prior.length
+                          ? `Version ${asset.versionNumber ?? 1} · uploaded ${shortDate(asset.uploadedAt)}`
+                          : `Uploaded ${shortDate(asset.uploadedAt)}`}
+                      </span>
                     </span>
                     <span className="upload-actions">
                       {isPhoto ? <Pill tone="strong">Profile photo</Pill> : null}
+                      {prior.length ? <Pill tone="ok">Latest</Pill> : null}
                       <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
                         {asset.visibility === "publishable" ? "Publishable" : "Private"}
                       </Pill>
@@ -537,6 +676,25 @@ export function SpeakerView({
                           — {comment.body}
                         </p>
                       ))}
+                    {/* Superseded versions stay readable: a speaker who re-uploaded by mistake
+                        can still reach what they replaced. */}
+                    {prior.length ? (
+                      <details className="upload-history">
+                        <summary>
+                          {prior.length} {plural(prior.length, "earlier version")} of {asset.name}
+                        </summary>
+                        <ul>
+                          {prior.map((old) => (
+                            <li key={old.id}>
+                              <a href={`/api/speaker-assets/${old.id}`}>
+                                Version {old.versionNumber ?? 1}
+                              </a>
+                              <span className="sub">Uploaded {shortDate(old.uploadedAt)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
                   </li>
                 );
               })}

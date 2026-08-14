@@ -45,7 +45,9 @@ DELETE FROM crm_contact_imports;
 DELETE FROM crm_organization_contacts;
 DELETE FROM crm_activities;
 DELETE FROM crm_contacts;
+DELETE FROM crm_prospect_transitions;
 DELETE FROM crm_prospects;
+DELETE FROM crm_pipeline_stages;
 
 DELETE FROM speaker_resources;
 DELETE FROM speaker_task_templates;
@@ -316,8 +318,18 @@ INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bi
 ('10000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','speaker-jordan-bell','proposal-person-jordan','Jordan Bell','jordan.bell@example.test','Jordan works with event teams to create inclusive digital and physical experiences.','she/her','Northwind Access',NULL);
 -- `npm run reset` also writes these bytes into the local R2 bucket under `storage_key`,
 -- so an anonymous GET /api/speaker-assets/<id> serves a real image from a clean seed.
-INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at) VALUES
-('90000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','jordan-bell-portrait.png','image/png','00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001','publishable','2026-08-10T17:00:00.000Z');
+--
+-- The two version columns are stated here rather than left to the backfill in migration `1406`:
+-- a seed is applied after every migration on every path, so that backfill can never see this row,
+-- and it would carry no logical key at all. Re-uploading a file of the same name then finds no
+-- chain to join and stores a second v1 instead of a v2 — the CNT-04 defect — on every seeded
+-- database, the hosted demo included. `logical_key` is what `logicalAssetKey` in
+-- src/domain/content/content.ts derives for an upload naming neither a task nor a session, the
+-- trimmed and lowercased file name, and `version_group_id` repeats this row id, which is the group
+-- the repository gives a first version. `version_number` and `is_latest` default to 1 and are left
+-- to the schema.
+INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,logical_key,version_group_id) VALUES
+('90000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','jordan-bell-portrait.png','image/png','00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000002/90000000-0000-4000-8000-000000000001','publishable','2026-08-10T17:00:00.000Z','name:jordan-bell-portrait.png','90000000-0000-4000-8000-000000000001');
 -- The demo headshot is resolved rather than asserted: the profile takes its own most recent
 -- *image* upload, which is exactly what PUT /api/speaker-profiles/{profileId}/photo accepts —
 -- the asset must belong to this profile, and it must be an image. A seed is applied by
@@ -412,12 +424,52 @@ VALUES (
   '{"eventId":"00000000-0000-4000-8000-000000000001","title":"Share your conference story","description":"Submit a practical session for Greenroom Demo Summit.","fields":[{"id":"title","type":"short_text","label":"Proposal title","guidance":"Keep it specific","required":true,"options":[]},{"id":"abstract","type":"long_text","label":"Abstract","guidance":"What will attendees learn?","required":true,"options":[]},{"id":"name","type":"short_text","label":"Your name","guidance":"How organizers should address you","required":false,"options":[]},{"id":"email","type":"email","label":"Contact email","guidance":"We will send your confirmation here","required":true,"options":[]}],"status":"open","version":1,"publishedAt":"2026-08-09T12:00:00.000Z","publishedStatus":"open"}'
 );
 
+-- The board every event starts with. The migration backfills events that already existed;
+-- this is the fixture's own copy, because migrations run before the seed inserts its events.
+-- An event created later is healed by `CrmService.pipelineStages`, which is what makes all
+-- three paths agree on one default set (`1501`).
+INSERT INTO crm_pipeline_stages (id,event_id,key,label,category,sort_order,created_at) VALUES
+  ('52000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','identified','Identified','open',0,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','contacted','Contacted','open',1,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','engaged','Engaged','open',2,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','invited','Invited','open',3,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000001','confirmed','Confirmed','won',4,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000001','converted','Converted','won',5,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000007','00000000-0000-4000-8000-000000000001','future-fit','Future fit','nurture',6,'2026-08-14T00:00:00.000Z'),
+  ('52000000-0000-4000-8000-000000000008','00000000-0000-4000-8000-000000000001','declined','Declined','lost',7,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000002','identified','Identified','open',0,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000002','contacted','Contacted','open',1,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','engaged','Engaged','open',2,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000002','invited','Invited','open',3,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000002','confirmed','Confirmed','won',4,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000002','converted','Converted','won',5,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000007','00000000-0000-4000-8000-000000000002','future-fit','Future fit','nurture',6,'2026-08-14T00:00:00.000Z'),
+  ('53000000-0000-4000-8000-000000000008','00000000-0000-4000-8000-000000000002','declined','Declined','lost',7,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000099','identified','Identified','open',0,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000099','contacted','Contacted','open',1,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000099','engaged','Engaged','open',2,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000099','invited','Invited','open',3,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000099','confirmed','Confirmed','won',4,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000099','converted','Converted','won',5,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000007','00000000-0000-4000-8000-000000000099','future-fit','Future fit','nurture',6,'2026-08-14T00:00:00.000Z'),
+  ('54000000-0000-4000-8000-000000000008','00000000-0000-4000-8000-000000000099','declined','Declined','lost',7,'2026-08-14T00:00:00.000Z');
+
 INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) VALUES
   ('50000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','Dr. Ada Rivera','contacted','seed-organizer','Follow up on keynote topic','2026-08-08T17:00:00.000Z','2026-08-01T12:00:00.000Z','2026-08-05T12:00:00.000Z'),
   ('50000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Morgan Chen','engaged','seed-organizer','Send formal invitation','2026-08-15T17:00:00.000Z','2026-08-02T12:00:00.000Z','2026-08-06T12:00:00.000Z'),
   -- The same person, courted again for the workshop day. This is the row that makes the
   -- directory's central claim demonstrable on a clean seed: one contact, two event histories.
   ('50000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','Dr. Ada Rivera','identified','seed-organizer','Confirm interest for the workshop day',NULL,'2026-08-07T12:00:00.000Z','2026-08-07T12:00:00.000Z');
+-- Each seeded prospect's arrival on the board. The migration backfills prospects that already
+-- existed; the fixture creates its own after migrations run, so it carries its own history —
+-- otherwise the demo board's report would open empty and read as "nothing has ever happened".
+INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at) VALUES
+  ('55000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001',NULL,'identified','seed-organizer','created','2026-08-01T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','identified','contacted','seed-organizer','board','2026-08-05T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000002',NULL,'identified','seed-organizer','created','2026-08-02T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000002','identified','engaged','seed-organizer','detail','2026-08-06T12:00:00.000Z'),
+  ('55000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000003',NULL,'identified','seed-organizer','created','2026-08-07T12:00:00.000Z');
+
 INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) VALUES
   ('60000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001','Ada Rivera','ada@example.test',1),
   ('60000000-0000-4000-8000-000000000002','50000000-0000-4000-8000-000000000002','Morgan Chen','morgan@example.test',1),

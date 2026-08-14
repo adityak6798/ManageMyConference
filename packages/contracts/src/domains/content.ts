@@ -31,6 +31,67 @@ export const contentSessionSchema = z.object({
     })
     .optional(),
 });
+/**
+ * The platforms a speaker profile can carry a link for, and the rule each link obeys.
+ *
+ * Closed, so that the portal, the organizer view and the public programme can all name the
+ * platform and label the link rather than rendering a bare URL and hoping. `website` is the
+ * escape hatch.
+ *
+ * Only `http` and `https` are accepted. A profile field is speaker-supplied text that the public
+ * programme renders into an `href`, so `javascript:` — which `z.string().url()` accepts, because
+ * it is a valid URL — would be stored script that every visitor's browser is invited to run.
+ * `mailto:` is refused for a milder reason: the profile already carries an address, and a second
+ * one nobody verified is a worse answer to "how do I contact this speaker".
+ */
+export const SPEAKER_SOCIAL_PLATFORMS = [
+  "website",
+  "mastodon",
+  "bluesky",
+  "linkedin",
+  "github",
+  "x",
+  "youtube",
+] as const;
+
+export const SOCIAL_LINK_REJECTED = "Enter a full http:// or https:// address, or leave it blank.";
+
+const socialLinkSchema = z
+  .string()
+  .trim()
+  .max(300)
+  .refine((value) => {
+    if (!value) return true;
+    try {
+      const { protocol } = new URL(value);
+      return protocol === "http:" || protocol === "https:";
+    } catch {
+      // ERROR-INTENT: `new URL` reports an unparseable address by throwing, and "not a link" is
+      // the answer this refinement exists to produce. The caller sees a field error.
+      return false;
+    }
+  }, SOCIAL_LINK_REJECTED);
+
+/*
+ * Written out rather than generated from the list above, so the OpenAPI document names every
+ * platform an organizer's API client may send. Blank is "no link", so an emptied box removes
+ * the entry rather than storing an empty string that every surface would then have to skip.
+ */
+export const speakerSocialLinksSchema = z
+  .object({
+    website: socialLinkSchema.optional(),
+    mastodon: socialLinkSchema.optional(),
+    bluesky: socialLinkSchema.optional(),
+    linkedin: socialLinkSchema.optional(),
+    github: socialLinkSchema.optional(),
+    x: socialLinkSchema.optional(),
+    youtube: socialLinkSchema.optional(),
+  })
+  .transform((links) =>
+    Object.fromEntries(Object.entries(links).filter(([, value]) => Boolean(value))),
+  );
+export type SpeakerSocialLinksDto = z.infer<typeof speakerSocialLinksSchema>;
+
 export const speakerProfileSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
@@ -45,6 +106,15 @@ export const speakerProfileSchema = z.object({
   workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]).optional(),
   logistics: z.record(z.string()).optional(),
   customFields: z.record(z.string()).optional(),
+  socialLinks: z.record(z.string()).optional(),
+  /**
+   * How many portal invitations an organizer has deliberately sent this speaker.
+   *
+   * The visible half of the delivery history: the console shows it beside the roster so "have we
+   * actually written to this person, and how often?" is answerable without opening the outbox.
+   * It does not count the welcome acceptance sends, so 0 does not mean "never contacted".
+   */
+  invitationsSent: z.number().int().nonnegative().optional(),
 });
 export const speakerTaskSchema = z.object({
   id: z.string().uuid(),
@@ -151,6 +221,12 @@ export const updateSpeakerProfileInputSchema = z.object({
   bio: z.string().trim().max(2000),
   pronouns: z.string().trim().max(50),
   organization: z.string().trim().max(120),
+  /*
+   * Optional so an older client's save is a text edit rather than a silent wipe of every link.
+   * Sending it replaces the whole set, which is what an edit form submits — a blank box is a
+   * removal, and there is no way to express "leave this one alone" that a form could produce.
+   */
+  socialLinks: speakerSocialLinksSchema.optional(),
 });
 export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInputSchema>;
 /**
@@ -208,6 +284,14 @@ export const bulkRequestSpeakerTaskInputSchema = z.object({
   dueAt: z.string().datetime(),
   type: z.enum(["general", "file-request"]),
   instructions: z.string().trim().max(4000).default(""),
+  /**
+   * Which session this request is about, when it is about one.
+   *
+   * Optional because most requested work — a bio, a headshot, a travel form — belongs to the
+   * person rather than to a talk. When it is present the upload answering the task records it
+   * too, which is what lets an organizer ask "what is still missing for this session?" rather
+   * than reading it off file names. The server refuses a session from another event.
+   */
   sessionId: z.string().uuid().optional(),
 });
 export const speakerCsvImportInputSchema = z.object({
@@ -245,6 +329,79 @@ export const restoreContentRevisionInputSchema = z.object({ revisionId: z.string
 export const bulkDownloadDeliverablesInputSchema = z.object({
   eventId: z.string().uuid(),
   assetIds: z.array(z.string().uuid()).min(1).max(100),
+});
+
+/**
+ * Remind the speakers behind a chosen set of open tasks.
+ *
+ * Bounded for the same reason the download is: this is one request an organizer presses, and an
+ * unbounded selection would meet a Worker's subrequest budget rather than a refusal.
+ */
+export const remindSpeakerTasksInputSchema = z.object({
+  eventId: z.string().uuid(),
+  taskIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export type RemindSpeakerTasksInput = z.infer<typeof remindSpeakerTasksInputSchema>;
+
+/**
+ * What happened for each task, including the ones nothing was sent for.
+ *
+ * `alreadySent` is not a failure: reminders converge on one delivery per (task, deadline), so an
+ * organizer pressing this on work the automatic sweep already covered must be told the speaker
+ * has been reminded rather than that a second message was queued.
+ */
+export const speakerReminderOutcomeSchema = z.object({
+  taskId: z.string().uuid(),
+  speakerName: z.string(),
+  title: z.string(),
+  dueAt: z.string().datetime(),
+  outcome: z.enum(["queued", "already-sent", "unreachable", "refused"]),
+  reason: z.string(),
+});
+export type SpeakerReminderOutcomeDto = z.infer<typeof speakerReminderOutcomeSchema>;
+export const remindSpeakerTasksResponseSchema = z.object({
+  reminders: z.array(speakerReminderOutcomeSchema),
+});
+
+/**
+ * Invite a chosen set of speakers into the portal, deliberately and again if need be.
+ *
+ * Bounded for the same reason the reminder selection is: this is one request an organizer
+ * presses, and an unbounded roster would meet a Worker's subrequest budget rather than a refusal.
+ *
+ * The speakers are named one by one rather than implied by the event. An invitation is mail to a
+ * real person, so "everybody currently on this roster" is not something a request should mean by
+ * omission — the same rule `assignSpeakerChecklistInputSchema` states for dated work.
+ */
+export const inviteSpeakersInputSchema = z.object({
+  eventId: z.string().uuid(),
+  profileIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export type InviteSpeakersInput = z.infer<typeof inviteSpeakersInputSchema>;
+
+/**
+ * What happened for each speaker, including the ones nothing was sent for.
+ *
+ * `occurrence` is which invitation this was for that speaker: 1 is the first an organizer asked
+ * for, and it is what makes a re-invitation a *new* delivery rather than one deduplicated into
+ * the welcome acceptance sent months earlier. It is 0 when nothing was claimed, which is the
+ * honest answer for a speaker who has no address to write to.
+ *
+ * `alreadySent` is not a failure here either: an enqueue retried at the same occurrence converges
+ * on one message, so an organizer must be told the speaker has been invited rather than that a
+ * second message was queued that was not.
+ */
+export const speakerInvitationOutcomeSchema = z.object({
+  profileId: z.string().uuid(),
+  speakerName: z.string(),
+  email: z.string(),
+  occurrence: z.number().int().nonnegative(),
+  outcome: z.enum(["queued", "already-sent", "unreachable", "refused"]),
+  reason: z.string(),
+});
+export type SpeakerInvitationOutcomeDto = z.infer<typeof speakerInvitationOutcomeSchema>;
+export const inviteSpeakersResponseSchema = z.object({
+  invitations: z.array(speakerInvitationOutcomeSchema),
 });
 export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),

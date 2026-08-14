@@ -9,4 +9,6 @@ DELETE FROM crm_contact_imports;
 DELETE FROM crm_organization_contacts;
 DELETE FROM crm_activities;
 DELETE FROM crm_contacts;
+DELETE FROM crm_prospect_transitions;
 DELETE FROM crm_prospects;
+DELETE FROM crm_pipeline_stages;

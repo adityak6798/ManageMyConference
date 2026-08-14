@@ -63,13 +63,42 @@ function stubApi(routes: (url: string) => Promise<Response> | undefined) {
   return sent;
 }
 
+/**
+ * The board this workspace opens on, so the stubbed pipeline has columns to draw its cards in.
+ *
+ * Only the four stages these cases touch: the surface reads whatever the server sends, and a
+ * fixture repeating all eight would assert the default set rather than the behaviour.
+ */
+const stages = [
+  { key: "identified", label: "Identified", category: "open", sortOrder: 0 },
+  { key: "contacted", label: "Contacted", category: "open", sortOrder: 1 },
+  { key: "engaged", label: "Engaged", category: "open", sortOrder: 2 },
+  { key: "converted", label: "Converted", category: "won", sortOrder: 3 },
+].map((stage, index) => ({
+  ...stage,
+  id: `52000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  eventId,
+  createdAt: "2026-08-14T00:00:00.000Z",
+}));
+
 const pipeline =
   (prospects: unknown[], staff: unknown[] = owners) =>
   (url: string) => {
     if (url.endsWith("/prospects/owners")) return jsonResponse({ owners: staff });
+    if (url.includes("/pipeline/stages")) return jsonResponse({ stages });
     if (url.includes("/prospects")) return jsonResponse({ prospects });
     return undefined;
   };
+
+/**
+ * Open the prospect from the board, which is the view the workspace opens on.
+ *
+ * The card's accessible name carries the contact and the next action as well as the name — it
+ * is one control per prospect, not a row of them — so it is matched by substring rather than by
+ * the exact string a table cell used to be.
+ */
+const openProspect = async (name: string) =>
+  fireEvent.click((await screen.findAllByRole("button", { name: new RegExp(name) }))[0] as Element);
 
 afterEach(() => {
   cleanup();
@@ -85,7 +114,7 @@ describe("assigning a prospect owner", () => {
     });
     render(<CrmWorkspace eventId={eventId} ownerId="seed-organizer" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Dr. Ada Rivera" }));
+    await openProspect("Dr. Ada Rivera");
     const owner = await screen.findByLabelText<HTMLSelectElement>("Owner", { exact: true });
     // The set comes from identity-access, not from whoever happens to own a prospect: the
     // reviewer is offered though no prospect names them, and the speaker persona is absent.
@@ -128,7 +157,7 @@ describe("assigning a prospect owner", () => {
     });
     render(<CrmWorkspace eventId={eventId} ownerId="seed-organizer" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Dr. Ada Rivera" }));
+    await openProspect("Dr. Ada Rivera");
     const owner = await screen.findByLabelText<HTMLSelectElement>("Owner", { exact: true });
     expect(owner.value).toBe("departed-organizer");
 
@@ -183,7 +212,7 @@ describe("assigning a prospect owner", () => {
     });
     render(<CrmWorkspace eventId={eventId} ownerId="seed-organizer" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Dr. Ada Rivera" }));
+    await openProspect("Dr. Ada Rivera");
     expect(screen.getByText(/No activity recorded yet/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Stage", { exact: true }), {
       target: { value: "engaged" },

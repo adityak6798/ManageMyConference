@@ -15,13 +15,20 @@
  * next version of the same key, the previous one stays readable, and a delivery sent last week
  * still names the version it used.
  */
-import type { BroadcastRecipientDto, MessageTemplateDto } from "@greenroom/contracts";
+import type {
+  BroadcastPreviewEntryDto,
+  BroadcastRecipientDto,
+  MessageTemplateDto,
+  SpeakerMergeFieldDto,
+} from "@greenroom/contracts";
 import { useCallback, useEffect, useState } from "react";
 import {
   CommunicationsApiError,
   createTemplate,
+  getMergeFields,
   getRecipients,
   getTemplates,
+  previewBroadcast,
   sendToSpeakers,
 } from "../api/communications";
 import { IconSend, IconWarning } from "../ui/icons";
@@ -63,6 +70,18 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
    */
   const [audienceVersion, setAudienceVersion] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string>("");
+  /**
+   * Who this send is for.
+   *
+   * `null` means "everybody reachable", which is what this panel did before a selection
+   * existed and is still the common case — distinct from an empty set, which is nobody and is
+   * refused. The distinction matters because the roster changes: "everybody" re-resolves on the
+   * server at send time, a named list does not.
+   */
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const [search, setSearch] = useState("");
+  const [preview, setPreview] = useState<BroadcastPreviewEntryDto[] | null>(null);
+  const [mergeFields, setMergeFields] = useState<SpeakerMergeFieldDto[]>([]);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -73,10 +92,12 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   // biome-ignore lint/correctness/useExhaustiveDependencies: feedback.announce is a fresh closure every render, so depending on it would re-run the mount effect forever.
   const load = useCallback(async () => {
     try {
-      const [loadedTemplates, loadedRecipients] = await Promise.all([
+      const [loadedTemplates, loadedRecipients, fields] = await Promise.all([
         getTemplates(organizationId),
         getRecipients(organizationId, eventId),
+        getMergeFields(),
       ]);
+      setMergeFields([...fields]);
       setTemplates(loadedTemplates);
       setRecipients(loadedRecipients.recipients);
       setAudienceVersion(loadedRecipients.audienceVersion);
@@ -105,6 +126,31 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   const selected = available.find((template) => template.key === selectedKey) ?? null;
   const reachable = (recipients ?? []).filter((recipient) => recipient.address !== null);
   const unreachable = (recipients ?? []).filter((recipient) => recipient.address === null);
+  const needle = search.trim().toLowerCase();
+  const matching = reachable.filter(
+    (recipient) =>
+      !needle || `${recipient.name} ${recipient.address ?? ""}`.toLowerCase().includes(needle),
+  );
+  /*
+   * The people this send would actually reach.
+   *
+   * A selection is filtered against the reachable roster rather than trusted, so a speaker who
+   * left the event between ticking and sending is not counted in the number being approved —
+   * the server refuses that send anyway, and the count on screen should not disagree with it.
+   */
+  const audience = chosen
+    ? reachable.filter((recipient) => chosen.includes(recipient.userId))
+    : reachable;
+  const audienceLabel = `${audience.length} ${audience.length === 1 ? "speaker" : "speakers"}`;
+  const toggle = (userId: string) =>
+    setChosen((current) => {
+      // The first tick turns "everybody" into a list, starting from everybody: unticking one
+      // person should not silently drop the rest.
+      const base = current ?? reachable.map((recipient) => recipient.userId);
+      const next = base.includes(userId) ? base.filter((id) => id !== userId) : [...base, userId];
+      setPreview(null);
+      return next;
+    });
 
   async function publish() {
     setBusy(true);
@@ -137,6 +183,39 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
     }
   }
 
+  /**
+   * Resolve what each chosen recipient would receive, then ask for confirmation.
+   *
+   * The preview is a request rather than a client-side substitution, so what is approved is what
+   * the delivery will store. A template whose placeholder has no value is refused here — on the
+   * screen showing the message — instead of after the first delivery is queued.
+   */
+  async function resolve() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const resolved = await previewBroadcast({
+        organizationId,
+        eventId,
+        templateKey: selected.key,
+        templateVersion: selected.version,
+        ...(chosen ? { recipientIds: audience.map(({ userId }) => userId) } : {}),
+      });
+      setPreview([...resolved.entries]);
+      // The audience the *preview* named, so the send confirms against what was on screen.
+      setAudienceVersion(resolved.audienceVersion);
+      setConfirming(true);
+    } catch (reason: unknown) {
+      // ERROR-INTENT: announced beside the control that asked for it. A placeholder with no
+      // value names itself here, which is the whole reason the preview happens server-side.
+      setPreview(null);
+      setConfirming(false);
+      feedback.announce("error", readError(reason, "The message could not be resolved."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
     if (!selected) return;
     setBusy(true);
@@ -147,8 +226,10 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
         templateKey: selected.key,
         templateVersion: selected.version,
         ...(audienceVersion ? { audienceVersion } : {}),
+        ...(chosen ? { recipientIds: audience.map(({ userId }) => userId) } : {}),
       });
       setConfirming(false);
+      setPreview(null);
       onSent();
       // What happened, not what was attempted. A repeat send of the same template version
       // writes nothing, and saying "queued" about it would promise mail that will never go.
@@ -173,6 +254,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       // sends them back through the confirmation deliberately — a send refused because the
       // audience changed must be re-approved, not retried.
       setConfirming(false);
+      setPreview(null);
       await load();
       feedback.announce("error", readError(reason, "The send was refused."));
     } finally {
@@ -261,10 +343,31 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                 onChange={(event) => setDraft({ ...draft, body: event.target.value })}
               />
             </label>
-            <p className="hint">
-              <code>{"{{speakerName}}"}</code> is filled in per recipient. Any other placeholder
-              must have a value, or the send is refused rather than mailing half a sentence.
-            </p>
+            {/*
+             * The vocabulary comes from the server that resolves it.
+             *
+             * A hard-coded list here would go stale the moment a token is added, and an author
+             * who cannot see the real list writes a template that cannot be sent — the renderer
+             * refuses a placeholder with no value rather than mailing half a sentence.
+             */}
+            <div className="comms-merge">
+              <p className="hint">
+                These placeholders are filled in per recipient. Any other placeholder must have a
+                value, or the send is refused rather than mailing half a sentence.
+              </p>
+              {mergeFields.length ? (
+                <dl className="comms-merge-list">
+                  {mergeFields.map((field) => (
+                    <div key={field.token}>
+                      <dt>
+                        <code>{`{{${field.token}}}`}</code>
+                      </dt>
+                      <dd>{field.describes}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+            </div>
             <button type="submit" className="primary" disabled={busy || !draft.body.trim()}>
               {busy ? "Saving…" : "Save template version"}
             </button>
@@ -284,6 +387,10 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                 onChange={(event) => {
                   setSelectedKey(event.target.value);
                   setConfirming(false);
+                  // A resolved preview belongs to the template that produced it. Leaving it on
+                  // screen under a different template would show the organizer one message and
+                  // send another.
+                  setPreview(null);
                 }}
               >
                 {available.map((template) => (
@@ -294,8 +401,133 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
               </select>
             </label>
 
-            {selected ? (
-              <article className="comms-preview" aria-label="Message preview">
+            {/*
+             * Who this send is for.
+             *
+             * Only reachable speakers are tickable: a box beside somebody with no address would
+             * be a control that cannot do anything, and the notice below already names them. The
+             * search filters what is listed and never the selection — a speaker ticked before
+             * typing stays in the audience, because a filter that silently unticked people would
+             * send to fewer than the count says.
+             */}
+            {reachable.length ? (
+              <fieldset className="comms-audience" aria-label="Recipients">
+                <div className="comms-audience-head">
+                  <label className="comms-audience-search" htmlFor="recipient-search">
+                    Find a speaker
+                    <input
+                      id="recipient-search"
+                      type="search"
+                      value={search}
+                      disabled={busy}
+                      placeholder="Name or address"
+                      onChange={(event) => setSearch(event.target.value)}
+                    />
+                  </label>
+                  {/*
+                   * Neither control is disabled once it has been used: disabling the button under
+                   * the pointer that just pressed it drops keyboard focus to the document, and
+                   * both are safe to press twice.
+                   */}
+                  <div className="comms-audience-bulk">
+                    <button
+                      type="button"
+                      className="secondary small"
+                      disabled={busy}
+                      onClick={() => {
+                        // Back to null rather than to a list of everyone: "everybody" re-resolves
+                        // on the server at send time, so a speaker added in between is included.
+                        setChosen(null);
+                        setPreview(null);
+                      }}
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary small"
+                      disabled={busy}
+                      onClick={() => {
+                        setChosen([]);
+                        setPreview(null);
+                      }}
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                </div>
+                {/* Ticking a box changes this line and nothing else moves, so it is announced
+                    rather than left for a screen-reader user to go looking for. */}
+                <p className="comms-audience-count" aria-live="polite">
+                  Sending to <strong>{audienceLabel}</strong>
+                  {chosen === null
+                    ? " — everyone this event can reach, resolved again when you send."
+                    : "."}
+                </p>
+                {matching.length ? (
+                  <ul className="comms-audience-list">
+                    {matching.map((recipient) => (
+                      <li key={recipient.userId}>
+                        <label className="comms-audience-row">
+                          <input
+                            type="checkbox"
+                            checked={chosen === null || chosen.includes(recipient.userId)}
+                            disabled={busy}
+                            onChange={() => toggle(recipient.userId)}
+                          />
+                          <span className="comms-audience-name">{recipient.name}</span>
+                          <span className="comms-audience-address">{recipient.address}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="comms-audience-empty">
+                    No reachable speaker matches that search. The selection is unchanged.
+                  </p>
+                )}
+              </fieldset>
+            ) : null}
+
+            {/*
+             * What was resolved, or the template it will be resolved from.
+             *
+             * The two are labelled apart on purpose. The template is instructions — it still
+             * carries its placeholders — and showing it under the word "preview" invited an organizer
+             * to approve a message nobody will receive. Once the server has rendered it, every
+             * recipient's own copy is on screen, which is the only version of this that can be
+             * trusted to match what the delivery stores.
+             */}
+            {preview ? (
+              <div className="comms-previews">
+                <h3 className="comms-previews-title">
+                  What each speaker receives ({preview.length})
+                </h3>
+                <ul
+                  className="comms-previews-scroll"
+                  aria-label="Resolved messages"
+                  // biome-ignore lint/a11y/noNoninteractiveTabindex: this list scrolls and holds nothing focusable, so without a tab stop a keyboard reaches the Send button but not the messages it would send.
+                  tabIndex={0}
+                >
+                  {preview.map((entry) => (
+                    <li key={entry.userId}>
+                      <article className="comms-preview" aria-label={`Message for ${entry.name}`}>
+                        <p className="comms-preview-to">
+                          <span className="comms-preview-name">{entry.name}</span>
+                          <span className="comms-preview-address">{entry.address}</span>
+                        </p>
+                        <p className="comms-preview-subject">{entry.subject ?? "(no subject)"}</p>
+                        <pre className="comms-preview-body">{entry.body}</pre>
+                      </article>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : selected ? (
+              <article className="comms-preview is-template" aria-label="Template text">
+                <p className="comms-preview-kind">
+                  Template — placeholders are filled in per recipient when you send.
+                </p>
                 <p className="comms-preview-subject">{selected.subject ?? "(no subject)"}</p>
                 <pre className="comms-preview-body">{selected.body}</pre>
               </article>
@@ -310,16 +542,19 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
               </p>
             ) : null}
 
-            {confirming ? (
+            {/*
+             * `preview` gates the confirmation as well as `confirming`, so changing the audience
+             * — which clears the preview — puts the organizer back in front of the button rather
+             * than in front of a confirmation describing a resolution that no longer holds.
+             */}
+            {confirming && preview ? (
               // The confirmation names the count and the version, because "Send" on its own
               // does not say how many people are about to receive this.
               <fieldset className="comms-confirm" aria-label="Confirm send">
                 <p>
                   Send <strong>{selected?.key}</strong> version {selected?.version} to{" "}
-                  <strong>
-                    {reachable.length} {reachable.length === 1 ? "speaker" : "speakers"}
-                  </strong>
-                  ? Each gets their own delivery you can track and retry.
+                  <strong>{audienceLabel}</strong>? Each gets their own delivery you can track and
+                  retry.
                 </p>
                 <div className="comms-confirm-actions">
                   <button
@@ -331,9 +566,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                       void send();
                     }}
                   >
-                    {busy
-                      ? "Queueing…"
-                      : `Yes, send to ${reachable.length} ${reachable.length === 1 ? "speaker" : "speakers"}`}
+                    {busy ? "Queueing…" : `Yes, send to ${audienceLabel}`}
                   </button>
                   <button
                     type="button"
@@ -349,13 +582,21 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
               <button
                 type="button"
                 className="primary"
-                disabled={busy || !selected || reachable.length === 0}
-                onClick={() => setConfirming(true)}
+                disabled={busy || !selected || audience.length === 0}
+                onClick={() => {
+                  // ERROR-INTENT: handlers cannot await; resolve announces its own failure and
+                  // only opens the confirmation once the server has rendered every message.
+                  void resolve();
+                }}
               >
                 <IconSend size={15} />
-                {reachable.length === 0
-                  ? "No speaker can be reached by email"
-                  : `Send to ${reachable.length} ${reachable.length === 1 ? "speaker" : "speakers"}`}
+                {busy
+                  ? "Preparing each message…"
+                  : reachable.length === 0
+                    ? "No speaker can be reached by email"
+                    : audience.length === 0
+                      ? "Select at least one speaker to send to"
+                      : `Send to ${audienceLabel}`}
               </button>
             )}
           </>

@@ -2,7 +2,11 @@
 import { describe, expect, it } from "vitest";
 import { MemoryCommunicationsRepository } from "../src/adapters/persistence/memory-communications-repository";
 import { DeterministicProvider } from "../src/adapters/providers/deterministic-provider";
-import { CommunicationsService } from "../src/application/communications/communications-service";
+import {
+  CommunicationsService,
+  SPEAKER_MERGE_FIELDS,
+} from "../src/application/communications/communications-service";
+import { CommunicationsInputError } from "../src/application/communications/errors";
 import {
   type DeliveryAttemptRecord,
   OutboxWorker,
@@ -554,6 +558,213 @@ describe("communications outbox", () => {
     });
     await expect(service.retry(organizer, organizationId, "terminal-storage")).rejects.toThrow(
       "storage unavailable",
+    );
+  });
+});
+
+/**
+ * Composing to a chosen audience, and seeing what each of them will get (#189).
+ *
+ * The property that matters is that the preview and the send are the *same* resolution: a
+ * preview a client rendered for itself could disagree with the message the delivery stores, and
+ * would be believed because it looks like the message.
+ */
+describe("bulk speaker email", () => {
+  const speakers = [
+    { id: "user-ada", name: "Ada Rivera", email: "ada@example.test" },
+    { id: "user-morgan", name: "Morgan Chen", email: "morgan@example.test" },
+    // A real state the roster carries: identity holds no address, so this speaker is counted
+    // and reported rather than guessed at.
+    { id: "user-jordan", name: "Jordan Bell", email: null },
+  ];
+
+  const composing = () => {
+    let id = 0;
+    const repository = new MemoryCommunicationsRepository();
+    const service = new CommunicationsService({
+      repository,
+      eventDirectory: {
+        belongsToOrganization: async (candidateEventId, candidateOrganizationId) =>
+          candidateEventId === eventId && candidateOrganizationId === organizationId,
+        name: async () => "Greenroom Demo Summit",
+      },
+      speakerDirectory: { listSpeakersForEvent: async () => speakers },
+      newId: () => `id-${++id}`,
+      now: () => new Date("2026-08-10T12:00:00.000Z"),
+    });
+    return { repository, service };
+  };
+
+  const publish = (service: CommunicationsService, key: string, body: string) =>
+    service.createTemplate(organizer, {
+      organizationId,
+      key,
+      channel: "email",
+      subject: "{{eventName}}",
+      body,
+    });
+
+  it("resolves each chosen recipient's own message, using every documented token", async () => {
+    const { service } = composing();
+    await publish(
+      service,
+      "bulk",
+      "Hi {{speakerName}} at {{eventName}}, reply to {{speakerEmail}}.",
+    );
+
+    const { entries } = await service.previewBroadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "bulk",
+    });
+
+    // Only the reachable speakers, each with their own substitution.
+    expect(entries.map(({ name }) => name)).toEqual(["Ada Rivera", "Morgan Chen"]);
+    expect(entries[0]).toMatchObject({
+      address: "ada@example.test",
+      subject: "Greenroom Demo Summit",
+      body: "Hi Ada Rivera at Greenroom Demo Summit, reply to ada@example.test.",
+    });
+    expect(entries[1]?.body).toContain("Morgan Chen");
+    // Every token the vocabulary publishes is one the preview can actually fill; a documented
+    // token the renderer could not resolve would be a template nobody can send.
+    for (const { token } of SPEAKER_MERGE_FIELDS)
+      expect(
+        (
+          await service.previewBroadcast(organizer, {
+            organizationId,
+            eventId,
+            templateKey: (await publish(service, `only-${token}`, `{{${token}}}`)).key,
+          })
+        ).entries[0]?.body,
+      ).not.toContain("{{");
+  });
+
+  /*
+   * The defect this pins, found by driving the surface rather than reading it: the preview
+   * answered 500 "Something went wrong" for an unfilled placeholder while the *send* answered
+   * 400 naming the key — so the one screen built to tell an author what is wrong with their
+   * template was the only one that could not.
+   */
+  it("refuses an unfilled placeholder the same way the send does, naming it", async () => {
+    const { service } = composing();
+    await publish(service, "hotel", "Hi {{speakerName}}, your hotel is {{hotelName}}.");
+    const command = { organizationId, eventId, templateKey: "hotel" };
+
+    await expect(service.previewBroadcast(organizer, command)).rejects.toThrow(/hotelName/);
+    await expect(service.previewBroadcast(organizer, command)).rejects.toBeInstanceOf(
+      CommunicationsInputError,
+    );
+    await expect(service.broadcast(organizer, command)).rejects.toBeInstanceOf(
+      CommunicationsInputError,
+    );
+  });
+
+  it("sends to the chosen speakers and nobody else", async () => {
+    const { service } = composing();
+    await publish(service, "bulk", "Hi {{speakerName}}.");
+
+    const result = await service.broadcast(organizer, {
+      organizationId,
+      eventId,
+      templateKey: "bulk",
+      recipientIds: ["user-morgan"],
+    });
+
+    expect(result.enqueued).toBe(1);
+    expect(result.deliveries.map(({ recipientRef }) => recipientRef)).toEqual([
+      "morgan@example.test",
+    ]);
+    // The message stored on the delivery is the one the preview would have shown, which is what
+    // makes the preview worth looking at.
+    expect(result.deliveries[0]?.renderedBody).toBe("Hi Morgan Chen.");
+    // Still reported, because an organizer sending to a selection still has to know who on the
+    // roster can never be reached.
+    expect(result.unreachable.map(({ name }) => name)).toEqual(["Jordan Bell"]);
+  });
+
+  it("refuses a chosen speaker who has left, or who has no address, and sends nothing", async () => {
+    const { service, repository } = composing();
+    await publish(service, "bulk", "Hi {{speakerName}}.");
+    const command = { organizationId, eventId, templateKey: "bulk" };
+
+    await expect(
+      service.broadcast(organizer, { ...command, recipientIds: ["user-gone"] }),
+    ).rejects.toBeInstanceOf(CommunicationsInputError);
+    await expect(
+      service.broadcast(organizer, { ...command, recipientIds: ["user-jordan"] }),
+    ).rejects.toThrow(/no email address/);
+    // "Nothing was sent" is part of both messages, so it had better be true.
+    expect(await repository.list(organizationId, eventId)).toHaveLength(0);
+  });
+
+  it("keeps the preview and the send agreeing about who the audience is", async () => {
+    const { service } = composing();
+    await publish(service, "bulk", "Hi {{speakerName}}.");
+    const chosen = { organizationId, eventId, templateKey: "bulk", recipientIds: ["user-ada"] };
+
+    const preview = await service.previewBroadcast(organizer, chosen);
+    const sent = await service.broadcast(organizer, {
+      ...chosen,
+      audienceVersion: preview.audienceVersion,
+    });
+
+    expect(sent.deliveries.map(({ renderedBody }) => renderedBody)).toEqual(
+      preview.entries.map(({ body }) => body),
+    );
+    // And a confirmation taken against a roster that has since moved is refused rather than
+    // reaching a different set of people than the one on screen.
+    await expect(
+      service.broadcast(organizer, { ...chosen, audienceVersion: "something-else" }),
+    ).rejects.toThrow(/changed since you confirmed/);
+  });
+
+  /*
+   * The other half of that agreement, and the #189 defect pointed the other way: the preview
+   * dropped `payload` while the send rendered against it, so a template with a caller-supplied
+   * placeholder previewed as "{{hotelName}} has no value" — telling the author their template
+   * could not be sent — and then sent perfectly well. A preview that refuses what the send
+   * delivers misleads exactly as badly as one that shows a message the delivery does not store.
+   */
+  it("keeps the preview and the send agreeing about what the message says", async () => {
+    const { service } = composing();
+    await publish(service, "hotel", "Hi {{speakerName}}, your hotel is {{hotelName}}.");
+    // `hotelName` is in no merge-field vocabulary, so the renderer can fill it only from the
+    // payload the caller supplied — which is the whole point of the field.
+    const command = {
+      organizationId,
+      eventId,
+      templateKey: "hotel",
+      recipientIds: ["user-ada"],
+      payload: { hotelName: "The Wren" },
+    };
+
+    const preview = await service.previewBroadcast(organizer, command);
+    const sent = await service.broadcast(organizer, {
+      ...command,
+      audienceVersion: preview.audienceVersion,
+    });
+
+    expect(preview.entries[0]?.body).toBe("Hi Ada Rivera, your hotel is The Wren.");
+    expect(sent.deliveries.map(({ renderedBody }) => renderedBody)).toEqual(
+      preview.entries.map(({ body }) => body),
+    );
+
+    // And the per-recipient merge values still outrank a caller key of the same name, in the
+    // preview exactly as on the delivery: one name shown for everybody while each delivery
+    // stored its own recipient's would be the same disagreement wearing a different hat.
+    await publish(service, "stage", "{{speakerName}} is on {{stageName}}.");
+    const shadowed = {
+      ...command,
+      templateKey: "stage",
+      payload: { stageName: "Main", speakerName: "Everybody" },
+    };
+    const shadowedPreview = await service.previewBroadcast(organizer, shadowed);
+    const shadowedSend = await service.broadcast(organizer, shadowed);
+
+    expect(shadowedPreview.entries[0]?.body).toBe("Ada Rivera is on Main.");
+    expect(shadowedSend.deliveries.map(({ renderedBody }) => renderedBody)).toEqual(
+      shadowedPreview.entries.map(({ body }) => body),
     );
   });
 });

@@ -279,3 +279,235 @@ test("a queued delivery is not recoverable, and the route says so", async ({ pag
   expect(refused.status()).toBe(409);
   expect((await refused.json()).error.code).toBe("CONFLICT");
 });
+
+/** One recipient as the server resolves them, which is the only authority on who is reachable. */
+interface Recipient {
+  userId: string;
+  name: string;
+  address: string | null;
+}
+
+/** What a delivery kept, read back from history rather than from the panel that sent it. */
+interface StoredDelivery {
+  idempotencyKey: string;
+  recipientRef: string;
+  state: string;
+  renderedSubject: string | null;
+  renderedBody: string | null;
+}
+
+/**
+ * Every delivery this event has filed under a key the caller recognises.
+ *
+ * The cursor is walked rather than reading one page: history is ordered oldest first and this
+ * fixture accumulates across runs, so the page a send just landed on is the last one. `outbox`
+ * above reads the first page on purpose — it is asserting about states, not about finding a
+ * needle — and this journey is looking for one exact key.
+ */
+async function findDeliveries(page: Page, matches: (key: string) => boolean) {
+  const found: StoredDelivery[] = [];
+  let cursor: string | null = null;
+  for (let index = 0; index < 20; index += 1) {
+    const response = await page.request.get(
+      `/api/communications/history?organizationId=${ORGANIZATION_ID}&eventId=${EVENT_ID}&limit=50${
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+      }`,
+    );
+    expect(response.ok(), `reading the outbox failed: ${await response.text()}`).toBe(true);
+    const body = (await response.json()) as {
+      history: { delivery: StoredDelivery }[];
+      nextCursor: string | null;
+    };
+    for (const { delivery } of body.history)
+      if (matches(delivery.idempotencyKey)) found.push(delivery);
+    cursor = body.nextCursor;
+    if (!cursor) break;
+  }
+  return found;
+}
+
+/*
+ * The bulk personalized message (#189), from an empty composer to the delivery it stored.
+ *
+ * One property runs through all of it: a single text survives the whole path. The server renders
+ * each recipient's own copy, the organizer approves that copy, and the delivery keeps it character
+ * for character — which is why the assertions below compare the history against the strings read
+ * off the screen rather than against the template they were rendered from. A preview computed in
+ * the browser would satisfy every screenshot and still mail something else, and a preview nobody
+ * compared to the stored message is a preview that is believed rather than checked.
+ *
+ * The template key is stamped per run for the reason `runKey` gives, and the send is narrowed to
+ * one named speaker so this run's delivery is one row it can address by key.
+ */
+test("an organizer resolves each speaker's own message, and history keeps exactly what was approved", async ({
+  page,
+}) => {
+  await openOutbox(page);
+  const key = runKey();
+  const compose = page.getByRole("region", { name: "Send to speakers" });
+
+  /*
+   * The merge vocabulary, read from the server that resolves it.
+   *
+   * Asserted as a whole set rather than as three tokens this journey happens to know: if a fourth
+   * is ever documented, this fails and says the coverage below stopped being complete, instead of
+   * passing while a token nothing drives quietly ships.
+   */
+  const documented = (
+    (await (await page.request.get("/api/communications/merge-fields")).json()) as {
+      fields: { token: string }[];
+    }
+  ).fields.map(({ token }) => token);
+  expect([...documented].sort()).toEqual(["eventName", "speakerEmail", "speakerName"]);
+
+  await compose.getByRole("button", { name: "New template" }).click();
+  // The composer prints the same vocabulary, because an author who cannot see the list writes a
+  // template that cannot be sent — the renderer refuses a placeholder with no value.
+  for (const token of documented)
+    await expect(compose.locator(".comms-merge-list")).toContainText(`{{${token}}}`);
+
+  await compose.getByLabel("Template name").fill(key);
+  await compose.getByLabel("Subject").fill(`${key} · {{eventName}} needs you, {{speakerName}}`);
+  await compose
+    .getByLabel("Message")
+    .fill(
+      `Hi {{speakerName}},\n\nThis copy of ${key} is going to {{speakerEmail}} about {{eventName}}.`,
+    );
+  await compose.getByRole("button", { name: "Save template version" }).click();
+  // Version 1 of a key nobody has published before: the announcement names what was written, and
+  // the panel selects it, so what follows is about this run's own template and no other.
+  await expect(compose.getByRole("status")).toContainText(`Saved ${key} version 1`);
+  await expect(page.locator("#template-select")).toHaveValue(key);
+
+  // Who the server says this event can reach. The picker is asserted against this rather than
+  // against a count typed here: the number an organizer approves has to be the server's own.
+  const resolvedRecipients = (
+    (await (
+      await page.request.get(
+        `/api/communications/recipients?organizationId=${ORGANIZATION_ID}&eventId=${EVENT_ID}`,
+      )
+    ).json()) as { recipients: Recipient[] }
+  ).recipients;
+  const reachable = resolvedRecipients.filter(({ address }) => address !== null);
+  const unreachable = resolvedRecipients.filter(({ address }) => address === null);
+  const audience = page.locator(".comms-audience");
+  await expect(audience.locator(".comms-audience-row")).toHaveCount(reachable.length);
+  for (const recipient of reachable) await expect(audience).toContainText(recipient.address ?? "");
+  await expect(audience.locator(".comms-audience-count")).toContainText(
+    `Sending to ${reachable.length} ${reachable.length === 1 ? "speaker" : "speakers"}`,
+  );
+
+  /*
+   * A speaker with no address is named, not hidden. A send to "the speakers" that silently reaches
+   * three of four is the failure this surface is designed against, and the count of unreachable
+   * speakers is asserted first so this stays a real check rather than a loop over nothing if the
+   * seed ever gives everybody an address.
+   */
+  expect(
+    unreachable.length,
+    "the seeded roster should still hold a speaker with no address on their identity",
+  ).toBeGreaterThan(0);
+  for (const recipient of unreachable)
+    await expect(compose.locator(".comms-unreachable")).toContainText(recipient.name);
+
+  const target = reachable.find(({ name }) => name === "Sam Speaker");
+  expect(target, "the seeded reachable speaker should be on this event").toBeDefined();
+  // Narrowed to one person, and the line that states the audience follows the selection rather
+  // than the roster — the count on screen is the count that is about to be written to.
+  await audience.getByRole("button", { name: "Clear selection" }).click();
+  await expect(
+    compose.getByRole("button", { name: "Select at least one speaker to send to" }),
+  ).toBeVisible();
+  await audience
+    .locator("label.comms-audience-row")
+    .filter({ hasText: target?.address ?? "" })
+    .getByRole("checkbox")
+    .check();
+  await expect(audience.locator(".comms-audience-count")).toContainText("Sending to 1 speaker.");
+
+  /*
+   * Before the send control is pressed, what is on screen is the template — and it is labelled as
+   * instructions, placeholders and all. Showing that text under the word "preview" invited an
+   * organizer to approve a message nobody will ever receive.
+   */
+  await expect(compose.locator(".comms-preview.is-template")).toContainText("{{speakerName}}");
+  await expect(compose.locator(".comms-previews")).toHaveCount(0);
+  await expect(compose.getByRole("group", { name: "Confirm send" })).toHaveCount(0);
+
+  await compose.getByRole("button", { name: /^Send to 1 speaker$/ }).click();
+  const resolved = compose.locator(".comms-previews");
+  await expect(resolved).toContainText("What each speaker receives (1)");
+  await expect(resolved.locator(".comms-preview")).toHaveCount(1);
+  const message = resolved.getByRole("article", { name: `Message for ${target?.name}` });
+  const subject = (await message.locator(".comms-preview-subject").textContent()) ?? "";
+  const body = (await message.locator(".comms-preview-body").textContent()) ?? "";
+  // Substituted, per recipient, by the server: every placeholder is gone and each value is this
+  // speaker's own rather than the template's.
+  expect(body).not.toMatch(/\{\{/);
+  expect(subject).not.toMatch(/\{\{/);
+  expect(body).toContain(`Hi ${target?.name},`);
+  expect(body).toContain(target?.address ?? "");
+  expect(subject).toContain("Greenroom Demo Summit");
+  expect(subject).toContain(target?.name ?? "");
+
+  // Only now is there something to confirm, and it names the version as well as the count.
+  const confirm = compose.getByRole("group", { name: "Confirm send" });
+  await expect(confirm).toContainText(`${key}`);
+  await expect(confirm).toContainText("version 1");
+  await confirm.getByRole("button", { name: /^Yes, send to 1 speaker$/ }).click();
+  await expect(compose.getByRole("status")).toContainText(`Queued 1 delivery for ${key} version 1`);
+  // The speaker with no address is reported by the send itself, not only by the panel beforehand.
+  await expect(compose.getByRole("status")).toContainText(
+    `${unreachable.length} ${unreachable.length === 1 ? "speaker" : "speakers"} had no address`,
+  );
+
+  /*
+   * The delivery, addressed by the key the broadcast derives, and compared against the exact
+   * strings the organizer read. Equality rather than `toContain`: a renderer that dropped a line,
+   * trimmed the greeting or re-rendered against a since-edited template would still satisfy a
+   * substring check while sending something nobody approved.
+   */
+  const stored = await findDeliveries(
+    page,
+    (idempotencyKey) => idempotencyKey === `broadcast:${key}:v1:${EVENT_ID}:${target?.userId}`,
+  );
+  expect(stored, "the confirmed send should have stored one delivery").toHaveLength(1);
+  expect(stored[0]?.renderedSubject).toBe(subject);
+  expect(stored[0]?.renderedBody).toBe(body);
+  expect(stored[0]?.recipientRef).toBe(target?.address);
+  // Durable and not yet handed to a provider: what was approved is what the outbox will send.
+  expect(stored[0]?.state).toBe("queued");
+  // Nobody else was written to. The selection was one speaker, so the audience the organizer
+  // approved is the audience that got a row.
+  expect(await findDeliveries(page, (id) => id.startsWith(`broadcast:${key}:`))).toHaveLength(1);
+
+  /*
+   * A template the payload cannot fill, refused on the screen showing the message.
+   *
+   * `{{sessionTitle}}` is a placeholder a speaker broadcast has no value for — a message to "the
+   * speakers" is not about one talk — so this is the honest shape of the mistake an author makes.
+   * The refusal has to land here, naming the placeholder, rather than after the first delivery is
+   * queued: half a sentence in somebody's inbox cannot be taken back.
+   */
+  const unfillable = `${key}-unfillable`;
+  await compose.getByRole("button", { name: "New template" }).click();
+  await compose.getByLabel("Template name").fill(unfillable);
+  await compose.getByLabel("Subject").fill("About your session");
+  await compose.getByLabel("Message").fill("Hi {{speakerName}}, your talk is {{sessionTitle}}.");
+  await compose.getByRole("button", { name: "Save template version" }).click();
+  await expect(compose.getByRole("status")).toContainText(`Saved ${unfillable} version 1`);
+  await expect(page.locator("#template-select")).toHaveValue(unfillable);
+
+  await compose.getByRole("button", { name: /^Send to 1 speaker$/ }).click();
+  const refusal = compose.getByRole("alert");
+  await expect(refusal).toContainText("{{sessionTitle}}");
+  await expect(refusal).toContainText("has no value in the delivery payload");
+  // Nothing was resolved, so there is nothing to confirm: the one control that opens the
+  // confirmation is the one that failed, which is what keeps an unsendable template unsendable.
+  await expect(compose.locator(".comms-previews")).toHaveCount(0);
+  await expect(compose.getByRole("group", { name: "Confirm send" })).toHaveCount(0);
+  expect(
+    await findDeliveries(page, (id) => id.startsWith(`broadcast:${unfillable}:`)),
+    "a refused preview must not have queued anything",
+  ).toHaveLength(0);
+});

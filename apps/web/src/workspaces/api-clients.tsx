@@ -56,16 +56,25 @@ export function ApiClientsWorkspace({
   const [credential, setCredential] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /*
+   * A demo persona genuinely cannot hold a durable credential — the secret is hashed and shown
+   * once, so there is nothing for a throwaway session to own. What this surface used to render
+   * beside that refusal was a permanently disabled "Create API client" with no handler behind
+   * it at all: a control that could never act, in a workspace whose only purpose is that
+   * action. It is replaced by the way out (#206).
+   */
   if (!realSession)
     return (
-      <Card title="Create API client">
+      <Card title="API clients">
         <Notice tone="warn">
-          API clients can be administered only from a real organizer session. Demo personas cannot
-          create durable credentials.
+          API clients can be administered only from a real organizer session. A demo persona is a
+          throwaway identity, and an API credential is hashed and shown once — there would be nobody
+          durable to own it.
         </Notice>
-        <button type="button" disabled>
-          Create API client
-        </button>
+        <p>
+          <a href="/">Sign in with Google</a> as an organizer of this organization to create, rotate
+          and revoke machine credentials.
+        </p>
       </Card>
     );
   if (clients.loading && !clients.data) return <Card>Loading API clients…</Card>;

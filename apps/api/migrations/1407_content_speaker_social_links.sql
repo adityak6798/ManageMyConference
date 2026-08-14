@@ -1,0 +1,17 @@
+-- Structured social links on a speaker profile.
+--
+-- Structured rather than free text in the bio, because three surfaces read them and each needs
+-- the parts separately: the portal renders an editable row per platform, the organizer view
+-- shows what the speaker actually entered, and the public programme turns each into a link with
+-- an accessible name. A bio containing "@sam on Twitter" can do none of that.
+--
+-- One JSON column rather than a table, for the same reason `logistics_json` and
+-- `custom_fields_json` are: the whole set is read and written together, nothing joins to a single
+-- link, and a row per link would make the profile edit a multi-statement write that the revision
+-- guard would then have to span. The platform keys are a closed set the application owns
+-- (`speakerSocialLinksSchema`), so the shape is validated at the boundary rather than by a CHECK
+-- that a later platform addition would have to rewrite.
+--
+-- Defaulted to an empty object so every existing profile reads as "no links recorded" rather than
+-- null, which the revision snapshot would otherwise have to distinguish from "not yet migrated".
+ALTER TABLE speaker_profiles ADD COLUMN social_links_json TEXT NOT NULL DEFAULT '{}';

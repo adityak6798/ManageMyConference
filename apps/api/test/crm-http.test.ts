@@ -124,7 +124,7 @@ describe("ACC-CRM HTTP", () => {
         nextAction: "Call tomorrow",
         contacts: [{ email: "primary@example.test" }, { email: "assistant@example.test" }],
         activities: [
-          { kind: "stage-change", summary: "identified → contacted", private: false },
+          { kind: "stage-change", summary: "Identified → Contacted", private: false },
           { summary: "Private note", private: true },
         ],
       },
@@ -206,7 +206,7 @@ describe("ACC-CRM HTTP", () => {
     await expect(moved.json()).resolves.toMatchObject({
       prospect: {
         stage: "contacted",
-        activities: [{ kind: "stage-change", summary: "identified → contacted", private: false }],
+        activities: [{ kind: "stage-change", summary: "Identified → Contacted", private: false }],
       },
     });
   });

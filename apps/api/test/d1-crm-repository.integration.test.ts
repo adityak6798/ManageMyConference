@@ -8,7 +8,7 @@ import {
   ContactEmailTakenError,
   ContactNotFoundError,
 } from "../src/application/crm/errors";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const otherEventId = "00000000-0000-4000-8000-000000000002";
@@ -111,6 +111,86 @@ describe("D1 CRM persistence", () => {
     });
   });
 
+  it("writes one stage transition when two conversions race, not one per attempt", async () => {
+    const migrated = await migratedRuntime("crm-conversion-history-race");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * The conversion's history entry was a bare INSERT sitting beside a row-guarded UPDATE, so
+     * two organizers pressing Convert at the same instant moved the card once, recorded one
+     * conversion activity — the partial index sees to that — and left *two* transition rows. The
+     * history then reported a move the losing organizer never made, on a board that shows one.
+     */
+    const prospect = {
+      id: "10000000-0000-4000-8000-000000000040",
+      eventId,
+      name: "Raced to Convert",
+      stage: "contacted" as const,
+      ownerId: "seed-organizer",
+      nextAction: null,
+      nextActionAt: null,
+      contacts: [],
+      activities: [],
+      speakerId: null,
+      convertedAt: null,
+      createdAt: "2026-08-12T12:00:00.000Z",
+      updatedAt: "2026-08-12T12:00:00.000Z",
+    };
+    await repository.create(prospect);
+    const speakerId = "10000000-0000-4000-8000-000000000001";
+    const occurredAt = "2026-08-12T12:30:00.000Z";
+    const attempt = (suffix: string) =>
+      repository.recordConversion(
+        eventId,
+        prospect.id,
+        speakerId,
+        {
+          id: `30000000-0000-4000-8000-0000000000${suffix}`,
+          kind: "conversion" as const,
+          summary: "Converted prospect to speaker",
+          private: false,
+          occurredAt,
+          actorId: "seed-organizer",
+        },
+        {
+          id: `55000000-0000-4000-8000-0000000000${suffix}`,
+          eventId,
+          prospectId: prospect.id,
+          fromStage: "contacted",
+          toStage: "converted",
+          actorId: "seed-organizer",
+          source: "conversion" as const,
+          occurredAt,
+        },
+      );
+    await Promise.all([attempt("40"), attempt("41")]);
+
+    const history = await database
+      .prepare(
+        "SELECT id, from_stage, to_stage, source FROM crm_prospect_transitions WHERE prospect_id=?",
+      )
+      .bind(prospect.id)
+      .all<{
+        id: string;
+        from_stage: string | null;
+        to_stage: string;
+        source: string;
+      }>();
+    expect(history.results).toHaveLength(1);
+    expect(history.results?.[0]).toMatchObject({
+      from_stage: "contacted",
+      to_stage: "converted",
+      source: "conversion",
+    });
+    // The entry that survived is the one whose conversion applied, so the card and its history
+    // agree about what happened to it.
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: "converted",
+      speakerId,
+    });
+  });
+
   it("writes a stage transition and its note in one batch, or neither of them", async () => {
     const migrated = await migratedRuntime("crm-stage-history");
     runtime = migrated.runtime;
@@ -135,7 +215,7 @@ describe("D1 CRM persistence", () => {
     const stageChange = {
       id: "30000000-0000-4000-8000-000000000020",
       kind: "stage-change" as const,
-      summary: "identified → contacted",
+      summary: "Identified → Contacted",
       private: false,
       occurredAt: "2026-08-10T12:05:00.000Z",
       actorId: "seed-organizer",
@@ -160,7 +240,7 @@ describe("D1 CRM persistence", () => {
     await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
       stage: "contacted",
       activities: [
-        { kind: "stage-change", summary: "identified → contacted", private: false },
+        { kind: "stage-change", summary: "Identified → Contacted", private: false },
         { kind: "note", summary: "Left a voicemail", private: true },
       ],
     });
@@ -175,7 +255,7 @@ describe("D1 CRM persistence", () => {
     const refusedStageChange = {
       id: "30000000-0000-4000-8000-000000000022",
       kind: "stage-change" as const,
-      summary: "contacted → engaged",
+      summary: "Contacted → Engaged",
       private: false,
       occurredAt: "2026-08-10T12:10:00.000Z",
       actorId: "seed-organizer",
@@ -201,6 +281,174 @@ describe("D1 CRM persistence", () => {
       .bind(prospect.id)
       .all();
     expect(transitions.results).toHaveLength(1);
+  });
+
+  /** A history row as the stage-delete tests read it back, straight out of the table. */
+  interface HistoryRow {
+    id: string;
+    prospect_id: string;
+    from_stage: string | null;
+    to_stage: string;
+    actor_id: string;
+    source: string;
+  }
+
+  /**
+   * A prospect on the seeded event, positioned in a stage. The stage-delete tests care about
+   * where a card is and nothing else about it.
+   */
+  const cardIn = (id: string, name: string, stage: string) => ({
+    id,
+    eventId,
+    name,
+    stage,
+    ownerId: "seed-organizer",
+    nextAction: null,
+    nextActionAt: null,
+    contacts: [],
+    activities: [],
+    speakerId: null,
+    convertedAt: null,
+    createdAt: "2026-08-12T12:00:00.000Z",
+    updatedAt: "2026-08-12T12:00:00.000Z",
+  });
+
+  it("gives history to exactly the cards a stage delete moves, not to the ones a stale read named", async () => {
+    const migrated = await migratedRuntime("crm-delete-stage-stale");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * `CrmService.deletePipelineStage` computes its transition list from a `list()` of the stage,
+     * a round trip before the write, while the migration is a predicate — `WHERE event_id=? AND
+     * stage=?` — evaluated at write time. The two drifted apart in both directions: a card
+     * dragged out of the stage in between kept a transition row for a move that never happened,
+     * and a card dragged into it was migrated with no history at all.
+     */
+    const staying = "10000000-0000-4000-8000-000000000050";
+    const leaving = "10000000-0000-4000-8000-000000000051";
+    const arriving = "10000000-0000-4000-8000-000000000052";
+    await repository.create(cardIn(staying, "Stays in Engaged", "engaged"));
+    await repository.create(cardIn(leaving, "Dragged out before the write", "engaged"));
+    await repository.create(cardIn(arriving, "Dragged in after the read", "identified"));
+
+    // The snapshot the service takes, and the list it builds from it.
+    const snapshot = await repository.list(eventId, { stage: "engaged" });
+    expect(snapshot.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([staying, leaving, "50000000-0000-4000-8000-000000000002"]),
+    );
+    const occurredAt = "2026-08-12T13:00:00.000Z";
+    // The snapshot above is deliberately *not* handed to the write any more — that was the
+    // defect. It is taken here only to prove the two sets genuinely differ by the time the write
+    // runs, so this test would still catch a repository that went back to trusting a caller.
+    const move = { actorId: "seed-organizer", source: "detail" as const, occurredAt };
+
+    // Two organizers, one board: between that read and this write the stage loses a card and
+    // gains one.
+    await database
+      .prepare("UPDATE crm_prospects SET stage='invited' WHERE id=?")
+      .bind(leaving)
+      .run();
+    await database
+      .prepare("UPDATE crm_prospects SET stage='engaged' WHERE id=?")
+      .bind(arriving)
+      .run();
+
+    const remaining = (await repository.listStages(eventId)).filter(({ key }) => key !== "engaged");
+    await repository.deleteStage(eventId, "engaged", "contacted", move, remaining);
+
+    const written = await database
+      .prepare(
+        "SELECT id, prospect_id, from_stage, to_stage, actor_id, source FROM crm_prospect_transitions WHERE event_id=? AND occurred_at=? ORDER BY prospect_id",
+      )
+      .bind(eventId, occurredAt)
+      .all<HistoryRow>();
+    const rows: HistoryRow[] = written.results ?? [];
+    // Exactly the cards standing in the stage when the batch ran: the two that were there, plus
+    // the late arrival — and not the one that left, whose row the caller's list still asked for.
+    expect(rows.map(({ prospect_id }) => prospect_id)).toEqual([
+      staying,
+      arriving,
+      "50000000-0000-4000-8000-000000000002",
+    ]);
+    for (const row of rows)
+      expect(row).toMatchObject({
+        from_stage: "engaged",
+        to_stage: "contacted",
+        actor_id: "seed-organizer",
+        source: "detail",
+      });
+    // Each row carries its own id, generated per result row rather than once for the statement:
+    // a shared id would have been refused by the primary key, which is what makes this the
+    // assertion that the SQL generator is re-evaluated.
+    expect(new Set(rows.map(({ id }) => id)).size).toBe(rows.length);
+    for (const { id } of rows)
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
+
+    // And the cards themselves: the arrival moved, the departure was left where it went.
+    await expect(repository.findById(eventId, arriving)).resolves.toMatchObject({
+      stage: "contacted",
+      updatedAt: occurredAt,
+    });
+    await expect(repository.findById(eventId, leaving)).resolves.toMatchObject({
+      stage: "invited",
+    });
+  });
+
+  it("stamps a stage delete with the clock rather than 1970 when the caller's list is empty", async () => {
+    const migrated = await migratedRuntime("crm-delete-stage-empty-list");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    /*
+     * The extreme of the same staleness: the read found the stage empty, so there is no
+     * transition to take a clock reading from — and the card that arrived a moment later was
+     * migrated with `updated_at` set to the Unix epoch, which sorts a freshly moved card to the
+     * bottom of every "recently touched" view there is.
+     */
+    const arriving = "10000000-0000-4000-8000-000000000060";
+    await repository.create(cardIn(arriving, "Arrived into an empty stage", "invited"));
+    const remaining = (await repository.listStages(eventId)).filter(({ key }) => key !== "invited");
+
+    const before = new Date().toISOString();
+    await repository.deleteStage(
+      eventId,
+      "invited",
+      "contacted",
+      { actorId: "seed-organizer", source: "detail", occurredAt: before },
+      remaining,
+    );
+    const after = new Date().toISOString();
+
+    const moved = await repository.findById(eventId, arriving);
+    if (!moved) throw new Error("The migrated prospect is missing");
+    expect(moved.stage).toBe("contacted");
+    expect(moved.updatedAt.startsWith("1970")).toBe(false);
+    expect(moved.updatedAt >= before && moved.updatedAt <= after).toBe(true);
+    // It is recorded too, and attributed to the organizer who asked for the delete. There is no
+    // longer a case where the write has rows to move but nobody to attribute them to: the caller
+    // passes the actor rather than a list that might be empty.
+    const history = await database
+      .prepare(
+        "SELECT actor_id, source, from_stage, to_stage, occurred_at FROM crm_prospect_transitions WHERE prospect_id=?",
+      )
+      .bind(arriving)
+      .all<{
+        actor_id: string;
+        source: string;
+        from_stage: string | null;
+        to_stage: string;
+        occurred_at: string;
+      }>();
+    expect(history.results).toEqual([
+      {
+        actor_id: "seed-organizer",
+        source: "detail",
+        from_stage: "invited",
+        to_stage: "contacted",
+        occurred_at: moved.updatedAt,
+      },
+    ]);
   });
 
   it("scopes assignable prospect owners to one event and excludes speakers", async () => {
@@ -1271,5 +1519,84 @@ describe("D1 CRM organization directory", () => {
     await expect(
       repository.listContacts(organizationId, byName.get("Corrupt") ?? {}),
     ).resolves.toHaveLength(4);
+  });
+});
+
+/**
+ * `1502` drops the stage CHECK by rebuilding `crm_prospects`, which has three children.
+ *
+ * The hazard `d1-migration-rebuild.integration.test.ts` records for `1703`, one table wider:
+ * `crm_contacts`, `crm_activities` and `crm_contact_events` all carry a foreign key to the
+ * prospect being dropped, and D1 checks the DROP with foreign keys on however the migration asks.
+ *
+ * `createMigratedDatabase` applies the migrations and *then* the seed, so the rebuild the suite
+ * already ran copied empty tables. Replaying it over the seeded fixture is the only arrangement
+ * where the copy and the drop meet rows in all four tables — the arrangement #134 asked for, and
+ * the reason `1501` and `1502` are separate files: a migration that also creates tables cannot be
+ * applied twice to check.
+ */
+describe("crm_prospects rebuild", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("replays over a database already holding prospects, contacts, activities and links", async () => {
+    const migrated = await createMigratedDatabase({ label: "rebuild-crm-pipeline", seed: true });
+    runtime = migrated.runtime;
+
+    const counts = async () =>
+      (
+        await migrated.database
+          .prepare(
+            `SELECT (SELECT COUNT(*) FROM crm_prospects) AS prospects,
+                    (SELECT COUNT(*) FROM crm_contacts) AS contacts,
+                    (SELECT COUNT(*) FROM crm_activities) AS activities,
+                    (SELECT COUNT(*) FROM crm_contact_events) AS links,
+                    (SELECT COUNT(*) FROM crm_contacts c
+                       JOIN crm_prospects p ON p.id = c.prospect_id) AS joinedContacts,
+                    (SELECT COUNT(*) FROM crm_contact_events e
+                       JOIN crm_prospects p ON p.id = e.prospect_id) AS joinedLinks`,
+          )
+          .all<{
+            prospects: number;
+            contacts: number;
+            activities: number;
+            links: number;
+            joinedContacts: number;
+            joinedLinks: number;
+          }>()
+      ).results?.[0];
+
+    // If the fixture were empty this would prove nothing, so it is asserted rather than assumed.
+    const before = await counts();
+    expect(before?.prospects).toBeGreaterThan(0);
+    expect(before?.contacts).toBeGreaterThan(0);
+    expect(before?.activities).toBeGreaterThan(0);
+    expect(before?.links).toBeGreaterThan(0);
+
+    await applyMigrationFile(migrated.database, "1502_crm_prospect_stage_rebuild.sql");
+
+    // Every row survives, and every child still points at the prospect it did.
+    const after = await counts();
+    expect(after?.prospects).toBe(before?.prospects);
+    expect(after?.contacts).toBe(before?.contacts);
+    expect(after?.activities).toBe(before?.activities);
+    expect(after?.links).toBe(before?.links);
+    expect(after?.joinedContacts).toBe(before?.contacts);
+    expect(after?.joinedLinks).toBe(before?.links);
+
+    // The CHECK is gone, which is the whole point: a stage key `0015` did not know is storable.
+    const custom = await migrated.database
+      .prepare("UPDATE crm_prospects SET stage = ? WHERE id = ?")
+      .bind("future-fit", "50000000-0000-4000-8000-000000000001")
+      .run();
+    expect(custom.success).toBe(true);
+
+    // And the stage set the rebuild copied around is untouched by it, which is what says the two
+    // migrations are separable rather than merely separate.
+    const stages = await migrated.database
+      .prepare("SELECT COUNT(*) AS total FROM crm_pipeline_stages WHERE event_id = ?")
+      .bind("00000000-0000-4000-8000-000000000001")
+      .all<{ total: number }>();
+    expect(stages.results?.[0]?.total).toBe(8);
   });
 });

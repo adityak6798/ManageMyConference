@@ -38,6 +38,13 @@ import type {
 } from "../../domain/communications/delivery";
 
 export { CommunicationsService } from "./communications-service";
+/**
+ * The merge-field vocabulary a speaker template may use.
+ *
+ * On the declared surface because the transport serves it to the console, so an author reads
+ * the same list the renderer resolves rather than a hard-coded copy that drifts from it.
+ */
+export { SPEAKER_MERGE_FIELDS } from "./communications-service";
 export { WebhookService } from "./webhooks";
 export { WebhookUnavailableError } from "./errors";
 /**

@@ -642,7 +642,7 @@ describe("ContentService", () => {
   });
   it("removes an R2 object when asset metadata persistence fails", async () => {
     class FailingAssetRepository extends MemoryContentRepository {
-      override async replaceLatestAsset() {
+      override async replaceLatestAsset(): Promise<never> {
         throw new Error("metadata unavailable");
       }
     }

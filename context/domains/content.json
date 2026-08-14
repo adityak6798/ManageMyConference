@@ -36,6 +36,9 @@
     "apps/api/test/content-calendar-publication.test.ts",
     "apps/api/test/content-http.test.ts",
     "apps/api/test/content-template-slice.test.ts",
+    "apps/api/test/content-export.test.ts",
+    "apps/api/test/content-publication-gate.test.ts",
+    "apps/api/test/content-revisions.test.ts",
     "apps/api/test/d1-content-repository.integration.test.ts",
     "apps/web/src/ContentWorkspace.tsx",
     "apps/web/src/content/ContentWorkspace.tsx",
@@ -60,6 +63,8 @@
     "apps/web/test/accelevents-sync-panel.test.tsx",
     "apps/web/test/content-operations.test.tsx",
     "apps/web/src/content/ChecklistEditor.tsx",
+    "apps/web/src/content/DeliverableTracker.tsx",
+    "apps/web/test/deliverable-tracker.test.tsx",
     "apps/web/test/speaker-checklist.test.tsx"
   ],
   "symbols": {

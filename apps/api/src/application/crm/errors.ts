@@ -79,3 +79,18 @@ export class OutreachRejectedError extends Error {}
  * another organization's event, so it should be legible in a log as exactly that.
  */
 export class EventOutsideOrganizationError extends Error {}
+
+/** A stage list that would not render as a board: a duplicate key or name, or no stages at all. */
+export class PipelineStageInvalidError extends Error {}
+
+/**
+ * A stage still holding prospects cannot simply disappear.
+ *
+ * A refusal rather than a silent move, because the alternative is deciding on somebody's behalf
+ * where their shortlist went. The message names the stages and asks for a destination; the
+ * delete command takes one (`PRD-CRM-001`, #197).
+ */
+export class PipelineStageInUseError extends Error {}
+
+/** The stage named is not on this event's board. */
+export class PipelineStageNotFoundError extends Error {}

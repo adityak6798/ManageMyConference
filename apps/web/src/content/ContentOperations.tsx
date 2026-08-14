@@ -13,9 +13,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
-  addContentComment,
   bulkRequestSpeakerTasks,
-  downloadDeliverables,
   importSpeakerCsv,
   restoreContentRevision,
   updateSpeakerWorkflow,
@@ -23,8 +21,9 @@ import {
 import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import { AccelEventsSync } from "./AccelEventsSync";
 import { ChecklistEditor } from "./ChecklistEditor";
+import { DeliverableTracker } from "./DeliverableTracker";
 import { ResourceEditor } from "./ResourceEditor";
-import { memberName, type Run, shortDateTime, type Workspace } from "./shared";
+import { memberName, type Run, SOCIAL_PLATFORMS, shortDateTime, type Workspace } from "./shared";
 
 /**
  * One collapsed job.
@@ -69,15 +68,11 @@ export function ContentOperations({
 }) {
   const feedback = useActionFeedback();
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
-  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof importSpeakerCsv>> | null>(null);
   const [workflowFilter, setWorkflowFilter] = useState("all");
   // Which speaker's workflow is being edited. One form is mounted at a time, so the panel does
   // not grow with the roster the way the old column did.
   const [workflowSpeakerId, setWorkflowSpeakerId] = useState("");
-  const toggle = (values: string[], id: string, set: (next: string[]) => void) =>
-    set(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
-
   function csv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -100,6 +95,7 @@ export function ContentOperations({
   function tasks(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const sessionId = String(data.get("sessionId") ?? "");
     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(() =>
       bulkRequestSpeakerTasks({
@@ -108,6 +104,9 @@ export function ContentOperations({
         dueAt: new Date(String(data.get("dueAt"))).toISOString(),
         type: data.get("type") === "file-request" ? "file-request" : "general",
         instructions: String(data.get("instructions")),
+        // Omitted rather than sent empty: "" is not a session id, and the schema would refuse
+        // the whole request over a box the organizer deliberately left alone.
+        ...(sessionId ? { sessionId } : {}),
       }),
     );
   }
@@ -136,7 +135,6 @@ export function ContentOperations({
     );
   }
 
-  const latest = workspace.assets.filter((asset) => asset.isLatest !== false);
   const filteredSpeakers = workspace.speakers.filter(
     (speaker) => workflowFilter === "all" || speaker.workflowStatus === workflowFilter,
   );
@@ -262,48 +260,96 @@ export function ContentOperations({
           ) : null}
         </div>
         {workflowSpeaker ? (
-          <form
-            // Remounted per speaker so the uncontrolled fields below reload from the speaker
-            // chosen, instead of keeping the previous one's logistics on screen.
-            key={workflowSpeaker.id}
-            className="form-stack"
-            onSubmit={(event) => saveWorkflow(event, workflowSpeaker.id)}
-          >
-            <label>
-              Status
-              <select
-                name="workflowStatus"
-                defaultValue={workflowSpeaker.workflowStatus ?? "onboarding"}
-              >
-                <option value="invited">Invited</option>
-                <option value="onboarding">Onboarding</option>
-                <option value="ready">Ready</option>
-                <option value="blocked">Blocked</option>
-              </select>
-            </label>
-            <label>
-              Logistics (one key=value per line)
-              <textarea
-                name="logistics"
-                defaultValue={Object.entries(workflowSpeaker.logistics ?? {})
-                  .map(([key, value]) => `${key}=${value}`)
-                  .join("\n")}
-              />
-            </label>
-            <label>
-              Custom fields (one key=value per line)
-              <textarea
-                name="customFields"
-                defaultValue={Object.entries(workflowSpeaker.customFields ?? {})
-                  .map(([key, value]) => `${key}=${value}`)
-                  .join("\n")}
-              />
-            </label>
-            <button type="submit" disabled={busy}>
-              Save workflow
-              <span className="visually-hidden"> for {workflowSpeaker.name}</span>
-            </button>
-          </form>
+          <>
+            {/*
+             * What the speaker wrote, read-only, beside the workflow an organizer maintains.
+             *
+             * These four fields are the speaker's to write — the portal is the only surface that
+             * may change them — but "the organizer sees exactly the same values" is only
+             * checkable if the organizer can see them at all, and until now this panel showed
+             * logistics and status and nothing the speaker had actually entered.
+             */}
+            <dl className="speaker-entered">
+              <div>
+                <dt>Pronouns</dt>
+                <dd>{workflowSpeaker.pronouns || "—"}</dd>
+              </div>
+              <div>
+                <dt>Organization</dt>
+                <dd>{workflowSpeaker.organization || "—"}</dd>
+              </div>
+              <div className="speaker-entered-wide">
+                <dt>Bio</dt>
+                <dd>{workflowSpeaker.bio || "—"}</dd>
+              </div>
+              <div className="speaker-entered-wide">
+                <dt>Links</dt>
+                <dd>
+                  {Object.keys(workflowSpeaker.socialLinks ?? {}).length ? (
+                    <ul className="speaker-links">
+                      {SOCIAL_PLATFORMS.filter(({ key }) => workflowSpeaker.socialLinks?.[key]).map(
+                        ({ key, label }) => (
+                          <li key={key}>
+                            <a
+                              href={workflowSpeaker.socialLinks?.[key] ?? ""}
+                              rel="noreferrer noopener"
+                              target="_blank"
+                            >
+                              {label}
+                            </a>
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <form
+              // Remounted per speaker so the uncontrolled fields below reload from the speaker
+              // chosen, instead of keeping the previous one's logistics on screen.
+              key={workflowSpeaker.id}
+              className="form-stack"
+              onSubmit={(event) => saveWorkflow(event, workflowSpeaker.id)}
+            >
+              <label>
+                Status
+                <select
+                  name="workflowStatus"
+                  defaultValue={workflowSpeaker.workflowStatus ?? "onboarding"}
+                >
+                  <option value="invited">Invited</option>
+                  <option value="onboarding">Onboarding</option>
+                  <option value="ready">Ready</option>
+                  <option value="blocked">Blocked</option>
+                </select>
+              </label>
+              <label>
+                Logistics (one key=value per line)
+                <textarea
+                  name="logistics"
+                  defaultValue={Object.entries(workflowSpeaker.logistics ?? {})
+                    .map(([key, value]) => `${key}=${value}`)
+                    .join("\n")}
+                />
+              </label>
+              <label>
+                Custom fields (one key=value per line)
+                <textarea
+                  name="customFields"
+                  defaultValue={Object.entries(workflowSpeaker.customFields ?? {})
+                    .map(([key, value]) => `${key}=${value}`)
+                    .join("\n")}
+                />
+              </label>
+              <button type="submit" disabled={busy}>
+                Save workflow
+                <span className="visually-hidden"> for {workflowSpeaker.name}</span>
+              </button>
+            </form>
+          </>
         ) : workspace.speakers.length ? (
           <EmptyState title="No speakers match">
             Choose another progress filter to see the rest of the roster.
@@ -356,6 +402,29 @@ export function ContentOperations({
               <option value="file-request">File request</option>
             </select>
           </label>
+          {/*
+           * Which talk the request is about, when it is about one.
+           *
+           * `speaker_tasks.session_id` and `speaker_assets.session_id` both existed and nothing
+           * in the product ever wrote either, so "the slides for the keynote" and "a headshot"
+           * were the same shape of request and an organizer could only tell them apart by
+           * reading the title. Choosing it here is what carries the session onto the upload the
+           * speaker files against the task (#189).
+           *
+           * Optional on purpose: most requested work — a bio, a travel form — belongs to the
+           * person rather than to a talk.
+           */}
+          <label>
+            Session
+            <select name="sessionId" defaultValue="">
+              <option value="">Not about a session</option>
+              {workspace.sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Instructions
             <textarea name="instructions" />
@@ -367,52 +436,16 @@ export function ContentOperations({
       </ToolPanel>
 
       <ToolPanel
-        title="Latest deliverables"
-        hint="The ZIP contains only the latest selected version, with deterministic filenames."
+        title="Requested work"
+        hint="What every speaker still owes, what has arrived, and who to chase."
       >
-        {latest.length ? (
-          <>
-            {latest.map((asset) => (
-              <div key={asset.id} className="deliverable-row">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selectedAssets.includes(asset.id)}
-                    onChange={() => toggle(selectedAssets, asset.id, setSelectedAssets)}
-                  />{" "}
-                  {asset.name} · v{asset.versionNumber ?? 1}
-                </label>
-                <form
-                  className="row-actions"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const form = event.currentTarget;
-                    const body = String(new FormData(form).get("body"));
-                    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                    void run(() => addContentComment(asset.id, body)).then((result) => {
-                      if (result.ok) form.reset();
-                    });
-                  }}
-                >
-                  <input name="body" aria-label={`Comment on ${asset.name}`} required />
-                  <button type="submit">Comment</button>
-                </form>
-              </div>
-            ))}
-            <button
-              type="button"
-              disabled={!selectedAssets.length || busy}
-              onClick={() => {
-                // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                void run(() => downloadDeliverables(eventId, selectedAssets));
-              }}
-            >
-              Download selected ZIP
-            </button>
-          </>
-        ) : (
-          <EmptyState title="No deliverables yet">Requested uploads appear here.</EmptyState>
-        )}
+        <DeliverableTracker
+          eventId={eventId}
+          workspace={workspace}
+          busy={busy}
+          run={run}
+          announce={feedback.announce}
+        />
       </ToolPanel>
 
       <ToolPanel

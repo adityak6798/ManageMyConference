@@ -137,6 +137,20 @@ feature-by-feature verdict.
   provider sends no mail, so the evidence covers the invitation being built correctly and reaching
   the provider and stops there. Provider selection is credential-gated with live adapters behind it
   (`fixture` remains the default and no live adapter has met a real API).
+
+  Issue #189 adds two things to this picture and one limit worth naming. The composer now sends to
+  a **chosen subset** of the roster with a per-recipient preview the server resolves through the
+  same call that will send, and the merge-field vocabulary is served by
+  `GET /api/communications/merge-fields` rather than hard-coded in the console, so the list an
+  author reads is the list the renderer resolves. It searches and selects **by name and address
+  only**: filtering by speaker *workflow status* is not available, because this domain resolves its
+  audience from `IdentityDirectory.listSpeakersForEvent` and never reads content's profiles — so an
+  organizer chasing "everybody whose bio is still outstanding" assembles that selection by hand from
+  content's requested-work tracker. And content now enqueues two organizer-initiated messages of its
+  own through the `SpeakerReminderDispatchPort` it declares: a reminder keyed per (task, deadline),
+  which is the identical key the one-minute sweep builds, and a portal invitation keyed per
+  allocated occurrence. `ContentService.recordMessage` is unchanged and still writes a
+  `speaker_messages` row that touches no outbox.
   Owner: communications-integrations.
   Governing ID: `PRD-COM-001`, `PRD-SPK-002`, `ACC-INTEGRATION`. Closure: issues #52, #66, #82
   (trigger, send, assert rendered content in the browser), #23 (production adapters); #56's
@@ -189,6 +203,33 @@ feature-by-feature verdict.
   commit was green. Impact: a red `browser` job is not by itself evidence of a defect, and a
   contributor can burn an afternoon on it; conversely the crash could mask a real failure behind
   noise.
+
+  A fifth hosted sighting on 2026-08-14, in the `browser` job of run `31835694674` (this lane's
+  branch, `67e138d`), with the same degraded shape as the fourth: **two** specs failed rather than
+  the suite, both in `agenda.spec.ts` — `not.toHaveText` timing out against an unchanged
+  `2 of 2 scheduled`, and a Tab from the select-all control not landing on a session checkbox —
+  while the runtime printed `Broken pipe` dozens of times around them. Attribution was checked
+  rather than assumed, because the failing file is one this branch edited: the edit was a locator
+  scope in a *third* test, neither failing test touches it, and the keyboard one is confined to
+  `.agenda-rail` while the branch's new controls are on Sessions & speakers. The same commit
+  passed `agenda.spec.ts` alone and the full 79-test suite twice locally against a freshly reset
+  fixture, immediately before and after.
+
+  **The rerun of that same commit failed too, and that is the useful part.** It failed on a
+  *different pair* of specs — two in `communications.spec.ts` rather than two in `agenda.spec.ts` —
+  and this time the runtime did not merely stumble: `npm error Lifecycle script 'dev' failed`,
+  `Error: socket hang up`, and then `connect ECONNREFUSED 127.0.0.1:20336` repeated for the rest of
+  the run. Two runs of one commit, two disjoint sets of red specs, the worker dying in both, and
+  the same commit green locally four times over. A regression cannot select a different pair of
+  tests each time; a dying runtime can, and does.
+
+  So the earlier sightings' advice — "rerun and it will be green" — does not hold, and this entry
+  no longer says it. What the rerun buys is not a green job but a *second sample*: if the same
+  specs fail twice, suspect the change; if different ones do, suspect this gap. Recorded because
+  the pattern now has a name and a discriminator, and because a lane can currently be unable to
+  show a green `browser` job on CI through no fault of its change — which is a stronger statement
+  than the four earlier sightings supported, and one that raises this from an annoyance to
+  something that blocks the branch-protection work `GAP-003` describes.
 
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
@@ -584,6 +625,11 @@ feature-by-feature verdict.
 
   Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`.
 
+  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all four read
+  the count; the import's behaviour on a vanished row is decided and stated where the import is
+  documented; and a test per writer drives a row deleted between the read and the write.
+
+
 - `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Six limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain. One further limit belongs to `#132` rather than here: a *guest* proposal has no account, so its decision is still addressed to an unverified form answer.
 
   **Nothing announces the deadline before it passes** (issue #210). The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
@@ -624,3 +670,78 @@ feature-by-feature verdict.
   whose trigger and consent rule are decided by communications; a real sign-in door on a deployment
   where a submitter's first sign-in provisions nothing but their own identity; and one confirmation
   observed arriving in a real inbox from a staged provider.
+
+- `GAP-028` **Issue #189's private-set hardening is not implemented — none of the six capabilities
+  it names.** What shipped from that issue is the half an organizer uses daily: re-upload
+  versioning (`1406`), structured speaker social links (`1407`), explicit portal invitations
+  (`1408`), a requested-work tracker whose reminders are keyed on the deadline, file requests bound
+  to a session, a bulk composer with a server-resolved per-recipient preview, and four acceptance
+  criteria that were described but unasserted. The hardening section is absent rather than partial,
+  and each part is absent in the same way — no storage, no route, no surface:
+
+  **Collaborator access.** A speaker's private set is readable by that speaker and by an organizer
+  of the event (`mayReadPrivately`), and nothing grants a second identity — a co-presenter, an
+  agent, a colleague — any part of it. **Share links.** No capability token addresses a profile or
+  an asset the way `attendee_itineraries` addresses an itinerary; the only anonymous door is the
+  publication gate, which is all-or-nothing per asset and closes with the event. **AI remix** of
+  speaker-supplied material has no provider port at all — the one AI seam in the repository is
+  review's suggestion port, which drafts against abstracts. **SMS**: the word does not appear in
+  `apps/api/src`, in the migrations, or in the contracts; every trigger type, template and provider
+  adapter is email-shaped. **Locked portal fields.** An organizer cannot freeze a field a speaker
+  may otherwise edit; the portal's write surface is fixed in code rather than configured per event.
+  **Custom workflow statuses.** `workflowStatus` is the four-value enum `invited`/`onboarding`/
+  `ready`/`blocked` in `packages/contracts/src/domains/content.ts`, in contrast with the CRM's
+  stages, which issue #197 has just turned into data.
+
+  Impact: a reader of the issue finds six named capabilities with nothing behind them, and the
+  `ACC-SPEAKER` row must not be read as covering any of them — it says so. Owner: content.
+  Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`, `ACC-SPEAKER`. Closure: each
+  capability lands with its own storage, route, surface and acceptance evidence, or the issue is
+  re-scoped and this entry records which were dropped and why. Two of them are decisions before
+  they are code: sharing a private set outside the event's roster is an authorization model
+  question (`ARC-AUTH-001`), and a second delivery channel is a provider question that reaches
+  `0019`'s trigger `CHECK` and every adapter under `PRD-COM-001`.
+
+- `GAP-029` **Issue #197 shipped the configurable sourcing pipeline and none of the three
+  capabilities around it.** The board, the semantic categories that survive a rename, the stage
+  history table, the rebuild that drops `0015`'s stage `CHECK` (`1501`/`1502`), pointer *and*
+  keyboard moves, and stage configuration that refuses to strand a prospect are all present and
+  covered — `ACC-CRM` states how far. What is not:
+
+  **Year-round interest forms.** There is no public route by which a would-be speaker can put
+  themselves into the pipeline, so every prospect is still typed in or imported by an organizer.
+  **Campaigns and engagement ingestion.** Segment outreach exists and converges per contact, but
+  there is no campaign object with a lifecycle or a schedule, and nothing ingests engagement: a
+  delivery reports queued, succeeded or failed, and no open, click or reply ever reaches a
+  prospect's timeline, so the only inbound signal on a prospect is an activity somebody typed.
+  **Directory analytics.** The organization dashboard counts contacts, conversions and prospects
+  per stage; nothing reports sourcing over time, and `crm_prospect_transitions` — which is the
+  table such a report would read — is written by every move and read by nothing but the history
+  list.
+
+  Impact: `ACC-CRM` is `shipped` about `JNY-008` while the brief feature it serves stays partial,
+  which is the distinction the [scorecard](scorecard.md#how-to-read-this) draws and this entry
+  keeps honest. Owner: crm. Governing ID: `PRD-CRM-001`, `ACC-CRM`. Closure: each of the three
+  lands with storage, a route, a surface and acceptance evidence — the interest form is an
+  unauthenticated writer and is therefore a spam and rate-limiting decision before it is a CRM one,
+  the same shape the public CFP submission route already carries — or the issue is re-scoped and
+  this entry records what was dropped.
+
+- `GAP-030` **The 390px layout audit only catches a min-content overflow when the fixture happens
+  to hold a long string.** The organizer overview sat 19px past a 390px viewport because
+  `.page-body` declared no track minimum, so the grid track was floored by its item's min-content
+  and one unbreakable cell — an email address, in the ordinary case — set the width of the whole
+  page. That is fixed at the shell (`minmax(0, 1fr)`, verified across all sixteen organizer
+  destinations), but the *audit* that should guard the class is only as sensitive as the data in
+  front of it: on a freshly reset fixture every cell is short, nothing exceeds the track, and the
+  same defect reintroduced tomorrow would measure clean. It was found only because the review
+  specs leave stamped addresses behind (`DEBT-007`), which is to say it was found by accident.
+
+  Impact: a whole category of phone-width defect — a wide child setting its ancestors' width — is
+  guarded by a check that passes or fails on fixture history rather than on the layout. The
+  document-level clause and the off-screen-control clause disagreeing with each other is the
+  symptom to watch for: the first passes because the inner `.table-wrap` scrolls its own overflow,
+  while the second reports controls outside the viewport. Owner: quality. Governing ID:
+  `ACC-DEMO-SMOKE`. Closure: the audit renders a deliberately long unbreakable string into one row
+  of each measured surface before measuring, so the floor is a property of the check rather than of
+  the seed — or each surface gets a component-level test that asserts the constraint directly.

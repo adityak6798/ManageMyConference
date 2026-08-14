@@ -39,6 +39,14 @@ export interface CommunicationsDependencies {
   repository: CommunicationsRepository;
   eventDirectory: {
     belongsToOrganization(eventId: string, organizationId: string): Promise<boolean>;
+    /**
+     * What the event is called, for `{{eventName}}`.
+     *
+     * Optional so a composition that never renders a message does not have to supply it; a
+     * template using the token in a deployment that omits this is refused by the renderer
+     * rather than sent with the braces still in it.
+     */
+    name?(eventId: string): Promise<string | null>;
   };
   /**
    * Who an event's speakers are, answered by identity-access through its declared interface.
@@ -62,6 +70,33 @@ export interface BroadcastRecipient {
   readonly name: string;
   /** Null when identity holds no address for this speaker; they are counted, never guessed at. */
   readonly address: string | null;
+}
+
+/**
+ * The tokens a speaker template may use, and what each resolves to.
+ *
+ * Documented here rather than discovered by trial: `renderTemplate` refuses a placeholder with
+ * no value — deliberately, since half a sentence reaching a speaker is worse than a refused
+ * send — so an author who cannot see the list writes a template that cannot be sent. The
+ * console prints this and the preview proves it against real recipients.
+ *
+ * Deliberately short. Every entry is something communications can answer without reading
+ * another domain's tables: two come from the identity directory it already resolves the
+ * audience through, one from the event directory it already authorizes against.
+ */
+export const SPEAKER_MERGE_FIELDS = [
+  { token: "speakerName", describes: "The speaker's name, as their identity records it" },
+  { token: "speakerEmail", describes: "The address this copy is going to" },
+  { token: "eventName", describes: "The event this message is about" },
+] as const;
+
+/** One recipient's message, rendered exactly as the send would render it. */
+export interface BroadcastPreviewEntry {
+  readonly userId: string;
+  readonly name: string;
+  readonly address: string;
+  readonly subject: string | null;
+  readonly body: string;
 }
 
 export interface BroadcastResult {
@@ -224,6 +259,153 @@ export class CommunicationsService implements CommunicationsEnqueue {
     return { recipients, audienceVersion: audienceVersion(recipients) };
   }
 
+  /**
+   * What each chosen recipient would actually receive.
+   *
+   * Rendered by the same call the send uses, against the same payload, rather than by a
+   * client-side substitution that could disagree with it — a preview that is not the message is
+   * worse than no preview, because it is believed. A template whose placeholder has no value is
+   * refused here, on the screen showing what would be sent, instead of after the first delivery
+   * is queued (`PRD-COM-001`, #189).
+   */
+  async previewBroadcast(
+    actor: Actor | null,
+    input: {
+      organizationId: string;
+      eventId: string;
+      templateKey: string;
+      templateVersion?: number | undefined;
+      /**
+       * The caller-supplied values, exactly as `broadcast` takes them. Dropping them here made
+       * the preview refuse — `{{hotelName}} has no value` — a message the send with the same
+       * payload delivered without complaint, which is the disagreement this surface exists to
+       * remove, pointed the other way.
+       */
+      payload?: Readonly<Record<string, unknown>> | undefined;
+      recipientIds?: readonly string[] | undefined;
+    },
+  ): Promise<{ entries: readonly BroadcastPreviewEntry[]; audienceVersion: string }> {
+    const { template, chosen, recipients } = await this.resolveBroadcast(actor, input);
+    const payloads = await this.mergePayloads(input.eventId, chosen);
+    try {
+      return {
+        entries: chosen.map((recipient, index) => ({
+          userId: recipient.userId,
+          name: recipient.name,
+          address: recipient.address,
+          // Same spread, same order as `broadcast` writes onto the delivery: the per-recipient
+          // merge values win, so a caller cannot pass `speakerName` and have every preview show
+          // one name while every delivery shows its own recipient's.
+          ...renderTemplate(template, { ...input.payload, ...payloads[index] }),
+        })),
+        audienceVersion: audienceVersion(recipients),
+      };
+    } catch (error) {
+      // ERROR-INTENT: translated exactly as `prepare` translates it, and for a sharper reason
+      // here. This surface exists so an unfilled placeholder is refused on the screen showing
+      // the message — and it was answering 500 "Something went wrong" while the *send* answered
+      // 400 naming the key, so the preview was the one path that could not tell an author what
+      // was wrong with their template. Found by driving it, not by reading it.
+      if (error instanceof TemplatePlaceholderError || error instanceof TemplateValueError)
+        throw new CommunicationsInputError(error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * The audience a broadcast command names, and the template it names, resolved together.
+   *
+   * Shared by the preview and the send so the two cannot disagree about who is in the audience —
+   * which is the entire point of previewing.
+   */
+  private async resolveBroadcast(
+    actor: Actor | null,
+    input: {
+      organizationId: string;
+      eventId: string;
+      templateKey: string;
+      templateVersion?: number | undefined;
+      recipientIds?: readonly string[] | undefined;
+      audienceVersion?: string | undefined;
+    },
+  ) {
+    const authorized = this.organization(actor, input.organizationId);
+    await this.event(authorized, input.eventId, input.organizationId);
+    const template = await this.dependencies.repository.findTemplate(
+      input.organizationId,
+      input.templateKey,
+      input.templateVersion,
+    );
+    if (!template) throw new CommunicationsNotFoundError("Template version not found");
+    if (template.channel !== "email")
+      throw new CommunicationsInputError("Only email templates can be sent to speakers");
+
+    const recipients = await this.resolveRecipients(actor, input.organizationId, input.eventId);
+    // Refused *before* anything is written, so a stale confirmation costs nothing and the
+    // organizer re-confirms against a count that is true rather than un-sending a message.
+    const current = audienceVersion(recipients);
+    if (input.audienceVersion !== undefined && input.audienceVersion !== current)
+      throw new CommunicationsConflictError(
+        `This event's speakers changed since you confirmed: it now has ${recipients.length} ${recipients.length === 1 ? "speaker" : "speakers"}. Nothing was sent. Check the list and confirm again.`,
+      );
+
+    const reachable = recipients.filter(
+      (recipient): recipient is BroadcastRecipient & { address: string } =>
+        recipient.address !== null,
+    );
+    /*
+     * A named selection, or everybody reachable when none is named.
+     *
+     * An id the event no longer has a speaker for is refused rather than skipped: the organizer
+     * chose a person, and quietly sending to fewer people than were ticked is the failure this
+     * surface already refuses to make for unreachable addresses.
+     */
+    let chosen = reachable;
+    if (input.recipientIds) {
+      const wanted = [...new Set(input.recipientIds)];
+      const byId = new Map(recipients.map((recipient) => [recipient.userId, recipient]));
+      // Both refusals count against the *chosen* set rather than the roster, and both say what
+      // did not happen: an organizer who is told "1 of the 1" has to work out that means all of
+      // them, and one told nothing at all assumes the rest went.
+      const missing = wanted.filter((id) => !byId.has(id));
+      if (missing.length)
+        throw new CommunicationsInputError(
+          `${missing.length === wanted.length ? (wanted.length === 1 ? "The speaker you chose is" : `All ${wanted.length} speakers you chose are`) : `${missing.length} of the ${wanted.length} speakers you chose ${missing.length === 1 ? "is" : "are"}`} no longer on this event. Nothing was sent.`,
+        );
+      const withoutAddress = wanted.filter((id) => byId.get(id)?.address === null);
+      if (withoutAddress.length)
+        throw new CommunicationsInputError(
+          `${withoutAddress.length === 1 ? "One of the speakers you chose has" : `${withoutAddress.length} of the speakers you chose have`} no email address. Nothing was sent.`,
+        );
+      const order = new Set(wanted);
+      chosen = reachable.filter((recipient) => order.has(recipient.userId));
+      if (chosen.length === 0)
+        throw new CommunicationsInputError("Choose at least one speaker to send to");
+    }
+    return { template, chosen, recipients, current };
+  }
+
+  /**
+   * The merge values for each recipient, in the order they were given.
+   *
+   * The event name is read once rather than per recipient: it is the same for all of them, and
+   * a hundred-speaker send should not become a hundred lookups. A deployment whose event
+   * directory cannot answer contributes no `eventName`, and a template using the token is then
+   * refused by the renderer — which is the honest outcome, rather than the event being called
+   * "undefined" in somebody's inbox.
+   */
+  private async mergePayloads(
+    eventId: string,
+    recipients: readonly (BroadcastRecipient & { address: string })[],
+  ): Promise<Record<string, unknown>[]> {
+    const eventName = (await this.dependencies.eventDirectory.name?.(eventId)) ?? null;
+    return recipients.map((recipient) => ({
+      speakerName: recipient.name,
+      speakerEmail: recipient.address,
+      ...(eventName === null ? {} : { eventName }),
+    }));
+  }
+
   private async resolveRecipients(
     actor: Actor | null,
     organizationId: string,
@@ -265,38 +447,24 @@ export class CommunicationsService implements CommunicationsEnqueue {
        * that never saw a count is not forced to invent one, but the console always sends it.
        */
       audienceVersion?: string | undefined;
+      /**
+       * Who to send to. Omitted means every reachable speaker on the event, which is what this
+       * command did before a selection existed and is still the common case.
+       */
+      recipientIds?: readonly string[] | undefined;
     },
   ): Promise<BroadcastResult> {
-    const authorized = this.organization(actor, input.organizationId);
-    await this.event(authorized, input.eventId, input.organizationId);
-    const template = await this.dependencies.repository.findTemplate(
-      input.organizationId,
-      input.templateKey,
-      input.templateVersion,
-    );
-    if (!template) throw new CommunicationsNotFoundError("Template version not found");
-    if (template.channel !== "email")
-      throw new CommunicationsInputError("Only email templates can be sent to speakers");
-
-    const recipients = await this.resolveRecipients(actor, input.organizationId, input.eventId);
-    // Refused *before* anything is written, so a stale confirmation costs nothing and the
-    // organizer re-confirms against a count that is true rather than un-sending a message.
-    const current = audienceVersion(recipients);
-    if (input.audienceVersion !== undefined && input.audienceVersion !== current)
-      throw new CommunicationsConflictError(
-        `This event's speakers changed since you confirmed: it now has ${recipients.length} ${recipients.length === 1 ? "speaker" : "speakers"}. Nothing was sent. Check the list and confirm again.`,
-      );
-    const reachable = recipients.filter(
-      (recipient): recipient is BroadcastRecipient & { address: string } =>
-        recipient.address !== null,
-    );
-    if (reachable.length > MAX_BROADCAST_RECIPIENTS)
+    const { template, chosen, recipients } = await this.resolveBroadcast(actor, input);
+    if (chosen.length > MAX_BROADCAST_RECIPIENTS)
       throw new CommunicationsInputError(
-        `This event has ${reachable.length} reachable speakers and one send is limited to ${MAX_BROADCAST_RECIPIENTS}. Sending more than that in one request risks exhausting the worker mid-send, which would queue some speakers and report failure for all of them.`,
+        `This send would reach ${chosen.length} speakers and one send is limited to ${MAX_BROADCAST_RECIPIENTS}. Sending more than that in one request risks exhausting the worker mid-send, which would queue some speakers and report failure for all of them.`,
       );
 
+    // The same merge values the preview rendered, built by the same call — so what an organizer
+    // approved on screen is what is stored on the delivery.
+    const payloads = await this.mergePayloads(input.eventId, chosen);
     const prepared = await Promise.all(
-      reachable.map((recipient) =>
+      chosen.map((recipient, index) =>
         this.prepare(
           {
             organizationId: input.organizationId,
@@ -305,7 +473,7 @@ export class CommunicationsService implements CommunicationsEnqueue {
             triggerType: "speaker.invited",
             channel: "email",
             recipientRef: recipient.address,
-            payload: { ...input.payload, speakerName: recipient.name },
+            payload: { ...input.payload, ...payloads[index] },
             templateKey: template.key,
             templateVersion: template.version,
           },
@@ -321,6 +489,9 @@ export class CommunicationsService implements CommunicationsEnqueue {
     return {
       enqueued: created.length,
       alreadySent: deliveries.length - created.length,
+      // Still the whole roster's unreachable speakers, not the selection's: a named selection
+      // cannot contain one (it is refused above), and an organizer sending to everybody has to
+      // be told who was left out.
       unreachable: recipients.filter((recipient) => recipient.address === null),
       deliveries: [...deliveries],
     };

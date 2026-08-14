@@ -201,6 +201,58 @@ describe("the organizer's tool panels", () => {
     ).toBeInTheDocument();
   });
 
+  /*
+   * The second half of #189's acceptance criterion, which said "workflow status changes persist
+   * *and filters return the correct set*". Persistence is held at service and D1 level; the set
+   * this filter returns was asserted nowhere, and a filter that quietly returns everybody looks
+   * exactly like one that works when the roster is short.
+   */
+  it("narrows the roster to the chosen progress, and says so when nobody is there", () => {
+    const named = (seed: number, name: string, status: SpeakerProfile["workflowStatus"]) => ({
+      ...speaker(seed, name),
+      workflowStatus: status,
+    });
+    mount(
+      workspace({
+        speakers: [
+          named(1, "Ada Invited", "invited"),
+          named(2, "Bo Ready", "ready"),
+          named(3, "Cy Blocked", "blocked"),
+          named(4, "Di Ready", "ready"),
+        ],
+      }),
+    );
+
+    const workflow = open("Speaker workflow");
+    const progress = within(workflow).getByLabelText("Progress filter");
+    const rosterNames = () =>
+      Array.from(within(workflow).getByLabelText("Speaker").querySelectorAll("option")).map(
+        (option) => option.textContent,
+      );
+
+    expect(rosterNames()).toHaveLength(4);
+
+    fireEvent.change(progress, { target: { value: "ready" } });
+    // The exact set, not a count: a filter keyed on the wrong field still returns two of four.
+    expect(rosterNames()).toEqual(["Bo Ready · ready", "Di Ready · ready"]);
+    // And the form follows the filter rather than staying on a speaker it no longer offers.
+    expect(
+      within(workflow).getByRole("button", { name: "Save workflow for Bo Ready" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(progress, { target: { value: "blocked" } });
+    expect(rosterNames()).toEqual(["Cy Blocked · blocked"]);
+
+    // Nobody is onboarding, and the panel drops the picker rather than offering an empty one
+    // over a form belonging to whoever happened to be selected before.
+    fireEvent.change(progress, { target: { value: "onboarding" } });
+    expect(within(workflow).queryByLabelText("Speaker")).toBeNull();
+    expect(within(workflow).queryByRole("button", { name: /^Save workflow/ })).toBeNull();
+
+    fireEvent.change(progress, { target: { value: "all" } });
+    expect(rosterNames()).toHaveLength(4);
+  });
+
   it("keeps every tool closed until one is asked for", () => {
     mount(workspace({ speakers: [speaker(1, "Ada Speaker")] }));
 

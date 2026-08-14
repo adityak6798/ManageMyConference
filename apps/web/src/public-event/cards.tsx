@@ -98,6 +98,81 @@ function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
   );
 }
 
+/**
+ * The order links are shown in, and the name each one is announced by.
+ *
+ * Fixed rather than derived from the stored object's key order, so two speakers' links read in
+ * the same sequence and a re-save that happened to reorder the JSON cannot reorder the page.
+ * A platform the projection carries but this list does not know is still rendered, under its
+ * own key — dropping it would hide something the speaker deliberately published.
+ */
+const SOCIAL_LABELS: Readonly<Record<string, string>> = {
+  website: "Website",
+  mastodon: "Mastodon",
+  bluesky: "Bluesky",
+  linkedin: "LinkedIn",
+  github: "GitHub",
+  x: "X",
+  youtube: "YouTube",
+};
+
+/**
+ * Is this something we are willing to put in an `href`?
+ *
+ * The server already refuses anything but `http:` and `https:` when the link is *written*
+ * (`socialLinkSchema`), so on the shipping path this is redundant — and it is here anyway,
+ * because the cost of being wrong is unusually asymmetric. This component renders a value that
+ * originated with a speaker, on a public page, into an attribute where `javascript:` executes;
+ * the write-time rule is one validator away from every row that predates it, from a restored
+ * revision, and from anything that reaches the projection without passing through that schema.
+ * A link this refuses is dropped rather than rendered inert, because a dead link an organizer can
+ * see is a bug report and an inert one is a mystery.
+ */
+function isRenderableLink(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    // ERROR-INTENT: `URL` reports "not a URL at all" by throwing, and a value that cannot be
+    // parsed is exactly one this must not put in an `href`. Refusing is the answer, not a crash.
+    return false;
+  }
+}
+
+/*
+ * A speaker's own links.
+ *
+ * `rel="noreferrer noopener"` on every one: these are speaker-supplied destinations, and a page
+ * opened from here must not be handed a reference to the programme's window. The link text is
+ * the platform rather than the URL, and the speaker's name is in the accessible name too — a
+ * gallery of "Website, Website, Website" tells a screen-reader user nothing about whose it is.
+ */
+function SpeakerLinks({ speaker }: { speaker: PublicSpeaker }) {
+  const links = Object.entries(speaker.socialLinks ?? {}).filter(
+    ([, url]) => Boolean(url) && isRenderableLink(url),
+  );
+  if (links.length === 0) return null;
+  const ordered = links.toSorted(([left], [right]) => {
+    const keys = Object.keys(SOCIAL_LABELS);
+    const rank = (key: string) => (keys.includes(key) ? keys.indexOf(key) : keys.length);
+    return rank(left) - rank(right) || left.localeCompare(right);
+  });
+  return (
+    <nav className="pub-speaker-links" aria-label={`Links for ${speaker.name}`}>
+      <ul>
+        {ordered.map(([platform, url]) => (
+          <li key={platform}>
+            <a href={url} rel="noreferrer noopener" target="_blank">
+              {SOCIAL_LABELS[platform] ?? platform}
+              <span className="pub-sr"> — {speaker.name}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 /** Start–end in the event's zone; the zone itself is stated once per page, not per row. */
 function TimeRange({
   startsAt,
@@ -333,6 +408,7 @@ export {
   SessionCard,
   SpeakerCard,
   SpeakerHeadline,
+  SpeakerLinks,
   TimeRange,
   toneIndex,
 };

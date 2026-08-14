@@ -2,6 +2,7 @@ import {
   type ContentSession,
   type ContentWorkspace,
   canBeProfilePhoto,
+  logicalAssetKey,
   type ResourceVisibility,
   type SpeakerAsset,
   type SpeakerProfile,
@@ -10,6 +11,14 @@ import {
   type SpeakerTaskTemplate,
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
+import {
+  SPEAKER_INVITE_TEMPLATE_KEY,
+  SPEAKER_REMINDER_TEMPLATE_KEY,
+  type SpeakerReminderDispatchPort,
+  SpeakerReminderRejectedError,
+  speakerInvitationKey,
+  taskReminderKey,
+} from "./reminder-dispatch";
 import {
   type Actor,
   CapabilityDeniedError,
@@ -213,6 +222,24 @@ export class SpeakerChecklistAnchorError extends Error {}
  */
 export class SpeakerChecklistTitleTakenError extends Error {}
 
+/** A task this event does not carry. Named rather than skipped: the caller asked for it. */
+export class ContentNotFoundError extends Error {}
+
+/**
+ * Speaker mail — a reminder or a portal invitation — was asked for in a deployment that cannot
+ * send it.
+ *
+ * A composition with no delivering domain bound, or an event with no owning organization. Both
+ * are configuration rather than a bad request, and both must say so — a reminder action that
+ * quietly reported "0 sent" would look exactly like a roster with nothing due, and an invite
+ * action that did would look exactly like everybody already being invited.
+ *
+ * Shared by both commands rather than split in two: the condition, the cause and the 503 the
+ * transport already maps it to are identical, and the message each throws with names which
+ * action the organizer pressed.
+ */
+export class SpeakerRemindersUnavailableError extends Error {}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   /** Resolves the actor ids on revisions to the names an organizer recognises. */
@@ -256,6 +283,46 @@ export interface ContentServiceDependencies {
     errors: { row: number; message: string }[];
   };
   createDeliverablesZip?: (files: readonly { name: string; bytes: Uint8Array }[]) => Uint8Array;
+  /**
+   * Queues a reminder about work a speaker owes. Optional for the same reason
+   * `speakerNotifications` is: a composition exercising only the workspace has nobody to write
+   * to, and the reminder action reports that it is unavailable rather than failing silently.
+   */
+  reminders?: SpeakerReminderDispatchPort;
+  /** Which organization runs an event. Events owns the answer; content asks rather than joins. */
+  organizationOf?: (eventId: string) => Promise<string | null>;
+}
+
+/** One task a reminder was asked for, and what happened to it. */
+export interface SpeakerReminderOutcome {
+  readonly taskId: string;
+  readonly speakerName: string;
+  readonly title: string;
+  readonly dueAt: string;
+  /** `queued` wrote a delivery; `already-sent` converged on one this deadline already had. */
+  readonly outcome: "queued" | "already-sent" | "unreachable" | "refused";
+  /** Why, for the two outcomes that are not a send. Empty otherwise. */
+  readonly reason: string;
+}
+
+/**
+ * One speaker an invitation was asked for, and what happened to them.
+ *
+ * The same four outcomes `SpeakerReminderOutcome` carries, because the organizer has the same
+ * four things to do next, and `occurrence` besides: it is which invitation this was for this
+ * speaker, so the console can say "second invitation sent" rather than a bare "sent" that a
+ * speaker chasing an organizer about a mail they never got cannot be answered with.
+ */
+export interface SpeakerInvitationOutcome {
+  readonly profileId: string;
+  readonly speakerName: string;
+  readonly email: string;
+  /** Which invitation this is: 1 is the first an organizer asked for. 0 when none was claimed. */
+  readonly occurrence: number;
+  /** `queued` wrote a delivery; `already-sent` converged on one this occurrence already had. */
+  readonly outcome: "queued" | "already-sent" | "unreachable" | "refused";
+  /** Why, for the two outcomes that are not a send. Empty otherwise. */
+  readonly reason: string;
 }
 
 function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
@@ -1190,7 +1257,13 @@ export class ContentService {
   async updateMyProfile(
     actor: Actor | null,
     profileId: string,
-    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization">,
+    /*
+     * `socialLinks` is optional and replaces the whole set when present. An older client that
+     * sends only the text fields edits only the text, rather than silently clearing every link
+     * the speaker had entered.
+     */
+    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization"> &
+      Partial<Pick<SpeakerProfile, "socialLinks">>,
   ): Promise<SpeakerProfile> {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
@@ -1563,7 +1636,14 @@ export class ContentService {
     if (!hasEventRole(authorized, profile.eventId, "speaker") || profile.userId !== authorized.id)
       throw new CapabilityDeniedError("Speaker asset access denied");
     const workspace = await this.dependencies.repository.workspace(profile.eventId);
-    const previous = input.versionGroupId
+    /*
+     * A named group is an explicit statement about identity and is the only path that lets a
+     * *renamed* file join an existing chain, so it is still resolved here — from the caller's
+     * own claim rather than from an inference. Everything else is resolved by the store against
+     * the stored logical key, because inferring the chain from a read is what let two uploads of
+     * `slides.pdf` each decide they were the first (`1406`).
+     */
+    const named = input.versionGroupId
       ? workspace.assets
           .filter(
             (asset) =>
@@ -1571,14 +1651,9 @@ export class ContentService {
               asset.speakerProfileId === profile.id,
           )
           .toSorted((a, b) => (b.versionNumber ?? 1) - (a.versionNumber ?? 1))[0]
-      : input.taskId
-        ? workspace.assets.filter(
-            (asset) =>
-              asset.taskId === input.taskId &&
-              asset.speakerProfileId === profile.id &&
-              asset.isLatest !== false,
-          )[0]
-        : undefined;
+      : undefined;
+    if (input.versionGroupId && !named)
+      throw new CapabilityDeniedError("Speaker asset access denied");
     if (
       input.taskId &&
       !workspace.tasks.some(
@@ -1601,6 +1676,24 @@ export class ContentService {
       contentType: input.contentType,
       bytes: input.bytes,
     });
+    // A continuation inherits the chain's task and session, so a later version does not silently
+    // detach the deliverable from the work that requested it.
+    const taskId = input.taskId ?? named?.taskId;
+    /*
+     * A file request bound to a session hands the upload that session, and the *server* reads it
+     * off the task rather than trusting the portal to send it.
+     *
+     * The client could send it, and then could not: the check above admits a session only when
+     * this speaker is one of its speakers, which a file request about somebody else's session
+     * legitimately is not — an organizer may ask a workshop's co-presenter for the room's
+     * handout. Refusing that upload, or widening the check so any named session is accepted,
+     * are both worse than reading the association from a task this speaker already owns and the
+     * request already proved is theirs. An explicit `sessionId` still wins, because a speaker
+     * filing a general upload against one of their own sessions is saying something the task
+     * cannot say for them.
+     */
+    const requested = taskId ? workspace.tasks.find((task) => task.id === taskId) : undefined;
+    const sessionId = input.sessionId ?? requested?.sessionId ?? named?.sessionId;
     const asset: SpeakerAsset = {
       id,
       eventId: profile.eventId,
@@ -1610,16 +1703,21 @@ export class ContentService {
       storageKey: stored.key,
       visibility: "private",
       uploadedAt: this.dependencies.now().toISOString(),
-      ...(input.taskId || previous?.taskId ? { taskId: input.taskId ?? previous?.taskId } : {}),
-      ...(input.sessionId || previous?.sessionId
-        ? { sessionId: input.sessionId ?? previous?.sessionId }
-        : {}),
-      versionGroupId: previous?.versionGroupId ?? previous?.id ?? input.versionGroupId ?? id,
-      versionNumber: (previous?.versionNumber ?? 0) + 1,
+      ...(taskId ? { taskId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      // A named continuation keeps the chain's own key so its members stay one deliverable even
+      // when the file was renamed; otherwise the key is derived from what this upload is.
+      logicalKey:
+        named?.logicalKey ??
+        (named ? logicalAssetKey(named) : logicalAssetKey({ name: input.name, taskId, sessionId })),
       isLatest: true,
     };
+    let allocated: { versionGroupId: string; versionNumber: number };
     try {
-      await this.dependencies.repository.replaceLatestAsset(asset, previous);
+      allocated = await this.dependencies.repository.replaceLatestAsset(
+        asset,
+        named?.versionGroupId ?? input.versionGroupId,
+      );
     } catch (metadataError) {
       try {
         await this.dependencies.assetStorage.delete(stored.key);
@@ -1631,7 +1729,9 @@ export class ContentService {
       }
       throw metadataError;
     }
-    return asset;
+    // The store allocated both, so the answer describes the row that committed rather than the
+    // one this method proposed.
+    return { ...asset, ...allocated };
   }
 
   /**
@@ -1668,6 +1768,203 @@ export class ContentService {
     };
     await this.dependencies.repository.addComment(comment);
     return comment;
+  }
+
+  /**
+   * Remind the speakers behind a chosen set of open tasks.
+   *
+   * The organizer's counterpart to the cron sweep, and deliberately the same delivery key: both
+   * are "this task, at this deadline", so pressing Remind on something the sweep already covered
+   * converges on that delivery and says so rather than writing to the speaker twice
+   * (`taskReminderKey`). Extending a deadline moves the key, which is how a chase after an
+   * extension is a new reminder rather than a suppressed duplicate.
+   *
+   * Every task is reported, including the ones nothing was sent for — a speaker with no address
+   * is a real state the roster carries, and an organizer who is not told will keep waiting for a
+   * reply to a message that never left. A single refusal does not take the others down with it,
+   * for the same reason the sweep's does not.
+   */
+  async remindTasks(
+    actor: Actor | null,
+    eventId: string,
+    taskIds: readonly string[],
+  ): Promise<readonly SpeakerReminderOutcome[]> {
+    requireEventCapability(actor, eventId, "content:manage");
+    const dispatch = this.dependencies.reminders;
+    if (!dispatch) throw new SpeakerRemindersUnavailableError("Speaker reminders are not enabled");
+    const organizationId = await this.dependencies.organizationOf?.(eventId);
+    if (!organizationId)
+      throw new SpeakerRemindersUnavailableError("This event has no owning organization");
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    const profiles = new Map(workspace.speakers.map((profile) => [profile.id, profile]));
+    const unique = [...new Set(taskIds)];
+    const chosen = unique.map((taskId) => workspace.tasks.find((task) => task.id === taskId));
+    // A task id this event does not carry is refused before anything is sent, rather than
+    // skipped — the caller named something that does not exist and should hear so.
+    if (chosen.some((task) => !task)) throw new ContentNotFoundError("Speaker task not found");
+
+    const outcomes: SpeakerReminderOutcome[] = [];
+    for (const task of chosen) {
+      if (!task) continue;
+      const profile = profiles.get(task.speakerProfileId);
+      const describe = {
+        taskId: task.id,
+        speakerName: profile?.name ?? "Unknown speaker",
+        title: task.title,
+        dueAt: task.dueAt,
+      };
+      if (task.status === "complete") {
+        outcomes.push({ ...describe, outcome: "refused", reason: "already complete" });
+        continue;
+      }
+      if (!profile?.email) {
+        outcomes.push({ ...describe, outcome: "unreachable", reason: "no email address" });
+        continue;
+      }
+      try {
+        const delivery = await dispatch.send({
+          organizationId,
+          eventId,
+          idempotencyKey: taskReminderKey(task.id, task.dueAt),
+          recipientRef: profile.email,
+          templateKey: SPEAKER_REMINDER_TEMPLATE_KEY,
+          payload: { speakerName: profile.name, taskTitle: task.title, dueAt: task.dueAt },
+        });
+        outcomes.push({
+          ...describe,
+          outcome: delivery.created ? "queued" : "already-sent",
+          reason: "",
+        });
+      } catch (error) {
+        // ERROR-INTENT: one speaker's reminder failing — an unknown template, a payload the
+        // template cannot fill — must not stop the rest of the selection. It is reported in this
+        // task's own row, which is where the organizer can act on it, rather than discarded or
+        // turned into a failure for the whole request.
+        outcomes.push({
+          ...describe,
+          outcome: "refused",
+          reason:
+            error instanceof SpeakerReminderRejectedError ? error.message : "could not be queued",
+        });
+      }
+    }
+    return outcomes;
+  }
+
+  /**
+   * Invite a chosen set of speakers into the portal, deliberately and again if need be.
+   *
+   * The counterpart to acceptance's automatic welcome, and deliberately *not* the same delivery
+   * key. Acceptance sends `speaker-invite:{eventId}:{profileId}` once, which is right for the
+   * fact it announces and is why nobody could ever be invited a second time: the key names the
+   * person, so every later invitation to them deduplicated into a message sent months ago
+   * (#189). This claims an occurrence per invitation (`claimInvitationOccurrence`) and keys the
+   * delivery on it (`speakerInvitationKey`), so a re-invitation is a second delivery an organizer
+   * can see rather than a suppressed duplicate — while a retried enqueue at the same occurrence
+   * still converges on one message and says so.
+   *
+   * Every speaker is reported, including the ones nothing was sent for, for exactly the reason
+   * `remindTasks` reports every task: a speaker with no address is a real state the roster
+   * carries, and an organizer who is not told keeps waiting for somebody to sign in who was never
+   * written to. A single refusal does not take the others down with it.
+   *
+   * The occurrence is claimed only for a speaker who is actually going to be written to, so a
+   * roster half of which has no address does not burn half the numbering on people nobody mailed.
+   *
+   * @spec PRD-SPK-002 PRD-COM-001
+   */
+  async inviteSpeakers(
+    actor: Actor | null,
+    eventId: string,
+    profileIds: readonly string[],
+  ): Promise<readonly SpeakerInvitationOutcome[]> {
+    requireEventCapability(actor, eventId, "content:manage");
+    const dispatch = this.dependencies.reminders;
+    if (!dispatch)
+      throw new SpeakerRemindersUnavailableError("Speaker invitations are not enabled");
+    const organizationId = await this.dependencies.organizationOf?.(eventId);
+    if (!organizationId)
+      throw new SpeakerRemindersUnavailableError("This event has no owning organization");
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    // Deduplicated before anything is claimed: a request naming one speaker twice is one
+    // invitation, not two occurrences and two messages to the same person.
+    const unique = [...new Set(profileIds)];
+    const chosen = unique.map((profileId) =>
+      workspace.speakers.find((profile) => profile.id === profileId),
+    );
+    // A profile this event does not carry is refused before anything is sent, rather than
+    // skipped — the caller named somebody who is not on this roster and should hear so.
+    if (chosen.some((profile) => !profile))
+      throw new ContentNotFoundError("Speaker profile not found");
+
+    const outcomes: SpeakerInvitationOutcome[] = [];
+    for (const profile of chosen) {
+      if (!profile) continue;
+      const describe = { profileId: profile.id, speakerName: profile.name, email: profile.email };
+      if (!profile.email) {
+        outcomes.push({
+          ...describe,
+          occurrence: 0,
+          outcome: "unreachable",
+          reason: "no email address",
+        });
+        continue;
+      }
+      const occurrence = await this.dependencies.repository.claimInvitationOccurrence(profile.id);
+      // The profile was withdrawn between the roster read above and this claim. Reported against
+      // this speaker rather than raised, so the rest of the selection is still invited.
+      if (occurrence === null) {
+        outcomes.push({
+          ...describe,
+          occurrence: 0,
+          outcome: "refused",
+          reason: "this speaker is no longer on the event",
+        });
+        continue;
+      }
+      try {
+        const delivery = await dispatch.invite({
+          organizationId,
+          eventId,
+          idempotencyKey: speakerInvitationKey(eventId, profile.id, occurrence),
+          recipientRef: profile.email,
+          templateKey: SPEAKER_INVITE_TEMPLATE_KEY,
+          /*
+           * What an invitation is about, and deliberately no session.
+           *
+           * Acceptance's welcome carries a `sessionTitle` because it announces one talk; this
+           * announces the portal, and a speaker with three sessions has no single one to name.
+           * `invitationNumber` rides along so the retained payload says which invitation the
+           * delivery was — the delivering domain keeps the snapshot as sent, so that is where
+           * the history is readable months later.
+           *
+           * A template that grows a placeholder content does not supply is refused by name, and
+           * that refusal lands in this speaker's own row rather than being swallowed.
+           */
+          payload: { speakerName: profile.name, invitationNumber: occurrence },
+        });
+        outcomes.push({
+          ...describe,
+          occurrence,
+          outcome: delivery.created ? "queued" : "already-sent",
+          reason: "",
+        });
+      } catch (error) {
+        // ERROR-INTENT: one speaker's invitation failing — an unknown template, a payload the
+        // template cannot fill — must not stop the rest of the selection. It is reported in this
+        // speaker's own row, which is where the organizer can act on it, rather than discarded or
+        // turned into a failure for the whole request. The occurrence stays spent: the next
+        // attempt is a genuinely new invitation, which is what a refusal should produce.
+        outcomes.push({
+          ...describe,
+          occurrence,
+          outcome: "refused",
+          reason:
+            error instanceof SpeakerReminderRejectedError ? error.message : "could not be queued",
+        });
+      }
+    }
+    return outcomes;
   }
 
   async bulkDownload(actor: Actor | null, eventId: string, assetIds: readonly string[]) {
@@ -1736,6 +2033,9 @@ export class ContentService {
           workflowStatus: snapshot.workflowStatus,
           logistics: snapshot.logistics,
           customFields: snapshot.customFields,
+          // A revision taken before `1407` carries no links, which restores as "none recorded" —
+          // the same reading the migration's default gives every profile that predates it.
+          socialLinks: snapshot.socialLinks ?? {},
         }),
       );
       if (!restored) throw new CapabilityDeniedError();

@@ -181,6 +181,64 @@
   flex-wrap: wrap;
 }
 
+/* Seven boxes that belong together, grouped by a legend so a screen reader announces them
+   as "Links" rather than as seven unrelated URL fields in the middle of a profile form. */
+.profile-social {
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  margin: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.profile-social > legend {
+  padding: 0 var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.profile-social > .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* What the speaker wrote, shown to an organizer who cannot edit it here. A definition list
+   because that is what it is: four labelled values, not a form. */
+.speaker-entered {
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  margin: 0 0 var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.speaker-entered-wide {
+  grid-column: 1 / -1;
+}
+.speaker-entered dt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.speaker-entered dd {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+}
+.speaker-links {
+  list-style: none;
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+}
+
 /* --------------------------- portal: uploads ------------------------------ */
 
 .upload-form {
@@ -202,16 +260,32 @@
   margin: var(--s-4) 0 0;
   padding: 0;
 }
+/*
+ * An entry is a deliverable, not a line: the name and its pills, then the comment box, the
+ * comments, and the earlier versions beneath. As one flex row all four competed for the same
+ * horizontal space, so in the portal's narrow column the file name wrapped to one word per line
+ * and the comment input collapsed to a few characters wide.
+ */
 .upload-list > li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s-3);
-  padding: var(--s-2) var(--s-3);
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-3);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface-2);
   font-size: var(--text-sm);
+}
+.upload-list > li > form,
+.upload-list > li > p,
+.upload-list > li > details {
+  grid-column: 1 / -1;
+}
+.upload-list > li > form {
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
 }
 .upload-name .sub {
   display: block;
@@ -227,6 +301,41 @@
 }
 .upload-empty {
   margin-top: var(--s-4);
+}
+
+/*
+ * Superseded versions, in both views.
+ *
+ * Collapsed by default because the current file is what almost every visit is about, and open
+ * is one click rather than a separate screen — a prior version an organizer cannot download is
+ * not "retained", it is only counted.
+ */
+.upload-history > summary,
+.asset-history > summary {
+  cursor: pointer;
+  color: var(--green-800);
+  font-size: var(--text-xs);
+  font-weight: 620;
+}
+.upload-history ul,
+.asset-history ul {
+  list-style: none;
+  display: grid;
+  gap: var(--s-1);
+  margin: var(--s-2) 0 0;
+  padding: 0 0 0 var(--s-3);
+  border-left: 2px solid var(--line);
+}
+.upload-history li,
+.asset-history li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  font-size: var(--text-xs);
+}
+.upload-history .sub,
+.asset-history .sub {
+  color: var(--muted);
 }
 
 /*
@@ -436,14 +545,129 @@
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 }
 
-.deliverable-row {
+/* ------------------------ requested work tracker -------------------------- */
+
+.deliverables {
   display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+}
+.deliverable-filters {
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  align-items: end;
+}
+.deliverable-count {
+  align-self: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.deliverable-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.deliverable-select-all {
+  display: flex;
+  align-items: center;
   gap: var(--s-2);
-  padding: var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  color: var(--ink-2);
   font-size: var(--text-sm);
+  font-weight: 620;
+  white-space: nowrap;
+}
+.deliverable-select-all input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+}
+/* The roster's own action bar, above the table it acts on. Same shape as the deliverable
+   tracker's, because it is the same job — tick rows, press one bounded action, read a per-row
+   report — and two selection surfaces that behaved differently would be two things to learn. */
+.roster {
+  display: grid;
+  gap: var(--s-3);
+}
+.roster-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.roster-select-all {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 620;
+  white-space: nowrap;
+}
+.roster-select-all input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+}
+/* `width: 1%` is the table idiom for "shrink to content"; it is scoped to the table layout
+   here so it cannot leak into the card layout below, which is what collapsed the triage
+   checkboxes to 0x0 on a phone (#206). */
+.deliverable-table th:first-child,
+.deliverable-table td.select-cell,
+.roster-table th:first-child,
+.roster-table td.select-cell {
+  width: 1%;
+  padding-right: 0;
+}
+.deliverable-table .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 780px) {
+  .deliverable-table,
+  .deliverable-table tbody,
+  .deliverable-table tr,
+  .deliverable-table td {
+    display: block;
+    width: 100%;
+  }
+  .deliverable-table thead {
+    display: none;
+  }
+  .deliverable-table tbody {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .deliverable-table tr {
+    padding: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .deliverable-table td {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+    gap: var(--s-2);
+    padding: var(--s-2) 0;
+    border: 0;
+    /* Overrides the shrink-to-content width above, which means nothing once the cell is no
+       longer a table cell — and which, left in place, is what makes a checkbox 0x0. */
+    width: 100%;
+  }
+  .deliverable-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+  .deliverable-table td.select-cell input[type="checkbox"],
+  .roster-table td.select-cell input[type="checkbox"] {
+    justify-self: start;
+  }
 }
 
 /* Row actions read as one word, never as a two-line block inside a dense table.

@@ -1,6 +1,6 @@
 # Competition wave plan and coordination ledger
 
-Status: working | Owner: delivery coordination | Last verified: 2026-08-13
+Status: working | Owner: delivery coordination | Last verified: 2026-08-14
 
 This is the durable record of how the remaining backlog is being worked: which lanes exist, what
 blocks what, and every cross-lane ruling that has been made. It exists because the coordination
@@ -1564,3 +1564,69 @@ staffed — issue #190's reviewer-provisioning discoverability, which the issue 
 by routing into the existing workflow rather than building a second one. It is covered by
 `apps/web/test/review-decisions.test.tsx`, which asserts both that the notice names the role and the
 event and that it disappears once a reviewer exists.
+
+### Issues #206, #189 and #197 rulings
+
+One lane, three issues, worked in that order on one branch: the defect sweep first, then content's
+half of #189, then the sourcing pipeline. Four rulings a later reader would otherwise re-derive
+from the diff, and two limits recorded rather than hidden.
+
+**The CRM stage rebuild is two migrations because a rebuild has to be replayable over populated
+data.** Dropping `0015`'s stage `CHECK` means rebuilding `crm_prospects`, which has three children
+— `crm_contacts`, `crm_activities` and `crm_contact_events` — so it follows `1301`'s recipe:
+foreign keys are enforced between migration statements however the migration asks, and the parent
+can therefore only be replaced by copying its children onto the new parent, dropping the old
+children first, and dropping the old parent last. The new tables could have gone in the same file.
+They did not, and the reason is the test rather than tidiness: the rebuild's proof is applying it a
+*second* time to a database that already holds rows, and a file that also `CREATE TABLE`s cannot be
+applied twice at all. So `1501` creates `crm_pipeline_stages` and `crm_prospect_transitions` and
+seeds each event's default board, `1502` contains nothing but the rebuild, and the replay lives in
+the CRM suite with only its declaration in the shared coverage gate — the arrangement #134 asked
+for, and the one a rebuild cannot skip, since a rebuild is the migration shape whose test can be
+green while the migration cannot run at all.
+
+**An invitation's occurrence is a counter allocated inside the `UPDATE`, not a timestamp.**
+Acceptance's welcome is keyed `speaker-invite:{event}:{profile}`, that key never moves, and
+deduplication therefore refused every later invitation — a speaker who lost the mail could not be
+invited again by anybody. The fix is not to weaken the key but to give the invitation an occurrence
+the key can name, the way `1311` gave a decision its revision. A timestamp was rejected on a case
+that will happen: two presses inside one millisecond derive the same key, and the second organizer
+is then told the speaker "has already been invited" about a message they never asked for. `1408`
+adds `invitations_sent`, and the write allocates it inside the `UPDATE … RETURNING` that spends it,
+so two organizers pressing Invite at once cannot key the same message. The welcome keeps its
+unnumbered key on purpose: "your talk is in" and "here is your portal again" are different acts, and
+an explicit invitation must never converge into one sent months ago.
+
+**The reminder occurrence became the task deadline, for the cron sweep and the organizer's own send
+alike.** A reminder is idempotent on its key, so what the key names decides how often a speaker is
+written to. The sweep keyed on `task-reminder:{taskId}:d{offsetDays}`, which cost twice: changing
+`offsetDays` re-reminded every task already covered — a wart the module's own header recorded
+rather than fixed — and extending one speaker's deadline could not let an organizer chase them,
+because the key did not move when the deadline did. Both paths now build the key through
+`taskReminderKey`, which crosses through content's declared public surface rather than a deep
+import precisely so communications' sweep can build the identical string, and the two converge on
+one delivery per (task, deadline). **The deploy cost is stated rather than discovered: a task
+already reminded about under the old offset key is reminded once more under the new one, once**,
+which is the conservative direction and the reason it was accepted instead of a backfill that would
+have had to guess which offset each existing delivery was sent at.
+
+**The console's merge-field vocabulary is served by the API, so it cannot drift from what the
+renderer resolves.** `GET /api/communications/merge-fields` returns the tokens a speaker template
+may use; hard-coding them in the composer would have made the list a second copy, and the renderer
+refuses a placeholder it cannot fill — so an author reading a stale list writes a template nobody
+can send, and finds out at the send rather than while writing it. The same instinct produced the
+preview: it is resolved by the server through the same call that will send, because a client-side
+substitution could disagree with the text the delivery stores and would be believed, since it looks
+like the message.
+
+**Two limits this lane did not close, recorded where the claims are.** #189's private-set hardening
+— collaborator access, share links, AI remix, SMS, locked portal fields, custom workflow statuses —
+is absent rather than partial and is now `GAP-027`; #197's year-round interest forms, campaigns with
+engagement ingestion, and directory analytics are `GAP-028`. Both rows in the
+[scorecard](../quality/scorecard.md) name them, so neither reads as complete. And #206's
+unreachable-capability sweep — the probe that opened every disclosure on every console route at
+1440px and 390px, hit-tested each control at its centre point, and read each button's props for a
+handler — **is not committed**. It found three real defects (triage selection 0×0 below 780px, a
+permanently disabled "Start next round" whose explanation lived in unreachable code, and a demo
+persona's "Create API client" that was disabled *and* had no handler), and a lane that wants that
+class of defect caught again has to write the probe again.

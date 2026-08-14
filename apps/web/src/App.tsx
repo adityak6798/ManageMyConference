@@ -1,4 +1,4 @@
-import type { EventDto, SessionDto } from "@greenroom/contracts";
+import { type EventDto, resolveTimezone, type SessionDto } from "@greenroom/contracts";
 import {
   type FormEvent,
   Fragment,
@@ -23,6 +23,7 @@ import {
   verifyLoginCode,
 } from "./api/identity";
 import { CommandPalette } from "./CommandPalette";
+import { TimezoneField } from "./events/TimezoneField";
 import { InstanceMarker } from "./InstanceMarker";
 import { OverviewPage } from "./OverviewPage";
 import { navigate, useLocation } from "./router";
@@ -158,8 +159,21 @@ export function App({
   const [events, setEvents] = useState<EventDto[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [createName, setCreateName] = useState("");
+  /*
+   * The new event's timezone, asked for rather than assumed.
+   *
+   * It used to be the literal `America/Los_Angeles` on every create, so an organizer in Berlin
+   * got a Pacific event and only found out from the times on the public site. The default is
+   * this browser's own zone, which is a guess the organizer can see and change before saving —
+   * unlike the constant, which they could not.
+   */
+  const [createTimezone, setCreateTimezone] = useState(
+    () => resolveTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? "UTC",
+  );
   const [settingsName, setSettingsName] = useState("");
   const [settingsTimezone, setSettingsTimezone] = useState("");
+  /** Whatever the server said about `timezone`, rendered on the control it refused. */
+  const [timezoneErrors, setTimezoneErrors] = useState<string[]>([]);
   // The shell reports its own failures and no one else's: signing in, switching identity,
   // creating an event. It starts and finishes each of those, so it can keep the message
   // accurate by itself. A workspace that is mounted owns its failures — it renders them
@@ -430,7 +444,7 @@ export function App({
       const created = await createEvent({
         organizationId,
         name: createName,
-        timezone: "America/Los_Angeles",
+        timezone: createTimezone,
       });
       const [refreshedSession, refreshedEvents] = await Promise.all([
         getSession(),
@@ -455,13 +469,20 @@ export function App({
     if (!selectedEvent) return;
     setBusy(true);
     setError(null);
+    setTimezoneErrors([]);
     try {
       const updated = await updateEvent(selectedEvent.id, {
         name: settingsName,
         timezone: settingsTimezone,
       });
       setEvents((current) => current.map((event) => (event.id === updated.id ? updated : event)));
+      // The server canonicalizes, so the control shows the id that was actually stored rather
+      // than the alias that was sent.
+      setSettingsTimezone(updated.timezone);
     } catch (reason: unknown) {
+      // A refusal the server attached to a field belongs on that field. Anything else stays a
+      // page-level message, which is where it was already going.
+      setTimezoneErrors(envelopeOf(reason)?.error.fieldErrors?.timezone ?? []);
       setError(readableError(reason));
     } finally {
       setBusy(false);
@@ -681,16 +702,13 @@ export function App({
                     maxLength={120}
                   />
                 </div>
-                <div className="field">
-                  <label htmlFor="settings-event-timezone">Event timezone</label>
-                  <input
-                    id="settings-event-timezone"
-                    value={settingsTimezone}
-                    onChange={(changeEvent) => setSettingsTimezone(changeEvent.target.value)}
-                    placeholder="America/Los_Angeles"
-                    required
-                  />
-                </div>
+                <TimezoneField
+                  id="settings-event-timezone"
+                  value={settingsTimezone}
+                  onChange={setSettingsTimezone}
+                  errors={timezoneErrors}
+                  disabled={busy}
+                />
                 <button type="submit" disabled={busy}>
                   {busy ? "Saving…" : "Save event settings"}
                 </button>
@@ -702,20 +720,27 @@ export function App({
               <form onSubmit={submit}>
                 <div className="field">
                   <label htmlFor="event-name">Event name</label>
-                  <div className="form-row">
-                    <input
-                      id="event-name"
-                      value={createName}
-                      onChange={(changeEvent) => setCreateName(changeEvent.target.value)}
-                      placeholder="Greenroom Summit"
-                      required
-                      maxLength={120}
-                    />
-                    <button type="submit" disabled={busy}>
-                      {busy ? "Creating…" : "Create event"}
-                    </button>
-                  </div>
+                  <input
+                    id="event-name"
+                    value={createName}
+                    onChange={(changeEvent) => setCreateName(changeEvent.target.value)}
+                    placeholder="Greenroom Summit"
+                    required
+                    maxLength={120}
+                  />
                 </div>
+                {/* Named apart from the settings control above it: both are on this page. */}
+                <TimezoneField
+                  id="event-timezone"
+                  value={createTimezone}
+                  onChange={setCreateTimezone}
+                  disabled={busy}
+                  label="New event timezone"
+                  hint="Defaults to this browser's zone. Change it before creating if the event runs elsewhere."
+                />
+                <button type="submit" disabled={busy}>
+                  {busy ? "Creating…" : "Create event"}
+                </button>
               </form>
             </Card>
           ) : (

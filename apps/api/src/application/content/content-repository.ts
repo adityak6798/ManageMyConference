@@ -96,6 +96,21 @@ export interface ContentRepository {
    * rather than answer with the object it constructed.
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<boolean>;
+  /**
+   * Take the next portal-invitation occurrence for one profile, and answer the number it took.
+   *
+   * The number is allocated *inside* the write, never read and then written back. Two organizers
+   * pressing Invite on the same speaker at the same moment both read `invitations_sent = 1` if
+   * they are allowed to read it, both key their invitation on occurrence 2, and the second one
+   * deduplicates into the first's delivery — so one organizer is told the speaker has already
+   * been invited about a message they never asked to send. Incrementing in the statement and
+   * returning what the row took gives each of them a number nobody else holds, which is the same
+   * reason `revisionNumber` is absent from `ContentRevisionDraft` (`1408`, and `1311` before it).
+   *
+   * `null` when no row matched — the profile has gone since the caller read it — so a claim that
+   * landed on nothing is refused rather than reported as invitation zero.
+   */
+  claimInvitationOccurrence(profileId: string): Promise<number | null>;
   /** `false` when no row matched — the task has gone since the caller read it. */
   updateTask(task: SpeakerTask): Promise<boolean>;
   /**
@@ -112,7 +127,21 @@ export interface ContentRepository {
   /** `false` when no row matched — the asset has gone since the caller read it. */
   updateAsset(asset: SpeakerAsset): Promise<boolean>;
   addAsset(asset: SpeakerAsset): Promise<void>;
-  replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset): Promise<void>;
+  /**
+   * Store an upload as the newest version of its logical deliverable.
+   *
+   * The group and the version number are the store's to allocate, not the caller's: computing
+   * either from a prior read is a read-then-write that two concurrent uploads resolve
+   * identically, and the loser then trips `speaker_assets_version_unique` with a 500 describing
+   * a constraint for a request that had nothing wrong with it. The caller supplies the
+   * *identity* — `logicalKey`, or an explicit `versionGroupId` — and the store answers with the
+   * group and number the row actually took (`1406`).
+   */
+  replaceLatestAsset(
+    asset: SpeakerAsset,
+    /** An explicit continuation of a named chain, which overrides `logicalKey` lookup. */
+    versionGroupId?: string,
+  ): Promise<{ versionGroupId: string; versionNumber: number }>;
   deleteAsset(assetId: string): Promise<void>;
   /**
    * Has this speaker been given any work on this event yet?

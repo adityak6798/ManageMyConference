@@ -1,4 +1,8 @@
-import type { CrmRepository, ProspectFilters } from "../../application/crm/crm-repository";
+import type {
+  CrmRepository,
+  ProspectFilters,
+  StageMigration,
+} from "../../application/crm/crm-repository";
 import { ContactAlreadySourcedError, ContactNotFoundError } from "../../application/crm/errors";
 import {
   type ContactActivity,
@@ -9,7 +13,13 @@ import {
   matchesFilters,
   type OrganizationContact,
 } from "../../domain/crm/contact";
-import type { Prospect, ProspectActivity, ProspectContact } from "../../domain/crm/prospect";
+import type {
+  PipelineStage,
+  Prospect,
+  ProspectActivity,
+  ProspectContact,
+  ProspectTransition,
+} from "../../domain/crm/prospect";
 
 export class MemoryCrmRepository implements CrmRepository {
   private readonly prospects = new Map<string, Prospect>();
@@ -46,8 +56,9 @@ export class MemoryCrmRepository implements CrmRepository {
         }) ?? null
     );
   }
-  async create(prospect: Prospect) {
+  async create(prospect: Prospect, transition?: ProspectTransition) {
     this.prospects.set(prospect.id, prospect);
+    if (transition) this.transitions.push(transition);
   }
   /**
    * The caller hands over an already-merged prospect, so the new activities and contact are
@@ -58,14 +69,17 @@ export class MemoryCrmRepository implements CrmRepository {
     prospect: Prospect,
     _activities: readonly ProspectActivity[] = [],
     _contact?: ProspectContact,
+    transition?: ProspectTransition,
   ) {
     this.prospects.set(prospect.id, prospect);
+    if (transition) this.transitions.push(transition);
   }
   async recordConversion(
     eventId: string,
     prospectId: string,
     speakerId: string,
     activity: ProspectActivity,
+    transition?: ProspectTransition,
   ) {
     const prospect = await this.findById(eventId, prospectId);
     if (!prospect) throw new Error("Prospect not found");
@@ -79,7 +93,80 @@ export class MemoryCrmRepository implements CrmRepository {
       activities: [...prospect.activities, activity],
     };
     this.prospects.set(prospectId, converted);
+    if (transition) this.transitions.push(transition);
     return converted;
+  }
+
+  /* ------------------------------ the board itself ------------------------------ */
+
+  private readonly stages = new Map<string, PipelineStage[]>();
+  private readonly transitions: ProspectTransition[] = [];
+
+  async listStages(eventId: string): Promise<readonly PipelineStage[]> {
+    return (this.stages.get(eventId) ?? []).toSorted(
+      (left, right) => left.sortOrder - right.sortOrder || left.key.localeCompare(right.key),
+    );
+  }
+
+  /** Mirrors D1's `INSERT OR IGNORE`: an existing key is left exactly as it is. */
+  async ensureStages(eventId: string, stages: readonly PipelineStage[]) {
+    const existing = this.stages.get(eventId) ?? [];
+    const keys = new Set(existing.map(({ key }) => key));
+    this.stages.set(eventId, [...existing, ...stages.filter(({ key }) => !keys.has(key))]);
+    return this.listStages(eventId);
+  }
+
+  async saveStages(eventId: string, stages: readonly PipelineStage[]) {
+    this.stages.set(eventId, [...stages]);
+  }
+
+  async countByStage(eventId: string) {
+    const counts = new Map<string, number>();
+    for (const prospect of this.prospects.values())
+      if (prospect.eventId === eventId)
+        counts.set(prospect.stage, (counts.get(prospect.stage) ?? 0) + 1);
+    return counts;
+  }
+
+  async deleteStage(
+    eventId: string,
+    stageKey: string,
+    migrateTo: string,
+    move: StageMigration,
+    remaining: readonly PipelineStage[],
+  ) {
+    // The same rule the D1 adapter keeps: whatever this predicate matches is what moves *and*
+    // what gets a history entry. A fake that took the caller's word for which prospects moved
+    // would stay green against the stale-snapshot defect the real adapter had, which is the one
+    // way a fake can be worse than no test at all.
+    for (const [id, prospect] of this.prospects) {
+      if (prospect.eventId !== eventId || prospect.stage !== stageKey) continue;
+      this.prospects.set(id, { ...prospect, stage: migrateTo, updatedAt: move.occurredAt });
+      this.transitions.push({
+        id: crypto.randomUUID(),
+        eventId,
+        prospectId: id,
+        fromStage: stageKey,
+        toStage: migrateTo,
+        actorId: move.actorId,
+        source: move.source,
+        occurredAt: move.occurredAt,
+      });
+    }
+    this.stages.set(eventId, [...remaining]);
+  }
+
+  async recordTransition(transition: ProspectTransition) {
+    this.transitions.push(transition);
+  }
+
+  async listTransitions(eventId: string): Promise<readonly ProspectTransition[]> {
+    return this.transitions
+      .filter((transition) => transition.eventId === eventId)
+      .toSorted(
+        (left, right) =>
+          left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id),
+      );
   }
 
   /* The organization-wide directory. */

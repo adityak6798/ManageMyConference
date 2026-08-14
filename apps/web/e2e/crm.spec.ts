@@ -36,6 +36,11 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
   await expect(page.getByRole("heading", { name: "Speaker CRM", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prospect pipeline" })).toBeVisible();
 
+  // This journey is about the stage-filtered table, which is now one of two views: the board
+  // #197 added answers "where is everybody" and opens by default, and the table answers "who
+  // is stuck". Both read the same stages, so the tabs below still name what the board draws.
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+
   // Stage counts are readable before a stage is chosen.
   const pipeline = page.getByRole("table");
   await expect(pipeline.getByRole("button", { name: "Dr. Ada Rivera" })).toBeVisible();
@@ -182,6 +187,8 @@ test("the pipeline searches by contact and explains an empty stage", async ({ pa
   // unauthenticated and the shell bounces to the sign-in surface.
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(CRM);
+  // The table view, which is the one that filters by stage and explains an empty one.
+  await page.getByRole("button", { name: "Table", exact: true }).click();
 
   await page.getByLabel("Search prospects").fill("morgan@example.test");
   await expect(page.getByRole("button", { name: "Morgan Chen" })).toBeVisible();
@@ -454,4 +461,150 @@ test("the organization dashboard counts stored contacts rather than constants", 
   await page.goto(DIRECTORY);
   await expect(page.getByText("Across every event in this organization")).toBeVisible();
   await expect(page.getByText("Held once, with every history")).toBeVisible();
+});
+
+/*
+ * The configurable sourcing board (#197).
+ *
+ * Driven rather than inspected: #145 shipped a drag handle with no drag behaviour attached, so
+ * "the board renders" proves nothing.
+ *
+ * Both cases bring their own prospect and their own stage and put the board back, because this
+ * suite shares one mutable fixture — the same discipline the import journey above follows by
+ * creating its own duplicate pair rather than consuming the seeded one. A board test that moved
+ * the seeded cards would decide whether the *other* journeys pass.
+ */
+
+/** A prospect this journey owns, so moving it disturbs nobody else's assertions. */
+async function ownProspect(page: import("@playwright/test").Page, name: string) {
+  const created = await page.request.post(`/api/events/${EVENT_ID}/prospects`, {
+    data: {
+      name,
+      ownerId: "seed-organizer",
+      contact: { name, email: `${name.toLowerCase().replace(/\W+/g, "-")}@example.test` },
+    },
+  });
+  expect(created.status(), await created.text()).toBe(201);
+  return (await created.json()).prospect as { id: string; stage: string };
+}
+
+const stageOfProspect = async (page: import("@playwright/test").Page, id: string) => {
+  const response = await page.request.get(`/api/events/${EVENT_ID}/prospects/${id}`);
+  return ((await response.json()) as { prospect: { stage: string } }).prospect.stage;
+};
+
+test("an organizer moves a card on the board by pointer and by keyboard", async ({ page }) => {
+  await signIn(page);
+  const name = `Board Prospect ${Date.now()}`;
+  const mine = await ownProspect(page, name);
+
+  await page.goto(CRM);
+  await expect(page.getByRole("heading", { name: "Speaker CRM", level: 1 })).toBeVisible();
+  // The board is the view the workspace opens on, and it draws a column per configured stage.
+  await expect(page.locator(".pipeline-board")).toBeVisible();
+
+  // --- keyboard: focus the card, press an arrow, and press it again ---
+  const card = page.locator(".pipeline-card").filter({ hasText: name }).first();
+  await card.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("status").filter({ hasText: `${name} moved to` })).toBeVisible();
+  await expect.poll(() => stageOfProspect(page, mine.id), { timeout: 10_000 }).toBe("contacted");
+
+  // The second press is the assertion: a moved card is remounted into another column, and a
+  // keyboard user whose focus was dropped could move a card exactly once.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => stageOfProspect(page, mine.id), { timeout: 10_000 }).toBe("engaged");
+
+  // --- pointer: a real drag between two columns ---
+  //
+  // Explicit mouse steps rather than `dragTo`: Chromium promotes a pointer gesture to a native
+  // HTML5 drag only once it has seen movement, and a three-event down/move/up leaves
+  // `dragstart` unfired — which would make this pass against a board with no drag handlers at
+  // all, the exact failure #145 shipped.
+  const target = page.locator(".pipeline-column").filter({ hasText: "Invited" }).first();
+  const dragged = page.locator(".pipeline-card").filter({ hasText: name }).first();
+  // The columns live in a horizontal scroller, so the destination has to be brought on screen
+  // *before* the source box is measured — scrolling afterwards moves the card out from under
+  // the pointer, which is why this passed alone and failed in the full suite, where earlier
+  // journeys leave the board wider.
+  await target.scrollIntoViewIfNeeded();
+  await dragged.scrollIntoViewIfNeeded();
+  const to = await target.boundingBox();
+  const from = await dragged.boundingBox();
+  await page.mouse.move((from?.x ?? 0) + 20, (from?.y ?? 0) + 20);
+  await page.mouse.down();
+  await page.mouse.move((to?.x ?? 0) + 60, (to?.y ?? 0) + 60, { steps: 20 });
+  await page.mouse.up();
+  await expect.poll(() => stageOfProspect(page, mine.id), { timeout: 10_000 }).toBe("invited");
+
+  // Every move is on the record, with what did it.
+  const history = await page.request.get(`/api/events/${EVENT_ID}/pipeline/history`);
+  const { transitions } = (await history.json()) as {
+    transitions: {
+      prospectId: string;
+      fromStage: string | null;
+      toStage: string;
+      source: string;
+    }[];
+  };
+  const mineOnly = transitions.filter(({ prospectId }) => prospectId === mine.id);
+  expect(mineOnly.map(({ source }) => source)).toEqual(["created", "board", "board", "board"]);
+  expect(mineOnly.at(-1)).toMatchObject({ fromStage: "engaged", toStage: "invited" });
+});
+
+test("a stage cannot take its prospects with it when it goes", async ({ page }) => {
+  await signIn(page);
+  const stamp = Date.now();
+  const stageLabel = `Shortlisted ${stamp}`;
+  const name = `Stage Prospect ${stamp}`;
+  const mine = await ownProspect(page, name);
+
+  await page.goto(CRM);
+  await page.getByRole("button", { name: "Configure stages" }).click();
+
+  // Add a stage of this journey's own, so nothing here depends on the default board surviving
+  // whatever else the suite did first.
+  await page.getByLabel("New stage name").fill(stageLabel);
+  await page.getByRole("button", { name: "Add stage" }).click();
+  await page.getByRole("button", { name: "Save board" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Board saved." })).toBeVisible();
+  const column = page.locator(".pipeline-column").filter({ hasText: stageLabel });
+  await expect(column).toBeVisible();
+
+  // Converted is the product's, not the organizer's: the row says so rather than being greyed
+  // out with no explanation, which is #149's shape.
+  const converted = page.locator(".stage-row").filter({ hasText: "converted" });
+  await expect(converted.getByText("Reached by converting a prospect")).toBeVisible();
+  await expect(converted.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
+
+  // Put this journey's prospect in the new stage, from the API so the assertion below is about
+  // the delete rather than about the drag the other case already covers.
+  const moved = await page.request.patch(`/api/events/${EVENT_ID}/prospects/${mine.id}`, {
+    data: { stage: `shortlisted-${stamp}` },
+  });
+  expect(moved.status(), await moved.text()).toBe(200);
+  await page.reload();
+  await page.getByRole("button", { name: "Configure stages" }).click();
+
+  // Removing it asks where its prospects go, then moves them.
+  const row = page.locator(".stage-row").filter({ hasText: stageLabel });
+  await row.getByRole("button", { name: /^Remove/ }).click();
+  await expect(page.getByText("stand here and must move somewhere")).toBeVisible();
+  await page.getByLabel("Move them to").selectOption("contacted");
+  await page.getByRole("button", { name: "Remove and move them" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: /removed\. Anybody standing there is now in/ }),
+  ).toBeVisible();
+
+  // The column is gone and its card is where the organizer sent it, not lost.
+  await expect(page.locator(".pipeline-column").filter({ hasText: stageLabel })).toHaveCount(0);
+  expect(await stageOfProspect(page, mine.id)).toBe("contacted");
+  const history = await page.request.get(`/api/events/${EVENT_ID}/pipeline/history`);
+  const { transitions } = (await history.json()) as {
+    transitions: { prospectId: string; fromStage: string | null; toStage: string }[];
+  };
+  expect(transitions.filter(({ prospectId }) => prospectId === mine.id).at(-1)).toMatchObject({
+    fromStage: `shortlisted-${stamp}`,
+    toStage: "contacted",
+  });
 });

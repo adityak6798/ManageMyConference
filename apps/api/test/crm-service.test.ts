@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
 import { CrmService } from "../src/application/crm/crm-service";
 import {
+  PipelineStageInUseError,
+  PipelineStageInvalidError,
+  PipelineStageNotFoundError,
   ProspectContactRequiredError,
   ProspectOwnerNotEligibleError,
 } from "../src/application/crm/errors";
@@ -371,7 +374,7 @@ describe("ACC-CRM stage history", () => {
     expect(moved.activities).toEqual([
       expect.objectContaining({
         kind: "stage-change",
-        summary: "identified → contacted",
+        summary: "Identified → Contacted",
         private: false,
         actorId: organizer.id,
         occurredAt: "2026-08-10T12:00:00.000Z",
@@ -400,7 +403,7 @@ describe("ACC-CRM stage history", () => {
       engaged.activities
         .filter(({ kind }) => kind === "stage-change")
         .map(({ summary }) => summary),
-    ).toEqual(["identified → contacted", "contacted → engaged"]);
+    ).toEqual(["Identified → Contacted", "Contacted → Engaged"]);
   });
 });
 
@@ -1260,5 +1263,340 @@ describe("ACC-CRM organization directory", () => {
     await expect(
       contactOf(service, { name: "A. Rivera", email: "ADA@example.test" }),
     ).rejects.toThrow(/contact with this email already exists/i);
+  });
+});
+
+/**
+ * The configurable board (#197).
+ *
+ * What is under test is the set of promises a configurable pipeline has to keep that a fixed
+ * one did not: a rename must not move anybody, a category must survive a rename, a stage
+ * holding prospects must not vanish, and every move must be on the record.
+ */
+describe("ACC-CRM configurable pipeline", () => {
+  const stageKeys = async (service: CrmService) =>
+    (await service.pipelineStages(organizer, eventId)).map(({ key }) => key);
+
+  it("gives an event with no board the default one, and does not re-seed it after an edit", async () => {
+    const { service } = setup();
+    expect(await stageKeys(service)).toEqual([
+      "identified",
+      "contacted",
+      "engaged",
+      "invited",
+      "confirmed",
+      "converted",
+      "future-fit",
+      "declined",
+    ]);
+    // Healing is `INSERT OR IGNORE`, so a rename survives the next read rather than being
+    // quietly put back — which is the difference between self-healing and self-undoing.
+    await service.savePipelineStages(
+      organizer,
+      eventId,
+      (await service.pipelineStages(organizer, eventId)).map(({ key, label, category }) =>
+        key === "engaged" ? { key, label: "In conversation", category } : { key, label, category },
+      ),
+    );
+    const stages = await service.pipelineStages(organizer, eventId);
+    expect(stages.find(({ key }) => key === "engaged")?.label).toBe("In conversation");
+    expect(stages).toHaveLength(8);
+  });
+
+  it("keeps a renamed stage's key, so nobody standing in it moves", async () => {
+    const { service } = setup();
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    await service.update(organizer, eventId, prospect.id, { stage: "engaged" });
+    await service.savePipelineStages(
+      organizer,
+      eventId,
+      (await service.pipelineStages(organizer, eventId)).map(({ key, label, category }) =>
+        key === "engaged"
+          ? { key, label: "Warm", category: "nurture" as const }
+          : { key, label, category },
+      ),
+    );
+    // The card is where it was; only what the column is called and counts as has changed.
+    expect((await service.get(organizer, eventId, prospect.id)).stage).toBe("engaged");
+    const stage = (await service.pipelineStages(organizer, eventId)).find(
+      ({ key }) => key === "engaged",
+    );
+    expect(stage).toMatchObject({ label: "Warm", category: "nurture" });
+  });
+
+  it("refuses to drop a stage that still holds prospects, and names it", async () => {
+    const { service } = setup();
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    await service.update(organizer, eventId, prospect.id, { stage: "engaged" });
+    const without = (await service.pipelineStages(organizer, eventId))
+      .filter(({ key }) => key !== "engaged")
+      .map(({ key, label, category }) => ({ key, label, category }));
+    await expect(service.savePipelineStages(organizer, eventId, without)).rejects.toBeInstanceOf(
+      PipelineStageInUseError,
+    );
+    // An empty stage may simply go: the refusal is about stranding people, not about tidiness.
+    const withoutEmpty = (await service.pipelineStages(organizer, eventId))
+      .filter(({ key }) => key !== "declined")
+      .map(({ key, label, category }) => ({ key, label, category }));
+    await expect(
+      service.savePipelineStages(organizer, eventId, withoutEmpty),
+    ).resolves.toHaveLength(7);
+  });
+
+  it("moves everybody out when a stage is deleted, and records where they went", async () => {
+    const { service } = setup();
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    await service.update(organizer, eventId, prospect.id, { stage: "engaged" });
+    const remaining = await service.deletePipelineStage(organizer, eventId, "engaged", "contacted");
+
+    expect(remaining.map(({ key }) => key)).not.toContain("engaged");
+    expect((await service.get(organizer, eventId, prospect.id)).stage).toBe("contacted");
+    // Sort order is normalized, so "third from the left" is 2 for everybody after a delete.
+    expect(remaining.map(({ sortOrder }) => sortOrder)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    // Asserted by presence rather than by position: this fixture's clock is frozen, so every
+    // transition shares an instant and the tiebreak is a random id. Order is a property of real
+    // time, not of this test.
+    const history = await service.pipelineHistory(organizer, eventId);
+    expect(history).toContainEqual(
+      expect.objectContaining({
+        prospectId: prospect.id,
+        fromStage: "engaged",
+        toStage: "contacted",
+        actorId: organizer.id,
+      }),
+    );
+  });
+
+  it("refuses a destination that is not on the board, and Converted either way", async () => {
+    const { service } = setup();
+    await expect(
+      service.deletePipelineStage(organizer, eventId, "engaged", "not-a-stage"),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    // Converting is what puts a card in Converted, so it is neither removable nor a destination.
+    await expect(
+      service.deletePipelineStage(organizer, eventId, "converted", "engaged"),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    await expect(
+      service.deletePipelineStage(organizer, eventId, "engaged", "converted"),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    await expect(
+      service.deletePipelineStage(organizer, eventId, "no-such-stage", "engaged"),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+  });
+
+  it("refuses a board with two stages sharing a key or a name", async () => {
+    const { service } = setup();
+    const stages = (await service.pipelineStages(organizer, eventId)).map(
+      ({ key, label, category }) => ({ key, label, category }),
+    );
+    await expect(
+      service.savePipelineStages(organizer, eventId, [...stages, stages[0] as never]),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    await expect(
+      service.savePipelineStages(organizer, eventId, [
+        ...stages,
+        { key: "another", label: "Engaged", category: "open" },
+      ]),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+  });
+
+  it("refuses a board without Converted, dropped or renamed away", async () => {
+    const { service } = setup();
+    const stages = (await service.pipelineStages(organizer, eventId)).map(
+      ({ key, label, category }) => ({ key, label, category }),
+    );
+    // Nobody is standing in Converted on this fixture, so an ordinary "you may drop an empty
+    // stage" board is what is being sent: the refusal can only be the Converted guard, not
+    // `PipelineStageInUseError` shadowing it.
+    await expect(
+      service.savePipelineStages(
+        organizer,
+        eventId,
+        stages.filter(({ key }) => key !== "converted"),
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    // A rename of the key is the same loss wearing a familiar label. `convert` writes the key
+    // `converted`, so a column still called Converted under the key `won` is a column every
+    // converted card misses — the board would render them nowhere.
+    await expect(
+      service.savePipelineStages(
+        organizer,
+        eventId,
+        stages.map((stage) => (stage.key === "converted" ? { ...stage, key: "won" } : stage)),
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+    // A refused save writes nothing: the column `convert` targets is still there.
+    expect(await stageKeys(service)).toContain("converted");
+  });
+
+  it("refuses a move to a stage this board does not have, and into Converted", async () => {
+    const { service } = setup();
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    await expect(
+      service.update(organizer, eventId, prospect.id, { stage: "not-a-stage" }),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(
+      service.update(organizer, eventId, prospect.id, { stage: "converted" }),
+    ).rejects.toBeInstanceOf(PipelineStageInvalidError);
+  });
+
+  it("records the arrival, every move and the conversion in one history", async () => {
+    const { service } = setup();
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    await service.update(organizer, eventId, prospect.id, { stage: "engaged", source: "board" });
+    await service.convert(organizer, eventId, prospect.id, "correlation-1");
+
+    const history = await service.pipelineHistory(organizer, eventId);
+    // Sorted here rather than trusted in order, for the same reason: the clock is frozen.
+    expect(
+      history
+        .map(({ fromStage, toStage, source }) => `${fromStage ?? "-"}>${toStage}:${source}`)
+        .toSorted(),
+    ).toEqual(
+      [
+        "->identified:created",
+        "identified>engaged:board",
+        "engaged>converted:conversion",
+      ].toSorted(),
+    );
+    expect(history.every(({ actorId }) => actorId === organizer.id)).toBe(true);
+  });
+
+  it("lands a new prospect in the board's first open stage, wherever that is", async () => {
+    const { service } = setup();
+    // An organizer who reordered their intake column: new cards follow it rather than the
+    // literal `identified`, which is the difference between a board that is configurable and
+    // one that is configurable everywhere except where things enter it.
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "declined", label: "Declined", category: "lost" },
+      { key: "sourcing", label: "Sourcing", category: "open" },
+      { key: "identified", label: "Identified", category: "open" },
+      { key: "converted", label: "Converted", category: "won" },
+    ]);
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    expect(prospect.stage).toBe("sourcing");
+  });
+
+  it("never lands a new prospect in Converted, whatever the board's first column is", async () => {
+    const { service } = setup();
+    // A board with no `open` stage at all, beginning with Converted. It is a board this service
+    // accepts — nothing requires an open column — and taking the leftmost stage as the fallback
+    // made every new card arrive in Converted with no `speakerId` and no `convertedAt`: a card
+    // reading "converted" that nothing ever converted, which is the one state this domain says
+    // cannot exist and which `update` and the board both refuse to produce.
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "converted", label: "Converted", category: "won" },
+      { key: "shortlist", label: "Shortlist", category: "nurture" },
+    ]);
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    expect(prospect.stage).toBe("shortlist");
+    expect(prospect.speakerId).toBeNull();
+    // The arrival is recorded where the card actually is, so the history cannot claim a
+    // conversion the speaker domain never heard about.
+    expect(await service.pipelineHistory(organizer, eventId)).toContainEqual(
+      expect.objectContaining({ prospectId: prospect.id, toStage: "shortlist", source: "created" }),
+    );
+  });
+
+  it("refuses a creation with only Converted to land in, in the words it refuses a move", async () => {
+    const { service } = setup();
+    // The board reduced to the one column the product writes. Nowhere honest is left to put a
+    // new prospect, and putting it in Converted anyway is the failure the case above pins — so
+    // this asks instead that the refusal an organizer reads here is the refusal they would read
+    // dragging a card into that column, rather than a second sentence about the same rule.
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "converted", label: "Converted", category: "won" },
+    ]);
+    const refusal = await service
+      .create(organizer, {
+        eventId,
+        name: "Ada Rivera",
+        ownerId: organizer.id,
+        contact: { name: "Ada", email: "ada@example.test" },
+      })
+      .then(
+        () => "the prospect was created",
+        (reason: unknown) => reason,
+      );
+    expect(refusal).toBeInstanceOf(PipelineStageInvalidError);
+
+    // The wording is compared against the live move refusal rather than pinned as a string here,
+    // so the two can be reworded together and cannot be reworded apart. A second fixture,
+    // because a board holding a prospect cannot be reduced to Converted alone.
+    const { service: elsewhere } = setup();
+    const prospect = await elsewhere.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    const move = await elsewhere
+      .update(organizer, eventId, prospect.id, { stage: "converted" })
+      .then(
+        () => "the move was allowed",
+        (reason: unknown) => reason,
+      );
+    expect((refusal as Error).message).toBe((move as Error).message);
+  });
+
+  it("is closed to somebody without crm:manage on this event", async () => {
+    const { service } = setup();
+    await expect(service.pipelineStages(reviewer, eventId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // A board this service would otherwise accept, and the named error rather than a bare
+    // `toThrow`. Sending `[]` proved nothing: validation refuses an empty list before the
+    // capability check is ever reached, so that version stayed green with the check deleted.
+    // What this case is about is who is asking, not what they sent.
+    await expect(
+      service.savePipelineStages(reviewer, eventId, [
+        { key: "identified", label: "Identified", category: "open" },
+        { key: "converted", label: "Converted", category: "won" },
+      ]),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(
+      service.deletePipelineStage(reviewer, eventId, "engaged", "contacted"),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(service.pipelineHistory(reviewer, eventId)).rejects.toBeInstanceOf(
+      CapabilityDeniedError,
+    );
+    // And the refusals were refusals: the board is still the untouched default, not the
+    // two-column one the reviewer tried to save.
+    expect(await stageKeys(service)).toHaveLength(8);
   });
 });

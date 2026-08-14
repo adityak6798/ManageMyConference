@@ -33,6 +33,7 @@ import { SessionEditor } from "./SessionEditor";
 import { SpeakerOutreach } from "./SpeakerOutreach";
 import { ContentOperations } from "./ContentOperations";
 import {
+  assetVersionGroups,
   daysUntil,
   isImageAsset,
   PUBLICATION_LABEL,
@@ -83,6 +84,9 @@ export function OrganizerView({
     [workspace.speakers],
   );
 
+  /** One entry per logical deliverable, newest version first. */
+  const deliverables = useMemo(() => assetVersionGroups(workspace.assets), [workspace.assets]);
+
   const counts = useMemo(() => {
     const byState = { draft: 0, ready: 0, published: 0 };
     for (const session of workspace.sessions) byState[session.publicationState] += 1;
@@ -130,7 +134,7 @@ export function OrganizerView({
       const covered =
         sent === 0 && alreadySent > 0
           ? `Every speaker already has the current invitation (${alreadySent}).`
-          : `${plural(sent, "invitation")} queued${alreadySent ? `, ${alreadySent} already sent` : ""}.`;
+          : `${sent} ${plural(sent, "invitation")} queued${alreadySent ? `, ${alreadySent} already sent` : ""}.`;
       sessionFeedback.announce(
         unreachable.length ? "error" : "success",
         unreachable.length
@@ -268,10 +272,12 @@ export function OrganizerView({
           icon={<IconTask size={15} />}
           attention={openTasks.some((task) => daysUntil(task.dueAt, now) < 0)}
         />
+        {/* Deliverables rather than uploads, so the number agrees with the table below it:
+            counting rows made a deck re-uploaded once read as two things to review. */}
         <Stat
           label="Speaker assets"
-          value={workspace.assets.length}
-          hint={`${workspace.assets.filter((asset) => asset.visibility === "publishable").length} publishable`}
+          value={deliverables.length}
+          hint={`${deliverables.filter(({ latest }) => latest.visibility === "publishable").length} publishable`}
           icon={<IconInbox size={15} />}
         />
       </dl>
@@ -501,7 +507,7 @@ export function OrganizerView({
                     <tr>
                       <th scope="col">File</th>
                       <th scope="col">Speaker</th>
-                      <th scope="col">Uploaded</th>
+                      <th scope="col">Latest upload</th>
                       <th scope="col">Visibility</th>
                       <th scope="col">
                         <span className="visually-hidden">Actions</span>
@@ -509,11 +515,14 @@ export function OrganizerView({
                     </tr>
                   </thead>
                   <tbody>
-                    {workspace.assets.map((asset) => {
+                    {/* One row per deliverable, showing the version an organizer would download.
+                        Listing every upload put two rows with the same name and date beside each
+                        other and left the choice between them to guesswork. */}
+                    {deliverables.map(({ groupId, latest: asset, prior }) => {
                       const owner = speakerById.get(asset.speakerProfileId);
                       const isPhoto = Boolean(owner && owner.photoAssetId === asset.id);
                       return (
-                        <tr key={asset.id}>
+                        <tr key={groupId}>
                           <td className="primary-cell" data-label="File">
                             {asset.name}
                             <span className="sub">
@@ -522,7 +531,14 @@ export function OrganizerView({
                             </span>
                           </td>
                           <td data-label="Speaker">{owner?.name ?? "Unknown speaker"}</td>
-                          <td data-label="Uploaded">{shortDate(asset.uploadedAt)}</td>
+                          <td data-label="Latest upload">
+                            {shortDate(asset.uploadedAt)}
+                            {prior.length ? (
+                              <span className="sub">
+                                Version {asset.versionNumber ?? 1} of {prior.length + 1}
+                              </span>
+                            ) : null}
+                          </td>
                           <td data-label="Visibility">
                             <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
                               {asset.visibility === "publishable" ? "Publishable" : "Private"}
@@ -567,6 +583,34 @@ export function OrganizerView({
                                 </button>
                               ) : null}
                             </div>
+                            {/* Prior versions stay downloadable rather than merely counted: an
+                                organizer comparing what changed needs the file, not the number. */}
+                            {prior.length ? (
+                              <details className="asset-history">
+                                <summary>
+                                  {prior.length} {plural(prior.length, "earlier version")}
+                                  <span className="visually-hidden"> of {asset.name}</span>
+                                </summary>
+                                <ul>
+                                  {prior.map((old) => (
+                                    <li key={old.id}>
+                                      <a
+                                        className="download"
+                                        href={`/api/speaker-assets/${old.id}`}
+                                        download={old.name}
+                                      >
+                                        Version {old.versionNumber ?? 1}
+                                        <span className="visually-hidden">
+                                          {" "}
+                                          of {asset.name}, uploaded {shortDate(old.uploadedAt)}
+                                        </span>
+                                      </a>
+                                      <span className="sub">{shortDate(old.uploadedAt)}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            ) : null}
                           </td>
                         </tr>
                       );

@@ -66,7 +66,9 @@
 - `test` / `repository-fact`: [apps/web/e2e/crm.spec.ts](../../apps/web/e2e/crm.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/crm-directory.test.tsx](../../apps/web/test/crm-directory.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/crm-owner-assignment.test.tsx](../../apps/web/test/crm-owner-assignment.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/crm-pipeline-stage-editor.test.tsx](../../apps/web/test/crm-pipeline-stage-editor.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-DEMO-SMOKE`
@@ -138,6 +140,7 @@
 - `test` / `repository-fact`: [apps/api/test/d1-identity-membership.integration.test.ts](../../apps/api/test/d1-identity-membership.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-identity-sessions.integration.test.ts](../../apps/api/test/d1-identity-sessions.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-identity-signup.integration.test.ts](../../apps/api/test/d1-identity-signup.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/event-timezone.test.ts](../../apps/api/test/event-timezone.test.ts)
 - `test` / `repository-fact`: [apps/api/test/google-oauth-client.test.ts](../../apps/api/test/google-oauth-client.test.ts)
 - `test` / `repository-fact`: [apps/api/test/google-oauth.test.ts](../../apps/api/test/google-oauth.test.ts)
 - `test` / `repository-fact`: [apps/api/test/identity-sessions-http.test.ts](../../apps/api/test/identity-sessions-http.test.ts)
@@ -246,8 +249,11 @@
 - `test` / `repository-fact`: [apps/api/test/content-calendar-publication.test.ts](../../apps/api/test/content-calendar-publication.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-csv-import.test.ts](../../apps/api/test/content-csv-import.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-deliverables.test.ts](../../apps/api/test/content-deliverables.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-export.test.ts](../../apps/api/test/content-export.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-publication-gate.test.ts](../../apps/api/test/content-publication-gate.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-resource-sanitizer.test.ts](../../apps/api/test/content-resource-sanitizer.test.ts)
+- `test` / `repository-fact`: [apps/api/test/content-revisions.test.ts](../../apps/api/test/content-revisions.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-service.test.ts](../../apps/api/test/content-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-content-repository.integration.test.ts](../../apps/api/test/d1-content-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/integrations-http.test.ts](../../apps/api/test/integrations-http.test.ts)
@@ -258,11 +264,13 @@
 - `test` / `repository-fact`: [apps/web/e2e/speaker-portal.spec.ts](../../apps/web/e2e/speaker-portal.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/calendar-links.test.ts](../../apps/web/test/calendar-links.test.ts)
 - `test` / `repository-fact`: [apps/web/test/content-operations.test.tsx](../../apps/web/test/content-operations.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/deliverable-tracker.test.tsx](../../apps/web/test/deliverable-tracker.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/proposal-acceptance.test.tsx](../../apps/web/test/proposal-acceptance.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/session-withdrawal.test.tsx](../../apps/web/test/session-withdrawal.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-checklist.test.tsx](../../apps/web/test/speaker-checklist.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-photo.test.tsx](../../apps/web/test/speaker-photo.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ARC-001`
@@ -284,6 +292,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/cfp/template-slice.ts](../../apps/api/src/application/cfp/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/reminder-dispatch.ts](../../apps/api/src/application/content/reminder-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/template-slice.ts](../../apps/api/src/application/content/template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/crm/outreach-dispatch.ts](../../apps/api/src/application/crm/outreach-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/application/events/template-ports.ts](../../apps/api/src/application/events/template-ports.ts)
@@ -367,6 +376,7 @@
 ### `JNY-008`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `JNY-009`
@@ -486,6 +496,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/communications/task-reminders.ts](../../apps/api/src/application/communications/task-reminders.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/calendar-invite.ts](../../apps/api/src/application/content/calendar-invite.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/reminder-dispatch.ts](../../apps/api/src/application/content/reminder-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/speaker-calendar-invites.ts](../../apps/api/src/application/content/speaker-calendar-invites.ts)
 - `code` / `repository-fact`: [apps/api/src/application/review/review-service.ts](../../apps/api/src/application/review/review-service.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/communications/audience.ts](../../apps/api/src/domain/communications/audience.ts)
@@ -519,6 +530,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/crm.tsx](../../apps/web/src/workspaces/crm.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/crm.ts](../../packages/contracts/src/domains/crm.ts)
 
 ### `PRD-EVT-001`
@@ -744,6 +756,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/content/calendar-invite.ts](../../apps/api/src/application/content/calendar-invite.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/checklist-template-slice.ts](../../apps/api/src/application/content/checklist-template-slice.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/content-service.ts](../../apps/api/src/application/content/content-service.ts)
+- `code` / `repository-fact`: [apps/api/src/application/content/reminder-dispatch.ts](../../apps/api/src/application/content/reminder-dispatch.ts)
 - `code` / `repository-fact`: [apps/api/src/application/content/speaker-calendar-invites.ts](../../apps/api/src/application/content/speaker-calendar-invites.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/content.ts](../../apps/api/src/transport/http/routes/content.ts)
 - `code` / `repository-fact`: [apps/web/src/content/ChecklistEditor.tsx](../../apps/web/src/content/ChecklistEditor.tsx)

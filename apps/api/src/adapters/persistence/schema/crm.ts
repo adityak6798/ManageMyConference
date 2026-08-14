@@ -6,6 +6,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  unique,
   uniqueIndex,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
@@ -38,11 +39,81 @@ export function defineCrmSchema(references: {
     },
     (table) => [
       check("crm_prospects_name_length", sql`length(${table.name}) BETWEEN 1 AND 160`),
-      check(
-        "crm_prospects_stage",
-        sql`${table.stage} IN ('identified','contacted','engaged','invited','converted')`,
-      ),
+      /*
+       * No CHECK on `stage`. Which keys exist is data now — `crm_pipeline_stages`, one row per
+       * stage an organizer configured — and the application refuses a key this event has not
+       * configured. A constraint here would be the same list in a second place, one deploy out
+       * of date the first time somebody adds a stage (`1501`).
+       */
       index("crm_prospects_event_pipeline_idx").on(table.eventId, table.stage, table.nextActionAt),
+    ],
+  );
+
+  /**
+   * The stages this event's board is made of.
+   *
+   * `key` is stable and is what a prospect row stores; `label` is the organizer's to rename;
+   * `category` is closed so a filter or a report keyed on "won" survives the rename. Scoped to
+   * the event rather than the organization because two conferences run different processes, and
+   * a shared list would make one event's edit move the other's board.
+   */
+  // @spec PRD-CRM-001
+  const crmPipelineStages = sqliteTable(
+    "crm_pipeline_stages",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      key: text("key").notNull(),
+      label: text("label").notNull(),
+      category: text("category").notNull(),
+      sortOrder: integer("sort_order").notNull(),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [
+      check("crm_pipeline_stages_key_length", sql`length(${table.key}) BETWEEN 1 AND 60`),
+      check("crm_pipeline_stages_label_length", sql`length(${table.label}) BETWEEN 1 AND 80`),
+      check(
+        "crm_pipeline_stages_category",
+        sql`${table.category} IN ('open', 'won', 'nurture', 'lost')`,
+      ),
+      unique("crm_pipeline_stages_event_id_key_unique").on(table.eventId, table.key),
+      index("crm_pipeline_stages_event_order_idx").on(table.eventId, table.sortOrder, table.key),
+    ],
+  );
+
+  /**
+   * Every move a prospect made, with what caused it.
+   *
+   * `prospect_id` carries no foreign key and the stage keys are text rather than references:
+   * history has to outlive both the prospect and the stage it names. A reference into
+   * `crm_pipeline_stages` would either block deleting a stage nobody uses any more or rewrite
+   * what the board said at the time, and neither is a history.
+   */
+  // @spec PRD-CRM-001
+  const crmProspectTransitions = sqliteTable(
+    "crm_prospect_transitions",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      prospectId: text("prospect_id").notNull(),
+      fromStage: text("from_stage"),
+      toStage: text("to_stage").notNull(),
+      actorId: text("actor_id")
+        .notNull()
+        .references(() => references.usersId),
+      source: text("source").notNull(),
+      occurredAt: text("occurred_at").notNull(),
+    },
+    (table) => [
+      check(
+        "crm_prospect_transitions_source",
+        sql`${table.source} IN ('board', 'detail', 'created', 'conversion', 'migration')`,
+      ),
+      index("crm_prospect_transitions_timeline_idx").on(table.prospectId, table.occurredAt),
     ],
   );
   const crmContacts = sqliteTable(
@@ -259,6 +330,8 @@ export function defineCrmSchema(references: {
 
   return {
     crmProspects,
+    crmPipelineStages,
+    crmProspectTransitions,
     crmContacts,
     crmActivities,
     crmOrganizationContacts,

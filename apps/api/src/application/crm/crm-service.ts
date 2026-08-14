@@ -13,7 +13,17 @@ import {
   type ParsedContactRow,
   parseContactCsv,
 } from "../../domain/crm/contact-import";
-import type { Prospect, ProspectActivity, ProspectStage } from "../../domain/crm/prospect";
+import {
+  CONVERTED_STAGE_KEY,
+  DEFAULT_PIPELINE_STAGES,
+  isMovableStage,
+  normalizeStageOrder,
+  type PipelineStage,
+  type Prospect,
+  type ProspectActivity,
+  type ProspectTransition,
+  type StageCategory,
+} from "../../domain/crm/prospect";
 import type { SpeakerConversionPort } from "../content/speaker-conversion";
 import {
   type Actor,
@@ -30,6 +40,9 @@ import {
   ContactNotFoundError,
   EventOutsideOrganizationError,
   OutreachRecipientsEmptyError,
+  PipelineStageInUseError,
+  PipelineStageInvalidError,
+  PipelineStageNotFoundError,
   ProspectAlreadyConvertedError,
   ProspectContactRequiredError,
   ProspectNotFoundError,
@@ -116,7 +129,9 @@ export type RecordableActivityKind = Exclude<
   "stage-change" | "conversion"
 >;
 export interface UpdateProspectCommand {
-  stage?: ProspectStage | undefined;
+  stage?: string | undefined;
+  /** What moved it. A drag on the board and an edit in the panel are different acts. */
+  source?: "board" | "detail" | undefined;
   ownerId?: string | undefined;
   nextAction?: string | null | undefined;
   nextActionAt?: string | null | undefined;
@@ -177,6 +192,17 @@ export interface EventOrganizationDirectory {
     candidateEventIds: readonly string[],
   ): Promise<readonly string[]>;
 }
+
+/**
+ * The one sentence this service says about Converted, wherever a caller arrives at it.
+ *
+ * A move into it, a stage deletion that would herd cards into it, and a creation with no other
+ * column to land in are the same rule refusing three approaches, so they refuse in the same
+ * words: an organizer meeting this twice should recognise the rule rather than read a second
+ * explanation and wonder whether it is a different one.
+ */
+const CONVERTED_IS_NOT_A_DESTINATION =
+  "Prospects cannot be moved into Converted: converting one is what puts it there.";
 
 // @spec PRD-CRM-001 PRD-IAM-002 ARC-FLOW-003
 export class CrmService {
@@ -269,14 +295,32 @@ export class CrmService {
   }
 
   async create(actor: Actor | null, command: CreateProspectCommand): Promise<Prospect> {
-    this.authorize(actor, command.eventId);
+    const authorized = this.authorize(actor, command.eventId);
     await this.requireAssignableOwner(command.eventId, command.ownerId);
     const now = this.dependencies.now().toISOString();
+    /*
+     * Where a new prospect lands is the board's first `open` stage rather than the literal
+     * `identified`. An organizer who renamed or reordered their intake column would otherwise
+     * find every new card arriving in a column they had moved to the end — the board would be
+     * configurable everywhere except where things enter it.
+     *
+     * The fallback is the first column a card may be *put* in, never simply the leftmost one.
+     * A board whose stages are all `won`, `nurture` or `lost` is a board this service accepts,
+     * and it can begin with Converted — so `stages[0]` created a prospect standing in Converted
+     * with no `speakerId` and no `convertedAt` behind it, which is the exact state `update`
+     * refuses to reach and the board refuses to accept a drop into. When Converted is the only
+     * column left there is nowhere honest to land, and creating is refused in the same words.
+     */
+    const stages = await this.ensureStages(command.eventId);
+    const entry =
+      stages.find(({ category }) => category === "open") ??
+      stages.find(({ key }) => isMovableStage(key));
+    if (!entry) throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
     const prospect: Prospect = {
       id: this.dependencies.newId(),
       eventId: command.eventId,
       name: command.name,
-      stage: "identified",
+      stage: entry.key,
       ownerId: command.ownerId,
       nextAction: command.nextAction ?? null,
       nextActionAt: command.nextActionAt ?? null,
@@ -287,7 +331,17 @@ export class CrmService {
       createdAt: now,
       updatedAt: now,
     };
-    await this.dependencies.repository.create(prospect);
+    await this.dependencies.repository.create(prospect, {
+      id: this.dependencies.newId(),
+      eventId: command.eventId,
+      prospectId: prospect.id,
+      // From nowhere: this is the prospect arriving, not a move somebody made.
+      fromStage: null,
+      toStage: prospect.stage,
+      actorId: authorized.id,
+      source: "created",
+      occurredAt: now,
+    });
     return prospect;
   }
 
@@ -307,16 +361,34 @@ export class CrmService {
     if (command.ownerId !== undefined && command.ownerId !== current.ownerId)
       await this.requireAssignableOwner(eventId, command.ownerId);
     const now = this.dependencies.now().toISOString();
+    const moving = command.stage !== undefined && command.stage !== current.stage;
+    /*
+     * A stage the board does not have is refused here rather than by a CHECK. The constraint
+     * that used to do it pinned five keys and is gone (`1502`); which keys exist is data now,
+     * so this is the boundary — and it has to be, because a stored key with no column would
+     * render a card nowhere at all.
+     */
+    let stageLabels = new Map<string, string>();
+    if (moving) {
+      const stages = await this.ensureStages(eventId);
+      stageLabels = new Map(stages.map((stage) => [stage.key, stage.label]));
+      const target = stages.find(({ key }) => key === command.stage);
+      if (!target) throw new PipelineStageNotFoundError("That stage is not on this board");
+      if (!isMovableStage(target.key))
+        throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
+    }
     // One write carries every consequence of this command. The stage transition is recorded
     // here rather than by the caller — `UpdateProspectCommand` cannot express one, and the
     // HTTP schema refuses it — so the timeline cannot disagree with the stage, and it lands
     // in the same repository call as the organizer's note.
     const activities: ProspectActivity[] = [];
-    if (command.stage !== undefined && command.stage !== current.stage)
+    if (moving)
       activities.push({
         id: this.dependencies.newId(),
         kind: "stage-change",
-        summary: `${current.stage} → ${command.stage}`,
+        // Labels rather than keys: the timeline is read by a person, and `future-fit` is not
+        // what their board calls that column.
+        summary: `${stageLabels.get(current.stage) ?? current.stage} → ${stageLabels.get(command.stage as string) ?? command.stage}`,
         private: false,
         occurredAt: now,
         actorId: authorized.id,
@@ -349,8 +421,173 @@ export class CrmService {
           ]
         : current.contacts,
     };
-    await this.dependencies.repository.update(updated, activities, contact);
+    await this.dependencies.repository.update(
+      updated,
+      activities,
+      contact,
+      moving
+        ? {
+            id: this.dependencies.newId(),
+            eventId,
+            prospectId: current.id,
+            fromStage: current.stage,
+            toStage: updated.stage,
+            actorId: authorized.id,
+            // The command carries where the move came from, so a report can tell a drag on the
+            // board from an edit in the detail panel. `detail` is the conservative default.
+            source: command.source ?? "detail",
+            occurredAt: now,
+          }
+        : undefined,
+    );
     return updated;
+  }
+
+  /* ------------------------------ the board itself ------------------------------ */
+
+  /**
+   * This event's stages, healing an event that has none.
+   *
+   * Self-healing rather than "create the stages when an event is created", for the same reason
+   * review's `storedStatuses` is: an event created before `1501`, or by a path that predates
+   * this feature, would otherwise open a board with no columns and every card rendering nowhere.
+   * `ensureStages` writes with `INSERT OR IGNORE`, so healing can never undo a rename and two
+   * organizers opening a new board at once cannot fail each other.
+   */
+  async pipelineStages(actor: Actor | null, eventId: string): Promise<readonly PipelineStage[]> {
+    this.authorize(actor, eventId);
+    return this.ensureStages(eventId);
+  }
+
+  private async ensureStages(eventId: string): Promise<readonly PipelineStage[]> {
+    const existing = await this.dependencies.repository.listStages(eventId);
+    if (existing.length) return existing;
+    const createdAt = this.dependencies.now().toISOString();
+    return this.dependencies.repository.ensureStages(
+      eventId,
+      DEFAULT_PIPELINE_STAGES.map((stage) => ({
+        ...stage,
+        id: this.dependencies.newId(),
+        eventId,
+        createdAt,
+      })),
+    );
+  }
+
+  /**
+   * Add, rename and reorder in one command, because on a board they are one act.
+   *
+   * The whole list is sent rather than a diff: a reorder moves every column, and three narrow
+   * writes would leave the order half-applied if the second failed. What this refuses is the
+   * two ways a stage list stops describing a board — a key that no longer exists while prospects
+   * still sit in it, and a duplicate key or label that would render two identical columns.
+   */
+  async savePipelineStages(
+    actor: Actor | null,
+    eventId: string,
+    stages: readonly { key: string; label: string; category: StageCategory }[],
+  ): Promise<readonly PipelineStage[]> {
+    this.authorize(actor, eventId);
+    const existing = await this.ensureStages(eventId);
+    const keys = stages.map(({ key }) => key);
+    if (new Set(keys).size !== keys.length)
+      throw new PipelineStageInvalidError("Two stages cannot share a key");
+    const labels = stages.map(({ label }) => label.trim().toLowerCase());
+    if (new Set(labels).size !== labels.length)
+      throw new PipelineStageInvalidError("Two stages cannot share a name");
+    if (!stages.length) throw new PipelineStageInvalidError("A pipeline needs at least one stage");
+
+    /*
+     * `converted` is the product's, not the organizer's. It is what `convert` writes, and
+     * `crm_activities_one_conversion_idx` makes reaching it a once-ever fact — so a board
+     * without that column would have converted cards rendering nowhere, and one that let it be
+     * renamed to a different key would strand every card already in it.
+     */
+    if (!keys.includes(CONVERTED_STAGE_KEY))
+      throw new PipelineStageInvalidError(
+        "The Converted stage cannot be removed: it is where converting a prospect puts it.",
+      );
+
+    // A stage nobody is standing in may simply go. One that still holds cards has to be deleted
+    // through `deletePipelineStage`, which asks where they should go.
+    const counts = await this.dependencies.repository.countByStage(eventId);
+    const dropped = existing.filter(({ key }) => !keys.includes(key));
+    const occupied = dropped.filter(({ key }) => (counts.get(key) ?? 0) > 0);
+    if (occupied.length)
+      throw new PipelineStageInUseError(
+        `${occupied.map(({ label }) => label).join(", ")} still ${occupied.length === 1 ? "holds" : "hold"} prospects. Choose where they should move first.`,
+      );
+
+    const byKey = new Map(existing.map((stage) => [stage.key, stage]));
+    const createdAt = this.dependencies.now().toISOString();
+    const next = normalizeStageOrder(
+      stages.map((stage, index) => ({
+        // A surviving stage keeps its id, so the console's list keeps its React keys across a
+        // reorder and a rename reads as an edit rather than as a delete plus an insert.
+        id: byKey.get(stage.key)?.id ?? this.dependencies.newId(),
+        eventId,
+        key: stage.key,
+        label: stage.label.trim(),
+        category: stage.category,
+        sortOrder: index,
+        createdAt: byKey.get(stage.key)?.createdAt ?? createdAt,
+      })),
+    );
+    await this.dependencies.repository.saveStages(eventId, next);
+    return next;
+  }
+
+  /**
+   * Delete a stage, moving whatever is in it somewhere the organizer named.
+   *
+   * The migration target is required rather than defaulted. A default would silently decide
+   * where somebody's shortlist went, and the whole reason this refuses a bare delete is that
+   * losing track of a prospect is worse than an extra question (#197).
+   */
+  async deletePipelineStage(
+    actor: Actor | null,
+    eventId: string,
+    stageKey: string,
+    migrateTo: string,
+  ): Promise<readonly PipelineStage[]> {
+    const authorized = this.authorize(actor, eventId);
+    const existing = await this.ensureStages(eventId);
+    if (!existing.some(({ key }) => key === stageKey))
+      throw new PipelineStageNotFoundError("That stage is not on this board");
+    if (stageKey === CONVERTED_STAGE_KEY)
+      throw new PipelineStageInvalidError(
+        "The Converted stage cannot be removed: it is where converting a prospect puts it.",
+      );
+    if (!existing.some(({ key }) => key === migrateTo) || migrateTo === stageKey)
+      throw new PipelineStageInvalidError("Choose another stage on this board to move them to");
+    if (migrateTo === CONVERTED_STAGE_KEY)
+      throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
+
+    const remaining = normalizeStageOrder(existing.filter(({ key }) => key !== stageKey));
+    await this.dependencies.repository.deleteStage(
+      eventId,
+      stageKey,
+      migrateTo,
+      // Who and when, not who moved. Every card that moves says so in the history, because
+      // "where did these go" is exactly the question somebody asks after a stage disappears —
+      // but *which* cards those are is decided by the write, not by a read taken just before it.
+      {
+        actorId: authorized.id,
+        source: "detail",
+        occurredAt: this.dependencies.now().toISOString(),
+      },
+      remaining,
+    );
+    return remaining;
+  }
+
+  /** Every move on this event's board, oldest first. */
+  async pipelineHistory(
+    actor: Actor | null,
+    eventId: string,
+  ): Promise<readonly ProspectTransition[]> {
+    this.authorize(actor, eventId);
+    return this.dependencies.repository.listTransitions(eventId);
   }
 
   async convert(
@@ -375,14 +612,31 @@ export class CrmService {
       correlationId,
       idempotencyKey: `crm-conversion:${eventId}:${prospectId}`,
     });
-    return this.dependencies.repository.recordConversion(eventId, prospectId, speakerId, {
-      id: this.dependencies.newId(),
-      kind: "conversion",
-      summary: "Converted prospect to speaker",
-      private: false,
-      occurredAt,
-      actorId: authorized.id,
-    });
+    return this.dependencies.repository.recordConversion(
+      eventId,
+      prospectId,
+      speakerId,
+      {
+        id: this.dependencies.newId(),
+        kind: "conversion",
+        summary: "Converted prospect to speaker",
+        private: false,
+        occurredAt,
+        actorId: authorized.id,
+      },
+      // Converting moves the card, so it belongs in the same history as every other move —
+      // otherwise a board's busiest transition is the one its report cannot see.
+      {
+        id: this.dependencies.newId(),
+        eventId,
+        prospectId,
+        fromStage: current.stage,
+        toStage: CONVERTED_STAGE_KEY,
+        actorId: authorized.id,
+        source: "conversion",
+        occurredAt,
+      },
+    );
   }
 
   /* ---------------------------------------------------------------------------------------
@@ -957,7 +1211,7 @@ export class CrmService {
       this.dependencies.repository.listContacts(organizationId, {}),
       this.dependencies.repository.listSegments(organizationId),
     ]);
-    const stages = new Map<ProspectStage, Set<string>>();
+    const stages = new Map<string, Set<string>>();
     const companies = new Map<string, number>();
     for (const contact of contacts) {
       for (const link of contact.events)

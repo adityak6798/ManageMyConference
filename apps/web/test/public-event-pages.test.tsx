@@ -237,6 +237,53 @@ describe("public speaker gallery", () => {
     mountAt(`/events/${SLUG}/speakers/nobody-here`);
     await screen.findByRole("heading", { level: 1, name: "Page not found" });
   });
+
+  /*
+   * Defence in depth on the one attribute where being wrong executes (Copilot's review of #219).
+   *
+   * The write-time schema already refuses anything but http/https, so a projection carrying a
+   * `javascript:` link is a state this page should never see. It is asserted anyway because the
+   * page cannot tell where its projection came from: a row written before that rule existed, a
+   * restored revision, or anything reaching the snapshot without passing the schema would arrive
+   * looking exactly like a valid one, and the failure mode is script execution on a public page
+   * rather than a broken link.
+   */
+  it("drops a speaker link whose scheme is not http or https", async () => {
+    const hostile = {
+      ...projection,
+      speakers: projection.speakers.map((speaker) =>
+        speaker.slug === "ana-ruiz"
+          ? {
+              ...speaker,
+              socialLinks: {
+                website: "javascript:alert(1)",
+                mastodon: "data:text/html,<script>alert(1)</script>",
+                bluesky: "not-a-url-at-all",
+                github: "https://github.com/ana",
+              },
+            }
+          : speaker,
+      ),
+    };
+    // Only the projection read is replaced, and in the envelope the composer emits; every other
+    // request keeps the default answer, or the page fails to load for an unrelated reason.
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      String(input).includes(`/api/public/events/${SLUG}`)
+        ? Promise.resolve(new Response(JSON.stringify({ projection: hostile }), { status: 200 }))
+        : Promise.resolve(new Response("", { status: 404 })),
+    );
+
+    const { container } = mountAt(`/events/${SLUG}/speakers/ana-ruiz`);
+    await screen.findByRole("heading", { level: 1, name: "Ana Ruiz" });
+
+    // The one good link survives; nothing else reaches an href.
+    const hrefs = [...container.querySelectorAll(".pub-speaker-links a")].map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(hrefs).toEqual(["https://github.com/ana"]);
+    expect(container.innerHTML).not.toContain("javascript:");
+    expect(container.innerHTML).not.toContain("data:text/html");
+  });
 });
 
 describe("public schedule", () => {

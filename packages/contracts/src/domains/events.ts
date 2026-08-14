@@ -1,26 +1,86 @@
 import { z } from "zod";
 
+export const TIMEZONE_REJECTED =
+  "That is not a time zone. Use a zone id such as America/Los_Angeles, or a fixed offset such " +
+  "as +05:30.";
+
+/**
+ * The canonical id a stored timezone resolves to, or null when the value is not a zone at all.
+ *
+ * Exported because the console's picker and the OpenAPI description both need the same rule,
+ * and because "what does this string resolve to" is the question, not "does it parse".
+ *
+ * **The rule is deliberately permissive: the runtime decides.** Anything `Intl` can resolve is
+ * accepted, which includes fixed offsets (`+05:30`, `-08:00`, `+0530`), lower-cased ids
+ * (`america/los_angeles`), and legacy aliases (`US/Pacific`, `EST5EDT`, `PST`). What is refused
+ * is what cannot be resolved to a zone by any reading — `Banana`, `America/Not_A_City`,
+ * `GMT+8`, `UTC+2`, and the empty string — because those are typos, and storing one makes every
+ * downstream time wrong with nothing anywhere saying so. That was #206's actual complaint.
+ *
+ * An earlier version of this function also refused offsets, on the argument that a fixed offset
+ * never observes a daylight transition and so renders an hour wrong after one. The argument is
+ * true and is now *guidance* in the field description rather than a refusal, because it is a
+ * statement about which zone an organizer should want, not about which strings are zones — and
+ * regions that genuinely have no daylight saving (India at +05:30, most of Arizona) are entitled
+ * to say so. Refusing them also narrowed accepted input on an endpoint API clients already use,
+ * which `docs/interfaces/api-compatibility.md` classifies as breaking.
+ *
+ * The return is the *canonical* id rather than the input. That is not cosmetic: it folds
+ * `US/Pacific`, `utc` and `EST5EDT` onto the ids every other surface compares against, and it
+ * matches `Intl.supportedValuesOf("timeZone")` exactly — all 418 entries of the picker's own
+ * list round-trip through this function unchanged, so an organizer never picks one name and
+ * finds another stored. (`Asia/Kolkata` canonicalizing to `Asia/Calcutta` looks like an
+ * exception and is not: `Asia/Calcutta` is the id in that list.)
+ */
+export function resolveTimezone(value: string): string | null {
+  const candidate = value.trim();
+  if (!candidate) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: candidate }).resolvedOptions().timeZone;
+  } catch {
+    // ERROR-INTENT: `Intl` reports an unsupported zone by throwing, and "not a zone" is the
+    // answer this function exists to return. The caller turns it into a field error.
+    return null;
+  }
+}
+
+/**
+ * One timezone rule for every writer.
+ *
+ * It used to live on the update schema alone, so `POST /api/events` stored anything non-blank —
+ * `Definitely/NotAZone` created an event with 201 — and the defect was invisible because the
+ * *other* writer of the same column validated properly (#206).
+ */
+const eventTimezoneSchema = z
+  .string()
+  .transform((value, context) => {
+    const resolved = resolveTimezone(value);
+    if (!resolved) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: TIMEZONE_REJECTED });
+      return z.NEVER;
+    }
+    return resolved;
+  })
+  .describe(
+    "A time zone id, for example America/Los_Angeles. Anything the runtime can resolve is " +
+      "accepted and stored canonicalized: an alias (US/Pacific becomes America/Los_Angeles), a " +
+      "lower-cased id, and a fixed offset (+05:30, -08:00) all work. A value that resolves to " +
+      "no zone at all — Banana, GMT+8, UTC+2 — is refused. Prefer a named zone where one " +
+      "applies: a fixed offset never observes a daylight transition, so an event spanning one " +
+      "renders an hour off. Note also that the Etc/GMT±N ids invert the sign by POSIX " +
+      "convention — Etc/GMT+8 is UTC−8 — so +08:00 is the safer spelling of an offset.",
+  );
+
 // @spec PRD-EVT-001
 export const createEventInputSchema = z.object({
   organizationId: z.string().uuid(),
   name: z.string().trim().min(1, "Event name is required").max(120),
-  timezone: z.string().trim().min(1).default("America/Los_Angeles"),
+  timezone: eventTimezoneSchema.default("America/Los_Angeles"),
 });
 
 export const updateEventInputSchema = z.object({
   name: z.string().trim().min(1, "Event name is required").max(120),
-  timezone: z
-    .string()
-    .trim()
-    .refine((value) => {
-      try {
-        new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
-        return true;
-      } catch {
-        // ERROR-INTENT: Intl reports unsupported IANA zones by throwing.
-        return false;
-      }
-    }, "Timezone must be a valid IANA time zone"),
+  timezone: eventTimezoneSchema,
 });
 
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;

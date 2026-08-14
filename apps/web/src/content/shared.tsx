@@ -191,7 +191,71 @@ function commaList(value: string) {
     .filter(Boolean);
 }
 
+/**
+ * The platforms a speaker can record a link for, with the label each surface uses.
+ *
+ * The set is closed on the server too. Rendering it from one list here means the portal, the
+ * organizer view and the public page all name a platform the same way rather than each
+ * capitalizing a key on its own.
+ */
+const SOCIAL_PLATFORMS = [
+  { key: "website", label: "Website" },
+  { key: "mastodon", label: "Mastodon" },
+  { key: "bluesky", label: "Bluesky" },
+  { key: "linkedin", label: "LinkedIn" },
+  { key: "github", label: "GitHub" },
+  { key: "x", label: "X" },
+  { key: "youtube", label: "YouTube" },
+] as const;
+
+/**
+ * One logical deliverable and every version of it, newest first.
+ *
+ * Both views listed `workspace.assets` flat, so a deck uploaded twice rendered as two rows with
+ * the same name, the same date format and nothing saying which one an organizer would download
+ * — the readable half of the CNT-04 defect, still true after storage started versioning
+ * correctly. Grouping is derived rather than stored on the wire because `versionGroupId` is
+ * already there and a second projection of the same fact could disagree with it.
+ */
+interface AssetVersions {
+  readonly groupId: string;
+  /** The version an organizer downloads and the public projection reads. */
+  readonly latest: SpeakerAsset;
+  /** Superseded versions, newest first. Empty for a deliverable uploaded once. */
+  readonly prior: readonly SpeakerAsset[];
+}
+
+function assetVersionGroups(assets: readonly SpeakerAsset[]): AssetVersions[] {
+  const groups = new Map<string, SpeakerAsset[]>();
+  for (const asset of assets) {
+    // A row written before versioning existed carries no group; it is its own chain of one.
+    const key = asset.versionGroupId ?? asset.id;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(asset);
+    else groups.set(key, [asset]);
+  }
+  return [...groups.entries()]
+    .map(([groupId, members]) => {
+      const ordered = members.toSorted(
+        (left, right) => (right.versionNumber ?? 1) - (left.versionNumber ?? 1),
+      );
+      // `isLatest` is the stored answer; the highest version is the fallback for a chain that
+      // predates the flag. Never both, and never neither — one row is always returned.
+      const latest = ordered.find(({ isLatest }) => isLatest !== false) ?? ordered[0];
+      return {
+        groupId,
+        latest: latest as SpeakerAsset,
+        prior: ordered.filter((asset) => asset !== latest),
+      };
+    })
+    .toSorted(
+      (left, right) =>
+        new Date(right.latest.uploadedAt).getTime() - new Date(left.latest.uploadedAt).getTime(),
+    );
+}
+
 export type {
+  AssetVersions,
   ContentSession,
   Props,
   PublicationState,
@@ -316,6 +380,8 @@ export function outlookCalendarUrl(session: CalendarLinkSession): string | null 
 }
 
 export {
+  assetVersionGroups,
+  SOCIAL_PLATFORMS,
   commaList,
   DueStatus,
   daysUntil,

@@ -11,17 +11,19 @@ import type {
   CommunicationsContentQuery,
   PublishingContentQuery,
 } from "../../application/content/public";
-import type {
-  ContentComment,
-  ContentRevision,
-  ContentSession,
-  ContentWorkspace,
-  SpeakerAsset,
-  SpeakerMessage,
-  SpeakerProfile,
-  SpeakerResource,
-  SpeakerTask,
-  SpeakerTaskTemplate,
+import {
+  type ContentComment,
+  type ContentRevision,
+  type ContentSession,
+  type ContentWorkspace,
+  logicalAssetKey,
+  type SpeakerAsset,
+  type SpeakerSocialLinks,
+  type SpeakerMessage,
+  type SpeakerProfile,
+  type SpeakerResource,
+  type SpeakerTask,
+  type SpeakerTaskTemplate,
 } from "../../domain/content/content";
 import { changedRows, type D1WriteResult } from "./d1-write-result";
 
@@ -62,6 +64,7 @@ const PROFILE_WRITTEN_COLUMNS = [
   "workflow_status",
   "logistics_json",
   "custom_fields_json",
+  "social_links_json",
 ] as const;
 const SESSION_WRITTEN_COLUMNS = [
   "title",
@@ -180,13 +183,16 @@ export class D1ContentRepository
       sessions,
       speakers: workspace.speakers
         .filter(({ id }) => speakerIds.has(id))
-        .map(({ id, name, bio, pronouns, organization, photoAssetId }) => ({
+        .map(({ id, name, bio, pronouns, organization, photoAssetId, socialLinks }) => ({
           id,
           name,
           bio,
           pronouns,
           organization,
           ...(photoAssetId ? { photoAssetId } : {}),
+          // Omitted rather than sent empty, so a speaker with no links adds no key to the
+          // published snapshot and two publishes of the same programme stay identical bytes.
+          ...(socialLinks && Object.keys(socialLinks).length > 0 ? { socialLinks } : {}),
         })),
       assets: workspace.assets
         .filter(
@@ -266,11 +272,11 @@ export class D1ContentRepository
    * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
    *   no production caller to mislead — stated here and in `content-repository.ts`.
    */
-  private async write(query: string, ...values: unknown[]) {
+  private async write<T = unknown>(query: string, ...values: unknown[]) {
     const result = await this.database
       .prepare(query)
       .bind(...values)
-      .run();
+      .run<T>();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
     return result;
@@ -307,7 +313,7 @@ export class D1ContentRepository
       ...content.speakers.map((profile) =>
         this.database
           .prepare(
-            "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id,workflow_status,logistics_json,custom_fields_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id,workflow_status,logistics_json,custom_fields_json,social_links_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
           )
           .bind(
             profile.id,
@@ -323,6 +329,7 @@ export class D1ContentRepository
             profile.workflowStatus ?? "onboarding",
             JSON.stringify(profile.logistics ?? {}),
             JSON.stringify(profile.customFields ?? {}),
+            JSON.stringify(profile.socialLinks ?? {}),
           ),
       ),
       ...content.tasks.map((task) =>
@@ -479,7 +486,7 @@ export class D1ContentRepository
   private profileWrite(profile: SpeakerProfile, where?: RowGuard): D1Statement {
     return this.database
       .prepare(
-        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE ${where?.sql ?? "id=?"}`,
+        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=?,social_links_json=? WHERE ${where?.sql ?? "id=?"}`,
       )
       .bind(
         profile.name,
@@ -490,6 +497,7 @@ export class D1ContentRepository
         profile.workflowStatus ?? "onboarding",
         JSON.stringify(profile.logistics ?? {}),
         JSON.stringify(profile.customFields ?? {}),
+        JSON.stringify(profile.socialLinks ?? {}),
         ...(where?.values ?? [profile.id]),
       );
   }
@@ -511,6 +519,36 @@ export class D1ContentRepository
       profileId,
     );
     return changedRows(result, "record a speaker headshot") > 0;
+  }
+  /**
+   * Allocate the occurrence inside the statement that spends it.
+   *
+   * `invitations_sent + 1 ... RETURNING` rather than a `SELECT` followed by an `UPDATE`: the
+   * read-then-write version is one two organizers pressing Invite together resolve identically,
+   * and the loser's invitation then converges into the winner's delivery and reports "already
+   * invited" for a message that organizer never sent. This is the shape `saveDecision` uses for a
+   * decision's revision and `replaceLatestAsset` uses for a version number.
+   *
+   * Not in `PROFILE_WRITTEN_COLUMNS`, deliberately: this column is not one `profileWrite`
+   * rewrites, so a claim landing between an attributed edit's read and its write must not make
+   * that edit's compare-and-swap lose a race it did not have.
+   */
+  async claimInvitationOccurrence(profileId: string) {
+    const result = await this.write<{ invitationsSent: number }>(
+      "UPDATE speaker_profiles SET invitations_sent = invitations_sent + 1 WHERE id=? RETURNING invitations_sent AS invitationsSent",
+      profileId,
+    );
+    // Zero rows is the profile having gone since the caller read it, which the caller reports as
+    // a refusal for that speaker. The count is still read through the shared contract, so a
+    // driver that cannot report one is a failure here rather than read as "no such profile".
+    if (changedRows(result, "claim a speaker invitation occurrence") === 0) return null;
+    const claimed = result.results?.[0]?.invitationsSent;
+    // A driver that reports the write but not the number it allocated must not be read as 1:
+    // that is the one value that would collide with a real first invitation, so two organizers
+    // would key their invitations identically and one of them would silently send nothing.
+    if (typeof claimed !== "number")
+      throw new Error("D1 reported no occurrence while claiming a speaker invitation");
+    return Number(claimed);
   }
   async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
     const result = await this.write(
@@ -577,7 +615,7 @@ export class D1ContentRepository
   }
   async addAsset(asset: SpeakerAsset) {
     await this.run(
-      "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,task_id,session_id,version_group_id,version_number,is_latest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,task_id,session_id,logical_key,version_group_id,version_number,is_latest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       asset.id,
       asset.eventId,
       asset.speakerProfileId,
@@ -588,21 +626,49 @@ export class D1ContentRepository
       asset.uploadedAt,
       asset.taskId ?? null,
       asset.sessionId ?? null,
+      // A direct add is a fixture path rather than an upload, but it still has to leave a key
+      // behind: a row with none is a row the next upload cannot find, which is how the twin
+      // `slides.pdf` rows appeared in the first place.
+      asset.logicalKey ?? logicalAssetKey(asset),
       asset.versionGroupId ?? asset.id,
       asset.versionNumber ?? 1,
       asset.isLatest === false ? 0 : 1,
     );
   }
-  async replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset) {
-    const statements: D1Statement[] = [];
-    if (previous)
-      statements.push(
-        this.database.prepare("UPDATE speaker_assets SET is_latest=0 WHERE id=?").bind(previous.id),
-      );
-    statements.push(
+  /**
+   * Allocate the group and the version number inside the write.
+   *
+   * Both used to be decided by the service from a workspace read, which is a read-then-write two
+   * concurrent uploads resolve identically: they picked the same number and the loser tripped
+   * `speaker_assets_version_unique`. Worse, an upload naming no group at all read "no previous
+   * version" and minted its own, so `slides.pdf` uploaded twice stored as two v1 assets rather
+   * than as v1 and v2 — the evaluator's CNT-04 failure.
+   *
+   * The two subqueries below decide both against the *stored* `logical_key` (`1406`), so a second
+   * upload either sees the first's row or does not commit. The `UPDATE` demotes the chain by that
+   * same key rather than by a row id the caller read earlier, which is what makes a lost race
+   * leave exactly one latest instead of none.
+   */
+  async replaceLatestAsset(asset: SpeakerAsset, versionGroupId?: string) {
+    const logicalKey = asset.logicalKey ?? asset.id;
+    // An explicit continuation addresses its chain by group; everything else by logical key.
+    const scope = versionGroupId
+      ? { column: "version_group_id", value: versionGroupId }
+      : { column: "logical_key", value: logicalKey };
+    const where = `event_id=? AND speaker_profile_id=? AND ${scope.column}=?`;
+    const scopeBindings = [asset.eventId, asset.speakerProfileId, scope.value] as const;
+    const statements: D1Statement[] = [
+      this.database
+        .prepare(`UPDATE speaker_assets SET is_latest=0 WHERE ${where} AND is_latest=1`)
+        .bind(...scopeBindings),
       this.database
         .prepare(
-          "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,task_id,session_id,version_group_id,version_number,is_latest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO speaker_assets (id,event_id,speaker_profile_id,name,content_type,storage_key,visibility,uploaded_at,task_id,session_id,logical_key,version_group_id,version_number,is_latest) " +
+            `SELECT ?,?,?,?,?,?,?,?,?,?,?,` +
+            // The chain's existing group, or this row's own id when it is the first version.
+            `COALESCE((SELECT version_group_id FROM speaker_assets WHERE ${where} ORDER BY version_number DESC LIMIT 1), ?),` +
+            `COALESCE((SELECT MAX(version_number) FROM speaker_assets WHERE ${where}), 0)+1,1 ` +
+            "RETURNING version_group_id AS versionGroupId, version_number AS versionNumber",
         )
         .bind(
           asset.id,
@@ -615,14 +681,30 @@ export class D1ContentRepository
           asset.uploadedAt,
           asset.taskId ?? null,
           asset.sessionId ?? null,
-          asset.versionGroupId ?? asset.id,
-          asset.versionNumber ?? 1,
-          1,
+          logicalKey,
+          ...scopeBindings,
+          asset.id,
+          ...scopeBindings,
         ),
-    );
-    const results = await this.database.batch(statements);
-    if (results.some((result) => !result.success))
-      throw new Error("Content asset version batch failed");
+    ];
+    const [demoted, inserted] = await this.database.batch<{
+      versionGroupId: string;
+      versionNumber: number;
+    }>(statements);
+    if (!demoted?.success || !inserted?.success)
+      throw new Error(
+        `D1 content asset version batch failed: ${inserted?.error ?? demoted?.error}`,
+      );
+    // Not a conditional write — the demotion may legitimately match nothing on a first upload —
+    // but the count is still read through the shared contract so a driver that omits it is
+    // refused here rather than believed (`d1-write-result.ts`).
+    changedRows(demoted as D1WriteResult, "demote the previous latest asset version");
+    const allocated = inserted.results?.[0];
+    if (!allocated) throw new Error("D1 returned no allocated version for a stored speaker asset");
+    return {
+      versionGroupId: allocated.versionGroupId,
+      versionNumber: Number(allocated.versionNumber),
+    };
   }
   async deleteAsset(assetId: string) {
     const asset = await this.findAsset(assetId);
@@ -1080,6 +1162,10 @@ export class D1ContentRepository
       workflowStatus: (row.workflow_status ?? "onboarding") as SpeakerProfile["workflowStatus"],
       logistics: parse<Record<string, string>>(row.logistics_json ?? "{}"),
       customFields: parse<Record<string, string>>(row.custom_fields_json ?? "{}"),
+      socialLinks: parse<SpeakerSocialLinks>(row.social_links_json ?? "{}"),
+      // A row written before `1408` reads 0 through the column default, which is what it is:
+      // nobody has explicitly invited this speaker yet.
+      invitationsSent: Number(row.invitations_sent ?? 0),
     };
   }
   private task(row: Row): SpeakerTask {
@@ -1109,6 +1195,7 @@ export class D1ContentRepository
       ...(row.task_id ? { taskId: row.task_id } : {}),
       ...(row.session_id ? { sessionId: row.session_id } : {}),
       ...(row.version_group_id ? { versionGroupId: row.version_group_id } : {}),
+      ...(row.logical_key ? { logicalKey: row.logical_key } : {}),
       versionNumber: Number(row.version_number ?? 1),
       isLatest: Number(row.is_latest ?? 1) === 1,
     };

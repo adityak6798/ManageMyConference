@@ -239,7 +239,15 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   const shareSpeaker = async (checked: boolean) => {
     await page.goto(`/sessions?event=${demoEventId}`);
     await page.getByRole("button", { name: `Edit ${secondSession}` }).click();
-    const speaker = page.getByRole("checkbox", { name: /Sam Speaker/ });
+    // Scoped to the editor's own fieldset rather than to the page. Sessions & speakers grew a
+    // second checkbox per speaker when #189 added portal invitations to the roster below, and an
+    // unscoped `/Sam Speaker/` then matched both — the assignment tick and "Select Sam Speaker for
+    // a portal invitation" — so this read as a strict-mode violation rather than as the ambiguity
+    // it was. Naming the group keeps this journey pointed at session membership even as the page
+    // accumulates further per-speaker controls.
+    const speaker = page
+      .getByRole("group", { name: "Speakers on this session" })
+      .getByRole("checkbox", { name: /Sam Speaker/ });
     if (checked) await speaker.check();
     else await speaker.uncheck();
     await page.getByRole("button", { name: "Save session" }).click();

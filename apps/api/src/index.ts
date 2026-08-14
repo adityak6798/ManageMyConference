@@ -72,6 +72,7 @@ import {
 } from "./application/communications/webhooks";
 import type { SpeakerNotificationPort } from "./application/content/content-service";
 import { ContentService } from "./application/content/content-service";
+import { SpeakerReminderRejectedError } from "./application/content/reminder-dispatch";
 import {
   SpeakerCalendarInviteService,
   speakerChecklistTemplateSlice,
@@ -651,7 +652,13 @@ export default {
     );
     const communications = new CommunicationsService({
       repository: communicationsRepository(environment),
-      eventDirectory: service,
+      eventDirectory: {
+        belongsToOrganization: (eventId, organizationId) =>
+          service.belongsToOrganization(eventId, organizationId),
+        // For `{{eventName}}`. Events owns what an event is called; communications asks rather
+        // than storing a copy that would drift the first time somebody renames one.
+        name: (eventId) => service.nameOf(eventId),
+      },
       // Who an event's speakers are is identity's answer, not a read of content's profiles.
       speakerDirectory: identityDirectory,
       newId: () => crypto.randomUUID(),
@@ -1416,6 +1423,77 @@ export default {
       sanitizeResourceEmbed,
       parseSpeakerCsv,
       createDeliverablesZip,
+      /*
+       * An organizer chasing a chosen set of open tasks, through the same delivery the cron
+       * sweep uses. Content states "remind these people"; this binding turns that into the
+       * delivering domain's request, exactly as the CRM's outreach port does above.
+       *
+       * The key is content's own (`taskReminderKey`), so a deliberate chase and the automatic
+       * sweep converge on one delivery per (task, deadline) rather than sending twice.
+       */
+      reminders: {
+        async send(reminder) {
+          try {
+            const delivery = await communications.enqueue({
+              organizationId: reminder.organizationId,
+              eventId: reminder.eventId,
+              idempotencyKey: reminder.idempotencyKey,
+              triggerType: "speaker.task_reminder",
+              channel: "email",
+              recipientRef: reminder.recipientRef,
+              payload: reminder.payload,
+              templateKey: reminder.templateKey,
+            });
+            return { deliveryId: delivery.id, created: delivery.created };
+          } catch (error) {
+            // A caller mistake — an unknown template, an incoherent request — becomes content's
+            // own error so its transport can report it without importing these classes.
+            if (
+              error instanceof CommunicationsInputError ||
+              error instanceof CommunicationsNotFoundError
+            )
+              throw new SpeakerReminderRejectedError(error.message);
+            throw error;
+          }
+        },
+        /*
+         * An organizer inviting a speaker into the portal deliberately, and again if need be.
+         *
+         * `speaker.invited` rather than `speaker.task_reminder`: the trigger is this domain's
+         * vocabulary, and it is the whole reason content declares two methods instead of one
+         * generalised `send`. An invitation filed under the reminder trigger would be invisible
+         * to anybody reading the delivery log for "what have we sent this person".
+         *
+         * The key is content's own (`speakerInvitationKey`), and carries the occurrence the
+         * profile claimed, so pressing Invite again is a second delivery rather than one
+         * deduplicated into the welcome `speakerAccepted` sent when the proposal was accepted —
+         * whose unnumbered key is untouched above and stays exactly as idempotent as it was.
+         */
+        async invite(invitation) {
+          try {
+            const delivery = await communications.enqueue({
+              organizationId: invitation.organizationId,
+              eventId: invitation.eventId,
+              idempotencyKey: invitation.idempotencyKey,
+              triggerType: "speaker.invited",
+              channel: "email",
+              recipientRef: invitation.recipientRef,
+              payload: invitation.payload,
+              templateKey: invitation.templateKey,
+            });
+            return { deliveryId: delivery.id, created: delivery.created };
+          } catch (error) {
+            if (
+              error instanceof CommunicationsInputError ||
+              error instanceof CommunicationsNotFoundError
+            )
+              throw new SpeakerReminderRejectedError(error.message);
+            throw error;
+          }
+        },
+      },
+      // Events owns which organization runs an event; content asks rather than joining.
+      organizationOf: (eventId) => service.organizationOf(eventId),
     });
     // The inbound Accelevents registration sync (#58). `fixture` is the default and answers from
     // an in-repository roster, which is what lets the demo and a fresh clone sync with no

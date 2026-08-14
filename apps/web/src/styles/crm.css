@@ -25,6 +25,62 @@
   max-width: 100%;
 }
 
+/*
+ * Everything the directory renders *after* its table.
+ *
+ * The card body is `tight` so the table can meet the card's own border, which means every
+ * other block in that body has to bring its own padding. The toolbar row above brings its;
+ * this section did not, so "Directory tools" and every control beneath it — import, find and
+ * merge duplicates, outreach — sat on the border, read as page furniture rather than as part
+ * of the card, and were reported as missing rather than as mis-padded (#206).
+ */
+.crm .crm-directory-tools {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border-top: 1px solid var(--line);
+}
+/* Each disclosure is its own block, so an open one is separable from the next by eye. */
+.crm .crm-directory-tools .crm-details {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.crm .crm-directory-tools .crm-details[open] {
+  background: var(--surface);
+}
+/* The contents of an open disclosure, which are otherwise a run of unspaced controls. */
+.crm .crm-directory-tools .crm-details[open] > *:not(summary) {
+  margin-top: var(--s-3);
+}
+.crm .crm-directory-tools form {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+}
+.crm .crm-directory-tools table.data {
+  margin-top: var(--s-3);
+}
+
+/* A label sits above its control, so a flex row centred on the box mid-line staggers the two:
+   the saved-view select and the save-this-view input landed on different lines and read as
+   unrelated. Top alignment puts the labels on one line and the controls on the next. */
+.crm .crm-toolbar-row .toolbar {
+  align-items: start;
+}
+/* The save-view form is a labelled input with its own submit, so the button belongs beside
+   the box rather than under it. */
+.crm .crm-toolbar-row .toolbar > form.field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+}
+.crm .crm-toolbar-row .toolbar > form.field > label {
+  grid-column: 1 / -1;
+  margin-bottom: -3px;
+}
+
 /* The tab strip is flush with the card edge so it reads as the table's header rail. */
 .crm .crm-toolbar-row .tabs {
   margin: 0 calc(-1 * var(--s-5));
@@ -94,6 +150,291 @@
 }
 .crm table.data tr.is-selected:hover {
   background: var(--green-50);
+}
+
+/* The board's layout: one column, so the board gets the page and the detail panel follows it. */
+.crm .crm-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-5);
+  align-content: start;
+}
+
+/* --------------------------- sourcing board ------------------------------ */
+
+/*
+ * One column per configured stage. The board scrolls sideways inside its own container rather
+ * than widening the page — an eight-stage pipeline is wider than any laptop, and a console that
+ * pans horizontally fails the 390px overflow check the accessibility gate runs.
+ */
+.crm .pipeline-board {
+  display: grid;
+  /*
+   * `minmax(0, 1fr)`, not `auto`: a grid track defaults to a min-content floor, and a track
+   * holding a horizontal scroller is exactly where that bites. The same declaration this
+   * stylesheet already makes at its root, for the same reason.
+   */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  min-width: 0;
+}
+.crm .pipeline-board-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.crm .pipeline-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: var(--s-3);
+  overflow-x: auto;
+  padding-bottom: var(--s-2);
+  /* The scroll container needs a zero floor or the columns push the page sideways instead. */
+  min-width: 0;
+  /*
+   * The same trap `.table-wrap` above carries a note about, and it caught this board too.
+   * `.visually-hidden` is `position: absolute`, so inside an *unpositioned* scroll container it
+   * resolves against the viewport, escapes the clip, and stretches the document — 213px of
+   * horizontal overflow at 390px with every visible box comfortably inside. Anchoring the
+   * container keeps the card's "In Contacted" label where it belongs.
+   */
+  position: relative;
+}
+.crm .pipeline-column {
+  display: grid;
+  align-content: start;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  min-width: 0;
+}
+/* The drop target says so while a card is over it; without this the only feedback is the
+   cursor, and a drop that did nothing looks the same as one the column refused. */
+.crm .pipeline-column.is-over {
+  border-color: var(--green-700);
+  background: var(--green-50);
+}
+/* Converted accepts no drops, because converting a prospect is what puts a card there. */
+.crm .pipeline-column.is-closed {
+  background: var(--surface);
+  border-style: dashed;
+}
+.crm .pipeline-column-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.crm .pipeline-column-head h3 {
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.crm .pipeline-column-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.crm .pipeline-count {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.crm .pipeline-column-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.crm .pipeline-cards {
+  list-style: none;
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+}
+/* The card is the control: one thing to focus, drag and press. */
+.crm .pipeline-card {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: grab;
+}
+.crm .pipeline-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+.crm .pipeline-card.is-selected {
+  border-color: var(--green-700);
+  box-shadow: inset 3px 0 0 var(--green-700);
+}
+.crm .pipeline-card-name {
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.crm .pipeline-card-meta,
+.crm .pipeline-card-next {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.crm .pipeline-stranded {
+  margin: 0;
+  color: var(--danger-fg);
+  font-size: var(--text-xs);
+}
+
+.crm .pipeline-views {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.crm .pipeline-views .is-active {
+  border-color: var(--green-700);
+  color: var(--green-800);
+}
+
+/* --------------------------- stage settings ------------------------------ */
+
+.crm .stage-editor-panel {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.crm .stage-editor-panel h3 {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.crm .stage-editor {
+  display: grid;
+  gap: var(--s-4);
+}
+.crm .stage-list {
+  list-style: none;
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+}
+.crm .stage-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 2fr) minmax(0, 2fr) auto;
+  align-items: end;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.crm .stage-position {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.crm .stage-held {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.crm .stage-key {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+.crm .stage-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.crm .stage-locked {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.crm .stage-remove {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--danger-fg);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.crm .stage-remove h4 {
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.crm .stage-remove p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.crm .stage-remove-actions,
+.crm .stage-save {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.crm .stage-add {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) auto;
+  align-items: end;
+  gap: var(--s-3);
+}
+
+@media (max-width: 700px) {
+  .crm .pipeline-board {
+    padding: var(--s-3) var(--s-4) var(--s-4);
+  }
+  /*
+   * The board stacks at phone widths instead of scrolling sideways.
+   *
+   * A column per screen was the first attempt, and it is the mistake #155 already ruled on: a
+   * container that scrolls its own overflow keeps the *document* from panning, so the blanket
+   * check passes while the cards an organizer came to read sit hundreds of pixels past the right
+   * edge. That was judged a defect for `/abstracts`, `/sessions` and `/communications`, and all
+   * three restack below 780px by one shared recipe rather than hiding their contents in a
+   * scroller. A pipeline is not special enough to answer it differently.
+   *
+   * Dragging is not what moves a card on a phone in any case: HTML5 drag events do not fire for
+   * touch. What moves it is tapping the card, which opens that prospect in the detail panel below
+   * the board, where "Stage and next action" carries a Stage select and a Save. That path is
+   * unaffected by the columns stacking. (An earlier version of this comment claimed a per-card
+   * "Move to" control was the touch mechanism. There is no such control — the card is a single
+   * button whose click opens the detail — and the claim was corrected rather than deleted because
+   * a reader who was told the wrong mechanism will go looking for it.)
+   */
+  .crm .pipeline-columns {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: visible;
+  }
+  .crm .stage-editor-panel {
+    padding: var(--s-3) var(--s-4);
+  }
+  .crm .stage-row,
+  .crm .stage-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .crm .stage-position {
+    justify-self: start;
+  }
 }
 
 /* --------------------------- detail panel -------------------------- */
@@ -233,6 +574,9 @@
     padding: 0 var(--s-4);
   }
   .crm .crm-skeletons {
+    padding: var(--s-4);
+  }
+  .crm .crm-directory-tools {
     padding: var(--s-4);
   }
 }

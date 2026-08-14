@@ -3,7 +3,13 @@ import {
   acceptContentInputSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
+  inviteSpeakersInputSchema,
+  inviteSpeakersResponseSchema,
+  remindSpeakerTasksInputSchema,
+  remindSpeakerTasksResponseSchema,
   setSpeakerPhotoInputSchema,
+  type SpeakerInvitationOutcomeDto,
+  type SpeakerReminderOutcomeDto,
   speakerCalendarInviteResultSchema,
   speakerChecklistAssignmentResponseSchema,
   speakerCsvImportResultSchema,
@@ -15,7 +21,7 @@ import {
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
-import type { z } from "zod";
+import { ZodError, type z } from "zod";
 import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ContentApiError extends Error {
@@ -56,9 +62,29 @@ export async function acceptContent(
   );
 }
 
-/** Field-level detail from a handled API failure, keyed by the input path the server named. */
+/**
+ * Field-level detail from a refused write, keyed by the input path that carried it.
+ *
+ * Two refusals reach a form and they used to be told apart by accident. The server's arrives as
+ * a `ContentApiError` carrying `fieldErrors`; the *client's* arrives as a `ZodError`, because
+ * every writer in this module validates before sending — which is a real early guard and also
+ * means the request never happens, so there is no envelope to read. Reading only the first left
+ * the second as a bare "could not be saved" with nothing beside the box that caused it.
+ *
+ * Both are keyed the same way — `issue.path.join(".")` is exactly what `validationFields` builds
+ * on the server — so one reader serves both and a form cannot tell which side refused it.
+ */
 export function contentFieldErrors(error: unknown): Record<string, string[]> {
-  return error instanceof ContentApiError ? (error.envelope.error.fieldErrors ?? {}) : {};
+  if (error instanceof ContentApiError) return error.envelope.error.fieldErrors ?? {};
+  if (error instanceof ZodError) {
+    const fields: Record<string, string[]> = {};
+    for (const issue of error.issues) {
+      const key = issue.path.join(".") || "request";
+      fields[key] = [...(fields[key] ?? []), issue.message];
+    }
+    return fields;
+  }
+  return {};
 }
 
 export async function updateSpeakerProfile(
@@ -274,6 +300,13 @@ export async function updateSpeakerWorkflow(
   });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
+/**
+ * Assign one dated task to several speakers at once.
+ *
+ * `sessionId` binds a file request to the talk it is about, and is omitted rather than sent empty
+ * when the organizer chose no session: the schema takes an absent field as "not about a session"
+ * and would refuse `""` as a malformed id.
+ */
 export async function bulkRequestSpeakerTasks(
   input: {
     profileIds: string[];
@@ -281,6 +314,7 @@ export async function bulkRequestSpeakerTasks(
     dueAt: string;
     type: "general" | "file-request";
     instructions: string;
+    sessionId?: string;
   },
   fetcher: typeof fetch = fetch,
 ) {
@@ -327,6 +361,46 @@ export async function downloadDeliverables(
   anchor.download = "speaker-deliverables.zip";
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Chase a chosen set of open tasks.
+ *
+ * The response is per task, including the ones nothing was sent for, because "0 queued" and
+ * "3 speakers have no address" are different things for the organizer to do next.
+ */
+export async function remindSpeakerTasks(
+  eventId: string,
+  taskIds: string[],
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerReminderOutcomeDto[]> {
+  const response = await contentMutation(
+    "/api/content-task-reminders",
+    remindSpeakerTasksInputSchema.parse({ eventId, taskIds }),
+    fetcher,
+  );
+  return [...remindSpeakerTasksResponseSchema.parse(await response.json()).reminders];
+}
+
+/**
+ * Invite a chosen set of speakers into the portal, again if need be.
+ *
+ * The response is per speaker, including the ones nothing was sent for, because "2 invitations
+ * queued" and "1 speaker has no address" are different things for the organizer to do next. Each
+ * invitation carries the `occurrence` it was sent as, which is what makes a second invitation a
+ * second delivery rather than one deduplicated into the welcome sent at acceptance.
+ */
+export async function inviteSpeakers(
+  eventId: string,
+  profileIds: string[],
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerInvitationOutcomeDto[]> {
+  const response = await contentMutation(
+    "/api/speaker-invitations",
+    inviteSpeakersInputSchema.parse({ eventId, profileIds }),
+    fetcher,
+  );
+  return [...inviteSpeakersResponseSchema.parse(await response.json()).invitations];
 }
 
 export async function publishSpeakerAsset(

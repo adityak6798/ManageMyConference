@@ -25,15 +25,28 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await page.getByRole("link", { name: /Event settings/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Event settings" })).toBeVisible();
   await page.getByLabel("Current event name").fill("Greenroom Workshop Day Renamed");
-  await page.getByLabel("Event timezone").fill("America/Chicago");
+  // The timezone is chosen from the browser's own zone list rather than typed: a free-text box
+  // let a typo through to the public site, the agenda board and every `.ics` invite (#206).
+  // Exact, because the create form below carries a second control whose label contains this one.
+  const timezone = page.getByLabel("Event timezone", { exact: true });
+  await expect(timezone).toHaveRole("combobox");
+  await timezone.selectOption("America/Chicago");
   await page.getByRole("button", { name: "Save event settings" }).click();
   await expect(switcher).toContainText("Greenroom Workshop Day Renamed");
+  // The page subtitle prints the stored zone, so this asserts what was saved rather than what
+  // the control shows.
+  await expect(
+    page.getByText("Greenroom Workshop Day Renamed \u00b7 America/Chicago"),
+  ).toBeVisible();
   await page.getByLabel("Event name", { exact: true }).fill(eventName);
+  // A new event gets its own zone rather than the constant every create used to send.
+  await page.getByLabel("New event timezone").selectOption("Europe/Berlin");
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(switcher).toContainText(eventName);
 
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);
+  await expect(page.getByText(`${eventName} \u00b7 Europe/Berlin`)).toBeVisible();
 
   await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
   await expect(page.getByRole("link", { name: /Review assignments/ })).toBeVisible();
