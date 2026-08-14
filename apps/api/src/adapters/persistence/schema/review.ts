@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
   check,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -125,6 +126,13 @@ export function defineReviewSchema(references: {
     },
     (table) => [
       primaryKey({ columns: [table.eventId, table.roundSequence, table.reviewerId] }),
+      // A pool row cannot outlive its round or name one that does not exist. Declared as a
+      // composite foreign key rather than two column-level references, because the pair is what
+      // identifies a round.
+      foreignKey({
+        columns: [table.eventId, table.roundSequence],
+        foreignColumns: [reviewRounds.eventId, reviewRounds.sequence],
+      }),
       index("review_round_members_reviewer_idx").on(table.eventId, table.reviewerId),
     ],
   );

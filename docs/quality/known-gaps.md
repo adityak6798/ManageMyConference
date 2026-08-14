@@ -127,7 +127,17 @@ feature-by-feature verdict.
   the event's speakers from the console, and **the product now enqueues on its own**: accepting a
   proposal welcomes the speaker and announces each onboarding task, requesting a task tells them,
   assigning or distributing review work tells the reviewer once per round, and an accept/decline
-  decision reaches the submitter (issue #66). A published schedule commits an
+  decision reaches the submitter (issue #66). **The review half of this gap is closed** (issue
+  #191): an organizer selects reviewers who still owe evaluations in a round and sends them a
+  reminder, once per reviewer per round, through communications' public interface — the console
+  reports queued, already reminded, no email on file, or nothing outstanding for each of them, and
+  the delivery is in the same history and audit timeline as every other. It has its own
+  `reviewer.reminder` trigger type (`1706`) rather than borrowing `reviewer.assigned`, which is the
+  substitution this row's `ACC-REVIEW` counterpart ruled out: "you have been given work" and "you
+  still have work outstanding" are two different things to tell somebody. What is *not* here is the
+  **automated weekly** reminder the private rubric asks for — this is the manual nudge, and a
+  recurring occurrence needs its own idempotency key and a scheduled tick.
+  A published schedule commits an
   `EVT-SCHEDULE-PUBLISHED` record whose drain fans out one confirmation per speaker.
   The calendar half is no longer a download only: an organizer sends an iTIP `METHOD:REQUEST`
   invitation per speaker per session through the outbox, and the portal offers Google and Outlook

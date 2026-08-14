@@ -33,3 +33,29 @@ confirmation (issue #190); the table is communications', the reason is CFP's, an
 therefore comes from the communications block. It is announced in
 [the wave ledger](../../../docs/exec-plans/competition-waves.md#issue-190-rulings) so a concurrent
 communications lane meets the number rather than the conflict.
+
+`1706_delivery_reviewer_reminder_trigger.sql` is the second instance of that rule, from the review
+lane, adding `reviewer.reminder` so an organizer can nudge reviewers who still owe evaluations
+(issue #191). The alternative — labelling a reminder `reviewer.assigned` — was ruled out in
+writing under `ACC-REVIEW` before this lane existed, and it is announced in
+[the wave ledger](../../../docs/exec-plans/competition-waves.md#issue-191-rulings) for the same
+reason `1705` is.
+
+## Rebuilding a review table
+
+`review_assignments` is the parent with the longest child chain in this schema, and each migration
+that has touched it left the next one more to do. As of `1312` a rebuild has to copy and drop
+**four** children in order — `review_conflicts`, `review_evaluations` and `review_suggestions`,
+with evaluations citing suggestions in turn — and then restate **seven** triggers, not the four
+`1301` restates: `review_assignment_cap`, `review_assignment_requires_plan`,
+`review_completion_rejects_conflict`, `review_conflict_rejects_completion`, `review_plan_lock`,
+plus `1312`'s `review_assignment_requires_round`, `review_assignment_requires_open_round` and
+`review_assignment_requires_pool_membership`.
+
+SQLite drops a table's triggers with the table, so forgetting the last three leaves the round,
+open-round and pool rules holding in the service and no longer holding in the schema — the half
+that was the point. `apps/api/test/d1-review-repository.integration.test.ts` asserts the full set
+by name after replaying `1301`, so this fails loudly rather than quietly.
+
+`1312` itself deliberately rebuilds nothing, and its header explains why the surrogate-key shape
+that would have required one was the more dangerous design over a deployed database.

@@ -81,8 +81,14 @@ const build = (now = "2026-08-10T12:00:00.000Z") => {
   const repository = new MemoryReviewRepository();
   const reminded: Parameters<ReviewNotificationPort["remindOutstanding"]>[0][] = [];
   const notifications: ReviewNotificationPort = {
-    async reviewerAssigned() {},
-    async decisionRecorded() {},
+    // Not what these suites are about; the assignment and decision notices have their
+    // own coverage in `review-service.test.ts`.
+    async reviewerAssigned() {
+      return;
+    },
+    async decisionRecorded() {
+      return;
+    },
     // The real binding keys a delivery on `(event, reviewer, round)`, so a repeat is
     // `already_sent`. The fake answers the same way, because a fake that always said `queued`
     // would let a service bug that reminds somebody twice pass every test in this file.

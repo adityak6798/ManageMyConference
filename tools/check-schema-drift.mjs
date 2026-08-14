@@ -70,6 +70,16 @@ export const UNMODELLED_OBJECTS = [
   "trigger:review_assignment_cap",
   "trigger:review_evaluation_source_insert",
   "trigger:review_evaluation_source_update",
+  // The three rules that make a round more than a number, and the one that freezes a closed
+  // round's terms (issue #191, migration 1312). The first three are triggers rather than a
+  // foreign key on `review_assignments` because adding one would mean rebuilding that table and
+  // its four children — the trap `1300` fell into. **A rebuild of `review_assignments` must
+  // restate all three**, because SQLite drops a table's triggers with the table and losing them
+  // leaves the round rules holding in the service and no longer in the schema.
+  "trigger:review_assignment_requires_round",
+  "trigger:review_assignment_requires_open_round",
+  "trigger:review_assignment_requires_pool_membership",
+  "trigger:review_round_closed_terms_locked",
   "trigger:public_event_projections_slug_reservation_insert",
   "trigger:public_event_projections_slug_reservation_update",
   // Published projection history is immutable while its owning event exists. The delete guard

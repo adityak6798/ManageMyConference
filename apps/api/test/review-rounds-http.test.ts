@@ -59,8 +59,14 @@ const build = () => {
       },
     ]),
     notifications: {
-      async reviewerAssigned() {},
-      async decisionRecorded() {},
+      // Not what these suites are about; the assignment and decision notices have their
+      // own coverage in `review-service.test.ts`.
+      async reviewerAssigned() {
+        return;
+      },
+      async decisionRecorded() {
+        return;
+      },
       async remindOutstanding(fact) {
         const repeat = reminded.some(
           (earlier) => earlier.reviewerId === fact.reviewerId && earlier.round === fact.round,

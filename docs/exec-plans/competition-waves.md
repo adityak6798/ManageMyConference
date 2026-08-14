@@ -1630,3 +1630,99 @@ handler — **is not committed**. It found three real defects (triage selection 
 permanently disabled "Start next round" whose explanation lived in unreachable code, and a demo
 persona's "Create API client" that was disabled *and* had no handler), and a lane that wants that
 class of defect caught again has to write the probe again.
+### Issue #191 rulings — the review plans lane
+
+Issue #191 was deliberately not taken by the lane that landed PR #218, and the ruling recorded
+there — that it is an epic rather than an issue — held. This lane takes the half that is review's
+own and states plainly what it leaves.
+
+**The migration decided the design, not the other way round.** The obvious model for a first-class
+round is a surrogate `review_rounds.id` with a `round_id` foreign key on `review_assignments`,
+`review_outcomes` and `review_suggestions`. That shape cannot be reached from a deployed database
+without rebuilding `review_assignments`, whose children are `review_conflicts`,
+`review_evaluations` and — since `1310` — `review_suggestions`, with evaluations citing suggestions
+in turn. `1300` is this repository's own record of what that costs and `1301` is the correction.
+Numbered rounds are in the deployed database, and losing one assignment, evaluation, conflict,
+outcome or provenance record to a copy that missed a column is the worst outcome available to this
+change. So `1312` keys a round on `(event_id, sequence)`, where `sequence` **is** the integer
+`review_assignments.round` has carried since `1300`: it creates two tables, adds three triggers,
+and alters, copies and drops nothing.
+
+The cost is honest and small. A round cannot be renumbered, and its identity is a composite key
+rather than a UUID. Renumbering is not something organizers ask for — rounds are ordinal by nature
+— and the composite key is the key the data already had.
+
+**Two things are recorded for whoever rebuilds `review_assignments` next**, because both are traps
+this lane walked into. SQLite drops a table's triggers with the table, so a rebuild now has to
+restate **seven** rather than the four `1301` restates; forgetting the three `1312` adds leaves the
+round, open-round and pool rules holding in the service and no longer holding in the schema, which
+is the half that was the point. It is asserted by name after a replay in
+`d1-review-repository.integration.test.ts`, and stated in `apps/api/migrations/README.md`. And
+`1312` deliberately has **no** trigger on `review_round_members`: the rule "a reviewer holding work
+in this round cannot be removed from its pool" is real and enforced, but as a `NOT EXISTS`
+predicate on the DELETE itself, because a `BEFORE DELETE` whose body reads `review_assignments` is
+evaluated whenever that table is mid-rebuild — which turned the `1301` replay into a failure naming
+a third table. The guarded DELETE is just as unbypassable and belongs to nobody else's migration.
+
+**`1706` is the second worked example of the cross-domain migration rule.** It widens
+`communication_deliveries.trigger_type` by `reviewer.reminder` so review can send an
+outstanding-review nudge; the table is communications', the reason is review's, and the number
+therefore comes from the communications block, exactly as `1705` did for CFP. Announced here so a
+concurrent communications lane meets the number rather than the conflict. The alternative —
+labelling a reminder `reviewer.assigned` — was ruled out in `docs/quality/scorecard.md` before this
+lane existed, and the ruling is right twice over: `trigger_type` is what the delivery history, the
+webhook fan-out and the schedule-mail consumer read to decide what a row *is*, and reusing it would
+merge two idempotency families so a reviewer already told about a round could never be reminded
+about it.
+
+**One lifecycle port now answers, and that is a departure worth naming.** `reviewerAssigned` and
+`decisionRecorded` return `void` and swallow their own failures, because nothing upstream can act
+on one: a speaker welcome that could not be queued must not fail an acceptance that already
+committed. `remindOutstanding` is the opposite shape — an organizer pressed a button, is watching,
+and has to be told what happened to each person — so it returns `queued`, `already_sent` or
+`unaddressable`, and the composition-root binding reports rather than throws. The port's "must not
+throw" contract still holds.
+
+**Two cross-domain seed edits, announced as the rules require.** `identity-access/users.sql` and
+`roles.sql` gain a second reviewer, Nina Alvarez, staffed on the demo event with a linked address.
+A round's pool means nothing with one reviewer in the directory, one reviewer cannot demonstrate
+that a second cannot read their notes, and a reminder list of one is a button rather than an
+operation. She is deliberately **not** a demo persona: `seed-<persona>` is the only shape the demo
+door resolves, so adding one would put a fifth "Continue as…" button on the landing page — an
+identity-owned product decision, made from a review lane, to solve a review problem. The
+consequence is stated rather than hidden: "two reviewers in separate browser contexts" is met at
+the service and HTTP tiers instead, and `apps/api/test/review-rounds.test.ts` proves over the
+serialized response that neither reviewer's queue contains the other's evaluation, draft or
+completed. `communications-integrations/data.sql` gains the `reviewer-reminder` template.
+
+**A blind-review leak found by writing the test rather than by reading the code.** Co-authors reach
+review as a `coauthors` *answer* — a JSON array of names and roles — so the masked projection,
+which set `submitterName` to the mask and `submitter` to null, handed a blind reviewer every
+co-author's name in plain text inside the same `answers` list the abstract renders from. The
+submitter was hidden and the people beside them were not. The answer is now dropped from the blind
+projection rather than emptied, because a blanked entry still says how many there were, and "three
+co-authors, one a professor" identifies a submission in a small field.
+
+**What this lane does not do, and why.** Issue #191 carries a "private-set hardening" half at least
+as large as its public one, and several parts of it are externally blocked rather than merely
+large. Not taken here: AI evaluator **personas** an organizer configures (the reviewer-side draft
+assistance from #110 ships and is now discoverable in the seeded journey; an organizer-configured
+persona with its own allowlisted scorecard is a second feature); per-plan and cumulative
+**reports**, which #196 owns the saved and scheduled half of; **Waitlist** and **Request Revision**
+dispositions with their own bulk actions, reasons and submitter visibility; **plan duplication** as
+configuration only; **per-plan session filters** over configured fields with an explicit
+recomputation on source change; a **maximum evaluation count per proposal** and the concurrency
+around it; **field- and file-level visibility policy** beyond the author masking that ships;
+**automated weekly** reminders, which need their own occurrence key and a scheduled tick — the
+manual nudge ships and `GAP-010` names the recurring one as absent; and **XLSX** export beside the
+CSV. Structured co-author input remains what it was: parsed out of a `coauthors` answer, because
+first-class co-author capture belongs to the CFP lifecycle epic. Each of those is listed in the
+pull request so the next lane inherits the list rather than re-deriving it.
+
+**Issue #221 was taken with this lane, at the requester's direction**, because its scope is the
+organizer-facing review projection this lane was rebuilding anyway and its blind-review constraint
+is one this lane already held. The 2026-08-14 evaluator run recorded CFP-11 partial: a reviewer
+submitted a rating and a comment, the review persisted, the queue said completed, and organizer
+proposal detail showed the aggregate and the completion count and no comment. The numeric result
+was exposed and the words an organizer decides on were withheld. Both now appear, with attribution
+and completion state, labelled from the round's own scorecard.
