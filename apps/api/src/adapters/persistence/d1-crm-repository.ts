@@ -9,6 +9,7 @@ import {
   ContactEmailTakenError,
   ContactNotFoundError,
   PipelineStageInUseError,
+  PipelineStageNotFoundError,
   ProspectAlreadyConvertedError,
 } from "../../application/crm/errors";
 import type {
@@ -414,7 +415,13 @@ export class D1CrmRepository implements CrmRepository {
           ),
       );
     }
-    await this.runBatch(statements, "update prospect atomically");
+    try {
+      await this.runBatch(statements, "update prospect atomically");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
     const current = await this.findById(prospect.eventId, prospect.id);
     if (!current) throw new Error("Prospect not found after update");
     if (current?.speakerId)

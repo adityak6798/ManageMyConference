@@ -220,11 +220,11 @@ export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 export const acceptContentInputSchema = z.object({ proposalId: z.string().uuid() });
 export type AcceptContentInput = z.infer<typeof acceptContentInputSchema>;
 export const updateSpeakerProfileInputSchema = z.object({
-  expectedVersion: z.number().int().nonnegative(),
+  expectedVersion: z.number().int().nonnegative().optional(),
   name: z.string().trim().min(1).max(120),
   bio: z.string().trim().max(2000),
   pronouns: z.string().trim().max(50),
-  jobTitle: z.string().trim().max(120),
+  jobTitle: z.string().trim().max(120).optional(),
   organization: z.string().trim().max(120),
   /*
    * Optional so an older client's save is a text edit rather than a silent wipe of every link.
@@ -246,11 +246,11 @@ export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInput
  */
 export const setSpeakerPhotoInputSchema = z.object({
   assetId: z.string().uuid(),
-  expectedVersion: z.number().int().nonnegative(),
+  expectedVersion: z.number().int().nonnegative().optional(),
 });
 export type SetSpeakerPhotoInput = z.infer<typeof setSpeakerPhotoInputSchema>;
 export const clearSpeakerPhotoInputSchema = z.object({
-  expectedVersion: z.number().int().nonnegative(),
+  expectedVersion: z.number().int().nonnegative().optional(),
 });
 export type ClearSpeakerPhotoInput = z.infer<typeof clearSpeakerPhotoInputSchema>;
 export const uploadSpeakerAssetInputSchema = z.object({

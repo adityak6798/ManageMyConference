@@ -718,6 +718,7 @@ interface RosterSpeaker {
   jobTitle: string;
   organization: string;
   version: number;
+  photoAssetId?: string;
   socialLinks?: Record<string, string>;
   /** Optional the way the contract declares it: a profile written before `1408` carries none. */
   invitationsSent?: number;
@@ -812,11 +813,30 @@ test("an organizer edits the canonical profile the speaker and public programme 
   const bio = `Organizer-managed biography ${stamp}.`;
   const jobTitle = `Programme Director ${stamp}`;
   const company = `Greenroom Cooperative ${stamp}`;
+  const headshot = `organizer-headshot-${stamp}.png`;
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   const original = await rosterEntry(page, SAM);
+  // Uploads belong to the speaker; choosing one for the programme is the organizer action this
+  // journey drives. Seed a real speaker-owned image, then return to the organizer before opening
+  // the editor.
+  await page.request.post("/api/demo-session", { data: { persona: "speaker" } });
+  const uploaded = await page.request.post("/api/speaker-assets", {
+    data: {
+      profileId: SAM,
+      name: headshot,
+      contentType: "image/png",
+      contentBase64: PNG_1X1,
+    },
+  });
+  expect(
+    uploaded.ok(),
+    `uploading the speaker-owned headshot failed: ${await uploaded.text()}`,
+  ).toBe(true);
+  const headshotId = ((await uploaded.json()) as { asset: { id: string } }).asset.id;
+  await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
   await page.goto(SESSIONS);
 
   const roster = page.getByRole("region", { name: "Speakers", exact: true });
@@ -828,33 +848,70 @@ test("an organizer edits the canonical profile the speaker and public programme 
   await editor.getByLabel("Company").fill(company);
   await editor.getByRole("button", { name: "Save canonical profile" }).click();
   await expect(editor.getByRole("status")).toContainText("canonical profile was saved");
+  await editor.getByRole("button", { name: `Use ${headshot}` }).click();
+  await expect(editor.getByRole("status")).toContainText("headshot was selected");
 
-  // The speaker sees the organizer's write in the same controls they use to edit it.
+  // The speaker sees both organizer writes in the same controls they use to edit them.
   await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
   await page.goto(PORTAL);
   const speakerProfile = page.getByRole("region", { name: "Your public profile" });
   await expect(speakerProfile.getByLabel("Bio")).toHaveValue(bio);
   await expect(speakerProfile.getByLabel("Job title")).toHaveValue(jobTitle);
   await expect(speakerProfile.getByLabel("Company")).toHaveValue(company);
+  const privateUploads = page.getByRole("region", { name: "Private uploads" });
+  await expect(privateUploads).toContainText(headshot);
+  const chosenPhoto = privateUploads.locator("img.photo-preview");
+  await expect(chosenPhoto).toHaveAttribute("src", `/api/speaker-assets/${headshotId}`);
+  await expect.poll(() => chosenPhoto.evaluate(decoded)).toBeGreaterThan(0);
 
   // Publication reads the same canonical row; no organizer-only copy is involved.
   await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
+  const publishHeadshot = await page.request.post(`/api/speaker-assets/${headshotId}/publish`);
+  expect(
+    publishHeadshot.ok(),
+    `publishing the organizer headshot failed: ${await publishHeadshot.text()}`,
+  ).toBe(true);
   await publishEvent(page);
   const response = await page.request.get(`/api/public/events/${SLUG}`);
   expect(response.ok()).toBe(true);
   const projection = (await response.json()) as {
     projection: {
-      speakers: { name: string; bio: string; jobTitle?: string; organization: string }[];
+      speakers: {
+        name: string;
+        bio: string;
+        jobTitle?: string;
+        organization: string;
+        photoUrl?: string;
+      }[];
     };
   };
   expect(projection.projection.speakers.find(({ name }) => name === "Sam Speaker")).toMatchObject({
     bio,
     jobTitle,
     organization: company,
+    photoUrl: `/api/speaker-assets/${headshotId}`,
   });
 
   // Restore both canonical and public state so a shared-fixture rerun starts where the seed does.
-  const changed = await rosterEntry(page, SAM);
+  let changed = await rosterEntry(page, SAM);
+  const cleared = await page.request.delete(`/api/speaker-profiles/${SAM}/photo`, {
+    data: { expectedVersion: changed.version },
+  });
+  expect(cleared.ok(), `clearing the organizer headshot failed: ${await cleared.text()}`).toBe(
+    true,
+  );
+  changed = await rosterEntry(page, SAM);
+  if (original.photoAssetId) {
+    const restorePhoto = await page.request.put(`/api/speaker-profiles/${SAM}/photo`, {
+      data: { assetId: original.photoAssetId, expectedVersion: changed.version },
+    });
+    expect(
+      restorePhoto.ok(),
+      `restoring Sam's original headshot failed: ${await restorePhoto.text()}`,
+    ).toBe(true);
+    changed = await rosterEntry(page, SAM);
+  }
+  expect((await page.request.delete(`/api/speaker-assets/${headshotId}`)).status()).toBe(204);
   const restored = await page.request.patch(`/api/speaker-profiles/${SAM}`, {
     data: {
       expectedVersion: changed.version,

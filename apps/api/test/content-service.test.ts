@@ -554,7 +554,29 @@ describe("ContentService", () => {
     // Nobody else: a reviewer on the event, a speaker who is not this speaker, and an
     // anonymous caller are all refused, and refused the same way as an unknown profile.
     const strangerSpeaker = { ...speaker, id: "another-speaker" };
-    for (const actor of [null, await resolveSeededDemoActor("reviewer"), strangerSpeaker]) {
+    const outsideOrganizer = {
+      ...organizer,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000099", name: "Another organization" }],
+      organizationAccess: [
+        {
+          id: "00000000-0000-4000-8000-000000000099",
+          capabilities: new Set(organizer.capabilities),
+        },
+      ],
+      eventAccess: [
+        {
+          eventId: "00000000-0000-4000-8000-000000000099",
+          role: "organizer" as const,
+          capabilities: new Set(["content:read" as const, "content:manage" as const]),
+        },
+      ],
+    };
+    for (const actor of [
+      null,
+      await resolveSeededDemoActor("reviewer"),
+      strangerSpeaker,
+      outsideOrganizer,
+    ]) {
       await expect(service.setProfilePhoto(actor, profileId, headshot.id, 3)).rejects.toThrow();
       await expect(service.clearProfilePhoto(actor, profileId, 3)).rejects.toThrow();
     }
@@ -625,6 +647,8 @@ describe("ContentService", () => {
     });
     expect(profileUpdated).toHaveBeenLastCalledWith({
       actorId: organizer.id,
+      actorName: organizer.name,
+      source: "human",
       eventId,
       profileId: samProfile.id,
       version: 1,
@@ -660,6 +684,8 @@ describe("ContentService", () => {
     ).resolves.toMatchObject({ version: 2, bio: "Builds calm, accessible systems." });
     expect(profileUpdated).toHaveBeenLastCalledWith({
       actorId: speaker.id,
+      actorName: speaker.name,
+      source: "human",
       eventId,
       profileId: samProfile.id,
       version: 2,

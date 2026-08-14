@@ -17,9 +17,12 @@ import type {
   EventView,
 } from "../../application/events/public";
 
-export const createEventInputToCommand = (input: CreateEventInput): CreateEventCommand => ({
+export const createEventInputToCommand = (
+  input: CreateEventInput,
+  idempotencyKey?: string,
+): CreateEventCommand => ({
   organizationId: input.organizationId,
-  idempotencyKey: input.idempotencyKey,
+  ...(idempotencyKey ? { idempotencyKey } : {}),
   name: input.name,
   timezone: input.timezone,
 });

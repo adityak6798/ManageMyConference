@@ -17,7 +17,8 @@ export interface CreateEventOptions {
   readonly organizerUserId?: string;
   /**
    * Unique per organization, so a repeat of the same provisioning intent is refused rather than
-   * duplicated. Absent for every event a person creates deliberately.
+   * duplicated. Deliberate creates carry the caller's optional retry key; legacy unkeyed creates
+   * and no-retry callers omit it.
    */
   readonly provisioningKey?: string;
 }
@@ -31,7 +32,7 @@ export type CreateEventOutcome = "created" | "provisioning-key-taken";
 // @spec PRD-EVT-001
 export interface EventRepository {
   create(event: Event, options?: CreateEventOptions): Promise<CreateEventOutcome>;
-  /** The event this organization was provisioned under `provisioningKey`, if it has one. */
+  /** The original create response retained under `provisioningKey`, if it has one. */
   findByProvisioningKey(organizationId: string, provisioningKey: string): Promise<Event | null>;
   /**
    * Remove an organization that never became anybody's workspace, and refuse if it did.

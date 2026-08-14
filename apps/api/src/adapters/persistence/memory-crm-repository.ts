@@ -8,6 +8,7 @@ import {
   ContactAlreadySourcedError,
   ContactNotFoundError,
   PipelineStageInUseError,
+  PipelineStageNotFoundError,
   ProspectAlreadyConvertedError,
 } from "../../application/crm/errors";
 import {
@@ -82,6 +83,8 @@ export class MemoryCrmRepository implements CrmRepository {
       throw new ProspectAlreadyConvertedError("Converted prospects cannot be updated");
     const stageActivities: ProspectActivity[] = [];
     if (move && stored.stage !== move.toStage) {
+      if (!(this.stages.get(prospect.eventId) ?? []).some(({ key }) => key === move.toStage))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
       const labels = new Map(
         (this.stages.get(prospect.eventId) ?? []).map((s) => [s.key, s.label]),
       );

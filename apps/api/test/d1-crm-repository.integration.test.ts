@@ -8,6 +8,7 @@ import {
   ContactEmailTakenError,
   ContactNotFoundError,
   PipelineStageInUseError,
+  PipelineStageNotFoundError,
 } from "../src/application/crm/errors";
 import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
@@ -395,6 +396,63 @@ describe("D1 CRM persistence", () => {
     await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
       stage: "engaged",
     });
+  });
+
+  it("refuses a card move when its target stage disappears after the caller read the board", async () => {
+    const migrated = await migratedRuntime("crm-move-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000053",
+      "Moves after stage deletion",
+      "identified",
+    );
+    await repository.create(prospect);
+
+    const board = await repository.listStages(eventId);
+    await repository.saveStages(eventId, [
+      ...board,
+      {
+        id: "15030000-0000-4000-8000-000000000001",
+        eventId,
+        key: "future-fit",
+        label: "Future fit",
+        category: "open",
+        sortOrder: board.length,
+        createdAt: "2026-08-12T12:00:00.000Z",
+      },
+    ]);
+    const staleBoard = await repository.listStages(eventId);
+    expect(staleBoard.some(({ key }) => key === "future-fit")).toBe(true);
+    await repository.saveStages(
+      eventId,
+      staleBoard
+        .filter(({ key }) => key !== "future-fit")
+        .map((stage, sortOrder) => ({ ...stage, sortOrder })),
+    );
+
+    await expect(
+      repository.update(
+        { ...prospect, stage: "future-fit", updatedAt: "2026-08-12T12:05:00.000Z" },
+        [],
+        undefined,
+        {
+          toStage: "future-fit",
+          actorId: "seed-organizer",
+          source: "board",
+          occurredAt: "2026-08-12T12:05:00.000Z",
+        },
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: "identified",
+      activities: [],
+    });
+    const transitions = await migrated.database
+      .prepare("SELECT id FROM crm_prospect_transitions WHERE prospect_id=?")
+      .bind(prospect.id)
+      .all();
+    expect(transitions.results).toEqual([]);
   });
 
   it("gives history to exactly the cards a stage delete moves, not to the ones a stale read named", async () => {
@@ -1673,19 +1731,35 @@ describe("crm_prospects rebuild", () => {
     expect(after?.joinedContacts).toBe(before?.contacts);
     expect(after?.joinedLinks).toBe(before?.links);
 
-    // The CHECK is gone, which is the whole point: a stage key `0015` did not know is storable.
+    // The CHECK is gone, which is the whole point: a configured stage key `0015` did not know is
+    // storable. It is configured first because `1503` separately requires every current card
+    // stage to remain on its event's board.
+    await migrated.database
+      .prepare(
+        "INSERT INTO crm_pipeline_stages (id,event_id,key,label,category,sort_order,created_at) VALUES (?,?,?,?,?,?,?)",
+      )
+      .bind(
+        "15030000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000001",
+        "post-rebuild-custom",
+        "Post-rebuild custom",
+        "open",
+        8,
+        "2026-08-12T12:00:00.000Z",
+      )
+      .run();
     const custom = await migrated.database
       .prepare("UPDATE crm_prospects SET stage = ? WHERE id = ?")
-      .bind("future-fit", "50000000-0000-4000-8000-000000000001")
+      .bind("post-rebuild-custom", "50000000-0000-4000-8000-000000000001")
       .run();
     expect(custom.success).toBe(true);
 
-    // And the stage set the rebuild copied around is untouched by it, which is what says the two
-    // migrations are separable rather than merely separate.
+    // And the rebuilt table still has its complete default stage set plus the one deliberately
+    // configured here, which says the two migrations are separable rather than merely separate.
     const stages = await migrated.database
       .prepare("SELECT COUNT(*) AS total FROM crm_pipeline_stages WHERE event_id = ?")
       .bind("00000000-0000-4000-8000-000000000001")
       .all<{ total: number }>();
-    expect(stages.results?.[0]?.total).toBe(8);
+    expect(stages.results?.[0]?.total).toBe(9);
   });
 });

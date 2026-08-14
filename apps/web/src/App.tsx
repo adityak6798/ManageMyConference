@@ -491,12 +491,14 @@ export function App({
     setBusy(true);
     setError(null);
     try {
-      const created = await createEvent({
-        organizationId,
-        idempotencyKey: createIdempotencyKey.current,
-        name: createName,
-        timezone: createTimezone,
-      });
+      const created = await createEvent(
+        {
+          organizationId,
+          name: createName,
+          timezone: createTimezone,
+        },
+        createIdempotencyKey.current,
+      );
       let configurationFailure: unknown;
       try {
         await updatePublicationSettings(created.id, {

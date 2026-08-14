@@ -10,12 +10,14 @@ import type { EventRepository } from "./event-repository";
 
 export interface CreateEventCommand {
   readonly organizationId: string;
-  readonly idempotencyKey: string;
+  readonly idempotencyKey?: string;
   readonly name: string;
   readonly timezone: string;
 }
 
 type ProvisionEventCommand = Omit<CreateEventCommand, "idempotencyKey">;
+
+export class EventIdempotencyConflictError extends Error {}
 
 export interface UpdateEventCommand {
   readonly name: string;
@@ -84,6 +86,11 @@ export class EventService {
   async create(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
     const authorized = this.authorizeCreate(actor, command.organizationId);
     const subject = authorized.roleGrantSubjectId ?? authorized.id;
+    if (!command.idempotencyKey) {
+      const created = await this.write(command, subject, {});
+      if (!created) throw new Error("Unkeyed event creation was unexpectedly refused");
+      return created;
+    }
     const key = additionalEventProvisioningKey(subject, command.idempotencyKey);
     const created = await this.write(command, subject, { provisioningKey: key });
     if (created) return created;
@@ -94,6 +101,10 @@ export class EventService {
     if (!adopted)
       throw new Error(
         `Event creation for organization ${command.organizationId} was refused as a replay, but no created event exists`,
+      );
+    if (adopted.name !== command.name || adopted.timezone !== command.timezone)
+      throw new EventIdempotencyConflictError(
+        "That idempotency key was already used with different event details.",
       );
     return adopted;
   }

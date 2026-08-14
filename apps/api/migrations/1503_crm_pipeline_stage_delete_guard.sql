@@ -18,3 +18,20 @@ WHEN EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'pipeline stage still holds prospects');
 END;
+
+-- The inverse race matters too: a move may have read a target that a board editor deletes
+-- before the move commits. Refuse that write from the same commit-time stage set, so every
+-- persisted prospect stage is renderable by the board.
+CREATE TRIGGER crm_prospect_stage_requires_pipeline_stage
+BEFORE UPDATE OF stage ON crm_prospects
+FOR EACH ROW
+WHEN NEW.stage <> OLD.stage
+ AND NOT EXISTS (
+   SELECT 1
+     FROM crm_pipeline_stages
+    WHERE event_id = NEW.event_id
+      AND key = NEW.stage
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'pipeline stage does not exist');
+END;

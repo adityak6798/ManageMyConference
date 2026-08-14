@@ -186,6 +186,7 @@ export class ApiClientResolver {
       roleGrantSubjectId: creator.id,
       eventAccess,
       capabilities,
+      requestSource: "api",
     };
   }
 }

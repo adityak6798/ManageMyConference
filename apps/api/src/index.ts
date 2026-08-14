@@ -1058,6 +1058,7 @@ export default {
         targetId: string;
         targetVersion?: number;
         occurrence?: string;
+        actor?: { id: string | null; name: string; source: "human" | "api" | "agent" | "system" };
       },
     ): Promise<void> => {
       try {
@@ -1070,6 +1071,7 @@ export default {
           targetType: entry.targetType,
           targetId: entry.targetId,
           ...(entry.targetVersion !== undefined ? { targetVersion: entry.targetVersion } : {}),
+          ...(entry.actor ? { actor: entry.actor } : {}),
           idempotencyKey: lifecycleAuditKey({ ...entry, eventId }),
         });
       } catch (error) {
@@ -1415,6 +1417,7 @@ export default {
             targetId: fact.profileId,
             targetVersion: fact.version,
             occurrence: `v${fact.version}`,
+            actor: { id: fact.actorId, name: fact.actorName, source: fact.source },
           }),
       },
       assetStorage: new R2AssetStorage(environment.ASSETS),

@@ -308,10 +308,7 @@ export class MemoryContentRepository
     expectedVersion: number,
     assetId: string | null,
   ) {
-    const current = this.speakers.find(({ id }) => id === profileId);
-    if (!current) return null;
-    const previousPhoto = current.photoAssetId;
-    const next = await this.reviseProfile(
+    return this.reviseProfile(
       profileId,
       draft,
       (profile) => {
@@ -320,11 +317,6 @@ export class MemoryContentRepository
       },
       expectedVersion,
     );
-    if (next && previousPhoto && previousPhoto !== assetId)
-      this.assets = this.assets.map((asset) =>
-        asset.id === previousPhoto ? { ...asset, visibility: "private" } : asset,
-      );
-    return next;
   }
   async updateTask(task: SpeakerTask) {
     if (!this.tasks.some(({ id }) => id === task.id)) return false;
@@ -563,7 +555,13 @@ export class MemoryContentRepository
       (current) => ({ ...edit(current), version: (current.version ?? 0) + 1 }),
       expectedVersion,
     );
-    if (next) this.speakers = this.speakers.map((item) => (item.id === next.id ? next : item));
+    if (next) {
+      this.speakers = this.speakers.map((item) => (item.id === next.id ? next : item));
+      if (stored?.photoAssetId && stored.photoAssetId !== next.photoAssetId)
+        this.assets = this.assets.map((asset) =>
+          asset.id === stored.photoAssetId ? { ...asset, visibility: "private" } : asset,
+        );
+    }
     return next;
   }
   async reviseSession(

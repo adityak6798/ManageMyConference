@@ -60,7 +60,7 @@ export interface ContentRepository {
    * Write a profile with no revision and no guard.
    *
    * No production path calls this, and none should: an organizer's or speaker's profile edit
-   * goes through `reviseProfile`, a headshot through `updateProfilePhoto`, and an import
+   * goes through `reviseProfile`, a headshot through `reviseProfilePhoto`, and an import
    * through `updateProfileWorkflow`. Each of those writes what it is actually changing, so
    * none of them can put a column back the way it read it. This survives for fixtures.
    */

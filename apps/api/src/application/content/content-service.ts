@@ -244,6 +244,8 @@ export class SpeakerRemindersUnavailableError extends Error {}
 export interface ContentProfileAuditPort {
   profileUpdated(input: {
     actorId: string;
+    actorName: string;
+    source: "human" | "api";
     eventId: string;
     profileId: string;
     version: number;
@@ -1274,11 +1276,12 @@ export class ContentService {
      * sends only the text fields edits only the text, rather than silently clearing every link
      * the speaker had entered.
      */
-    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "jobTitle" | "organization"> &
-      Partial<Pick<SpeakerProfile, "socialLinks">> & { expectedVersion: number },
+    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization"> &
+      Partial<Pick<SpeakerProfile, "jobTitle" | "socialLinks">> & { expectedVersion?: number },
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
-    const { expectedVersion, ...changes } = input;
+    const { expectedVersion: suppliedVersion, ...changes } = input;
+    const expectedVersion = suppliedVersion ?? profile.version ?? 0;
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
@@ -1313,7 +1316,7 @@ export class ContentService {
     actor: Actor | null,
     profileId: string,
     assetId: string,
-    expectedVersion: number,
+    expectedVersion?: number,
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     const asset = await this.dependencies.repository.findAsset(assetId);
@@ -1336,7 +1339,7 @@ export class ContentService {
     const updated = await this.dependencies.repository.reviseProfilePhoto(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
-      expectedVersion,
+      expectedVersion ?? profile.version ?? 0,
       asset.id,
     );
     if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
@@ -1354,7 +1357,7 @@ export class ContentService {
   async clearProfilePhoto(
     actor: Actor | null,
     profileId: string,
-    expectedVersion: number,
+    expectedVersion?: number,
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     // As in `setProfilePhoto`: withdrawing a choice from a profile that has gone is refused
@@ -1362,7 +1365,7 @@ export class ContentService {
     const updated = await this.dependencies.repository.reviseProfilePhoto(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
-      expectedVersion,
+      expectedVersion ?? profile.version ?? 0,
       null,
     );
     if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
@@ -1389,6 +1392,8 @@ export class ContentService {
   private async recordProfileUpdate(actor: Actor, profile: SpeakerProfile) {
     await this.dependencies.profileAudit?.profileUpdated({
       actorId: actor.id,
+      actorName: actor.name,
+      source: actor.requestSource ?? "human",
       eventId: profile.eventId,
       profileId: profile.id,
       version: profile.version ?? 0,
@@ -1636,8 +1641,16 @@ export class ContentService {
     // The one caller that reads no count and should not: if the profile went between the read
     // above and this write, the pointer at this asset went with it, which is the outcome this
     // line exists to reach. Nothing is reported to the caller from it either way.
-    if (profile?.photoAssetId === asset.id)
-      await this.dependencies.repository.updateProfilePhoto(profile.id, null);
+    if (profile?.photoAssetId === asset.id) {
+      const updated = await this.dependencies.repository.reviseProfilePhoto(
+        profile.id,
+        this.draftRevision(authorized, profile.eventId),
+        profile.version ?? 0,
+        null,
+      );
+      if (!updated) throw new CapabilityDeniedError("Speaker asset access denied");
+      await this.recordProfileUpdate(authorized, updated);
+    }
     await this.dependencies.assetStorage.delete(asset.storageKey);
     await this.dependencies.repository.deleteAsset(asset.id);
   }
@@ -2050,6 +2063,7 @@ export class ContentService {
           name: snapshot.name,
           bio: snapshot.bio,
           pronouns: snapshot.pronouns,
+          jobTitle: snapshot.jobTitle ?? "",
           organization: snapshot.organization,
           // Restored exactly as the snapshot held it, absence included: a revision taken before
           // the speaker chose a headshot puts the profile back to having none.
@@ -2063,6 +2077,7 @@ export class ContentService {
         }),
       );
       if (!restored) throw new CapabilityDeniedError();
+      await this.recordProfileUpdate(authorized, restored);
     } else {
       const snapshot = JSON.parse(revision.snapshotJson) as ContentSession;
       const restored = await this.dependencies.repository.reviseSession(

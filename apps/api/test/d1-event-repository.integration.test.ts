@@ -192,6 +192,8 @@ describe("D1EventRepository", () => {
       service.create(organizer, command),
     ]);
     expect(replay.id).toBe(first.id);
+    await repository.update(first.id, "Renamed after creation", "America/New_York");
+    await expect(service.create(organizer, command)).resolves.toEqual(first);
     await expect(repository.listAllIdsInOrganization(command.organizationId)).resolves.toHaveLength(
       3,
     );

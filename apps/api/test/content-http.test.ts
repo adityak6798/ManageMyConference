@@ -460,6 +460,18 @@ describe("content HTTP transport", () => {
     await expect(chosen.json()).resolves.toMatchObject({
       profile: { id: profileId, photoAssetId: headshot.id },
     });
+    // Compatibility bridge: the pre-version route accepted just the asset id, and DELETE was
+    // bodyless. Those callers still work while current clients send an explicit version.
+    expect((await api.request(photo, { method: "DELETE", headers: organizer })).status).toBe(200);
+    expect(
+      (
+        await api.request(photo, {
+          method: "PUT",
+          headers: speaker,
+          body: JSON.stringify({ assetId: headshot.id }),
+        })
+      ).status,
+    ).toBe(200);
     // And nothing was published by it: the file is still private, so it is still invisible.
     expect((await api.request(`/api/speaker-assets/${headshot.id}`)).status).toBe(404);
     await expect(
@@ -467,14 +479,14 @@ describe("content HTTP transport", () => {
     ).resolves.toMatchObject({ assets: expect.arrayContaining([{ ...headshot }]) });
 
     // A slide deck is refused with the offending field named, not with a bare 400.
-    const refused = await choose(speaker, slides.id, 1);
+    const refused = await choose(speaker, slides.id, 3);
     expect(refused.status).toBe(400);
     await expect(refused.json()).resolves.toMatchObject({
       error: { code: "VALIDATION_FAILED", fieldErrors: { assetId: [expect.any(String)] } },
     });
     // As is a file that is not this speaker's, and a body that names no asset at all.
-    expect((await choose(organizer, "00000000-0000-4000-8000-0000000000ff", 1)).status).toBe(400);
-    expect((await choose(organizer, "not-a-uuid", 1)).status).toBe(400);
+    expect((await choose(organizer, "00000000-0000-4000-8000-0000000000ff", 3)).status).toBe(400);
+    expect((await choose(organizer, "not-a-uuid", 3)).status).toBe(400);
     expect(
       (await api.request(photo, { method: "PUT", headers: organizer, body: "{" })).status,
     ).toBe(400);
@@ -483,19 +495,19 @@ describe("content HTTP transport", () => {
         await api.request(`/api/speaker-profiles/not-a-uuid/photo`, {
           method: "PUT",
           headers: organizer,
-          body: JSON.stringify({ assetId: headshot.id, expectedVersion: 1 }),
+          body: JSON.stringify({ assetId: headshot.id, expectedVersion: 3 }),
         })
       ).status,
     ).toBe(400);
 
     // A reviewer may not choose one, and an anonymous caller is not even authenticated.
-    expect((await choose(await cookie("reviewer"), headshot.id, 1)).status).toBe(403);
+    expect((await choose(await cookie("reviewer"), headshot.id, 3)).status).toBe(403);
     expect(
       (
         await api.request(photo, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ assetId: headshot.id, expectedVersion: 1 }),
+          body: JSON.stringify({ assetId: headshot.id, expectedVersion: 3 }),
         })
       ).status,
     ).toBe(401);
@@ -503,7 +515,7 @@ describe("content HTTP transport", () => {
       (
         await api.request(photo, {
           method: "DELETE",
-          body: JSON.stringify({ expectedVersion: 1 }),
+          body: JSON.stringify({ expectedVersion: 3 }),
         })
       ).status,
     ).toBe(401);
@@ -512,7 +524,7 @@ describe("content HTTP transport", () => {
         await api.request(photo, {
           method: "DELETE",
           headers: await cookie("reviewer"),
-          body: JSON.stringify({ expectedVersion: 1 }),
+          body: JSON.stringify({ expectedVersion: 3 }),
         })
       ).status,
     ).toBe(403);
@@ -527,7 +539,7 @@ describe("content HTTP transport", () => {
         await api.request(photo, {
           method: "DELETE",
           headers: organizer,
-          body: JSON.stringify({ expectedVersion: 1 }),
+          body: JSON.stringify({ expectedVersion: 3 }),
         })
       ).status,
     ).toBe(200);
@@ -535,7 +547,7 @@ describe("content HTTP transport", () => {
       await api.request(`/api/events/${eventId}/content`, { headers: speaker })
     ).json();
     expect(cleared.speakers[0]).not.toHaveProperty("photoAssetId");
-    expect((await choose(organizer, headshot.id, 2)).status).toBe(200);
+    expect((await choose(organizer, headshot.id, 4)).status).toBe(200);
 
     // Publishing the file is the separate decision that finally makes the face public.
     expect(
@@ -1090,6 +1102,30 @@ describe("content HTTP transport", () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "CONFLICT", message: "This record is being edited by someone else." },
+    });
+  });
+
+  it("keeps the legacy profile PATCH shape while version-aware clients opt into stale-edit detection", async () => {
+    const api = app();
+    const response = await api.request(`/api/speaker-profiles/${samProfile.id}`, {
+      method: "PATCH",
+      headers: await cookie("speaker"),
+      body: JSON.stringify({
+        name: "Sam Speaker",
+        pronouns: "they/them",
+        organization: "Greenroom",
+        bio: "Updated by an older client",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      profile: {
+        id: samProfile.id,
+        bio: "Updated by an older client",
+        jobTitle: "",
+        version: 1,
+      },
     });
   });
 });

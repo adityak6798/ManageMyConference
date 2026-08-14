@@ -131,7 +131,7 @@ export const allowlistPublicProjection = (
     slug: speaker.slug,
     name: speaker.name,
     bio: speaker.bio,
-    jobTitle: speaker.jobTitle ?? "",
+    ...(speaker.jobTitle ? { jobTitle: speaker.jobTitle } : {}),
     organization: speaker.organization,
     ...(speaker.photoUrl ? { photoUrl: speaker.photoUrl } : {}),
     // Copied key by key, like everything else here: the allowlist is what stops a field an

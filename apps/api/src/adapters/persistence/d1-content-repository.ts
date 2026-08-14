@@ -184,11 +184,12 @@ export class D1ContentRepository
       sessions,
       speakers: workspace.speakers
         .filter(({ id }) => speakerIds.has(id))
-        .map(({ id, name, bio, pronouns, organization, photoAssetId, socialLinks }) => ({
+        .map(({ id, name, bio, pronouns, jobTitle, organization, photoAssetId, socialLinks }) => ({
           id,
           name,
           bio,
           pronouns,
+          ...(jobTitle ? { jobTitle } : {}),
           organization,
           ...(photoAssetId ? { photoAssetId } : {}),
           // Omitted rather than sent empty, so a speaker with no links adds no key to the
@@ -1139,6 +1140,19 @@ export class D1ContentRepository
       (row) => this.profile(row),
       (next, where) => this.profileWrite(next, where),
       expectedVersion,
+      (current, next) =>
+        current.photoAssetId && current.photoAssetId !== next.photoAssetId
+          ? [
+              this.database
+                .prepare(
+                  "UPDATE speaker_assets SET visibility='private' WHERE id=? AND speaker_profile_id=? AND EXISTS (SELECT 1 FROM content_revisions WHERE id=?)",
+                )
+                // Any profile revision can replace a photo (notably restore). Binding the
+                // privacy side effect to the winning revision keeps a losing CAS from hiding
+                // the winner's current photo.
+                .bind(current.photoAssetId, profileId, draft.id),
+            ]
+          : [],
     );
   }
 
@@ -1148,8 +1162,7 @@ export class D1ContentRepository
     expectedVersion: number,
     assetId: string | null,
   ) {
-    return this.revise<SpeakerProfile>(
-      "profile",
+    return this.reviseProfile(
       profileId,
       draft,
       (current) => {
@@ -1157,27 +1170,9 @@ export class D1ContentRepository
         return {
           ...withoutPhoto,
           ...(assetId ? { photoAssetId: assetId } : {}),
-          version: (current.version ?? 0) + 1,
         };
       },
-      "speaker_profiles",
-      PROFILE_WRITTEN_COLUMNS,
-      (row) => this.profile(row),
-      (next, where) => this.profileWrite(next, where),
       expectedVersion,
-      (current) =>
-        current.photoAssetId && current.photoAssetId !== assetId
-          ? [
-              this.database
-                .prepare(
-                  "UPDATE speaker_assets SET visibility='private' WHERE id=? AND speaker_profile_id=? AND EXISTS (SELECT 1 FROM content_revisions WHERE id=?)",
-                )
-                // The revision insert and profile write use the same compare-and-swap guard.
-                // Tying this side effect to that revision keeps a losing batch from hiding the
-                // winner's previous photo before `revise` can report the conflict.
-                .bind(current.photoAssetId, profileId, draft.id),
-            ]
-          : [],
     );
   }
 

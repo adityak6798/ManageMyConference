@@ -9,6 +9,7 @@
 import {
   applyEventTemplateInputSchema,
   captureEventTemplateVersionInputSchema,
+  createEventHeadersSchema,
   createEventInputSchema,
   duplicateEventTemplateInputSchema,
   eventIdParamsSchema,
@@ -20,6 +21,7 @@ import {
 } from "@greenroom/contracts";
 import type { EventTemplateCapture } from "../../../application/events/public";
 import {
+  EventIdempotencyConflictError,
   EventTemplateNameTakenError,
   EventTemplateNotFoundError,
   EventTemplateRangeError,
@@ -118,6 +120,9 @@ export const eventsRoutes: RouteModule = {
     app.post("/api/events", async (context) => {
       requireCapability(context.get("actor"), "events:create");
       const parsed = createEventInputSchema.safeParse(await readJson(context.req));
+      const headers = createEventHeadersSchema.safeParse({
+        "idempotency-key": context.req.header("Idempotency-Key"),
+      });
       if (!parsed.success)
         return context.json(
           envelope(
@@ -128,10 +133,23 @@ export const eventsRoutes: RouteModule = {
           ),
           400,
         );
+      if (!headers.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The event could not be created.",
+            context.get("correlationId"),
+            validationFields(headers.error.issues),
+          ),
+          400,
+        );
       return context.json(
         {
           event: eventToDto(
-            await service.create(context.get("actor"), createEventInputToCommand(parsed.data)),
+            await service.create(
+              context.get("actor"),
+              createEventInputToCommand(parsed.data, headers.data["idempotency-key"]),
+            ),
           ),
         },
         201,
@@ -322,6 +340,8 @@ export const eventsRoutes: RouteModule = {
     });
   },
   translateError(error: unknown) {
+    if (error instanceof EventIdempotencyConflictError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     // A template that does not exist and one belonging to another organization answer alike.
     if (error instanceof EventTemplateNotFoundError)
       return {

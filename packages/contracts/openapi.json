@@ -11412,6 +11412,18 @@
             "sessionCookie": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -11420,10 +11432,6 @@
                 "type": "object",
                 "properties": {
                   "organizationId": {
-                    "type": "string",
-                    "format": "uuid"
-                  },
-                  "idempotencyKey": {
                     "type": "string",
                     "format": "uuid"
                   },
@@ -11440,7 +11448,6 @@
                 },
                 "required": [
                   "organizationId",
-                  "idempotencyKey",
                   "name"
                 ]
               }
@@ -11619,6 +11626,66 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "409": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {
@@ -71573,11 +71640,9 @@
                   }
                 },
                 "required": [
-                  "expectedVersion",
                   "name",
                   "bio",
                   "pronouns",
-                  "jobTitle",
                   "organization"
                 ]
               }
@@ -72037,8 +72102,7 @@
                   }
                 },
                 "required": [
-                  "assetId",
-                  "expectedVersion"
+                  "assetId"
                 ]
               }
             }

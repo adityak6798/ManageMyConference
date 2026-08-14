@@ -428,9 +428,9 @@ describe("App", () => {
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       organizationId,
-      idempotencyKey: expect.any(String),
       name: "New Summit",
     });
+    expect(new Headers(createCall?.[1]?.headers).get("Idempotency-Key")).toBeTruthy();
     const settingsCall = fetchMock.mock.calls.find(
       ([input, options]) =>
         String(input).includes(`/api/publishing/events/${created.id}/settings`) &&

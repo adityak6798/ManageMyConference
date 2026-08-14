@@ -8,8 +8,8 @@ import type { Event, Organization } from "../../domain/events/event";
 export class MemoryEventRepository implements EventRepository {
   private readonly events = new Map<string, Event>();
   readonly organizations = new Map<string, Organization>();
-  /** `organizationId provisioningKey` to event id, mirroring the partial unique index. */
-  private readonly provisioned = new Map<string, string>();
+  /** Original keyed-create response, retained separately from mutable event settings. */
+  private readonly provisioned = new Map<string, Event>();
   /** The organizer grants the real adapter would have committed with the event row. */
   readonly organizerGrants: { eventId: string; userId: string }[] = [];
 
@@ -24,7 +24,7 @@ export class MemoryEventRepository implements EventRepository {
         : MemoryEventRepository.key(event.organizationId, options.provisioningKey);
     if (key !== null && this.provisioned.has(key)) return "provisioning-key-taken";
     this.events.set(event.id, event);
-    if (key !== null) this.provisioned.set(key, event.id);
+    if (key !== null) this.provisioned.set(key, { ...event });
     // One write, as in the adapter: the grant lands only if the event did.
     if (options.organizerUserId !== undefined)
       this.organizerGrants.push({ eventId: event.id, userId: options.organizerUserId });
@@ -35,8 +35,7 @@ export class MemoryEventRepository implements EventRepository {
     organizationId: string,
     provisioningKey: string,
   ): Promise<Event | null> {
-    const id = this.provisioned.get(MemoryEventRepository.key(organizationId, provisioningKey));
-    return (id === undefined ? null : this.events.get(id)) ?? null;
+    return this.provisioned.get(MemoryEventRepository.key(organizationId, provisioningKey)) ?? null;
   }
 
   /**
