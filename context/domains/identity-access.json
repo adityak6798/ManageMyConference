@@ -57,6 +57,9 @@
     "apps/web/test/api-clients-api.test.ts",
     "apps/web/src/workspaces/api-clients.tsx",
     "apps/web/test/api-clients-workspace.test.tsx",
-    "apps/web/e2e/api-clients.spec.ts"
+    "apps/web/e2e/api-clients.spec.ts",
+    "apps/api/src/adapters/persistence/identity-fixture-statements.mjs",
+    "apps/api/src/transport/http/oauth-attempt-cookie.ts",
+    "apps/api/test/oauth-attempt-cookie.test.ts"
   ]
 }

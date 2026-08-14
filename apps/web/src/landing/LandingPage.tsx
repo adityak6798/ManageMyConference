@@ -366,13 +366,27 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
       </p>
     );
 
-  // The callback sends every refusal to the same place without saying which check refused it,
-  // so this says the same: something did not complete, and here are the doors again.
-  const refused = new URLSearchParams(location.split("?")[1] ?? "").get("auth") === "failed";
+  /*
+   * The callback sends every *refusal* to the same place without saying which check refused it,
+   * so this says the same: something did not complete, and here are the doors again.
+   *
+   * `unavailable` is the one thing it does distinguish, and only because the fault is ours: D1
+   * down, Google answering 5xx, provisioning failing part-way (issue #164). Telling somebody to
+   * try their sign-in again when nothing about it was wrong sends them to check an account that
+   * is fine. It is not an oracle either — a deployment being broken is not the answer to any
+   * check a forged callback can pose.
+   */
+  const authOutcome = new URLSearchParams(location.split("?")[1] ?? "").get("auth");
+  const authNotice =
+    authOutcome === "failed"
+      ? "That sign-in did not complete. Please try again."
+      : authOutcome === "unavailable"
+        ? "Sign-in is not working here at the moment, and that is our side rather than yours. Please try again shortly."
+        : null;
   const notice =
-    refused || error ? (
+    authNotice || error ? (
       <p className="landing-notice error" role="alert">
-        {refused ? "That sign-in did not complete. Please try again." : error}
+        {authNotice ?? error}
       </p>
     ) : null;
 

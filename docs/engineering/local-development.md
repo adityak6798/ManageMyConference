@@ -81,15 +81,27 @@ configuration fails the Worker's boot by name rather than breaking somebody's fi
 
 | Binding | What it is | Where it lives |
 |---|---|---|
-| `GOOGLE_CLIENT_ID` | The OAuth client's public identifier | `apps/api/.dev.vars` locally; `[vars]` in `wrangler.toml` for a deployment |
+| `GOOGLE_CLIENT_ID` | The OAuth client's public identifier | `apps/api/.dev.vars` locally, blank unless you are testing a real client; `[vars]` in `wrangler.toml` for a deployment |
 | `GOOGLE_CLIENT_SECRET` | **A credential.** Never committed, never in `wrangler.toml` | `apps/api/.dev.vars` locally; `npx wrangler secret put GOOGLE_CLIENT_SECRET` for a deployment |
 | `GOOGLE_REDIRECT_URI` | The exact URI Google will send the browser back to | Same places as the client id |
 
-`npm run setup:local` does not write any of them, and it never overwrites an existing `.dev.vars`,
-so add them by hand to the file it created. **With no Google bindings the application behaves
-exactly as it did before**: `GET /api/auth/config` reports `google: false`, both Google routes
-answer 404, and every other door — demo personas locally, emailed codes in a configured production
-— is untouched. Nothing about local development requires this section.
+`npm run setup:local` writes all three **blank**, and blank is what keeps local development out of
+this entirely. The deployed client id lives in `[vars]` in `wrangler.toml`, and `wrangler dev` reads
+that file — so without the blanks a development machine, which has no `GOOGLE_CLIENT_SECRET`, would
+hold exactly two of the three and the local Worker would refuse **every** request, including the
+health probe the browser suite waits on. An empty value in `.dev.vars` overrides the deployed one
+and is falsy, so all three read as absent.
+
+**With the bindings blank the application behaves exactly as it did before**: `GET /api/auth/config`
+reports `google: false`, both Google routes answer 404, and every other door — demo personas
+locally, emailed codes in a configured production — is untouched. Nothing about local development
+requires this section.
+
+To develop against a real client, replace all three, and keep them together: two of three is the
+refusal above rather than a partial feature. `setup:local` never overwrites a value that is already
+there, and adds only the keys a file is missing, so running it again cannot disturb a client you are
+testing against. A *placeholder* value is worse than blank — it boots a configuration that then
+fails at Google, which is the state the all-three-or-none guard exists to prevent.
 
 ### Register the redirect URIs before expecting sign-in to work
 

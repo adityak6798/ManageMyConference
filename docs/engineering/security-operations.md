@@ -1,6 +1,6 @@
 # Security operations
 
-Status: canonical | Owner: security | Last verified: 2026-08-12
+Status: canonical | Owner: security | Last verified: 2026-08-13
 
 What an operator does about credentials, and what happens to the people signed in while they do
 it. Everything here is procedure for a live deployment; the design behind it is
@@ -22,10 +22,46 @@ The Google bindings are **all three or none**: `resolveGoogleConfiguration` refu
 configuration by name at boot, because a deployment that offers a sign-in button it cannot complete
 is worse than one that offers none.
 
-They are also deliberately commented out on the deployed demo, and must stay that way until
-`GAP-019` is closed. The demo restore executes `seed/reset.sql`, which deletes every row of
-`users`, `organizations` and `events`; the first real person to sign up there would be erased by
-the next routine restore, silently and with a successful exit.
+### Enabling Google sign-in on the deployed demo, or rotating the client
+
+The client id and redirect URI are set in `apps/api/wrangler.toml`; the secret is a Worker secret.
+They were withheld until `GAP-019` closed, because the demo restore would have erased the first
+person to sign up — it now counts the rows the seed did not create and refuses rather than deleting
+them. These are the steps that made them live, and the ones to repeat if the client is rotated. All
+four are operator actions, because two of them carry credentials:
+
+1. **Create the OAuth client.** Google Cloud console → Credentials → OAuth 2.0 client ID → *Web
+   application*. Register exactly this redirect URI against it:
+   `https://project-greenroom-api.adityak6798.workers.dev/api/auth/google/callback`. It must match
+   byte for byte, and it is configuration rather than anything derived from a request — a redirect
+   URI a caller can name is the open redirect.
+2. **Set the two vars.** Put the client's own id in `GOOGLE_CLIENT_ID` in
+   `apps/api/wrangler.toml`, leaving the redirect URI as written.
+3. **Deploy.** `npm run deploy` from the repository root, or merge to `main` and let CI run it.
+   Putting the client id in `[vars]` also reaches every *local* run, because `wrangler dev` reads
+   the same file: `npm run setup:local` writes the three bindings blank into the gitignored
+   `.dev.vars`, which overrides them, so a development machine with no secret is not left holding
+   two of the three. See [local development](local-development.md#google-sign-in-configuration).
+4. **Put the secret, immediately.** `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET`.
+   Then check `/api/auth/config` reports `google: true` and complete one real sign-in. That
+   sign-in is the observation `GAP-020` is waiting for — record its date, commit and client id
+   there and in the `ACC-IDENTITY-EVENTS` scorecard row.
+
+**Steps 3 and 4 are one operation, and the deployment is down in between.** All three bindings are
+one unit, `resolveGoogleConfiguration` refuses a partial configuration by name, and it runs inside
+`fetch` — so a Worker holding two of the three answers 500 to every request, `/health` and the demo
+personas included. A secret cannot be part of a deploy, so nothing makes them atomic; this order is
+simply the short way round, because a `secret put` takes seconds and a deploy takes minutes. Doing
+it the other way leaves the deployment failing for the whole length of a build. If step 4 fails,
+`npx wrangler secret delete GOOGLE_CLIENT_SECRET` restores service at once by returning the Worker
+to none of the three.
+
+Two consequences to expect rather than discover. A Google identity whose verified address is a
+**seeded persona address** (`organizer@greenroom.test` and the rest) is refused and logged as
+`auth.google.refused`, because linking it would hand a real session to whoever presses *Continue as
+organizer* next. And once anyone signs up there, `npm run reset:demo` refuses until either those
+rows are gone or the operator names them explicitly — see the restore section of the
+[demo runbook](../demo-runbook.md#restore-the-deployed-demo).
 
 ## Rotating `SESSION_SECRET`
 

@@ -49,6 +49,29 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
   public: [],
 };
 
+/** The one statement `grantOrganizer` runs, shared with the writer below so they cannot drift. */
+const GRANT_ORGANIZER =
+  "INSERT OR IGNORE INTO event_roles (event_id, user_id, role) VALUES (?, ?, 'organizer')";
+
+/**
+ * Binds the organizer grant to a database, for a caller that must commit it inside its own batch.
+ *
+ * The events domain creates an event and its creator's organizer role, and those were two
+ * unbatched writes: a failure between them left an event its creator could not open (issue
+ * #164). `event_roles` is identity-access's table, so the events adapter is handed this rather
+ * than the SQL — it never learns the table or the column names. Mirrors `preparedAuditWriter`
+ * and `preparedDeliveryWriter`.
+ *
+ * `INSERT OR IGNORE`, exactly as `grantOrganizer` is: a role already held is the outcome the
+ * caller wanted, and a repeat of it is free.
+ */
+export function preparedOrganizerGrant<TStatement>(
+  database: { prepare(query: string): { bind(...values: unknown[]): TStatement } },
+  grant: { readonly eventId: string; readonly userId: string },
+): readonly TStatement[] {
+  return [database.prepare(GRANT_ORGANIZER).bind(grant.eventId, grant.userId)];
+}
+
 // @spec PRD-IAM-001 PRD-EVT-001
 export class D1IdentityDirectory implements IdentityDirectory {
   async linkEmail(userId: string, email: string): Promise<void> {
@@ -159,29 +182,40 @@ export class D1IdentityDirectory implements IdentityDirectory {
   }
 
   /**
-   * Spend one attempt, or refuse.
+   * Spend whichever of this browser's attempts the `state` proof identifies, or refuse.
    *
    * `DELETE … RETURNING` rather than a read followed by a delete: a callback replayed twice, or
    * two callbacks racing, must produce exactly one success, and only a single statement can
    * promise that. Everything the caller needs comes back in the same round trip. A wrong
    * `state_proof`, an expired attempt and an already-spent one are one indistinguishable refusal,
    * which is the correct amount to tell whoever is trying.
+   *
+   * **Several ids, one proof** (issue #166). A browser may hold up to
+   * `MAX_OUTSTANDING_ATTEMPTS` sign-ins in flight, and the callback does not know which of them
+   * it belongs to; the proof does, because it is an HMAC of 32 random bytes minted per attempt.
+   * The `IN` list is the browser-binding half of the CSRF defence and the proof is the
+   * identifying half, so widening the list to the attempts this browser actually started widens
+   * nothing else. Two ids cannot both match: a collision would need two attempts to have been
+   * minted with the same `state`.
+   *
+   * The id set is bounded by the cookie parser, well inside D1's 100-parameter limit.
    */
   async consumeOauthAttempt(
-    id: string,
+    ids: readonly string[],
     stateProof: string,
     now: number,
-  ): Promise<{ codeVerifier: string; nonce: string } | null> {
+  ): Promise<{ id: string; codeVerifier: string; nonce: string } | null> {
+    if (ids.length === 0) return null;
     const result = await this.database
       .prepare(
-        "DELETE FROM identity_oauth_attempts WHERE id=? AND state_proof=? AND expires_at>? RETURNING code_verifier, nonce",
+        `DELETE FROM identity_oauth_attempts WHERE id IN (${ids.map(() => "?").join(",")}) AND state_proof=? AND expires_at>? RETURNING id, code_verifier, nonce`,
       )
-      .bind(id, stateProof, now)
-      .all<{ code_verifier: string; nonce: string }>();
+      .bind(...ids, stateProof, now)
+      .all<{ id: string; code_verifier: string; nonce: string }>();
     if (!result.success)
       throw new Error(`D1 failed to consume sign-in attempt: ${result.error ?? "unknown error"}`);
     const row = result.results?.[0];
-    return row ? { codeVerifier: row.code_verifier, nonce: row.nonce } : null;
+    return row ? { id: row.id, codeVerifier: row.code_verifier, nonce: row.nonce } : null;
   }
 
   async findByProviderAccount(provider: "google", subject: string): Promise<Actor | null> {
@@ -414,14 +448,28 @@ export class D1IdentityDirectory implements IdentityDirectory {
   }
 
   async grantOrganizer(eventId: string, userId: string): Promise<void> {
-    const result = await this.database
-      .prepare(
-        "INSERT OR IGNORE INTO event_roles (event_id, user_id, role) VALUES (?, ?, 'organizer')",
-      )
-      .bind(eventId, userId)
-      .run();
+    const result = await this.database.prepare(GRANT_ORGANIZER).bind(eventId, userId).run();
     if (!result.success)
       throw new Error(`D1 failed to grant event organizer: ${result.error ?? "unknown error"}`);
+  }
+
+  /**
+   * How many people belong to this organization.
+   *
+   * Self-serve signup asks it to tell its own new workspace from one it was merely added to
+   * (`completeWorkspace`). A count rather than a list, because that is the whole question and a
+   * list of members is somebody's data.
+   */
+  async countOrganizationMembers(organizationId: string): Promise<number> {
+    const result = await this.database
+      .prepare("SELECT COUNT(*) AS total FROM organization_memberships WHERE organization_id = ?")
+      .bind(organizationId)
+      .all<{ total: number }>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to count organization members: ${result.error ?? "unknown error"}`,
+      );
+    return result.results?.[0]?.total ?? 0;
   }
 
   async provisionSpeaker(userId: string, name: string, eventId: string): Promise<void> {

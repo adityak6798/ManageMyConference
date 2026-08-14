@@ -78,6 +78,11 @@ class FakeDirectory implements SignupDirectory {
     if (user.roles) this.eventRoles.set(user.id, user.roles);
   }
 
+  /** Counted from the same memberships `actor()` derives organizations from. */
+  async countOrganizationMembers(organizationId: string): Promise<number> {
+    return [...this.memberships.values()].filter((held) => held.includes(organizationId)).length;
+  }
+
   /** `INSERT OR IGNORE` in D1, so the fake must not accrete a duplicate role either. */
   async grantOrganizer(eventId: string, userId: string): Promise<void> {
     const held = this.eventRoles.get(userId) ?? [];
@@ -123,6 +128,14 @@ class FakeDirectory implements SignupDirectory {
     organizationId: string;
   }): Promise<void> {
     this.calls.push("createSelfServeIdentity");
+    // The two uniqueness constraints the real table carries, because they are what decides a
+    // race: `identity_provider_accounts` is keyed on (provider, subject) and
+    // `identity_emails.email` is UNIQUE, so the second writer's whole batch fails.
+    if (
+      this.providerAccounts.has(`${input.provider}:${input.subject}`) ||
+      this.emails.has(input.email.trim().toLowerCase())
+    )
+      throw new Error("D1 failed to provision identity: UNIQUE constraint failed");
     // One batch in D1, so one indivisible step here: an account that exists without its address
     // or its membership is a state the adapter cannot produce.
     this.users.set(input.userId, { name: input.name, persona: "organizer" });
@@ -166,14 +179,24 @@ class FakeDirectory implements SignupDirectory {
 /**
  * The events domain's side, with its real refusals.
  *
- * `createFirstEvent` reproduces `EventService.create`'s two checks, so a signup that handed it
- * an actor without the membership it had just been given would fail here rather than quietly
- * produce an event nobody can reach.
+ * `createFirstEvent` reproduces `EventService.provisionFirstEvent`: the same two authorization
+ * checks — so a signup that handed it an actor without the membership it had just been given
+ * would fail here rather than quietly produce an event nobody can reach — and the same
+ * idempotence, because the provisioning key is unique per organization and the second writer
+ * adopts the first's event instead of creating another (issue #164).
  */
 class FakeWorkspace implements WorkspaceProvisioning {
   readonly organizations: { id: string; name: string }[] = [];
   readonly events: { id: string; organizationId: string; name: string; timezone: string }[] = [];
+  /** Organizations discarded after a signup could not use them, newest last. */
+  readonly discarded: string[] = [];
+  /** `organizationId` + the subject, exactly as the real partial unique index is keyed. */
+  private readonly provisioned = new Map<string, string>();
   constructor(private readonly directory: FakeDirectory) {}
+
+  private static key(organizationId: string, userId: string) {
+    return `${organizationId}::${userId}`;
+  }
 
   async provisionOrganization(command: { name: string }): Promise<{ id: string }> {
     const id = `organization-${this.organizations.length + 1}`;
@@ -188,8 +211,13 @@ class FakeWorkspace implements WorkspaceProvisioning {
     requireCapability(actor, "events:create");
     if (!actor.organizations.some(({ id }) => id === command.organizationId))
       throw new CapabilityDeniedError("Organization access denied");
+    const key = FakeWorkspace.key(command.organizationId, actor.id);
+    const taken = this.provisioned.get(key);
+    // The partial unique index, as the loser experiences it: the winner's row comes back.
+    if (taken !== undefined) return { id: taken };
     const id = `event-${this.events.length + 1}`;
     this.events.push({ id, ...command });
+    this.provisioned.set(key, id);
     await this.directory.grantOrganizer(id, actor.id);
     return { id };
   }
@@ -198,6 +226,21 @@ class FakeWorkspace implements WorkspaceProvisioning {
   async eventsInOrganization(actor: Actor, organizationId: string) {
     if (!actor.organizations.some(({ id }) => id === organizationId)) return [];
     return this.events.filter((event) => event.organizationId === organizationId);
+  }
+
+  /** An event somebody else made in their own organization: no provisioning key of this person's. */
+  seedForeignEvent(organizationId: string, id: string, name: string): void {
+    this.events.push({ id, organizationId, name, timezone: DEFAULT_TIMEZONE });
+  }
+
+  /** Guarded exactly as the statement is: an organization holding an event is kept. */
+  async discardUnusedOrganization(organizationId: string): Promise<boolean> {
+    if (this.events.some((event) => event.organizationId === organizationId)) return false;
+    const index = this.organizations.findIndex(({ id }) => id === organizationId);
+    if (index === -1) return false;
+    this.organizations.splice(index, 1);
+    this.discarded.push(organizationId);
+    return true;
   }
 }
 
@@ -401,50 +444,318 @@ describe("SignupService", () => {
   });
 
   /**
-   * The retry that used to hand somebody a second workspace.
+   * Two tabs, one account, and the loser recovering instead of leaving marks.
    *
-   * `EventService.create` writes the event row and the organizer role as two separate calls, so a
-   * failure between them leaves an organization holding an event the user has no role on — which
-   * is bit-for-bit the state the resume condition looks for. Creating unconditionally then makes
-   * a *second* "Your first event": two identical entries in the switcher, the older refusing
-   * `/settings` because the role it never got is what grants `events:settings:update`.
+   * The interleaving is forced rather than hoped for: both callbacks read an empty directory
+   * before either writes, which is exactly the window issue #164 measured at 25 of 45 stagger
+   * offsets against real D1. What decides it here is what decides it there — the identity
+   * batch's own uniqueness — so the loser's write fails, its organization is discarded, and it
+   * signs in as the user the winner created.
    */
-  it("adopts the event a failed attempt left behind rather than making a second one", async () => {
+  it("converges two concurrent first sign-ins on one workspace and leaves no orphan", async () => {
+    const { directory, workspace, service } = build();
+
+    const [first, second] = await Promise.all([
+      service.signInWithGoogle(identity()),
+      service.signInWithGoogle(identity()),
+    ]);
+
+    expect(directory.users.size).toBe(1);
+    expect(workspace.organizations).toHaveLength(1);
+    expect(workspace.events).toHaveLength(1);
+    // The organization the losing callback created is gone rather than left unreferenced: it is
+    // the row a data-aware demo reset would refuse on forever (`GAP-019`).
+    expect(workspace.discarded).toHaveLength(1);
+    expect(workspace.organizations.map(({ id }) => id)).not.toContain(workspace.discarded[0]);
+    // Both callers are signed in, as the same person.
+    expect(first.actor.id).toBe(second.actor.id);
+    // Exactly one of them created the account, so exactly one browser is welcomed — that flag is
+    // what sends a new workspace to `/?welcome=1` rather than to an empty console.
+    expect([first.provisioned, second.provisioned].filter(Boolean)).toHaveLength(1);
+    /*
+     * One of the two may return the actor it read *before* the other's grant landed, and that is
+     * deliberate rather than overlooked: the session cookie carries an id, and every later
+     * request re-resolves capabilities from storage. What has to be true is the row, so it is the
+     * directory that is asserted here rather than the snapshot.
+     */
+    expect(directory.eventRoles.get(first.actor.id)).toHaveLength(1);
+  });
+
+  it("discards the organization and rethrows when provisioning fails for its own reason", async () => {
+    const { directory, workspace, service } = build();
+    const failure = new Error("D1 unavailable");
+    directory.createSelfServeIdentity = async () => {
+      throw failure;
+    };
+
+    await expect(service.signInWithGoogle(identity())).rejects.toBe(failure);
+
+    // Nothing survives the attempt: no user, and no organization for a reset to trip over.
+    expect(directory.users.size).toBe(0);
+    expect(workspace.organizations).toEqual([]);
+    expect(workspace.discarded).toHaveLength(1);
+  });
+
+  /**
+   * The discard that removed nothing, which is the quietest way to leave a permanent orphan.
+   *
+   * `discardUnusedOrganization` answers `false` when the organization has become referenced —
+   * nothing threw, nothing is wrong, and the row is now invisible to the product and refused by
+   * every later demo restore (`GAP-019`). The count is load-bearing rather than decorative, and
+   * this is what holds it that way: without the `!discarded` branch, the only trace of that row
+   * disappears and every test still passes.
+   */
+  it("reports an orphan the discard removed nothing for", async () => {
+    const { directory, workspace } = build();
+    const reported: { fields: Record<string, unknown>; event: string }[] = [];
+    directory.createSelfServeIdentity = async () => {
+      throw new Error("identity batch refused");
+    };
+    // No throw, and no row removed: the organization is referenced by something this domain
+    // cannot see.
+    workspace.discardUnusedOrganization = async () => false;
+    const reporting = new SignupService({
+      directory,
+      workspace,
+      newId: () => "user-orphaned",
+      now: () => 1_760_000_000_000,
+      report: (fields, event) => reported.push({ fields, event }),
+    });
+
+    await expect(reporting.signInWithGoogle(identity())).rejects.toThrow(/identity batch refused/);
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.event).toBe("auth.signup.organization_not_discarded");
+    // Named, so it can be found by hand: nothing else in the product ever mentions this row.
+    expect(reported[0]?.fields).toMatchObject({ organizationId: "organization-1" });
+    // And no `discardError`, because nothing failed — this is the silent case.
+    expect(reported[0]?.fields).not.toHaveProperty("discardError");
+  });
+
+  it("reports both failures when the orphaned organization cannot be discarded either", async () => {
+    const { directory, workspace, service } = build();
+    const reported: { fields: Record<string, unknown>; event: string }[] = [];
+    directory.createSelfServeIdentity = async () => {
+      throw new Error("identity batch refused");
+    };
+    workspace.discardUnusedOrganization = async () => {
+      throw new Error("organizations table unreachable");
+    };
+    const reporting = new SignupService({
+      directory,
+      workspace,
+      newId: () => "user-reported",
+      now: () => 1_760_000_000_000,
+      report: (fields, event) => reported.push({ fields, event }),
+    });
+
+    // Neither error is dropped: the one that explains the sign-in, and the orphan that has to be
+    // found by hand because nothing else will now remove it.
+    await expect(reporting.signInWithGoogle(identity())).rejects.toThrow(/identity batch refused/);
+    await expect(reporting.signInWithGoogle(identity())).rejects.toThrow(
+      /organization-\d+ could not be discarded/,
+    );
+    // And the orphan is named where an operator will find it, because a reset will refuse on it
+    // and nothing else in the product ever mentions it.
+    expect(reported.map(({ event }) => event)).toEqual([
+      "auth.signup.organization_not_discarded",
+      "auth.signup.organization_not_discarded",
+    ]);
+    expect(reported[0]?.fields).toMatchObject({
+      organizationId: "organization-1",
+      discardError: "organizations table unreachable",
+    });
+  });
+
+  /**
+   * The member count, which is the half of "is this workspace mine" that the events domain
+   * cannot answer.
+   *
+   * Without it, "an organization with no events" reads as "a fresh workspace" and a newcomer is
+   * made the organizer of somebody else's empty one — while its owner, whose own next sign-in
+   * would then find it non-empty, is stranded with no event for ever. Proved here as well as
+   * against D1, because this suite is the one that runs on every check.
+   */
+  it("provisions nothing into an empty organization somebody else already belongs to", async () => {
     const { directory, workspace, service } = build();
     directory.seed({
-      id: "interrupted",
-      name: "Ingrid Interrupted",
+      id: "the-owner",
+      name: "The Owner",
       persona: "organizer",
-      email: "ingrid@example.test",
-      organizationIds: ["organization-existing"],
+      organizationIds: ["organization-shared"],
     });
-    directory.providerAccounts.set("google:interrupted-subject", "interrupted");
-    // The event committed; the role grant did not.
-    workspace.events.push({
-      id: "event-orphaned",
-      organizationId: "organization-existing",
-      name: FIRST_EVENT_NAME,
-      timezone: DEFAULT_TIMEZONE,
+    directory.seed({
+      id: "newcomer",
+      name: "The Newcomer",
+      persona: "organizer",
+      email: "newcomer@example.test",
+      organizationIds: ["organization-shared"],
     });
+    directory.providerAccounts.set("google:newcomer-subject", "newcomer");
+
+    const outcome = await service.signInWithGoogle(
+      identity({ subject: "newcomer-subject", email: "newcomer@example.test" }),
+    );
+
+    expect(outcome.actor.eventAccess).toEqual([]);
+    expect(workspace.events).toEqual([]);
+    expect(directory.eventRoles.get("newcomer") ?? []).toEqual([]);
+  });
+
+  /**
+   * The state a revoked role leaves, which is bit-for-bit the state a half-finished signup
+   * leaves — so completing a workspace must not act on it.
+   *
+   * `revokeEventRole` deletes the `event_roles` row and audits it, and
+   * `docs/product/specifications.md` promises removal "takes effect on their next request". If
+   * signing in re-granted organizer on the event this person's own signup provisioned, that
+   * promise would hold for every door except Google, and the audit row would describe a
+   * revocation that did not survive the afternoon.
+   *
+   * Nothing is lost by refusing: the event exists, and an organizer of that organization can
+   * grant the role back deliberately.
+   */
+  it("does not restore an event role that was revoked", async () => {
+    const { directory, workspace, service } = build();
+    const owner = await service.signInWithGoogle(identity({ subject: "owner", email: "o@x.test" }));
+    const ownerEvent = owner.actor.eventAccess[0]?.eventId as string;
+
+    // Exactly what revoking their only event role leaves: the membership, and no role.
+    directory.eventRoles.set(owner.actor.id, []);
+    const returning = await service.signInWithGoogle(
+      identity({ subject: "owner", email: "o@x.test" }),
+    );
+
+    expect(returning.actor.eventAccess).toEqual([]);
+    expect(directory.eventRoles.get(owner.actor.id)).toEqual([]);
+    // And no second "Your first event" invented in its place, which is the other way this could
+    // have gone wrong.
+    expect(workspace.events.map(({ id }) => id)).toEqual([ownerEvent]);
+  });
+
+  /**
+   * The workspace that is somebody else's, which "adopt the organization's first event" could not
+   * tell from a resumable one.
+   *
+   * An organization-level invitation writes a membership and **no** event role, which is exactly
+   * the state `completeWorkspace` acts on: an organization, no event access. Adopting the oldest
+   * event there would hand a brand-new member `events:settings:update`, `agenda:manage` and
+   * `review:manage` on an event nobody granted them — an escalation that organization membership
+   * deliberately does not confer. What separates the two is that completing a workspace never
+   * adopts an event at all: it provisions, and only where there is nothing and nobody else.
+   */
+  it("gives a new member of somebody else's organization nothing", async () => {
+    const { directory, workspace, service } = build();
+    directory.seed({
+      id: "invited",
+      name: "Ivan Invited",
+      persona: "organizer",
+      email: "ivan@example.test",
+      // Accepted an organization-level invitation: a membership, and no event role.
+      organizationIds: ["organization-established"],
+    });
+    directory.providerAccounts.set("google:invited-subject", "invited");
+    workspace.seedForeignEvent("organization-established", "event-theirs", "Their conference");
+    workspace.seedForeignEvent("organization-established", "event-theirs-2", "Their workshop");
+
+    const outcome = await service.signInWithGoogle(
+      identity({ subject: "invited-subject", email: "ivan@example.test" }),
+    );
+
+    // No role on either of their events, and no event invented for them either: an organizer of
+    // that organization grants access deliberately or it does not exist.
+    expect(outcome.actor.eventAccess).toEqual([]);
+    expect(workspace.events).toHaveLength(2);
+    expect(directory.eventRoles.get("invited") ?? []).toEqual([]);
+  });
+
+  /**
+   * The same escalation against the organization it is actually reachable in: one that a
+   * self-serve signup created, and therefore one that holds a *provisioned* first event for ever.
+   *
+   * Adopting "the organization's first event" hands it to anybody who later holds a membership and
+   * no event role — a person invited at organization level, or one whose single event role an
+   * organizer deliberately revoked. The fixture below is Alice's own workspace rather than a
+   * hand-made one because that is the shape the defect needs: a real provisioned first event,
+   * sitting in an organization somebody else has just joined.
+   */
+  it("does not hand a later member the workspace owner's provisioned event", async () => {
+    const { directory, workspace, service } = build();
+    // Alice's workspace, made the way the product makes one.
+    const alice = await service.signInWithGoogle(identity({ subject: "alice", email: "a@x.test" }));
+    const aliceOrganization = alice.actor.organizations[0]?.id as string;
+    const aliceEvent = alice.actor.eventAccess[0]?.eventId as string;
+
+    // Bob joins it at organization level: a membership, and no event role — the same shape a
+    // revoked event role leaves behind.
+    directory.seed({
+      id: "bob",
+      name: "Bob Later",
+      persona: "organizer",
+      email: "bob@example.test",
+      organizationIds: [aliceOrganization],
+    });
+    directory.providerAccounts.set("google:bob-subject", "bob");
+
+    const bob = await service.signInWithGoogle(
+      identity({ subject: "bob-subject", email: "bob@example.test" }),
+    );
+
+    // Bob holds nothing on Alice's event, and Alice still does.
+    expect(bob.actor.eventAccess).toEqual([]);
+    expect(directory.eventRoles.get("bob") ?? []).toEqual([]);
+    expect(directory.eventRoles.get(alice.actor.id)).toEqual([
+      { eventId: aliceEvent, role: "organizer" },
+    ]);
+    expect(workspace.events).toHaveLength(1);
+  });
+
+  /**
+   * Which organization gets completed must not be decided by identifier sort order.
+   *
+   * `organizations[0]` is whatever `ORDER BY organization_id` returned. A person whose own signup
+   * stalled *and* who has since been invited elsewhere would otherwise have their own workspace
+   * completed, or silently not, depending on which UUID sorts first.
+   */
+  it("completes the signup's own workspace, whichever organization sorts first", async () => {
+    const { directory, workspace, service } = build();
+    // A signup that stopped before its event: the organization and the membership exist, and
+    // nothing else. Meanwhile this person has been invited into somebody else's organization,
+    // whose id sorts first.
+    directory.seed({
+      id: "stalled",
+      name: "Sam Stalled",
+      persona: "organizer",
+      email: "sam@example.test",
+      organizationIds: ["aaa-someone-elses", "own-organization"],
+    });
+    directory.providerAccounts.set("google:stalled-subject", "stalled");
+    directory.seed({ id: "their-owner", name: "Their Owner", persona: "organizer" });
+    directory.memberships.set("their-owner", ["aaa-someone-elses"]);
+    workspace.seedForeignEvent("aaa-someone-elses", "event-theirs", "Their conference");
 
     const resumed = await service.signInWithGoogle(
-      identity({ subject: "interrupted-subject", email: "ingrid@example.test" }),
+      identity({ subject: "stalled-subject", email: "sam@example.test" }),
     );
 
-    expect(workspace.events).toHaveLength(1);
-    expect(resumed.actor.eventAccess).toEqual([
+    // Their own workspace got the event, not the one that merely sorted first.
+    expect(workspace.events).toEqual([
       {
-        eventId: "event-orphaned",
-        role: "organizer",
-        capabilities: new Set(roleCapabilities.organizer),
+        id: "event-theirs",
+        organizationId: "aaa-someone-elses",
+        name: "Their conference",
+        timezone: DEFAULT_TIMEZONE,
+      },
+      {
+        id: "event-2",
+        organizationId: "own-organization",
+        name: FIRST_EVENT_NAME,
+        timezone: DEFAULT_TIMEZONE,
       },
     ]);
-    // And it converges: signing in again neither creates nor re-grants.
-    await service.signInWithGoogle(
-      identity({ subject: "interrupted-subject", email: "ingrid@example.test" }),
-    );
-    expect(workspace.events).toHaveLength(1);
-    expect(resumed.actor.eventAccess).toHaveLength(1);
+    expect(resumed.actor.eventAccess).toEqual([
+      { eventId: "event-2", role: "organizer", capabilities: new Set(roleCapabilities.organizer) },
+    ]);
   });
 
   it("names an organization after the person, clamped to what the column accepts", () => {

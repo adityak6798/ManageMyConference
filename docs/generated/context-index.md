@@ -62,6 +62,7 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-DEMO-SMOKE`
+- `test` / `repository-fact`: [apps/api/test/demo-reset-guard.integration.test.ts](../../apps/api/test/demo-reset-guard.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/00-seed-state.spec.ts](../../apps/web/e2e/00-seed-state.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
 - `specification` / `normative`: [docs/demo-runbook.md](../../docs/demo-runbook.md)
@@ -118,6 +119,7 @@
 - `test` / `repository-fact`: [tools/tests/check-schema-drift.test.mjs](../../tools/tests/check-schema-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/compose-seed.test.mjs](../../tools/tests/compose-seed.test.mjs)
 - `test` / `repository-fact`: [tools/tests/review-loop.test.mjs](../../tools/tests/review-loop.test.mjs)
+- `test` / `repository-fact`: [tools/tests/setup-local.test.mjs](../../tools/tests/setup-local.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 - `test` / `repository-fact`: [tools/tests/worktree-env.test.mjs](../../tools/tests/worktree-env.test.mjs)
 
@@ -132,6 +134,7 @@
 - `test` / `repository-fact`: [apps/api/test/identity-sessions-http.test.ts](../../apps/api/test/identity-sessions-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/membership-http.test.ts](../../apps/api/test/membership-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/membership-service.test.ts](../../apps/api/test/membership-service.test.ts)
+- `test` / `repository-fact`: [apps/api/test/oauth-attempt-cookie.test.ts](../../apps/api/test/oauth-attempt-cookie.test.ts)
 - `test` / `repository-fact`: [apps/api/test/real-auth.test.ts](../../apps/api/test/real-auth.test.ts)
 - `test` / `repository-fact`: [apps/api/test/signup-service.test.ts](../../apps/api/test/signup-service.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/api-clients.spec.ts](../../apps/web/e2e/api-clients.spec.ts)
@@ -141,6 +144,7 @@
 - `test` / `repository-fact`: [apps/web/test/accept-invitation.test.tsx](../../apps/web/test/accept-invitation.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/landing.test.tsx](../../apps/web/test/landing.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/members-workspace.test.tsx](../../apps/web/test/members-workspace.test.tsx)
+- `specification` / `normative`: [docs/engineering/security-operations.md](../../docs/engineering/security-operations.md)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
@@ -365,7 +369,6 @@
 
 ### `JNY-010`
 - `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `PLAN-001`
@@ -496,6 +499,7 @@
 
 ### `PRD-EVT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/events-fixture-statements.mjs](../../apps/api/src/adapters/persistence/events-fixture-statements.mjs)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/events.ts](../../apps/api/src/adapters/persistence/schema/events.ts)
 - `code` / `repository-fact`: [apps/api/src/application/events/event-repository.ts](../../apps/api/src/application/events/event-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/application/events/event-service.ts](../../apps/api/src/application/events/event-service.ts)
@@ -507,7 +511,6 @@
 - `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/events.ts](../../packages/contracts/src/domains/events.ts)
 
 ### `PRD-EVT-002`
@@ -539,6 +542,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-directory.ts](../../apps/api/src/adapters/persistence/d1-identity-directory.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-membership.ts](../../apps/api/src/adapters/persistence/d1-identity-membership.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-sessions.ts](../../apps/api/src/adapters/persistence/d1-identity-sessions.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/identity-fixture-statements.mjs](../../apps/api/src/adapters/persistence/identity-fixture-statements.mjs)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/identity-revocation-statements.mjs](../../apps/api/src/adapters/persistence/identity-revocation-statements.mjs)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/identity-access.ts](../../apps/api/src/adapters/persistence/schema/identity-access.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/api-clients.ts](../../apps/api/src/application/identity/api-clients.ts)
@@ -549,6 +553,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/identity/session-store.ts](../../apps/api/src/application/identity/session-store.ts)
 - `code` / `repository-fact`: [apps/api/src/application/identity/signup.ts](../../apps/api/src/application/identity/signup.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
+- `code` / `repository-fact`: [apps/api/src/transport/http/oauth-attempt-cookie.ts](../../apps/api/src/transport/http/oauth-attempt-cookie.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/identity.ts](../../apps/api/src/transport/http/routes/identity.ts)
 - `test` / `repository-fact`: [apps/api/test/google-oauth-client.test.ts](../../apps/api/test/google-oauth-client.test.ts)
 - `code` / `repository-fact`: [apps/web/src/AcceptInvitationPage.tsx](../../apps/web/src/AcceptInvitationPage.tsx)
@@ -563,6 +568,7 @@
 - `code` / `repository-fact`: [tools/revoke-sessions.mjs](../../tools/revoke-sessions.mjs)
 - `code` / `repository-fact`: [tools/setup-local.mjs](../../tools/setup-local.mjs)
 - `test` / `repository-fact`: [tools/tests/revoke-sessions.test.mjs](../../tools/tests/revoke-sessions.test.mjs)
+- `test` / `repository-fact`: [tools/tests/setup-local.test.mjs](../../tools/tests/setup-local.test.mjs)
 
 ### `PRD-IAM-002`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-identity-membership.ts](../../apps/api/src/adapters/persistence/d1-identity-membership.ts)

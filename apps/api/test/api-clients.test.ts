@@ -154,12 +154,11 @@ describe("API client credentials", () => {
       now: () => NOW,
     });
     const machine = await resolver.resolve(CREDENTIAL);
-    const grantOrganizer = vi.fn().mockResolvedValue(undefined);
+    const eventRepository = new MemoryEventRepository();
     const service = new EventService({
-      repository: new MemoryEventRepository(),
+      repository: eventRepository,
       newId: () => "00000000-0000-4000-8000-000000000110",
       now: () => new Date(NOW),
-      grantOrganizer,
     });
 
     await expect(
@@ -169,7 +168,9 @@ describe("API client credentials", () => {
         timezone: "UTC",
       }),
     ).resolves.toMatchObject({ name: "Created by API" });
-    expect(grantOrganizer).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000110", creator.id);
+    expect(eventRepository.organizerGrants).toEqual([
+      { eventId: "00000000-0000-4000-8000-000000000110", userId: creator.id },
+    ]);
   });
 
   it("makes unknown prefixes, wrong secrets, revocation, and expiry indistinguishable", async () => {

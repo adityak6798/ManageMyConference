@@ -43,6 +43,12 @@ import {
   exchangeLoginChallenge,
   sessionIdFrom,
 } from "../../../application/identity/real-auth";
+import {
+  parseAttemptCookie,
+  serializeAttemptCookie,
+  withAttempt,
+  withoutAttempt,
+} from "../oauth-attempt-cookie";
 import { envelope, type HttpContext, readJson, validationFields } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
@@ -80,7 +86,11 @@ const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
  */
 const googleStartThrottle = new FixedWindowThrottle(10, 60_000, 10_000);
 
-/** Where an attempt id lives between the redirect to Google and the callback. */
+/**
+ * Where this browser's outstanding attempt ids live between the redirect to Google and the
+ * callback. A set rather than one id, because two tabs are two sign-ins in flight — see
+ * `oauth-attempt-cookie.ts` for what the cookie is for and why it is still here.
+ */
 const OAUTH_COOKIE = "greenroom_oauth";
 /** The session lifetime the emailed-code route already uses; Google issues the same session. */
 const SESSION_LIFETIME_MS = 28_800_000;
@@ -182,24 +192,45 @@ export const identityRoutes: RouteModule = {
         );
         return context.redirect("/signin?auth=failed", 302);
       }
-      setCookie(context, OAUTH_COOKIE, started.attemptId, oauthCookieOptions(isSecure(context)));
+      // Appended rather than assigned. Overwriting is what made a second tab refuse the first
+      // (issue #166); the cap is what stops the cookie growing without bound.
+      const outstanding = withAttempt(
+        parseAttemptCookie(getCookie(context, OAUTH_COOKIE)),
+        started.attemptId,
+      );
+      setCookie(
+        context,
+        OAUTH_COOKIE,
+        serializeAttemptCookie(outstanding),
+        oauthCookieOptions(isSecure(context)),
+      );
       return context.redirect(started.authorizationUrl, 302);
     });
 
     /**
      * Google's return leg.
      *
-     * Everything that can go wrong lands on the same destination — `/signin?auth=failed` — and
-     * the reason stays in the Worker log. A callback is reachable by anybody with a browser, so
-     * telling them *which* check refused (unknown attempt, wrong `state`, expired, bad
-     * signature, unverified address) would hand an attacker the oracle this flow exists to deny
-     * them. That covers storage and upstream failures too, and deliberately: `complete` catches
-     * them rather than letting them reach the transport's error boundary, which would answer a
-     * JSON error envelope — rendered as raw JSON in the address bar, because this is a top-level
-     * navigation rather than a fetch. The log is where the two are told apart, by level.
+     * Every *refusal* lands on the same destination — `/signin?auth=failed` — and the reason
+     * stays in the Worker log. A callback is reachable by anybody with a browser, so telling
+     * them *which* check refused (unknown attempt, wrong `state`, expired, bad signature,
+     * unverified address) would hand an attacker the oracle this flow exists to deny them.
+     *
+     * A failure that is **ours** is told apart, and only that one: `/signin?auth=unavailable`
+     * says the deployment broke rather than the person's account, which is what issue #164 asks
+     * for. It is not an oracle, and the reason is independence rather than ordering: an
+     * operational failure is reachable at any point in the flow — the attempt lookup is itself a
+     * D1 write — but whether storage is up is uncorrelated with whether this caller's `state`
+     * matched anything, so learning it tells a forger nothing about their forgery. Either way
+     * `complete` catches rather than throwing, because the transport's error boundary would
+     * answer a JSON envelope, rendered as raw JSON in the address bar on a top-level navigation.
      *
      * The redirect targets are string literals in this file. Nothing from the request decides
      * where the browser goes next, which is the open redirect this route would otherwise be.
+     *
+     * **The cookie is no longer cleared before the attempt is identified.** Doing that is what
+     * made an older tab's failed callback destroy a newer tab's live attempt (issue #166). Only
+     * the attempt this callback actually spent is dropped; every other attempt this browser
+     * holds stays outstanding, and a spent one is already unusable because its row is gone.
      */
     app.get("/api/auth/google/callback", async (context) => {
       if (!auth.google)
@@ -212,23 +243,55 @@ export const identityRoutes: RouteModule = {
           404,
         );
       const secure = isSecure(context);
-      const attemptId = getCookie(context, OAUTH_COOKIE);
-      // Spent or not, this browser is done with the attempt: clearing first means an abandoned
-      // or failed sign-in leaves nothing behind to be retried against.
-      deleteCookie(context, OAUTH_COOKIE, { path: "/", secure, httpOnly: true, sameSite: "Lax" });
+      const attemptIds = parseAttemptCookie(getCookie(context, OAUTH_COOKIE));
       const code = context.req.query("code");
       const state = context.req.query("state");
-      const failed = () => context.redirect("/signin?auth=failed", 302);
-      if (!attemptId || !code || !state) return failed();
+      /** Rewrite the cookie to whatever this browser still has in flight, and answer. */
+      const settle = (spentAttemptId: string | null, destination: string) => {
+        const remaining = withoutAttempt(attemptIds, spentAttemptId);
+        if (remaining.length === 0)
+          deleteCookie(context, OAUTH_COOKIE, {
+            path: "/",
+            secure,
+            httpOnly: true,
+            sameSite: "Lax",
+          });
+        else
+          setCookie(
+            context,
+            OAUTH_COOKIE,
+            serializeAttemptCookie(remaining),
+            oauthCookieOptions(secure),
+          );
+        return context.redirect(destination, 302);
+      };
+      const failed = (spentAttemptId: string | null = null) =>
+        settle(spentAttemptId, "/signin?auth=failed");
+      const unavailable = (spentAttemptId: string | null = null) =>
+        settle(spentAttemptId, "/signin?auth=unavailable");
+      if (attemptIds.length === 0 || !code || !state) {
+        // ERROR-INTENT: reported rather than swallowed. A callback from a browser that started
+        // nothing is the CSRF case this cookie exists to refuse, and it is worth telling apart
+        // from a `state` that simply did not match — issue #166 asks for exactly that split.
+        dependencies.logger.warn(
+          {
+            correlationId: context.get("correlationId"),
+            reason: attemptIds.length === 0 ? "no_attempt_presented" : "callback_incomplete",
+          },
+          "auth.google.refused",
+        );
+        return failed();
+      }
       const now = (auth.now ?? Date.now)();
-      const outcome = await auth.google.complete({
-        attemptId,
+      const { spentAttemptId, outcome } = await auth.google.complete({
+        attemptIds,
         state,
         code,
         now,
         correlationId: context.get("correlationId"),
       });
-      if (!outcome) return failed();
+      if (outcome.status === "unavailable") return unavailable(spentAttemptId);
+      if (outcome.status === "refused") return failed(spentAttemptId);
       // A verified Google identity that resolved *to a seeded demo persona* is refused here, and
       // this is the crossing the guard exists for. On a demo deployment with Google configured,
       // account linking matches a verified address, and `seed/reset.sql` gives the personas real
@@ -244,7 +307,7 @@ export const identityRoutes: RouteModule = {
           { correlationId: context.get("correlationId"), reason: "demo-persona-subject" },
           "auth.google.refused",
         );
-        return failed();
+        return failed(spentAttemptId);
       }
       const expiresAt = now + SESSION_LIFETIME_MS;
       const sessionId = crypto.randomUUID();
@@ -277,7 +340,7 @@ export const identityRoutes: RouteModule = {
           },
           "auth.session.issue_failed",
         );
-        return failed();
+        return unavailable(spentAttemptId);
       }
       setCookie(
         context,
@@ -297,8 +360,9 @@ export const identityRoutes: RouteModule = {
         },
       );
       // A brand-new workspace lands on its own welcome rather than on a console full of empty
-      // tables. Same-origin literal, and the flag carries no identity.
-      return context.redirect(outcome.provisioned ? "/?welcome=1" : "/", 302);
+      // tables. Same-origin literal, and the flag carries no identity. The attempt this callback
+      // spent leaves the cookie; any other tab's attempt stays outstanding.
+      return settle(spentAttemptId, outcome.provisioned ? "/?welcome=1" : "/");
     });
 
     /**
