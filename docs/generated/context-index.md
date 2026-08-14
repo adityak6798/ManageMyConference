@@ -215,6 +215,7 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-REVIEW`
+- `test` / `repository-fact`: [apps/api/test/acceptance-latency.integration.test.ts](../../apps/api/test/acceptance-latency.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/content-http.test.ts](../../apps/api/test/content-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-review-repository.integration.test.ts](../../apps/api/test/d1-review-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/review-http.test.ts](../../apps/api/test/review-http.test.ts)

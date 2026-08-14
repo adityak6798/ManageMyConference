@@ -114,6 +114,20 @@ export interface ContentRepository {
   addAsset(asset: SpeakerAsset): Promise<void>;
   replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset): Promise<void>;
   deleteAsset(assetId: string): Promise<void>;
+  /**
+   * Has this speaker been given any work on this event yet?
+   *
+   * The question acceptance actually asks before deciding whether to write the onboarding
+   * checklist. It used to be answered by reading the event's **whole** workspace — every
+   * profile, session, task, asset, message, resource, comment and revision — and testing one
+   * predicate over the tasks. That is nine tables read to learn one boolean, on the busiest
+   * write in the product, and it is what issue #207 found first.
+   *
+   * Keyed off the work rather than off "did I just insert the profile", which is the property
+   * that makes a retried acceptance assign the checklist once: the conversion port owns the
+   * profile row, so a second attempt finds the profile already there either way.
+   */
+  hasSpeakerWork(profileId: string): Promise<boolean>;
   addTask(task: SpeakerTask): Promise<void>;
   addTasks(tasks: readonly SpeakerTask[]): Promise<void>;
   addMessage(message: SpeakerMessage): Promise<void>;

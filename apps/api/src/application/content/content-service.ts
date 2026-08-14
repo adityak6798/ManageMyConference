@@ -940,17 +940,44 @@ export class ContentService {
   }
 
   /**
-   * Turn an accepted proposal into program content.
+   * Turn an accepted proposal into program content, and answer with the workspace it belongs to.
    *
    * Idempotent per `(eventId, proposalId)`: the session's unique constraint is the arbiter, and a
    * loser of that race retries and finds the winner's session. `ARC-FLOW-001`.
+   *
+   * This is the content workspace's own command — its route answers with the workspace, so the
+   * projection is the response. The composed acceptance route calls `acceptSession` instead,
+   * which does the same work and skips a projection that route discards; see there for why.
    */
   async accept(
     actor: Actor | null,
     command: AcceptContentCommand,
     correlationId: string,
-    conflictRetries = 2,
   ): Promise<ContentWorkspaceView> {
+    await this.acceptSession(actor, command, correlationId);
+    return this.projected(command.eventId);
+  }
+
+  /**
+   * `accept`, answering with the session's id instead of the whole event's workspace.
+   *
+   * Split out for issue #207. The composed decision route creates the session and then reads one
+   * field off the result — `workspace.sessions.find(…)?.id` — and threw the rest away. Producing
+   * that "rest" is nine table reads plus the agenda's published schedule and the identity
+   * directory's names, on the busiest write in the product, for a value nobody looked at.
+   *
+   * Nothing else changes: the same authorization, the same acceptance, the same batch, the same
+   * notifications in the same order. The decision and the session it creates are still written
+   * by one composed request whose failure between them leaves a repairable `decision_only` row
+   * — the atomicity issue #207 forbids weakening is a property of that composition, not of what
+   * this method returns.
+   */
+  async acceptSession(
+    actor: Actor | null,
+    command: AcceptContentCommand,
+    correlationId: string,
+    conflictRetries = 2,
+  ): Promise<string> {
     const authorized = requireEventCapability(actor, command.eventId, "content:manage");
     // Throws a typed 4xx for unknown, foreign, undecided, or identity-less proposals.
     const accepted = await this.dependencies.proposals.acceptedProposal(
@@ -961,62 +988,76 @@ export class ContentService {
       command.eventId,
       command.proposalId,
     );
-    if (!existing) {
-      const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
-      // The conversion port owns the profile row, so the onboarding checklist is keyed off the
-      // work already assigned to this person rather than off "did I just insert the profile".
-      const before = await this.dependencies.repository.workspace(command.eventId);
-      const isNew = !before.tasks.some(({ speakerProfileId }) => speakerProfileId === speaker.id);
-      const session: ContentSession = {
-        id: this.dependencies.newId(),
-        eventId: command.eventId,
-        proposalId: command.proposalId,
-        title: accepted.title,
-        abstract: accepted.abstract,
-        format: accepted.format,
-        speakerProfileIds: [speaker.id],
-        tags: [],
-        tracks: [],
-        publicationState: "draft",
-      };
-      const tasks: SpeakerTask[] = isNew
-        ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
-            id: this.dependencies.newId(),
-            eventId: command.eventId,
-            speakerProfileId: speaker.id,
-            title,
-            dueAt: this.dependencies.now().toISOString(),
-            status: "open",
-          }))
-        : [];
-      try {
-        await this.dependencies.repository.accept({
-          session,
-          // The speaker profile is already durable: `SpeakerConversionPort` provisions the user
-          // and the profile together, which is what keeps a client-named `userId` — and the
-          // foreign-key failure it used to cause — out of this path entirely.
-          speakers: [],
-          tasks,
-          messages: [],
-        });
-      } catch (error) {
-        if (error instanceof ContentConflictError && conflictRetries > 0)
-          return this.accept(actor, command, correlationId, conflictRetries - 1);
-        throw error;
-      }
-      // Told after the session is durable, so nobody is welcomed to a session that failed to
-      // commit. Inside the `!existing` branch because a re-accept of the same proposal is the
-      // same acceptance — the delivering domain deduplicates too, but not announcing it twice
-      // is cheaper than deduplicating it twice.
-      await this.dependencies.speakerNotifications?.speakerAccepted({
+    if (existing) return existing.id;
+    const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
+    // The conversion port owns the profile row, so the onboarding checklist is keyed off the
+    // work already assigned to this person rather than off "did I just insert the profile".
+    const isNew = !(await this.dependencies.repository.hasSpeakerWork(speaker.id));
+    const session: ContentSession = {
+      id: this.dependencies.newId(),
+      eventId: command.eventId,
+      proposalId: command.proposalId,
+      title: accepted.title,
+      abstract: accepted.abstract,
+      format: accepted.format,
+      speakerProfileIds: [speaker.id],
+      tags: [],
+      tracks: [],
+      publicationState: "draft",
+    };
+    const tasks: SpeakerTask[] = isNew
+      ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
+          id: this.dependencies.newId(),
+          eventId: command.eventId,
+          speakerProfileId: speaker.id,
+          title,
+          dueAt: this.dependencies.now().toISOString(),
+          status: "open",
+        }))
+      : [];
+    try {
+      await this.dependencies.repository.accept({
+        session,
+        // The speaker profile is already durable: `SpeakerConversionPort` provisions the user
+        // and the profile together, which is what keeps a client-named `userId` — and the
+        // foreign-key failure it used to cause — out of this path entirely.
+        speakers: [],
+        tasks,
+        messages: [],
+      });
+    } catch (error) {
+      if (error instanceof ContentConflictError && conflictRetries > 0)
+        return this.acceptSession(actor, command, correlationId, conflictRetries - 1);
+      throw error;
+    }
+    /*
+     * Told after the session is durable, so nobody is welcomed to a session that failed to
+     * commit. Inside the `!existing` branch because a re-accept of the same proposal is the same
+     * acceptance — the delivering domain deduplicates too, but not announcing it twice is
+     * cheaper than deduplicating it twice.
+     *
+     * The three announcements are issued **together** rather than one after another (issue
+     * #207). Each is an independent fact about work that has already committed, each carries its
+     * own idempotency key, and the port promises exactly one delivery per key however they are
+     * ordered — so the sequence between them never meant anything. What it cost was real: every
+     * announcement resolves the owning organization, writes an audit record, reads a template,
+     * inserts a delivery and writes a second audit record, and three of those chains end to end
+     * was 21 of the acceptance path's 65 sequential round trips.
+     *
+     * `Promise.all` rather than `allSettled`, deliberately: the port already documents that an
+     * implementation must not throw, and a chain of `await`s propagated the first rejection just
+     * as this does. The failure behaviour is unchanged along with everything else.
+     */
+    await Promise.all([
+      this.dependencies.speakerNotifications?.speakerAccepted({
         eventId: command.eventId,
         profileId: speaker.id,
         speakerName: speaker.name,
         speakerEmail: speaker.email,
         sessionTitle: session.title,
-      });
-      for (const task of tasks)
-        await this.dependencies.speakerNotifications?.taskAssigned({
+      }),
+      ...tasks.map((task) =>
+        this.dependencies.speakerNotifications?.taskAssigned({
           eventId: command.eventId,
           profileId: speaker.id,
           taskId: task.id,
@@ -1024,9 +1065,10 @@ export class ContentService {
           speakerEmail: speaker.email,
           taskTitle: task.title,
           dueAt: task.dueAt,
-        });
-    }
-    return this.projected(command.eventId);
+        }),
+      ),
+    ]);
+    return session.id;
   }
 
   /**

@@ -962,3 +962,54 @@ exact habit the flag exists to prevent; migration-planted ids are now declared b
 owns the table. And the command's own ordering had no test: `main` takes its two Wrangler seams as
 parameters so a refusal can be shown to run nothing destructive, and so `--remote` on the count
 query is asserted rather than assumed.
+### Issues #202, #207, #203 and #191 rulings — the review and content lane
+
+Four issues taken as one pull request, three of them unfinished work from earlier lanes.
+
+**#202 — the `meta.changes` divergence, filed twice.** `GAP-025` (content) is closed and the
+decision it was waiting on is made. **A CSV import refuses and reports a row whose speaker
+vanished mid-run**, rather than skipping it or failing the batch: the ledger is keyed on the
+normalized address, so the row stays `pending` and re-running the file converges on it. Skipping
+was what the code did — `if (profile)` fell through to `completeSpeakerImport` and `imported += 1`,
+so a deleted speaker was counted as imported and the ledger recorded a run that wrote nothing —
+and failing the batch would throw away every row that did land for one that did not.
+
+The sweep across every adapter that the issue demanded found **one sibling outside content**:
+`transitionAtomically` in `d1-submitted-proposal-adapter.ts` answered with the rows it had read,
+rewritten to the new status, from two conditional statements whose counts it discarded. Every
+other adapter is either already on `changedRows` or guarded by a **re-read** — `updateContact`,
+the prospect update, `enqueueCalendarInvite`, `normalizeCalendarInviteScheduleRef`, the event
+update and the itinerary save all answer from storage rather than from a constructed object, and
+`consumeLoginChallenge` and `consumeOauthAttempt` use `RETURNING`, where the rows *are* the count.
+Worth recording because "the count is not read here" is not the same finding as "this writer can
+report a save that did not happen", and only the second is a defect.
+
+**The register allocated `GAP-025` twice.** The webhook wrapping-key entry holds the id; the
+content entry that closed here is annotated with the collision rather than silently deleted.
+
+**#207 — the acceptance is measured, and the measurement is now a gate.**
+`apps/api/test/acceptance-latency.integration.test.ts` counts **sequential round trips to D1**,
+which is the unit that survives the trip to a deployment: locally D1 is a SQLite file and a
+statement costs microseconds, while in the Worker every statement is a request and a serialized
+chain costs its own length in latencies. One acceptance went from **65 sequential waits to 30**,
+with the phase table and the budgets in that file's footer.
+
+Four things moved it, none of them touching the decision/session atomicity the issue forbids
+weakening: `workspace()` issues its seven independent reads together instead of one after another;
+the "has this speaker any work yet" question is a one-row existence check rather than a read of
+the event's whole workspace; the composed route calls a new `ContentService.acceptSession` and so
+stops producing a projection it discarded; and the composition root memoizes "which organization
+runs this event" for the life of one request, where eight announcements each resolved it again.
+The console's own change is **perceptual and is named as such**: it announces from the response it
+already holds and refreshes in the background, rather than making the organizer wait through a
+second request first.
+
+**Three costs were measured and deliberately not taken**, and the reason is the same in two of
+them: `decide` reads the statuses and the proposals twice because `transitionAtomically`
+re-validates both for its direct callers, and removing that means changing CFP's
+`SubmittedProposalInterface` from inside a review lane; `CommunicationsService.enqueue` inserts a
+delivery and reads it back four times per acceptance, and that file is communications'. The third
+is inherent and is reported as such: the speaker conversion's twelve sequential round trips are
+claim-then-read-who-won pairs, which is the mechanism that makes two concurrent conversions land
+on one speaker, and an ignored `INSERT OR IGNORE` returns nothing so the read-back cannot be
+folded in. It is also the cold path only — the repeat measurement is 14.

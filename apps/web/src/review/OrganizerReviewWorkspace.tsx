@@ -171,7 +171,22 @@ export function OrganizerReviewWorkspace({
         outcome,
         note,
       });
-      await load();
+      /*
+       * The workspace is refreshed, but the organizer is not made to wait through it (#207).
+       *
+       * The response already carries the outcome of every proposal in this decision — that is
+       * what `acceptances` is — so everything announced below is decided from it and nothing
+       * below reads `data`. Awaiting the reload first meant the confirmation appeared one
+       * further request after the work was already done, on the busiest write in the product.
+       *
+       * This is the **perceptual** half of #207 and is named as such: the server-side work is
+       * unchanged and the reload still happens, so the audit tail and the score columns catch up
+       * exactly as they did. What changes is that the organizer is told the moment the server
+       * has finished rather than the moment the console has re-read everything.
+       */
+      // ERROR-INTENT: a failed refresh is `useLoad`'s to report — it keeps the last good data
+      // and renders its own error state; rejecting here would hide a confirmed decision instead.
+      void load().catch(() => undefined);
       // Absent for a decline, and — for a response that predates the composed route — absent for
       // an acceptance too, which is reported as unfinished rather than announced as done.
       const acceptances = result.acceptances ?? [];

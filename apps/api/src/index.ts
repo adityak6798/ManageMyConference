@@ -933,6 +933,43 @@ export default {
         )
       : undefined;
     /**
+     * "Which organization runs this event?", answered once per event per request.
+     *
+     * Every lifecycle helper below resolves this for itself, because the domains reporting these
+     * facts are event-scoped and have no reason to know. That is the right shape and the wrong
+     * cost: one speaker acceptance calls it **eight** times — a decision record, a decision
+     * delivery, an acceptance record, an invitation delivery, and a record and a delivery for
+     * each of the two onboarding tasks — and each call was a separate read of the same
+     * unchanging row. Issue #207 measured them as eight of the path's sixty-five sequential
+     * round trips to D1.
+     *
+     * Safe to hold for exactly this long and no longer. The Worker constructs these services
+     * inside `fetch`, so the map lives and dies with one request — the same lifetime the
+     * attribution holder relies on (`PRD-OPS-003`) — and an event's owning organization cannot
+     * change under a request in flight: nothing in the product moves an event between
+     * organizations. A miss and a `null` are cached alike, because "there is nobody to address
+     * this to" is as stable an answer as the id is.
+     *
+     * The *promise* is memoized rather than its value, so two announcements issued together
+     * share one read instead of both missing an empty cache.
+     */
+    const owningOrganizations = new Map<string, Promise<string | null>>();
+    const organizationOf = (eventId: string): Promise<string | null> => {
+      const known = owningOrganizations.get(eventId);
+      if (known) return known;
+      // A rejection is dropped from the cache rather than kept. Caching one would turn a single
+      // transient read failure into a failure for every later announcement in the request, which
+      // is the opposite of what these helpers exist to prevent.
+      const resolving = service.organizationOf(eventId).catch((error: unknown) => {
+        owningOrganizations.delete(eventId);
+        // ERROR-INTENT: re-raised unchanged to the caller, which is one of the two helpers below;
+        // both already report it. Nothing is swallowed here — the entry is only evicted.
+        throw error;
+      });
+      owningOrganizations.set(eventId, resolving);
+      return resolving;
+    };
+    /**
      * Turns a lifecycle fact into a queued delivery, and never lets that failure become the
      * lifecycle action's failure.
      *
@@ -952,7 +989,7 @@ export default {
       request: (organizationId: string) => Omit<DeliveryRequest, "organizationId" | "eventId">,
     ): Promise<void> => {
       try {
-        const organizationId = await service.organizationOf(eventId);
+        const organizationId = await organizationOf(eventId);
         // Not an error to swallow quietly: an event with no owning organization means the id is
         // wrong or the row is gone, and either way there is nobody to address the message to.
         if (!organizationId) throw new Error("Event has no owning organization");
@@ -1020,7 +1057,7 @@ export default {
       },
     ): Promise<void> => {
       try {
-        const organizationId = await service.organizationOf(eventId);
+        const organizationId = await organizationOf(eventId);
         if (!organizationId) throw new Error("Event has no owning organization");
         await auditRecorder.record({
           organizationId,

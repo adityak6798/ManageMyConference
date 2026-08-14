@@ -378,7 +378,11 @@ export const reviewRoutes: RouteModule = {
       if (contentService)
         for (const { proposalId } of decided.decisions) {
           try {
-            const workspace = await contentService.accept(
+            // `acceptSession` rather than `accept`: this route reads one field off the result,
+            // and the difference between the two methods is a projection of the event's whole
+            // content workspace that nothing here looks at (issue #207). Same authorization,
+            // same write, same notifications.
+            const sessionId = await contentService.acceptSession(
               context.get("actor"),
               { eventId, proposalId },
               context.get("correlationId"),
@@ -386,8 +390,7 @@ export const reviewRoutes: RouteModule = {
             acceptances.push({
               proposalId,
               state: "content",
-              sessionId:
-                workspace.sessions.find((session) => session.proposalId === proposalId)?.id ?? null,
+              sessionId,
               detail: "",
               fieldErrors: {},
             });

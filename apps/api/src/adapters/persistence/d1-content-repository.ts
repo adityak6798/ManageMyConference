@@ -359,73 +359,89 @@ export class D1ContentRepository
         comments: [],
         revisions: [],
       };
-    const scoped = <T>(table: string, order: string, map: (row: Row) => T) =>
+    const scoped = (table: string, order: string) =>
       this.rows(
         `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND profile.user_id = ? ORDER BY ${order}`,
         eventId,
         userId,
-      ).then((rows) => rows.map(map));
-    const sessions = (
-      await this.rows(
+      );
+    /*
+     * The remaining seven reads are issued together rather than one after another (issue #207).
+     *
+     * Each is an independent `SELECT` over a different table; none reads a row another one
+     * writes, and nothing here writes at all. Awaited in sequence they cost seven round trips to
+     * D1 in a row, which locally is nothing and in the Worker is seven latencies — and this
+     * method runs **twice** on the acceptance path, which measured 65 sequential round trips
+     * before this change. Issued together they cost one wait.
+     *
+     * The profile read above stays first, and deliberately: the speaker projection returns early
+     * when a portal caller owns no profile on this event, and the six scoped queries below are
+     * meaningless before that is known.
+     *
+     * The rows a caller sees are still one consistent read of the event under D1's snapshot
+     * semantics for the statements in flight; ordering these seven against each other never
+     * meant anything, because a concurrent writer could land between any two of them in the old
+     * arrangement just as easily.
+     */
+    const [sessionRows, taskRows, assetRows, messageRows, resourceRows, commentRows, revisionRows] =
+      await Promise.all([
+        this.rows(
+          userId
+            ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND profile.user_id = ? ORDER BY session.title"
+            : "SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title",
+          eventId,
+          ...(userId ? [userId] : []),
+        ),
         userId
-          ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND profile.user_id = ? ORDER BY session.title"
-          : "SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title",
-        eventId,
-        ...(userId ? [userId] : []),
-      )
-    ).map((row) => this.session(row));
-    const tasks = userId
-      ? await scoped("speaker_tasks", "due_at,title", (row) => this.task(row))
-      : (
-          await this.rows(
-            "SELECT * FROM speaker_tasks WHERE event_id = ? ORDER BY due_at,title",
-            eventId,
-          )
-        ).map((row) => this.task(row));
-    const assets = userId
-      ? await scoped("speaker_assets", "uploaded_at", (row) => this.asset(row))
-      : (
-          await this.rows(
-            "SELECT * FROM speaker_assets WHERE event_id = ? ORDER BY uploaded_at",
-            eventId,
-          )
-        ).map((row) => this.asset(row));
-    const messages = userId
-      ? await scoped("speaker_messages", "sent_at", (row) => this.message(row))
-      : (
-          await this.rows(
-            "SELECT * FROM speaker_messages WHERE event_id = ? ORDER BY sent_at",
-            eventId,
-          )
-        ).map((row) => this.message(row));
-    const resources = (
-      await this.rows(
-        `SELECT * FROM speaker_resources WHERE event_id = ?${userId ? " AND visibility = 'visible'" : ""} ORDER BY sort_order,title`,
-        eventId,
-      )
-    ).map((row) => this.resource(row));
-    const comments = (
-      await this.rows(
+          ? scoped("speaker_tasks", "due_at,title")
+          : this.rows(
+              "SELECT * FROM speaker_tasks WHERE event_id = ? ORDER BY due_at,title",
+              eventId,
+            ),
         userId
-          ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND profile.user_id=? ORDER BY comment.created_at"
-          : "SELECT * FROM content_asset_comments WHERE event_id=? ORDER BY created_at",
-        eventId,
-        ...(userId ? [userId] : []),
-      )
-    ).map((row) => this.comment(row));
-    const revisions = userId
-      ? []
-      : (
-          await this.rows(
-            // Timestamp first, then the entity's own numbering. Two revisions of one record can
-            // legitimately share an instant — a retried edit is stamped no earlier than the
-            // revision it follows — and SQLite's sort is not stable, so without the tiebreak the
-            // console could list revision 2 above revision 1 with both numbers on screen.
-            "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at,entity_type,entity_id,revision_number",
-            eventId,
-          )
-        ).map((row) => this.revision(row));
-    return { sessions, speakers, tasks, assets, messages, resources, comments, revisions };
+          ? scoped("speaker_assets", "uploaded_at")
+          : this.rows(
+              "SELECT * FROM speaker_assets WHERE event_id = ? ORDER BY uploaded_at",
+              eventId,
+            ),
+        userId
+          ? scoped("speaker_messages", "sent_at")
+          : this.rows(
+              "SELECT * FROM speaker_messages WHERE event_id = ? ORDER BY sent_at",
+              eventId,
+            ),
+        this.rows(
+          `SELECT * FROM speaker_resources WHERE event_id = ?${userId ? " AND visibility = 'visible'" : ""} ORDER BY sort_order,title`,
+          eventId,
+        ),
+        this.rows(
+          userId
+            ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND profile.user_id=? ORDER BY comment.created_at"
+            : "SELECT * FROM content_asset_comments WHERE event_id=? ORDER BY created_at",
+          eventId,
+          ...(userId ? [userId] : []),
+        ),
+        userId
+          ? Promise.resolve([] as Row[])
+          : this.rows(
+              // Timestamp first, then the entity's own numbering. Two revisions of one record can
+              // legitimately share an instant — a retried edit is stamped no earlier than the
+              // revision it follows — and SQLite's sort is not stable, so without the tiebreak the
+              // console could list revision 2 above revision 1 with both numbers on screen.
+              "SELECT * FROM content_revisions WHERE event_id=? ORDER BY created_at,entity_type,entity_id,revision_number",
+              eventId,
+            ),
+      ]);
+    return {
+      sessions: sessionRows.map((row) => this.session(row)),
+      speakers,
+      tasks: taskRows.map((row) => this.task(row)),
+      assets: assetRows.map((row) => this.asset(row)),
+      messages: messageRows.map((row) => this.message(row)),
+      resources: resourceRows.map((row) => this.resource(row)),
+      comments: commentRows.map((row) => this.comment(row)),
+      revisions: revisionRows.map((row) => this.revision(row)),
+    };
   }
   private profileWrite(profile: SpeakerProfile, where?: RowGuard): D1Statement {
     return this.database
@@ -592,6 +608,18 @@ export class D1ContentRepository
     const results = await this.database.batch(statements);
     if (results.some((result) => !result.success))
       throw new Error("Content asset deletion batch failed");
+  }
+  async hasSpeakerWork(profileId: string) {
+    // `LIMIT 1` and no columns beyond the constant: the caller wants existence, and the index on
+    // `speaker_profile_id` answers it without reading a row's payload.
+    return (
+      (
+        await this.rows(
+          "SELECT 1 FROM speaker_tasks WHERE speaker_profile_id = ? LIMIT 1",
+          profileId,
+        )
+      ).length > 0
+    );
   }
   async addTask(task: SpeakerTask) {
     await this.run(

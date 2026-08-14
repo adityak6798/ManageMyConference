@@ -2,10 +2,18 @@
   "id": "review",
   "order": 50,
   "index": "docs/product/specifications.md",
-  "specs": ["PRD-REV-001"],
-  "journeys": ["JNY-003"],
-  "acceptance": ["ACC-REVIEW"],
-  "plans": ["PLAN-002"],
+  "specs": [
+    "PRD-REV-001"
+  ],
+  "journeys": [
+    "JNY-003"
+  ],
+  "acceptance": [
+    "ACC-REVIEW"
+  ],
+  "plans": [
+    "PLAN-002"
+  ],
   "paths": [
     "packages/contracts/src/domains/review.ts",
     "apps/api/src/adapters/persistence/schema/review.ts",
@@ -33,6 +41,8 @@
     "apps/api/test/review-http.test.ts",
     "apps/api/test/review-template-slice.test.ts",
     "apps/api/test/d1-review-repository.integration.test.ts",
+    "apps/api/test/acceptance-latency.integration.test.ts",
+    "apps/api/test/support/d1-round-trips.ts",
     "apps/web/src/ReviewWorkspace.tsx",
     "apps/web/src/review/OrganizerReviewWorkspace.tsx",
     "apps/web/src/review/DecisionForm.tsx",
