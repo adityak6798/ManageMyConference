@@ -20,6 +20,7 @@ const emptyCategories: InboxResponseDto["categories"] = {
   programme: { state: "ok", items: [] },
   deliveries: { state: "ok", items: [] },
   publication: { state: "ok", items: [] },
+  configuration: { state: "ok", items: [] },
 };
 
 const TASK_KEY = "speaker-task:task-1:2026-08-20T23:59:00.000Z";

@@ -1013,3 +1013,33 @@ is inherent and is reported as such: the speaker conversion's twelve sequential 
 claim-then-read-who-won pairs, which is the mechanism that makes two concurrent conversions land
 on one speaker, and an ignored `INSERT OR IGNORE` returns nothing so the read-back cannot be
 folded in. It is also the cold path only — the repeat measurement is 14.
+
+**#203 — the partial application is answered per category, and all three residuals close.**
+`GAP-023` keeps only what it started as: applying is not atomic across domains. The fold is
+`outstandingConfiguration` in `apps/api/src/domain/events/outstanding-configuration.ts`, and the
+rule it encodes is the one #188's card comment said "nothing supports today": the deciding
+application for a category is the newest one that actually *reached* it, and the category is
+outstanding only when that application refused it.
+
+**The safety rule became structural rather than conventional, and that is the whole design.**
+#188 scoped its card to the newest application because offering an older one as a whole-clone
+repair writes its payload over whatever superseded it — every category converges on the payload
+it is given, so "re-apply version 1" against an event since configured from version 2 is a revert
+wearing the word repair. Folding per category has the same property by construction and none of
+the cost: if a later application had configured the category it would be the deciding one and the
+category would not be outstanding, so a repair offered here is one version and one category and
+cannot revert anything. **A `skipped` category is transparent**, which is the subtle half — a
+skip wrote nothing and refused nothing, and reading it as settling would let an organizer silence
+an outstanding category by cloning a template that says nothing about it.
+
+**The platform decision #188 deferred was taken.** `configuration` is a sixth inbox category, and
+it was cheap because the events domain answers the question: platform declares one call
+(`EventConfigurationSource`) and holds no knowledge of templates, versions or slices — the same
+inversion the other six sources use. The item key carries the deciding application's instant, so
+the inbox's existing dismissal mechanism closes the second residual for free: an organizer who
+repaired a category by hand says so in one click, and a *fresh* refusal writes a new row with a
+new instant and returns.
+
+**No migration and no table.** The answer is a fold over `outcome_json`, which #175 already
+stored and #188 already read back, so this lane took no number in the `1400` block and none in
+any other.

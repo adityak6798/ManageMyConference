@@ -36,7 +36,8 @@ export type InboxCategoryKey =
   | "speakerWork"
   | "programme"
   | "deliveries"
-  | "publication";
+  | "publication"
+  | "configuration";
 
 export const INBOX_CATEGORY_KEYS: readonly InboxCategoryKey[] = [
   "reviews",
@@ -44,6 +45,7 @@ export const INBOX_CATEGORY_KEYS: readonly InboxCategoryKey[] = [
   "programme",
   "deliveries",
   "publication",
+  "configuration",
 ];
 
 /** How much of the operator's attention this is asking for. Never a due date in disguise. */
@@ -161,15 +163,17 @@ export class PlatformInboxService {
       const outcome = await readSource(read);
       return outcome.state === "ok" ? { state: "ok", items: mark(outcome.value) } : outcome;
     };
-    const [reviews, speakerWork, programme, deliveries, publication] = await Promise.all([
-      section(() => this.reviews(authorized, eventId)),
-      section(() => this.speakerWork(authorized, eventId, now)),
-      section(() => this.programme(authorized, eventId)),
-      section(() => this.deliveries(authorized, eventId)),
-      section(() => this.publication(authorized, eventId)),
-    ]);
+    const [reviews, speakerWork, programme, deliveries, publication, configuration] =
+      await Promise.all([
+        section(() => this.reviews(authorized, eventId)),
+        section(() => this.speakerWork(authorized, eventId, now)),
+        section(() => this.programme(authorized, eventId)),
+        section(() => this.deliveries(authorized, eventId)),
+        section(() => this.publication(authorized, eventId)),
+        section(() => this.configuration(authorized, eventId)),
+      ]);
     return {
-      categories: { reviews, speakerWork, programme, deliveries, publication },
+      categories: { reviews, speakerWork, programme, deliveries, publication, configuration },
       derivedAt: now.toISOString(),
     };
   }
@@ -406,6 +410,44 @@ export class PlatformInboxService {
         href,
       },
     ];
+  }
+
+  /**
+   * Configuration this event was cloned into and never finished receiving.
+   *
+   * The sixth category, and it closes issue #203's third residual: a partial template
+   * application was surfaced only in the templates workspace, a page an organizer opens on
+   * purpose, so an operator who never went there was never told. Everything derived here is
+   * derived by the events domain — this asks one question and renders the answer.
+   *
+   * **The key carries the deciding application's instant, which is the occurrence.** A dismissal
+   * says "I have seen that this event's agenda category did not arrive and I am not acting on
+   * it". Applying the template again and having the same category refused again is a *new* thing
+   * to know, and it writes a new application row with a new instant, so the item returns. A
+   * re-derivation of the same refusal does not.
+   *
+   * That is also this category's answer to the issue's second residual. An organizer who repairs
+   * the refused category by hand — creating the room a slot wanted, granting a capability —
+   * still holds a stored outcome that says the category was refused, because nothing re-reads
+   * the destination to find out otherwise. Dismissing is how they say so, and it costs them one
+   * click instead of a re-application they did not need.
+   *
+   * `high` rather than `normal`, unlike everything else in this file that is not overdue: an
+   * event configured in part is wrong in a way nothing else on the console reveals, and the
+   * operator reading the inbox is the only person who will meet it.
+   */
+  private async configuration(actor: Actor, eventId: string): Promise<readonly InboxItem[]> {
+    const events = requireSource(this.dependencies.sources.eventConfiguration, "Events");
+    const href = consoleHref("/event-templates", eventId);
+    return (await events.outstandingConfiguration(actor, eventId)).map((category) => ({
+      key: `template-category:${eventId}:${category.key}:${category.outstandingSince}`,
+      category: "configuration" as const,
+      title: `${category.label} was not configured from “${category.templateName}”`,
+      subtitle: category.reason,
+      priority: "high" as const,
+      status: "open" as const,
+      href,
+    }));
   }
 }
 

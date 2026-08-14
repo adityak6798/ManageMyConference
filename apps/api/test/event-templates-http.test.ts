@@ -230,6 +230,9 @@ describe("Event template HTTP journey", () => {
 
     await expect((await app.request(url, { headers: organizer })).json()).resolves.toEqual({
       applications: [],
+      // An event nothing has been applied to owes nothing, which is not the same claim as an
+      // event whose applications all landed — but is the same answer (issue #203).
+      outstanding: [],
     });
     await post(app, url, organizer, {
       templateId: created.template.id,
@@ -257,6 +260,10 @@ describe("Event template HTTP journey", () => {
           ],
         },
       ],
+      // Nothing refused, so nothing owed. The fold rides with the applications rather than on a
+      // route of its own, because every surface that wants one wants the other and one read of
+      // the same rows answers both.
+      outstanding: [],
     });
   });
 

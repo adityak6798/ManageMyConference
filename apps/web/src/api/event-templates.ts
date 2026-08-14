@@ -62,6 +62,10 @@ export type SliceResultDto = TemplateApplicationResultDto["slices"][number];
 export type EventTemplateApplicationDto = ReturnType<
   typeof eventTemplateApplicationListResponseSchema.parse
 >["applications"][number];
+/** One category this event still owes, and the exact act that would settle it (issue #203). */
+export type OutstandingConfigurationCategoryDto = ReturnType<
+  typeof eventTemplateApplicationListResponseSchema.parse
+>["outstanding"][number];
 
 // @spec PRD-EVT-002
 export async function listEventTemplates(
@@ -174,11 +178,21 @@ export async function previewTemplateApplication(
 export async function listTemplateApplications(
   eventId: string,
   fetcher: typeof fetch = fetch,
-): Promise<EventTemplateApplicationDto[]> {
+): Promise<{
+  applications: EventTemplateApplicationDto[];
+  outstanding: OutstandingConfigurationCategoryDto[];
+}> {
   const response = await fetcher(
     `/api/events/${encodeURIComponent(eventId)}/template-applications`,
   );
-  return (await decode(response, eventTemplateApplicationListResponseSchema)).applications;
+  // Both halves of one read: what each application did, and what the event still owes across
+  // all of them. The second is not derivable from the first here — the fold that produces it is
+  // a domain rule with two readers, and this console is only one of them (issue #203).
+  const { applications, outstanding } = await decode(
+    response,
+    eventTemplateApplicationListResponseSchema,
+  );
+  return { applications, outstanding };
 }
 
 /**

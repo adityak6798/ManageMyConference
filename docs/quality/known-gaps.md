@@ -372,49 +372,58 @@ feature-by-feature verdict.
   `partial` rather than `applied` when any category failed, and `ARC-FLOW-006` states the guarantee
   rather than implying a stronger one.
 
-  **The half that was missing is closed by issue #175.** The stored outcome is read back:
-  `EventTemplateService.applications` carries `event_template_applications.outcome_json` out through
-  `GET /api/events/{eventId}/template-applications`, and the event templates workspace leads with a
-  card when the event's **most recent** application reads `partial` or `failed`. It names the
-  categories that did not land with the destination's own reason for each, says who applied the
-  version and when, and its one button re-applies **that version, onto the stored destination range,
-  with the categories the original command named** — the row records the selection for exactly that
-  reason, so a repair repeats the request that was made rather than a wider one. The card is derived
-  from storage on every load and shows only that most recent application, which is a safety rule
-  rather than tidiness: an application row is keyed per version, so applying a newer version writes
-  its own row and leaves an older `partial` one where it was — and offering *that* as a repair
-  would write its payload over the configuration that superseded it, because every category
-  converges on the payload it is given. The card therefore clears when the version is applied
-  again, and also when any later application takes its place.
-  `event-templates.test.ts` drives a slice that fails once and then succeeds, asserts the event
-  still reports itself configured in part afterwards, and asserts the second apply clears it.
+  **The half that was missing is closed by issue #175, and completed by #203.** The stored outcome
+  is read back: `event_template_applications.outcome_json` travels out through
+  `GET /api/events/{eventId}/template-applications`, which carries both what each application did
+  and — folded across all of them — what the event still owes. Each outstanding category names the
+  destination's own reason, the version that owes it, and when that version was applied, and its
+  one button re-applies **that version, onto the stored destination range, for that category
+  alone**; the row records the original selection and the range for exactly that reason, so a
+  repair is the same act rather than a wider one.
 
-  What remains, and is the residual risk this entry now records — three things, largest first.
+  #175 scoped the card to the event's **most recent** application, which was a safety rule rather
+  than tidiness — an application row is keyed per version, so offering an older one as a whole-clone
+  repair would write its payload over the configuration that superseded it. #203 replaced the
+  convention with a structure that has the same property and none of the cost; see below.
 
-  **A later application hides a partial it did not repair.** "Most recent" is the only reading that
-  cannot offer a revert, and it is not the same question as "is anything still missing": a second
-  application naming a *different* template, or the same one with a subset of categories, is newer
-  and may read `applied` while the category the first one could not write is still unconfigured. The
-  signal is then lost entirely rather than merely made inconvenient, which is this issue's own
-  failure mode in a narrower case. Answering it properly means asking whether a *category* is
-  outstanding rather than whether an *application* was — a per-category reading across applications
-  that nothing supports today, because `outcome_json` is a per-application document and no query
-  decomposes it.
+  **All three residuals are closed by issue #203, and only non-atomicity remains.**
 
-  **There is no dismissal**, so an
-  organizer who repairs the refused category by hand — creating the room a slot wanted, granting a
-  capability — keeps the card until they apply that version again; doing so is safe and converging,
-  but it is a step they would not otherwise have needed. And **the surface is the templates
-  workspace**, which an organizer reaches deliberately. A partial application is not raised on the
-  console's landing page or in the operational inbox, both of which are platform-owned surfaces
-  (`PRD-OPS-002`); an inbox category for it is the natural next home and is a decision about
-  platform's product surface rather than about events. Non-atomicity itself is unchanged and stays
-  documented rather than fixed.
+  **Outstanding work is answered per category rather than per application.**
+  `outstandingConfiguration` in `apps/api/src/domain/events/outstanding-configuration.ts` folds
+  every stored application into the categories the *event* still owes: for each category the
+  deciding application is the newest one that actually reached it, and the category is outstanding
+  only when that application refused it. The safety rule the old card enforced by convention is
+  now structural. A repair is one version and one category, so it cannot revert what superseded
+  it — if a later application had configured the category, that later one would be the deciding
+  application and the category would not be outstanding at all. A `skipped` category is
+  transparent, which is the rule that stops an organizer from silencing an outstanding category by
+  cloning a template that says nothing about it. The templates workspace now lists one entry per
+  outstanding category, each with its own repair, and `GET
+  /api/events/{eventId}/template-applications` carries the fold beside the applications.
 
-  Owner: events. Governing ID: `PRD-EVT-002`. Closure: outstanding work is answered per *category*
-  rather than per application, so a later clone cannot hide it, and an operator who never opens
-  Event templates is still told — which together mean a decomposed read of the stored outcome and an
-  inbox category over it.
+  **There is a dismissal**, and it is the operational inbox's, which already had the mechanism. Its
+  key carries the deciding application's instant, so an organizer who repaired the category by hand
+  can say so in one click, while a *new* refusal of the same category writes a new row with a new
+  instant and returns.
+
+  **An operator who never opens Event templates is told.** `configuration` is a sixth inbox
+  category (`PRD-OPS-002`). The platform decision #188 deferred was made by #203, and it was cheap
+  in the end because the events domain answers the question: platform declares one call
+  (`EventConfigurationSource`) and holds no knowledge of templates, versions or slices.
+
+  Proven by `outstanding-configuration.test.ts` (the fold, including the issue's own closure
+  scenario — template A partial, template B in full, the refused category still reported — with
+  three mutations of the rule each verified to fail a test),
+  `d1-event-template-repository.integration.test.ts` (the same scenario against real storage, so
+  the round trip through `outcome_json` is proven rather than assumed), `platform-inbox.test.ts`
+  and `event-templates.test.tsx`.
+
+  What remains is what this entry started as and is not a defect this repository is hiding:
+  **applying is not atomic across domains.** There is no cross-domain transaction here, the result
+  says so per category, `ARC-FLOW-006` states the guarantee rather than implying a stronger one,
+  and re-applying is the repair.
+
+  Owner: events. Governing ID: `PRD-EVT-002`, `PRD-OPS-002`.
 - `GAP-020` **Closed 2026-08-14: Google sign-in has now exchanged a request with Google, and a
   real person has signed in.** Recorded before the detail, because this entry existed to say the
   opposite: on **2026-08-14**, against commit **`d14b047`** and OAuth client

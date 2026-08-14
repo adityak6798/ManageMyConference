@@ -29,22 +29,22 @@ import {
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
-import { D1WebhookRepository } from "./adapters/persistence/d1-webhooks";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
 import { D1SubmittedProposalAdapter } from "./adapters/persistence/d1-submitted-proposal-adapter";
+import { D1WebhookRepository } from "./adapters/persistence/d1-webhooks";
+import { AesGcmWebhookSecretProtector } from "./adapters/persistence/webhook-secret-protector";
 import { resolveProviders, resolveRegistrationSource } from "./adapters/providers/configuration";
 import { TrustedWebhookEgress } from "./adapters/providers/trusted-webhook-egress";
-import { AesGcmWebhookSecretProtector } from "./adapters/persistence/webhook-secret-protector";
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
 import {
   agendaTemplateSlice,
-  sweepDriftedSchedules,
   type ScheduleReconciliation,
   type ScheduleSweepResult,
+  sweepDriftedSchedules,
 } from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
@@ -58,16 +58,16 @@ import {
 } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
+import type {
+  WebhookEgress,
+  WebhookSecretProtector,
+} from "./application/communications/webhook-security";
 import {
   FanoutDomainEventConsumer,
   WebhookFanoutConsumer,
   WebhookService,
   WebhookWorker,
 } from "./application/communications/webhooks";
-import type {
-  WebhookEgress,
-  WebhookSecretProtector,
-} from "./application/communications/webhook-security";
 import type { SpeakerNotificationPort } from "./application/content/content-service";
 import { ContentService } from "./application/content/content-service";
 import {
@@ -80,6 +80,11 @@ import type { OutreachMessage } from "./application/crm/public";
 import { OutreachRejectedError } from "./application/crm/public";
 import { EventService, EventTemplateService } from "./application/events/public";
 import {
+  ApiClientResolver,
+  ApiClientService,
+  mintApiClientCredential,
+} from "./application/identity/api-clients";
+import {
   completeGoogleAuthorization,
   GoogleAuthenticationError,
   type GoogleConfiguration,
@@ -87,11 +92,6 @@ import {
   stateProof,
 } from "./application/identity/google-oauth";
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
-import {
-  ApiClientResolver,
-  ApiClientService,
-  mintApiClientCredential,
-} from "./application/identity/api-clients";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
 import {
@@ -1532,6 +1532,10 @@ export default {
         publishing,
         communications,
         crm,
+        // The same instance the events routes use, handed the request's actor untouched like
+        // every other source. Platform learns nothing about templates from it beyond what an
+        // inbox item says: the events domain does the folding (issue #203).
+        eventConfiguration: eventTemplates,
       },
       dismissals: new D1InboxDismissalStore(environment.DB),
       now: () => new Date(),

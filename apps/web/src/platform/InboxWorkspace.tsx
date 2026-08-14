@@ -27,6 +27,10 @@ import { Card, EmptyState, Notice, Pill, useActionFeedback } from "../ui/primiti
 type CategoryKey = keyof InboxResponseDto["categories"];
 
 const CATEGORY_ORDER: readonly CategoryKey[] = [
+  // Configuration first: an event cloned in part is wrong in a way none of the others describe,
+  // and unlike them it is invisible from every surface but the one an operator opens on purpose
+  // (issue #203).
+  "configuration",
   "programme",
   "speakerWork",
   "reviews",
@@ -35,6 +39,7 @@ const CATEGORY_ORDER: readonly CategoryKey[] = [
 ];
 
 const CATEGORY_LABELS: Readonly<Record<CategoryKey, string>> = {
+  configuration: "Event configuration",
   programme: "Programme",
   speakerWork: "Speaker work",
   reviews: "Reviews outstanding",
@@ -44,6 +49,7 @@ const CATEGORY_LABELS: Readonly<Record<CategoryKey, string>> = {
 
 /** What each category is *for*, so an empty one reads as good news rather than as a bug. */
 const CATEGORY_EMPTY: Readonly<Record<CategoryKey, string>> = {
+  configuration: "Every category this event was cloned from arrived.",
   programme: "Every session is placed and the board has no conflicts.",
   speakerWork: "No speaker has outstanding work.",
   reviews: "Every assignment has a completed evaluation.",

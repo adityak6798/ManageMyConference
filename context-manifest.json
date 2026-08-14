@@ -519,6 +519,7 @@
         "apps/api/src/adapters/persistence/memory-event-template-repository.ts",
         "apps/api/test/d1-event-repository.integration.test.ts",
         "apps/api/test/d1-event-template-repository.integration.test.ts",
+        "apps/api/test/outstanding-configuration.test.ts",
         "apps/api/test/event-mappers.test.ts",
         "apps/api/test/event-service.test.ts",
         "apps/api/test/event-templates.test.ts",

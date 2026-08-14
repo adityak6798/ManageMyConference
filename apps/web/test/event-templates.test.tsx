@@ -108,6 +108,10 @@ function stubTemplates(
   listed: EventTemplateDto = template,
   held: readonly EventTemplateVersionDto[] = [version],
   applications: readonly unknown[] = [],
+  // Supplied rather than derived from `applications`, because the server is what derives it:
+  // `outstandingConfiguration` is a domain fold with two readers and the console is only one of
+  // them. A stub that recomputed it here would be asserting a copy of the rule (issue #203).
+  outstanding: readonly unknown[] = [],
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
@@ -117,7 +121,7 @@ function stubTemplates(
     if (url.endsWith("/template-applications"))
       return _init?.method === "POST"
         ? jsonResponse({ application })
-        : jsonResponse({ applications });
+        : jsonResponse({ applications, outstanding });
     if (url.endsWith(`/event-templates/${templateId}`))
       return jsonResponse({ template: listed, versions: held });
     return jsonResponse({ templates: [listed] });
@@ -282,7 +286,7 @@ describe("event templates", () => {
    * Issue #175. Everything below is about the state *after* the response that reported it: an
    * organizer who was never here when the clone ran, opening the workspace cold.
    */
-  describe("an application that landed in part", () => {
+  describe("configuration this event was cloned into and never received", () => {
     /** As storage holds it: the envelope word, the range, and the categories, read back. */
     const storedPartial = {
       templateId,
@@ -298,54 +302,87 @@ describe("event templates", () => {
       slices: partial.slices,
     };
 
+    /**
+     * One outstanding category, as the server's fold answers it.
+     *
+     * The whole point of issue #203 is that this is *not* an application: it names the version
+     * that owes the category and nothing about the other categories that version carried, so a
+     * repair built from it is one category wide.
+     */
+    const owed = {
+      key: "agenda",
+      label: "Rooms and time slots",
+      outcome: "failed" as const,
+      reason: "The destination has no room matching \u201cGrand Hall\u201d.",
+      templateId,
+      templateName: template.name,
+      templateState: "active" as const,
+      templateVersionId: versionId,
+      version: 1,
+      outstandingSince: "2027-01-05T12:00:00.000Z",
+      destination: { startsOn: "2027-03-08", endsOn: "2027-03-10" },
+    };
+
     it("says so on a page nobody applied anything on, and names what is missing", async () => {
-      stubTemplates(undefined, template, [version], [storedPartial]);
+      stubTemplates(undefined, template, [version], [storedPartial], [owed]);
       renderWorkspace();
 
       const card = within(
         await screen.findByRole("region", { name: "Greenroom Summit is configured in part" }),
       );
       // The category that did not land, with the destination's own reason for refusing it.
-      expect(card.getByText("Rooms and time slots")).toBeInTheDocument();
+      expect(card.getAllByText("Rooms and time slots").length).toBeGreaterThan(0);
       expect(card.getByText(/no room matching/)).toBeInTheDocument();
       // And not the one that did: this card is what is still outstanding, not a full history.
       expect(card.queryByText("CFP form and routing")).toBeNull();
-      // Named rather than an account id, and dated, because "who and when" is the first thing
-      // an organizer inheriting a half-configured event asks.
-      expect(card.getByText(/by Olivia Organizer/)).toBeInTheDocument();
+      // The version that owes it, because "which clone left this" is the first thing an
+      // organizer inheriting a half-configured event asks.
+      expect(card.getByText(/version 1 of/)).toBeInTheDocument();
     });
 
-    it("repairs it with the stored command rather than whatever the controls hold", async () => {
-      const selected = { ...storedPartial, selection: ["cfp", "agenda"] };
-      const fetchMock = stubTemplates(partial, template, [version], [selected]);
+    /**
+     * The repair is **one category**, and that is what makes it safe rather than merely tidy.
+     *
+     * The old card offered the whole stored selection of the newest application, which is why it
+     * could only ever be offered for the newest one: replaying an older application's selection
+     * writes its payload over whatever superseded it. A one-category repair cannot, because the
+     * category it names is by construction one no later application configured.
+     */
+    it("repairs one category from the version that owes it, not the whole clone", async () => {
+      const fetchMock = stubTemplates(
+        partial,
+        template,
+        [version],
+        [{ ...storedPartial, selection: ["cfp", "agenda"] }],
+        [owed],
+      );
       renderWorkspace();
 
       fireEvent.click(
-        await screen.findByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+        await screen.findByRole("button", {
+          name: "Apply Rooms and time slots from version 1 to Greenroom Summit",
+        }),
       );
 
       await waitFor(() =>
         expect(postsTo(fetchMock, "/template-applications").length).toBeGreaterThan(0),
       );
       /*
-       * The version, the range and the category selection all come from the stored row. The
-       * page's own date boxes were never filled in, so a repair built from the controls would
-       * have sent an empty range — and a repair built from "everything the version carries"
-       * would have applied two categories the original command deliberately left out.
+       * The version and the range come from the stored row — the page's own date boxes were
+       * never filled in, so a repair built from the controls would have sent an empty range —
+       * and `slices` is the one outstanding category rather than the two the original command
+       * named, because the other one already landed and re-writing it is not a repair.
        */
       expect(bodyOf(fetchMock, "/template-applications")).toEqual({
         templateId,
         version: 1,
         destination: { startsOn: "2027-03-08", endsOn: "2027-03-10" },
-        slices: ["cfp", "agenda"],
+        slices: ["agenda"],
       });
     });
 
     it("clears once the repair lands, because the surface re-reads what is stored", async () => {
-      // The second attempt writes the category the first one could not, so both the stored row
-      // and the response the click gets back say every category landed.
       const landed = partial.slices.map((slice) => ({ ...slice, outcome: "applied" as const }));
-      const repaired = { ...storedPartial, outcome: "applied" as const, slices: landed };
       let read = 0;
       const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
@@ -353,7 +390,10 @@ describe("event templates", () => {
           return jsonResponse({ application: { ...partial, outcome: "applied", slices: landed } });
         // The second read is the one taken after the repair, and the server's answer has moved.
         if (url.endsWith("/template-applications"))
-          return jsonResponse({ applications: [read++ === 0 ? storedPartial : repaired] });
+          return jsonResponse({
+            applications: [storedPartial],
+            outstanding: read++ === 0 ? [owed] : [],
+          });
         if (url.endsWith(`/event-templates/${templateId}`))
           return jsonResponse({ template, versions: [version] });
         return jsonResponse({ templates: [template] });
@@ -362,7 +402,9 @@ describe("event templates", () => {
       renderWorkspace();
 
       fireEvent.click(
-        await screen.findByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+        await screen.findByRole("button", {
+          name: "Apply Rooms and time slots from version 1 to Greenroom Summit",
+        }),
       );
 
       await waitFor(() =>
@@ -370,7 +412,7 @@ describe("event templates", () => {
           screen.queryByRole("region", { name: "Greenroom Summit is configured in part" }),
         ).toBeNull(),
       );
-      expect(await screen.findByText(/re-applied in full/)).toBeInTheDocument();
+      expect(await screen.findByText(/is now configured from version 1/)).toBeInTheDocument();
     });
 
     it("will not offer a repair the server would refuse", async () => {
@@ -378,7 +420,8 @@ describe("event templates", () => {
         undefined,
         template,
         [version],
-        [{ ...storedPartial, templateState: "archived" as const }],
+        [storedPartial],
+        [{ ...owed, templateState: "archived" as const }],
       );
       renderWorkspace();
 
@@ -386,17 +429,20 @@ describe("event templates", () => {
         await screen.findByRole("region", { name: "Greenroom Summit is configured in part" }),
       );
       expect(
-        card.getByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
+        card.getByRole("button", {
+          name: "Apply Rooms and time slots from version 1 to Greenroom Summit",
+        }),
       ).toBeDisabled();
       expect(card.getByText(/archived template cannot be applied/)).toBeInTheDocument();
     });
 
-    it("stays quiet about an application that landed whole", async () => {
+    it("stays quiet when the server owes nothing", async () => {
       stubTemplates(
         undefined,
         template,
         [version],
         [{ ...storedPartial, outcome: "applied" as const }],
+        [],
       );
       renderWorkspace();
 
@@ -407,64 +453,48 @@ describe("event templates", () => {
     });
 
     /**
-     * A superseded partial application is history, and offering it as a repair is a revert.
+     * Two categories owed by two different versions, which the old card could not express.
      *
-     * An application row is keyed per version, so applying a newer version writes its own row
-     * and leaves the older `partial` one exactly where it was. Before this was scoped to the
-     * newest application the card went on naming version 1's missing category and offering
-     * "Re-apply version 1" — which writes version 1's payload over the version 2 configuration,
-     * because every category converges on the payload it is given.
+     * It showed one application — the newest, and only when its own envelope word said so — so a
+     * category left owing by an older version was invisible the moment anything else was
+     * applied. This is the shape issue #203 asked for: a list of what the *event* owes, each
+     * entry carrying its own repair.
      */
-    it("does not offer to re-apply a version a later application has superseded", async () => {
-      const supersededByV2 = [
-        { ...storedPartial, appliedAt: "2027-01-05T12:00:00.000Z" },
-        {
-          ...storedPartial,
-          templateVersionId: "523e4567-e89b-42d3-a456-426614174004",
-          version: 2,
-          appliedAt: "2027-02-09T09:00:00.000Z",
-          outcome: "applied" as const,
-          slices: partial.slices.map((slice) => ({ ...slice, outcome: "applied" as const })),
-        },
-      ];
-      stubTemplates(undefined, template, [version], supersededByV2);
-      renderWorkspace();
-
-      await screen.findByRole("button", { name: "Annual summit starter" });
-      expect(
-        screen.queryByRole("region", { name: "Greenroom Summit is configured in part" }),
-      ).toBeNull();
-      expect(
-        screen.queryByRole("button", { name: "Re-apply version 1 to Greenroom Summit" }),
-      ).toBeNull();
-    });
-
-    it("offers the newest application when that is the one that fell short", async () => {
-      // The mirror of the case above, so "newest only" cannot be satisfied by never rendering.
-      const partialAfterAClean = [
-        {
-          ...storedPartial,
-          appliedAt: "2027-01-05T12:00:00.000Z",
-          outcome: "applied" as const,
-          slices: partial.slices.map((slice) => ({ ...slice, outcome: "applied" as const })),
-        },
-        {
-          ...storedPartial,
-          templateVersionId: "523e4567-e89b-42d3-a456-426614174004",
-          version: 2,
-          appliedAt: "2027-02-09T09:00:00.000Z",
-        },
-      ];
-      stubTemplates(undefined, template, [version], partialAfterAClean);
+    it("lists a category from each version that owes one, with a repair each", async () => {
+      stubTemplates(
+        undefined,
+        template,
+        [version],
+        [storedPartial],
+        [
+          owed,
+          {
+            ...owed,
+            key: "content-resources",
+            label: "Speaker portal resource pages",
+            outcome: "unauthorized" as const,
+            reason: "Your account may not write speaker resources on this event.",
+            templateVersionId: "523e4567-e89b-42d3-a456-426614174004",
+            version: 2,
+            outstandingSince: "2027-02-09T09:00:00.000Z",
+          },
+        ],
+      );
       renderWorkspace();
 
       const card = within(
         await screen.findByRole("region", { name: "Greenroom Summit is configured in part" }),
       );
       expect(
-        card.getByRole("button", { name: "Re-apply version 2 to Greenroom Summit" }),
+        card.getByRole("button", {
+          name: "Apply Rooms and time slots from version 1 to Greenroom Summit",
+        }),
       ).toBeEnabled();
-      expect(card.getByText("Rooms and time slots")).toBeInTheDocument();
+      expect(
+        card.getByRole("button", {
+          name: "Apply Speaker portal resource pages from version 2 to Greenroom Summit",
+        }),
+      ).toBeEnabled();
     });
   });
 });

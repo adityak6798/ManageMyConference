@@ -2,18 +2,10 @@
   "id": "review",
   "order": 50,
   "index": "docs/product/specifications.md",
-  "specs": [
-    "PRD-REV-001"
-  ],
-  "journeys": [
-    "JNY-003"
-  ],
-  "acceptance": [
-    "ACC-REVIEW"
-  ],
-  "plans": [
-    "PLAN-002"
-  ],
+  "specs": ["PRD-REV-001"],
+  "journeys": ["JNY-003"],
+  "acceptance": ["ACC-REVIEW"],
+  "plans": ["PLAN-002"],
   "paths": [
     "packages/contracts/src/domains/review.ts",
     "apps/api/src/adapters/persistence/schema/review.ts",

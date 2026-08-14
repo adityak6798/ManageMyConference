@@ -44,6 +44,7 @@ import {
   getEventTemplate,
   listEventTemplates,
   listTemplateApplications,
+  type OutstandingConfigurationCategoryDto,
   previewTemplateApplication,
   type SlicePreviewDto,
   type SliceResultDto,
@@ -256,6 +257,15 @@ export function EventTemplatesWorkspace({
    * happened to the event in front of the organizer.
    */
   const [applications, setApplications] = useState<EventTemplateApplicationDto[]>([]);
+  /**
+   * The categories this event still owes, folded server-side across every application.
+   *
+   * Held apart from `applications` because it answers a different question and is not derivable
+   * from that list here: the fold is a domain rule (`outstandingConfiguration`) with two readers
+   * — this workspace and the operational inbox — and a rule with two readers must not live in
+   * either of them (issue #203).
+   */
+  const [outstanding, setOutstanding] = useState<OutstandingConfigurationCategoryDto[]>([]);
   /** A history this page could not read, reported in place of the card rather than everywhere. */
   const [historyError, setHistoryError] = useState<string | null>(null);
 
@@ -309,7 +319,8 @@ export function EventTemplatesWorkspace({
       }),
     );
     if (generation !== run.current) return;
-    setApplications("found" in configured ? configured.found : []);
+    setApplications("found" in configured ? configured.found.applications : []);
+    setOutstanding("found" in configured ? configured.found.outstanding : []);
     setHistoryError("failure" in configured ? configured.failure : null);
   }, [eventId]);
 
@@ -356,42 +367,29 @@ export function EventTemplatesWorkspace({
   /** What the categories in the result support, which is all the card above them may claim. */
   const resultVerdict = result ? verdict(result.slices) : null;
   /*
-   * The **most recent** application, and only when it left this event configured in part.
+   * Every category this event still owes — folded per *category*, not per application.
    *
-   * Read from the stored envelope word rather than recomputed from the categories, because the
-   * server is what decided it and the row is what an operator would query. `failed` is here too:
-   * an application where nothing landed is not a lesser problem than one where half did — it is
-   * a clone the organizer believes happened.
+   * This card used to show the **most recent** application, and only when its stored envelope
+   * word was `partial` or `failed`. That rule was a safety rule with a real cost, and issue #203
+   * is the cost coming due. An application row is keyed per version, so applying a newer version
+   * — or a different template, or the same one with a narrower selection — writes its own row
+   * and leaves an older `partial` one exactly where it was. The newer row could read `applied`
+   * while the category the earlier one could not write was still unconfigured, and this card
+   * then went quiet about precisely the condition it exists to raise.
    *
-   * **Newest only, and it is a safety rule with a cost — both halves worth stating.**
+   * The safety half of the old rule survives, and is now structural rather than conventional.
+   * Offering an *older application* as a whole-clone repair would write its payload over the
+   * configuration that superseded it — every category converges on the payload it is given, so
+   * "re-apply version 1" against an event since configured from version 2 is a revert wearing
+   * the word repair. Folding per category dissolves that: the deciding application for a
+   * category is the newest one that reached it, so a category a later application configured is
+   * not outstanding at all, and the repair offered here is one version and one category rather
+   * than a whole selection.
    *
-   * An application row is keyed per version, so applying a newer version, or a different
-   * template, writes its own row and leaves an older `partial` one exactly where it was.
-   * Offering that older one as a repair would write its payload over the configuration that
-   * replaced it: every slice converges on the payload it is given, so "re-apply version 1"
-   * against an event since configured from version 2 is a revert wearing the word repair. The
-   * newest application is the only one whose payload is still the state the organizer chose, so
-   * it is the only one this card may offer — which is also what the issue asked for, "events
-   * whose most recent application was `partial`".
-   *
-   * The cost: a later application naming a *different* template, or a subset of categories, is
-   * newer and may read `applied` while the category the earlier one could not write is still
-   * unconfigured — and the card then goes quiet about it. Answering that properly means asking
-   * whether a *category* is outstanding rather than whether an *application* was, which nothing
-   * supports today because `outcome_json` is a per-application document. Recorded as the largest
-   * of `GAP-023`'s three residuals rather than left for the next reader to rediscover here.
+   * Read from the server rather than recomputed here, for the same reason the envelope word was:
+   * the fold is a domain rule and this console is one of its two readers.
    */
-  const incomplete = useMemo(() => {
-    // Newest first, as the route promises; re-sorted here rather than trusted, because the whole
-    // point of this value is which one is last and a client that assumed wrong would revert.
-    // Named `last`, not `newest`: `newest` is already the selected template's newest *version*
-    // a few lines above, and two live bindings of one word in one component is one careless edit
-    // away from a card about the wrong thing.
-    const last = [...applications].sort((left, right) =>
-      right.appliedAt.localeCompare(left.appliedAt),
-    )[0];
-    return last && (last.outcome === "partial" || last.outcome === "failed") ? [last] : [];
-  }, [applications]);
+  const incomplete = outstanding;
 
   // Opening a template arms its own controls: the rename box holds the current name, the apply
   // form offers its newest version, and a plan built against the previous template is dropped.
@@ -534,21 +532,31 @@ export function EventTemplatesWorkspace({
    * wearing its name. Every category converges, so the ones that already landed are written
    * back identically and the ones that did not get another attempt (`ARC-FLOW-006`).
    */
-  async function repair(application: EventTemplateApplicationDto) {
+  /**
+   * Settle one outstanding category by re-applying it from the version that owes it.
+   *
+   * Narrow on purpose, and the narrowness is what makes it safe rather than what makes it
+   * polite: `slices: [category.key]` writes that category and nothing else, so a repair for a
+   * version somebody has since superseded cannot touch what superseded it. The destination range
+   * travels from the stored outcome because it is a parameter of the clone rather than a
+   * property of the event — nothing else could reconstruct it, and a repair that began by asking
+   * for two dates again would not be one action away (issue #203).
+   */
+  async function repair(category: OutstandingConfigurationCategoryDto) {
     await guard(async () => {
       const applied = await applyEventTemplate(eventId, {
-        templateId: application.templateId,
-        version: application.version,
-        destination: application.destination,
-        ...(application.selection ? { slices: [...application.selection] } : {}),
+        templateId: category.templateId,
+        version: category.version,
+        destination: category.destination,
+        slices: [category.key],
       });
       setReviewed(null);
       setResult(applied);
       await readApplications();
       const refused = refusedCategories(applied.slices);
       return refused.length
-        ? `Version ${applied.version} re-applied, and ${countLabel(refused.length, "category", "categories")} still did not land: ${refused.map(({ label }) => label).join(", ")}.`
-        : `Version ${applied.version} re-applied in full. ${eventName} now carries every category this version holds.`;
+        ? `${category.label} still did not land: ${refused.map(({ reason }) => reason).join(" ")}`
+        : `${category.label} is now configured from version ${applied.version} of “${category.templateName}”.`;
     }, repairFeedback);
   }
 
@@ -606,55 +614,49 @@ export function EventTemplatesWorkspace({
         <Card
           labelledBy="event-template-incomplete"
           title={`${eventName} is configured in part`}
-          hint="The last template applied to this event did not land in full, and nothing else in the console says so. Re-applying that version is the repair: every category converges rather than duplicating what it already wrote. If you have since fixed the category by hand, applying again is still safe and is what clears this."
+          hint={`${countLabel(incomplete.length, "category", "categories")} this event was cloned from never arrived, and nothing else in the console says so. Each repair below re-applies one category from the version that could not write it, which converges rather than duplicating and cannot overwrite a category configured since. If you have fixed one by hand, applying again is still safe and is what clears it.`}
         >
           <div className="template-stack">
-            {incomplete.map((application) => {
-              const missing = refusedCategories(application.slices);
-              const archived = application.templateState === "archived";
+            {/*
+              One entry per outstanding *category*, each carrying the version that owes it. Two
+              categories left owing by two different applications are two entries with two
+              repairs, which is the shape the old per-application card could not express.
+            */}
+            {incomplete.map((category) => {
+              const archived = category.templateState === "archived";
               return (
-                <div className="template-stack" key={application.templateVersionId}>
+                <div
+                  className="template-stack"
+                  key={`${category.templateVersionId}:${category.key}`}
+                >
                   <Notice tone="warn">
                     <IconWarning size={15} />
                     <span>
-                      Version {application.version} of “{application.templateName}” was applied on{" "}
-                      {stampedTime(application.appliedAt)}
-                      {application.appliedByName
-                        ? ` by ${application.appliedByName}`
-                        : ` by account ${application.appliedBy}`}
-                      , onto {stampedCalendarDay(application.destination.startsOn)} –{" "}
-                      {stampedCalendarDay(application.destination.endsOn)}.{" "}
-                      {countLabel(missing.length, "category", "categories")} did not land, and the
-                      ones that did are still in place.
+                      <strong>{category.label}</strong> was not configured from version{" "}
+                      {category.version} of “{category.templateName}”, applied on{" "}
+                      {stampedTime(category.outstandingSince)} onto{" "}
+                      {stampedCalendarDay(category.destination.startsOn)} –{" "}
+                      {stampedCalendarDay(category.destination.endsOn)}. Nothing applied since has
+                      configured it.
                     </span>
                   </Notice>
-                  <ul className="plain-list">
-                    {missing.map((slice) => (
-                      <li key={slice.key}>
-                        <div className="section-heading">
-                          <h3>{slice.label}</h3>
-                          <Pill tone={TONES[slice.outcome] ?? "neutral"}>
-                            {RESULT_WORDS[slice.outcome]}
-                          </Pill>
-                        </div>
-                        <span className="sub">{slice.reason}</span>
-                        <SliceEntries
-                          title={`${eventName} would not accept`}
-                          entries={slice.incompatible}
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="section-heading">
+                    <h3>{category.label}</h3>
+                    <Pill tone={TONES[category.outcome] ?? "neutral"}>
+                      {RESULT_WORDS[category.outcome]}
+                    </Pill>
+                  </div>
+                  <span className="sub">{category.reason}</span>
                   <div className="toolbar">
                     <button
                       type="button"
                       disabled={busy || !canApply || archived}
                       onClick={() => {
                         // ERROR-INTENT: handlers cannot await; repair announces both outcomes.
-                        void repair(application);
+                        void repair(category);
                       }}
                     >
-                      Re-apply version {application.version} to {eventName}
+                      Apply {category.label} from version {category.version} to {eventName}
                     </button>
                   </div>
                   {canApply ? null : (
@@ -665,7 +667,7 @@ export function EventTemplatesWorkspace({
                   )}
                   {archived ? (
                     <p className="template-note">
-                      “{application.templateName}” has been archived since, and an archived template
+                      “{category.templateName}” has been archived since, and an archived template
                       cannot be applied. Restoring it is what makes this repair available.
                     </p>
                   ) : null}

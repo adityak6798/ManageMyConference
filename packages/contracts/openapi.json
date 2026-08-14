@@ -20069,7 +20069,8 @@
                                           "speakerWork",
                                           "programme",
                                           "deliveries",
-                                          "publication"
+                                          "publication",
+                                          "configuration"
                                         ]
                                       },
                                       "title": {
@@ -20219,7 +20220,8 @@
                                           "speakerWork",
                                           "programme",
                                           "deliveries",
-                                          "publication"
+                                          "publication",
+                                          "configuration"
                                         ]
                                       },
                                       "title": {
@@ -20369,7 +20371,8 @@
                                           "speakerWork",
                                           "programme",
                                           "deliveries",
-                                          "publication"
+                                          "publication",
+                                          "configuration"
                                         ]
                                       },
                                       "title": {
@@ -20519,7 +20522,8 @@
                                           "speakerWork",
                                           "programme",
                                           "deliveries",
-                                          "publication"
+                                          "publication",
+                                          "configuration"
                                         ]
                                       },
                                       "title": {
@@ -20669,7 +20673,159 @@
                                           "speakerWork",
                                           "programme",
                                           "deliveries",
-                                          "publication"
+                                          "publication",
+                                          "configuration"
+                                        ]
+                                      },
+                                      "title": {
+                                        "type": "string"
+                                      },
+                                      "subtitle": {
+                                        "type": "string"
+                                      },
+                                      "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                          "high",
+                                          "normal",
+                                          "low"
+                                        ]
+                                      },
+                                      "status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "open",
+                                          "dismissed"
+                                        ]
+                                      },
+                                      "owner": {
+                                        "type": "string"
+                                      },
+                                      "dueAt": {
+                                        "type": "string"
+                                      },
+                                      "href": {
+                                        "type": "string"
+                                      },
+                                      "dismissedAt": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "key",
+                                      "category",
+                                      "title",
+                                      "priority",
+                                      "status",
+                                      "href"
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "state",
+                                "items"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "unauthorized"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "state"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "failed"
+                                  ]
+                                },
+                                "error": {
+                                  "type": "object",
+                                  "properties": {
+                                    "code": {
+                                      "type": "string",
+                                      "enum": [
+                                        "UNAUTHORIZED",
+                                        "FORBIDDEN",
+                                        "VALIDATION_FAILED",
+                                        "NOT_FOUND",
+                                        "CONFLICT",
+                                        "AGENDA_CONFLICT",
+                                        "RATE_LIMITED",
+                                        "UPSTREAM_UNAVAILABLE",
+                                        "WEBHOOK_UNAVAILABLE",
+                                        "INTERNAL_ERROR"
+                                      ]
+                                    },
+                                    "message": {
+                                      "type": "string"
+                                    },
+                                    "correlationId": {
+                                      "type": "string"
+                                    },
+                                    "fieldErrors": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "code",
+                                    "message",
+                                    "correlationId"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "state",
+                                "error"
+                              ]
+                            }
+                          ]
+                        },
+                        "configuration": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ok"
+                                  ]
+                                },
+                                "items": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "key": {
+                                        "type": "string"
+                                      },
+                                      "category": {
+                                        "type": "string",
+                                        "enum": [
+                                          "reviews",
+                                          "speakerWork",
+                                          "programme",
+                                          "deliveries",
+                                          "publication",
+                                          "configuration"
                                         ]
                                       },
                                       "title": {
@@ -20799,7 +20955,8 @@
                         "speakerWork",
                         "programme",
                         "deliveries",
-                        "publication"
+                        "publication",
+                        "configuration"
                       ]
                     },
                     "derivedAt": {
@@ -39958,10 +40115,91 @@
                           "slices"
                         ]
                       }
+                    },
+                    "outstanding": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "failed",
+                              "incompatible",
+                              "unauthorized"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "templateId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "templateName": {
+                            "type": "string"
+                          },
+                          "templateState": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "archived"
+                            ]
+                          },
+                          "templateVersionId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "outstandingSince": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "destination": {
+                            "type": "object",
+                            "properties": {
+                              "startsOn": {
+                                "type": "string"
+                              },
+                              "endsOn": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "startsOn",
+                              "endsOn"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "outcome",
+                          "reason",
+                          "templateId",
+                          "templateName",
+                          "templateState",
+                          "templateVersionId",
+                          "version",
+                          "outstandingSince",
+                          "destination"
+                        ]
+                      }
                     }
                   },
                   "required": [
-                    "applications"
+                    "applications",
+                    "outstanding"
                   ]
                 }
               }

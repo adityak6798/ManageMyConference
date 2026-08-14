@@ -567,6 +567,88 @@ describe("D1EventTemplateRepository", () => {
     ).resolves.toBe(1);
   });
 
+  /**
+   * Issue #203's closure condition, against real storage.
+   *
+   * The domain fold is pinned on its own in `outstanding-configuration.test.ts`; what only a
+   * database can prove is that a refusal recorded in `outcome_json` survives the round trip and
+   * is still found after a *later* application says everything landed. That was the failure
+   * mode: an application row is keyed per version, so the newer row read `applied` while the
+   * agenda category the earlier one could not write stayed unconfigured, and the surface — which
+   * showed the newest row and only when its own envelope word said `partial` — went quiet.
+   *
+   * The refused row is written through the repository rather than produced by a real refusal:
+   * making one of the six slices genuinely fail here would be a test about that slice, and the
+   * subject is what the fold does with what storage holds.
+   */
+  it("still owes a category an older application refused, after a newer one applied in full", async () => {
+    const { actor, destinationId, repository, templates } = await seeded();
+    const { template } = await templates.saveFromEvent(actor, {
+      organizationId: ORGANIZATION,
+      name: "Regional summit starter",
+      sourceEventId: SOURCE,
+    });
+    const [firstVersion] = await repository.listVersions(template.id);
+    if (!firstVersion) throw new Error("The capture wrote no version");
+
+    // Template A, applied earlier, whose agenda category the destination refused.
+    await repository.recordApplication({
+      id: "00000000-0000-4000-8000-0000000009f1",
+      eventId: destinationId,
+      templateVersionId: firstVersion.id,
+      appliedAt: "2026-08-11T09:00:00.000Z",
+      appliedBy: "seed-organizer",
+      outcome: {
+        outcome: "partial",
+        destination: DESTINATION_RANGE,
+        slices: [
+          {
+            key: "cfp",
+            label: "CFP form and routing",
+            outcome: "applied",
+            reason: "",
+            applied: [],
+            incompatible: [],
+          },
+          {
+            key: "agenda",
+            label: "Rooms and time slots",
+            outcome: "failed",
+            reason: "The destination has no room matching \u201cGrand Hall\u201d.",
+            applied: [],
+            incompatible: [],
+          },
+        ],
+      },
+    });
+
+    // A second version, applied now, in full — and its command names only the CFP category, so
+    // it never reaches the agenda one. A row is keyed per `(event, version)`, so this writes
+    // its own beside the refused one rather than replacing it, which is the whole shape of the
+    // defect.
+    await templates.captureVersion(actor, template.id, SOURCE);
+    await templates.apply(actor, destinationId, {
+      templateId: template.id,
+      version: 2,
+      destination: DESTINATION_RANGE,
+      slices: ["cfp"],
+    });
+
+    const { applications, outstanding } = await templates.configuration(actor, destinationId);
+    // The newer application is the one every per-application surface would have shown, and it
+    // says nothing was refused.
+    expect(applications[0]?.outcome).toBe("applied");
+    // The event still owes the category, and the repair names the version that owes it.
+    expect(outstanding).toHaveLength(1);
+    expect(outstanding[0]).toMatchObject({
+      key: "agenda",
+      outcome: "failed",
+      version: 1,
+      outstandingSince: "2026-08-11T09:00:00.000Z",
+      destination: DESTINATION_RANGE,
+    });
+  });
+
   it("copies configuration and nothing else out of a fully populated seeded event", async () => {
     const { actor, cfp, database, destinationId, publishing, templates } = await seeded();
     const tables = await presentTables(database);

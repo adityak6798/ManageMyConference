@@ -8,8 +8,8 @@
  * rather than refusing the surface.
  */
 import { describe, expect, it, vi } from "vitest";
-import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { MemoryInboxDismissalStore } from "../src/adapters/persistence/d1-platform-repository";
+import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
 import { AgendaNotFoundError, AgendaService } from "../src/application/agenda/public";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import {
@@ -193,6 +193,24 @@ function sources(overrides: Partial<PlatformSources> = {}): PlatformSources {
         ],
       }),
     },
+    /**
+     * Configuration this event was cloned into and never received (issue #203).
+     *
+     * The events domain does the folding; platform declares one call and renders the answer, so
+     * this stub is the whole of what the sixth category depends on.
+     */
+    eventConfiguration: {
+      outstandingConfiguration: async () => [
+        {
+          key: "agenda",
+          label: "Rooms and time slots",
+          outcome: "failed",
+          reason: "The destination has no room matching “Grand Hall”.",
+          templateName: "Annual summit starter",
+          outstandingSince: "2026-08-01T09:00:00.000Z",
+        },
+      ],
+    },
     ...overrides,
   };
 }
@@ -211,7 +229,13 @@ function service(overrides: Partial<PlatformSources> = {}, now: Date = NOW) {
 
 const itemsOf = (
   answer: Awaited<ReturnType<PlatformInboxService["inbox"]>>,
-  category: "reviews" | "speakerWork" | "programme" | "deliveries" | "publication",
+  category:
+    | "reviews"
+    | "speakerWork"
+    | "programme"
+    | "deliveries"
+    | "publication"
+    | "configuration",
 ) => {
   const section = answer.categories[category];
   if (section.state !== "ok") throw new Error(`${category} was ${section.state}`);
@@ -257,6 +281,65 @@ describe("the operational inbox", () => {
       priority: "high",
       subtitle: "Overdue",
     });
+  });
+
+  /**
+   * The sixth category, and the residual it closes (issue #203).
+   *
+   * A partial template application was surfaced only in the templates workspace, which an
+   * organizer reaches deliberately, so an operator who never opened that page was never told —
+   * #188 recorded that as `GAP-023`'s third residual and left the platform decision unmade.
+   * This is the decision taken, and the shape is why it was cheap: the events domain folds the
+   * answer, and platform declares one call.
+   */
+  it("raises configuration this event was cloned into and never received", async () => {
+    const answer = await service().inbox.inbox(organizer, EVENT_ONE);
+
+    expect(itemsOf(answer, "configuration")).toEqual([
+      {
+        // The deciding application's instant is the occurrence: applying again and having the
+        // same category refused again is a new thing to know, and writes a new row with a new
+        // instant. A re-derivation of the same refusal is not.
+        key: `template-category:${EVENT_ONE}:agenda:2026-08-01T09:00:00.000Z`,
+        category: "configuration",
+        title: "Rooms and time slots was not configured from \u201cAnnual summit starter\u201d",
+        subtitle: "The destination has no room matching \u201cGrand Hall\u201d.",
+        priority: "high",
+        status: "open",
+        href: `/event-templates?event=${EVENT_ONE}`,
+      },
+    ]);
+  });
+
+  /**
+   * `GAP-023`'s second residual, answered by the mechanism the inbox already had.
+   *
+   * An organizer who repairs the refused category by hand — creating the room the slot wanted,
+   * granting the capability — still holds a stored outcome that says it was refused, because
+   * nothing re-reads the destination to find out otherwise. Dismissing is how they say so, and
+   * it costs one click rather than a re-application they did not need.
+   */
+  it("lets an operator dismiss a configuration item they have repaired by hand", async () => {
+    const { inbox } = service();
+
+    const key = itemsOf(await inbox.inbox(organizer, EVENT_ONE), "configuration")[0]?.key ?? "";
+    await inbox.dismiss(organizer, EVENT_ONE, key);
+
+    expect(itemsOf(await inbox.inbox(organizer, EVENT_ONE), "configuration")[0]).toMatchObject({
+      status: "dismissed",
+    });
+  });
+
+  it("degrades the configuration category rather than the whole inbox", async () => {
+    const answer = await service({ eventConfiguration: undefined }).inbox.inbox(
+      organizer,
+      EVENT_ONE,
+    );
+
+    expect(answer.categories.configuration.state).toBe("failed");
+    // And the other five still answer, which is the point of degrading a section rather than a
+    // request.
+    expect(itemsOf(answer, "reviews").length).toBeGreaterThan(0);
   });
 
   it("drops an item when its condition resolves, with nothing written to close it", async () => {
