@@ -227,9 +227,10 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   await row.getByRole("button", { name: `Retry ${recipient}` }).click();
   await expect(page.getByText(`Retry queued for ${recipient}`)).toBeVisible();
   await expect
-    .poll(async () =>
-      (await outbox(page)).find(({ delivery }) => delivery.recipientRef === recipient)?.delivery
-        .state,
+    .poll(
+      async () =>
+        (await outbox(page)).find(({ delivery }) => delivery.recipientRef === recipient)?.delivery
+          .state,
     )
     .toBe("queued");
 
@@ -238,9 +239,7 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   await drain(page);
   await page.reload();
   const recoveredRow = await findDeliveryRow(page, recipient);
-  await recoveredRow
-    .getByRole("button", { name: `Show attempt history for ${recipient}` })
-    .click();
+  await recoveredRow.getByRole("button", { name: `Show attempt history for ${recipient}` }).click();
   await expect(page.getByText("Attempt 1: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
   await expect(page.getByText("Attempt 2: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
 });

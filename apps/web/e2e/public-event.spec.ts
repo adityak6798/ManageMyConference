@@ -284,9 +284,7 @@ test("serves an edit published during this run on the public page", async ({ pag
   await page.goto(`/publishing?event=${EVENT_ID}`);
   await page.getByRole("button", { name: "Publish changes" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Published." })).toBeVisible();
-  await expect(
-    page.getByText("Snapshot matches the draft"),
-  ).toBeVisible();
+  await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
   await page.goto(`/events/${SLUG}/sessions`);
   await expect(page.getByRole("link", { name: original, exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: renamed })).toHaveCount(0);
