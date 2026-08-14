@@ -699,3 +699,22 @@ feature-by-feature verdict.
   unauthenticated writer and is therefore a spam and rate-limiting decision before it is a CRM one,
   the same shape the public CFP submission route already carries — or the issue is re-scoped and
   this entry records what was dropped.
+
+- `GAP-030` **The 390px layout audit only catches a min-content overflow when the fixture happens
+  to hold a long string.** The organizer overview sat 19px past a 390px viewport because
+  `.page-body` declared no track minimum, so the grid track was floored by its item's min-content
+  and one unbreakable cell — an email address, in the ordinary case — set the width of the whole
+  page. That is fixed at the shell (`minmax(0, 1fr)`, verified across all sixteen organizer
+  destinations), but the *audit* that should guard the class is only as sensitive as the data in
+  front of it: on a freshly reset fixture every cell is short, nothing exceeds the track, and the
+  same defect reintroduced tomorrow would measure clean. It was found only because the review
+  specs leave stamped addresses behind (`DEBT-007`), which is to say it was found by accident.
+
+  Impact: a whole category of phone-width defect — a wide child setting its ancestors' width — is
+  guarded by a check that passes or fails on fixture history rather than on the layout. The
+  document-level clause and the off-screen-control clause disagreeing with each other is the
+  symptom to watch for: the first passes because the inner `.table-wrap` scrolls its own overflow,
+  while the second reports controls outside the viewport. Owner: quality. Governing ID:
+  `ACC-DEMO-SMOKE`. Closure: the audit renders a deliberately long unbreakable string into one row
+  of each measured surface before measuring, so the floor is a property of the check rather than of
+  the seed — or each surface gets a component-level test that asserts the constraint directly.
