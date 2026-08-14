@@ -193,6 +193,17 @@ export interface EventOrganizationDirectory {
   ): Promise<readonly string[]>;
 }
 
+/**
+ * The one sentence this service says about Converted, wherever a caller arrives at it.
+ *
+ * A move into it, a stage deletion that would herd cards into it, and a creation with no other
+ * column to land in are the same rule refusing three approaches, so they refuse in the same
+ * words: an organizer meeting this twice should recognise the rule rather than read a second
+ * explanation and wonder whether it is a different one.
+ */
+const CONVERTED_IS_NOT_A_DESTINATION =
+  "Prospects cannot be moved into Converted: converting one is what puts it there.";
+
 // @spec PRD-CRM-001 PRD-IAM-002 ARC-FLOW-003
 export class CrmService {
   constructor(
@@ -292,10 +303,19 @@ export class CrmService {
      * `identified`. An organizer who renamed or reordered their intake column would otherwise
      * find every new card arriving in a column they had moved to the end — the board would be
      * configurable everywhere except where things enter it.
+     *
+     * The fallback is the first column a card may be *put* in, never simply the leftmost one.
+     * A board whose stages are all `won`, `nurture` or `lost` is a board this service accepts,
+     * and it can begin with Converted — so `stages[0]` created a prospect standing in Converted
+     * with no `speakerId` and no `convertedAt` behind it, which is the exact state `update`
+     * refuses to reach and the board refuses to accept a drop into. When Converted is the only
+     * column left there is nowhere honest to land, and creating is refused in the same words.
      */
     const stages = await this.ensureStages(command.eventId);
     const entry =
-      stages.find(({ category }) => category === "open") ?? (stages[0] as PipelineStage);
+      stages.find(({ category }) => category === "open") ??
+      stages.find(({ key }) => isMovableStage(key));
+    if (!entry) throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
     const prospect: Prospect = {
       id: this.dependencies.newId(),
       eventId: command.eventId,
@@ -355,9 +375,7 @@ export class CrmService {
       const target = stages.find(({ key }) => key === command.stage);
       if (!target) throw new PipelineStageNotFoundError("That stage is not on this board");
       if (!isMovableStage(target.key))
-        throw new PipelineStageInvalidError(
-          "Prospects cannot be moved into Converted: converting one is what puts it there.",
-        );
+        throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
     }
     // One write carries every consequence of this command. The stage transition is recorded
     // here rather than by the caller — `UpdateProspectCommand` cannot express one, and the
@@ -543,9 +561,7 @@ export class CrmService {
     if (!existing.some(({ key }) => key === migrateTo) || migrateTo === stageKey)
       throw new PipelineStageInvalidError("Choose another stage on this board to move them to");
     if (migrateTo === CONVERTED_STAGE_KEY)
-      throw new PipelineStageInvalidError(
-        "Prospects cannot be moved into Converted: converting one is what puts it there.",
-      );
+      throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
 
     const remaining = normalizeStageOrder(existing.filter(({ key }) => key !== stageKey));
     await this.dependencies.repository.deleteStage(

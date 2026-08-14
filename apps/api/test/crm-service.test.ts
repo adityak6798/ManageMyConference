@@ -1507,6 +1507,73 @@ describe("ACC-CRM configurable pipeline", () => {
     expect(prospect.stage).toBe("sourcing");
   });
 
+  it("never lands a new prospect in Converted, whatever the board's first column is", async () => {
+    const { service } = setup();
+    // A board with no `open` stage at all, beginning with Converted. It is a board this service
+    // accepts — nothing requires an open column — and taking the leftmost stage as the fallback
+    // made every new card arrive in Converted with no `speakerId` and no `convertedAt`: a card
+    // reading "converted" that nothing ever converted, which is the one state this domain says
+    // cannot exist and which `update` and the board both refuse to produce.
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "converted", label: "Converted", category: "won" },
+      { key: "shortlist", label: "Shortlist", category: "nurture" },
+    ]);
+    const prospect = await service.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    expect(prospect.stage).toBe("shortlist");
+    expect(prospect.speakerId).toBeNull();
+    // The arrival is recorded where the card actually is, so the history cannot claim a
+    // conversion the speaker domain never heard about.
+    expect(await service.pipelineHistory(organizer, eventId)).toContainEqual(
+      expect.objectContaining({ prospectId: prospect.id, toStage: "shortlist", source: "created" }),
+    );
+  });
+
+  it("refuses a creation with only Converted to land in, in the words it refuses a move", async () => {
+    const { service } = setup();
+    // The board reduced to the one column the product writes. Nowhere honest is left to put a
+    // new prospect, and putting it in Converted anyway is the failure the case above pins — so
+    // this asks instead that the refusal an organizer reads here is the refusal they would read
+    // dragging a card into that column, rather than a second sentence about the same rule.
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "converted", label: "Converted", category: "won" },
+    ]);
+    const refusal = await service
+      .create(organizer, {
+        eventId,
+        name: "Ada Rivera",
+        ownerId: organizer.id,
+        contact: { name: "Ada", email: "ada@example.test" },
+      })
+      .then(
+        () => "the prospect was created",
+        (reason: unknown) => reason,
+      );
+    expect(refusal).toBeInstanceOf(PipelineStageInvalidError);
+
+    // The wording is compared against the live move refusal rather than pinned as a string here,
+    // so the two can be reworded together and cannot be reworded apart. A second fixture,
+    // because a board holding a prospect cannot be reduced to Converted alone.
+    const { service: elsewhere } = setup();
+    const prospect = await elsewhere.create(organizer, {
+      eventId,
+      name: "Ada Rivera",
+      ownerId: organizer.id,
+      contact: { name: "Ada", email: "ada@example.test" },
+    });
+    const move = await elsewhere
+      .update(organizer, eventId, prospect.id, { stage: "converted" })
+      .then(
+        () => "the move was allowed",
+        (reason: unknown) => reason,
+      );
+    expect((refusal as Error).message).toBe((move as Error).message);
+  });
+
   it("is closed to somebody without crm:manage on this event", async () => {
     const { service } = setup();
     await expect(service.pipelineStages(reviewer, eventId)).rejects.toBeInstanceOf(

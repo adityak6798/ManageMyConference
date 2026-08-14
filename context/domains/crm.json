@@ -24,6 +24,7 @@
     "apps/web/src/CrmDirectoryWorkspace.tsx",
     "apps/web/src/api/crm.ts",
     "apps/web/test/crm-owner-assignment.test.tsx",
+    "apps/web/test/crm-pipeline-stage-editor.test.tsx",
     "apps/web/test/crm-directory.test.tsx",
     "apps/web/e2e/crm.spec.ts",
     "apps/api/src/transport/http/routes/crm.ts",

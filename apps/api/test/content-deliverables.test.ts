@@ -17,6 +17,9 @@ import {
   SpeakerReminderRejectedError,
 } from "../src/application/content/reminder-dispatch";
 import type { Actor } from "../src/application/identity/actor";
+import type { PublicationRepository } from "../src/application/publishing/publication-repository";
+import { PublicationService } from "../src/application/publishing/publication-service";
+import type { Publication } from "../src/domain/publishing/publication";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const profileId = "10000000-0000-4000-8000-000000000001";
@@ -36,6 +39,28 @@ const organizer: Actor = {
   capabilities: new Set(["content:read", "content:manage"]),
   eventAccess: [
     { eventId, role: "organizer", capabilities: new Set(["content:read", "content:manage"]) },
+  ],
+};
+/**
+ * The same person, holding the capability the Publish button actually requires.
+ *
+ * Publishing authorizes on `events:settings:*` rather than on `content:manage`, so the organizer
+ * above cannot drive it. Kept separate rather than widening that one, because every other test
+ * in this file is about what a content capability permits.
+ */
+const publisher: Actor = {
+  ...organizer,
+  capabilities: new Set([
+    ...organizer.capabilities,
+    "events:settings:read",
+    "events:settings:update",
+  ]),
+  eventAccess: [
+    {
+      eventId,
+      role: "organizer",
+      capabilities: new Set(["events:settings:read", "events:settings:update"]),
+    },
   ],
 };
 
@@ -348,6 +373,65 @@ describe("versioned and discussable deliverables", () => {
 });
 
 /**
+ * Take this event's public page live, through the real publishing service.
+ *
+ * Publishing reads content only through `publishedEventContent` and then copies what it read
+ * key by key in `allowlistPublicProjection`, so a field content stores faithfully and publishing
+ * forgets is invisible to every assertion that stops at the content repository: the portal saves
+ * it, the organizer sees it, and the public page never shows it. Driving the real service is the
+ * only way to say a value *reaches the published projection*.
+ *
+ * The store below is the narrowest one a single publish needs — publishing's own storage rules
+ * (versions, slug ownership, reconciliation) belong to `publication.test.ts` and the D1 suite,
+ * and a fixture answering them here would be inventing behaviour nobody asked it for.
+ */
+async function publishSite(content: MemoryContentRepository) {
+  let record: Publication | null = null;
+  const store: PublicationRepository = {
+    findByEventId: async () => record,
+    publish: async (id, publishedAt, projection) => {
+      record = {
+        eventId: id,
+        slug: projection.event.slug,
+        state: "published",
+        draft: projection,
+        published: projection,
+        publishedAt,
+      };
+      return record;
+    },
+    // Never reached by `publish`, and answered with a refusal rather than a plausible value: a
+    // double that quietly returns something for a call it was not built for turns a wrong path
+    // into a passing test.
+    findPublicBySlug: async () => {
+      throw new Error("unused");
+    },
+    findEventIdBySlug: async () => {
+      throw new Error("unused");
+    },
+    saveSettings: async () => {
+      throw new Error("unused");
+    },
+    unpublish: async () => {
+      throw new Error("unused");
+    },
+  };
+  const publishing = new PublicationService(
+    store,
+    {
+      event: async () => ({ name: "Greenroom Summit", timezone: "UTC" }),
+      // Neither a call for proposals nor an agenda is part of what is under test; both are
+      // absent rather than stubbed, which is also the state of a brand-new event.
+      cfp: async () => null,
+      content,
+      schedule: async () => null,
+    },
+    () => new Date("2026-08-11T12:00:00.000Z"),
+  );
+  return publishing.publish(publisher, eventId);
+}
+
+/**
  * Structured social links, and the reason they are validated rather than merely stored.
  *
  * The public programme renders each one into an `href`. `z.string().url()` accepts
@@ -417,6 +501,25 @@ describe("speaker social links", () => {
 
   it("round-trips through the service and reaches the published projection", async () => {
     const { repository, service } = fixture();
+    // A speaker reaches the public page only by being on a published session. That gate is
+    // `content-publication-gate.test.ts`'s subject; here it is simply why Sam is on one.
+    await repository.accept({
+      session: {
+        id: "20000000-0000-4000-8000-000000000001",
+        eventId,
+        proposalId: "proposal-1",
+        title: "Designing the calm conference",
+        abstract: "",
+        format: "talk",
+        speakerProfileIds: [profileId],
+        tags: [],
+        tracks: [],
+        publicationState: "published",
+      },
+      speakers: [],
+      tasks: [],
+      messages: [],
+    });
     const saved = await service.updateMyProfile(speaker, profileId, {
       name: "Sam",
       bio: "old",
@@ -428,6 +531,14 @@ describe("speaker social links", () => {
     // The organizer reads the same values from the same projection the portal wrote.
     const stored = (await repository.workspace(eventId)).speakers[0];
     expect(stored?.socialLinks).toEqual({ github: "https://github.com/sam" });
+
+    // And the public page serves them. Publishing's allowlist is a second, independent copy of
+    // this field's name: content storing it is not the same claim as the snapshot carrying it,
+    // which is what a reader auditing this test by its title is entitled to assume it proves.
+    const live = await publishSite(repository);
+    expect(live?.published?.speakers.map(({ name, socialLinks }) => [name, socialLinks])).toEqual([
+      ["Sam", { github: "https://github.com/sam" }],
+    ]);
   });
 
   it("restores a revision taken before links existed as no links, not as undefined", async () => {

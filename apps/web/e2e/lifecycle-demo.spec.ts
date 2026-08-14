@@ -1,6 +1,6 @@
 // @acceptance ACC-DEMO-SMOKE ACC-OPS
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 const SLUG = "greenroom-demo-summit";
 const PUBLIC_SURFACES = [
@@ -57,8 +57,8 @@ async function expectNoAxeViolations(page: Page, surface: string) {
 async function expectNoHorizontalOverflow(page: Page, surface: string) {
   // The shell paints its `<h1>` before the workspace fetch resolves, so a check that runs on the
   // heading alone can measure an empty `main` and pass because there was nothing to measure. The
-  // tables are the things that overflow; waiting for the network settles them first.
-  await settled(page);
+  // tables are the things that overflow; `settled` waits for this surface's own content first.
+  await settled(page, surface);
 
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -101,24 +101,166 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
 }
 
 /**
- * The workspace's own content has arrived, not just the shell that frames it.
+ * What "this surface's own content has arrived" looks like, one entry per audited surface.
+ *
+ * There is no shared readiness signal in this app to wait for, and the version of `settled` that
+ * waited for `main .skeleton` to reach zero was only ever a wait on the surfaces that *have* a
+ * skeleton. Eleven do — Overview, `/abstracts`, `/sessions`, `/cfp`, `/speakers`,
+ * `/speaker-directory`, `/communications`, `/publishing`, `/event-templates`, `/reviews` and
+ * `/portal`. The rest announce loading their own way or not at all: `/agenda` paints
+ * `<p role="status">Loading agenda…</p>`, `/members` and `/integrations/api-clients` a plain
+ * "Loading…" card, `/inbox` a single paragraph, and `/audit` paints its Card, its table head and
+ * an empty `<tbody>` from the first frame with no loading element anywhere. On every one of those,
+ * `.skeleton` matched nothing, `toHaveCount(0)` passed on the spot, and the 390px audit went on
+ * measuring an unpainted page — the hole the wait claimed to close.
+ *
+ * So every entry here is a *positive* signal: an element that exists only once the fetch behind
+ * this surface has landed. That direction is the whole point. `toBeVisible()` on a selector that
+ * matches nothing fails; `toHaveCount(0)` on the same selector passes. A wait that cannot tell
+ * "there is nothing to wait for here" from "it has not arrived yet" is not a wait, which is the
+ * same trap `openEveryToolPanel` documents below on the other side of the fetch.
+ *
+ * A surface with no entry throws rather than falling back to something generic, so a nav
+ * destination added later joins this table loudly instead of joining the audit unwaited-for.
+ */
+const READY: Readonly<Record<string, (page: Page) => Locator>> = {
+  /*
+   * Signed out. Both surfaces render the same demo doors, and the doors are the *answer* to the
+   * identity probe the document boots with: until it resolves, the page is one
+   * "Loading Greenroom…" paragraph with no `<h1>` on it at all.
+   */
+  "marketing /": (page) => page.getByRole("button", { name: "Continue as organizer" }),
+  "marketing /signin": (page) => page.getByRole("button", { name: "Continue as organizer" }),
+
+  /*
+   * The public site renders `main.public-state` — a lone `<p role="status">` — until its
+   * projection arrives, and `#public-main` only once it has, so the id is the projection.
+   *
+   * `/cfp` is the one public surface where that is not enough: the live submission form is a
+   * second fetch made after the projection, and until it answers the page says "Checking
+   * submission availability…" and renders no form fields. Waiting for the resolved status line
+   * is waiting for the fields the audit is there to measure.
+   */
+  "public /": publicProjection,
+  "public /schedule": publicProjection,
+  "public /sessions": publicProjection,
+  "public /speakers": publicProjection,
+  "public /gallery": publicProjection,
+  "public /itinerary": publicProjection,
+  "public /cfp": (page) =>
+    page
+      .locator("p.pub-tz")
+      .filter({
+        hasText: /Open for submissions|Not open yet|Submissions closed|Submission form unavailable/,
+      })
+      .first(),
+
+  // Overview's stats are `<div class="skeleton">` until all three reads answer; this card is in
+  // the loaded return only.
+  "organizer /": (page) =>
+    page.getByRole("heading", { level: 2, name: "Outstanding speaker onboarding", exact: true }),
+  "organizer /abstracts": (page) =>
+    page.getByRole("heading", { level: 2, name: "Reviewer progress", exact: true }),
+  "organizer /sessions": (page) =>
+    page.getByRole("heading", { level: 2, name: "Accepted sessions", exact: true }),
+  // No accessible name to hold on to: the board's toolbar counter is rendered past both the
+  // "Loading agenda…" gate and the "no agenda yet" one, so it is the board itself.
+  "organizer /agenda": (page) => page.locator(".agenda-count"),
+  "organizer /cfp": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  // The Card around the pipeline is painted with skeletons inside it, so the card is not the
+  // signal — `.pipeline-board` replaces those skeletons and exists only in the loaded branch.
+  "organizer /speakers": (page) => page.locator(".pipeline-board"),
+  // Same shape, and the empty directory is a loaded directory: both are the branch that replaces
+  // the skeletons, and only one of the two is ever on screen.
+  "organizer /speaker-directory": (page) =>
+    page
+      .locator("table.crm-table")
+      .or(page.getByRole("heading", { name: /No contacts (yet|match these filters)/ })),
+  "organizer /members": (page) =>
+    page.getByRole("heading", { level: 2, name: "Recent identity activity", exact: true }),
+  /*
+   * The demo organizer is a throwaway persona, and this workspace refuses those before it fetches
+   * anything (#206) — so its list never loads here and there is no loaded list to wait for. The
+   * refusal *is* what this audit measures, and naming it is the honest entry; a real-session
+   * organizer sees the client table instead, and `api-clients.spec.ts` is where that is audited.
+   */
+  "organizer /integrations/api-clients": (page) =>
+    page.getByRole("link", { name: "Sign in with Google" }),
+  // The outbox card is painted before its read answers; only the hint counts what arrived.
+  "organizer /communications": (page) =>
+    page.locator("p.hint").filter({ hasText: /\d+ deliver(y|ies) loaded/ }),
+  "organizer /publishing": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  "organizer /event-templates": (page) =>
+    page.getByRole("heading", { level: 2, name: "Templates", exact: true }),
+  /*
+   * `/search` fetches nothing on mount — it is a form and a resting announcement until somebody
+   * submits — so this waits for that resting state rather than implying a read it never makes.
+   * Stated positively for the same reason as everywhere else here: an absent form would fail.
+   */
+  "organizer /search": (page) =>
+    page.locator("p.palette-announce").filter({ hasText: "Enter a search to begin." }),
+  "organizer /inbox": (page) =>
+    page
+      .locator("p.palette-announce")
+      .filter({ hasText: /\d+ items? (is|are) waiting on this event\./ }),
+  /*
+   * `/audit` is the surface the old wait was named for and did not cover: it renders no skeleton
+   * and no loading gate, so the toolbar, the caption and an empty `<tbody>` are on screen from the
+   * first frame and the audit measured a table with no rows in it. The live region is the only
+   * thing on the page that distinguishes "reading" from "read".
+   */
+  "organizer /audit": (page) =>
+    page.locator("p.palette-announce").filter({ hasText: /\d+ records? loaded\./ }),
+  // The shell's own surface: its form is state this document already holds, with nothing fetched.
+  "organizer /settings": (page) =>
+    page.getByRole("heading", { level: 2, name: "Current event", exact: true }),
+  "reviewer assignments": (page) => page.locator(".review-main"),
+  // The task card's title counts the outstanding tasks, so the name moves; the id does not.
+  "speaker portal": (page) => page.locator("#speaker-tasks-title"),
+  "command palette at 390px": (page) =>
+    page.getByRole("dialog", { name: "Search this event" }).getByRole("option").first(),
+};
+
+function publicProjection(page: Page) {
+  return page.locator("#public-main");
+}
+
+/** The `READY` key for a console destination, whose nav href carries the selected event. */
+function organizerSurface(href: string) {
+  return `organizer ${href.split("?")[0]}`;
+}
+
+/**
+ * Block until the named surface has painted the content the audit is about to measure.
  *
  * An element wait, not `networkidle`: these destinations are reached by clicking a nav link, so
  * the SPA starts no document load and the idle state is already satisfied before the workspace
- * fetch is issued — and on this app `networkidle` never resolves at all. Waiting for a control
- * inside `main` is the signal that the page has something to measure.
+ * fetch is issued — and on this app `networkidle` never resolves at all.
  *
- * The first control is not enough on its own, and the gap was not theoretical: every workspace
- * paints its own toolbar before its fetch resolves, so this returned while the content was still
- * a row of skeletons. The overflow audit below then measured a `/speakers` board with no cards
- * on it and passed — and the one run in four where the cards did arrive first is how a real
- * 390px defect surfaced as a flake instead of a failure. Waiting for the shared `.skeleton`
- * blocks to go is waiting for the fetched content itself, which is the thing being audited.
- * This is the same trap `openEveryToolPanel` documents below, on the other side of the fetch.
+ * What it guarantees is exactly what `READY` declares for that one surface, and nothing wider.
+ * The gap it closes is real and was not theoretical: every console workspace paints its own
+ * header and toolbar before its fetch resolves, so an audit gated on the `<h1>` measured a
+ * `/speakers` board with no cards on it and passed — and the one run in four where the cards
+ * arrived first is how a real 390px defect surfaced as a flake instead of a failure.
+ *
+ * Two surfaces are covered by declaration rather than by a load: `/search` fetches nothing on
+ * mount, and `/settings` is the shell's own form. On `/integrations/api-clients` the demo persona
+ * never reaches the workspace's fetch at all, so what is waited for there is the refusal it does
+ * render. Each says so at its entry, by name, rather than being counted as covered.
  */
-async function settled(page: Page) {
-  await expect(page.locator("main").locator("button, a[href]").first()).toBeVisible();
-  await expect(page.locator("main .skeleton")).toHaveCount(0);
+async function settled(page: Page, surface: string) {
+  const ready = READY[surface];
+  if (!ready)
+    throw new Error(
+      `No readiness signal is declared for “${surface}”. Add one to READY — a surface audited ` +
+        "without one is a surface audited before it has painted anything.",
+    );
+  await expect(
+    ready(page),
+    `${surface} never rendered the content this audit measures`,
+  ).toBeVisible();
 }
 
 /**
@@ -134,8 +276,8 @@ async function settled(page: Page) {
  * axe sweep went on auditing a page with all seven tools closed. A helper that cannot tell "there
  * are no panels here" from "the panels have not rendered yet" is not a check.
  */
-async function openEveryToolPanel(page: Page, expected?: number) {
-  await settled(page);
+async function openEveryToolPanel(page: Page, surface: string, expected?: number) {
+  await settled(page, surface);
   // `networkidle` is not enough on its own here. These destinations are reached by clicking a
   // nav link, so the SPA never starts a document load and the idle state is already satisfied
   // before the workspace fetch has even been issued. A route that says how many panels it has
@@ -240,7 +382,11 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     // resource editor — into closed panels, which would have quietly narrowed this audit to the
     // dashboard while the scorecard still called the destination clean. They are opened first so
     // the sweep covers at least what it covered when they were expanded Cards.
-    await openEveryToolPanel(page, destination.href.startsWith("/sessions") ? 8 : undefined);
+    await openEveryToolPanel(
+      page,
+      organizerSurface(destination.href),
+      destination.href.startsWith("/sessions") ? 8 : undefined,
+    );
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 
@@ -409,7 +555,7 @@ test("audits every public and embed surface, focus transition, landmarks, and mo
   for (const path of organizerPaths) {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await expectNoHorizontalOverflow(page, `organizer ${path}`);
+    await expectNoHorizontalOverflow(page, organizerSurface(path));
   }
   const role = page.getByRole("combobox", { name: "Signed-in role" });
   await role.selectOption("reviewer");

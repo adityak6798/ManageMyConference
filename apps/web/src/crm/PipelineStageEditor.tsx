@@ -6,7 +6,9 @@
  * every keystroke and leaving an organizer's half-typed stage name on somebody else's screen.
  *
  * Deleting is the one thing that cannot be a draft: it moves real prospects, so it asks where
- * they should go and does it immediately, through its own request.
+ * they should go and does it immediately, through its own request. That request answers with a
+ * fresh board, which re-seeds the draft — so deleting waits until the draft is settled rather
+ * than carrying somebody's unsaved renames off with it.
  */
 
 import type { PipelineStageDto, StageCategoryDto } from "@greenroom/contracts";
@@ -80,6 +82,8 @@ export function PipelineStageEditor({
   const [newCategory, setNewCategory] = useState<StageCategoryDto>("open");
   const [removing, setRemoving] = useState<string | null>(null);
   const [migrateTo, setMigrateTo] = useState("");
+  /** The stage whose removal was refused because the draft was unsaved, so it can be named. */
+  const [refused, setRefused] = useState<string | null>(null);
 
   const dirty = JSON.stringify(draft) !== savedSignature;
   const edit = (index: number, change: Partial<Draft>) =>
@@ -114,8 +118,32 @@ export function PipelineStageEditor({
     setNewLabel("");
   }
 
+  /**
+   * Whether this removal has to wait, recording which stage asked so the refusal can name it.
+   *
+   * Removing is its own request, and the board it returns re-seeds this draft above — so a
+   * removal started with unsaved names, order or added stages in hand took them with it, with
+   * no message and nothing to undo from. Refused rather than merged: the returned board has
+   * renumbered its order and may have moved prospects, so a draft written against the board
+   * before the delete is no longer a description of the board after it, and quietly reapplying
+   * half of it is a worse answer than asking. Both ways out — Save board and Discard changes —
+   * are on this screen, and neither of them loses the typing.
+   *
+   * Checked again when the dialog is confirmed, not only when it opens: the name inputs stay
+   * live while it is open, so an edit typed in between must not slip past the first check.
+   */
+  const removalMustWait = (stageKey: string) => {
+    if (!dirty) return false;
+    setRefused(stageKey);
+    setRemoving(null);
+    return true;
+  };
+
   const target = stages.find(({ key }) => key === removing);
   const destinations = stages.filter(({ key }) => key !== removing && key !== CONVERTED);
+  // Only while the draft is still unsaved: saving or discarding answers the message, so it
+  // clears itself rather than lingering as an accusation about work already dealt with.
+  const refusedLabel = dirty ? draft.find(({ key }) => key === refused)?.label : undefined;
 
   return (
     <div className="stage-editor">
@@ -196,6 +224,7 @@ export function PipelineStageEditor({
                       className="ghost small"
                       disabled={busy}
                       onClick={() => {
+                        if (removalMustWait(stage.key)) return;
                         setRemoving(stage.key);
                         setMigrateTo(
                           stages.find(({ key }) => key !== stage.key && key !== CONVERTED)?.key ??
@@ -212,6 +241,15 @@ export function PipelineStageEditor({
           })}
         </ol>
       )}
+
+      {/* `role="alert"`, unlike the unsaved-changes hint below: this is the answer to a button
+          the organizer just pressed, and it appears where the removal itself would have. */}
+      {refusedLabel ? (
+        <p className="hint" role="alert">
+          Save or discard your changes before removing “{refusedLabel}”. Removing a stage reloads
+          this board from the server, and your unsaved names and order would go with it.
+        </p>
+      ) : null}
 
       {target ? (
         <fieldset className="stage-remove">
@@ -243,6 +281,7 @@ export function PipelineStageEditor({
               type="button"
               disabled={busy || !migrateTo}
               onClick={() => {
+                if (removalMustWait(target.key)) return;
                 onDelete(target.key, migrateTo);
                 setRemoving(null);
               }}

@@ -97,15 +97,25 @@ export class MemoryContentRepository
    * The group and the number are decided here rather than taken from the caller, because that
    * is the property the D1 statement exists to hold and a fixture that let the caller pick
    * would pass while the real adapter's version of the same test failed.
+   *
+   * `D1ContentRepository` is the reference for chain membership, and this follows it even where
+   * following it is the *weaker* behaviour. There the chain is `logical_key=?` against the
+   * **stored** column (`1406`), so a row holding no key — a raw seed insert, the twin
+   * `slides.pdf` rows this mechanism exists because of — matches nothing, because SQL `NULL`
+   * equals nothing. Computing a key here for such a row would quietly fold it back into the
+   * chain, and a fake more capable than the adapter it doubles is worse than a strict one: the
+   * service suite runs against this class, so that leniency would hide the defect the seed
+   * shipped rather than fail on it. Hence the stored key is read, never derived, and an
+   * incoming asset with none falls back to its own id exactly as D1 does — it starts its own
+   * chain in both stores. Deriving from the file's name is a *write-time* rule, and it lives
+   * where D1 puts it, in `addAsset`.
    */
   async replaceLatestAsset(asset: SpeakerAsset, versionGroupId?: string) {
-    const logicalKey = asset.logicalKey ?? logicalAssetKey(asset);
+    const logicalKey = asset.logicalKey ?? asset.id;
     const inChain = (item: SpeakerAsset) =>
       item.eventId === asset.eventId &&
       item.speakerProfileId === asset.speakerProfileId &&
-      (versionGroupId
-        ? item.versionGroupId === versionGroupId
-        : (item.logicalKey ?? logicalAssetKey(item)) === logicalKey);
+      (versionGroupId ? item.versionGroupId === versionGroupId : item.logicalKey === logicalKey);
     const chain = this.assets.filter(inChain);
     const allocated = {
       versionGroupId:
@@ -297,8 +307,33 @@ export class MemoryContentRepository
     this.assets = this.assets.map((item) => (item.id === asset.id ? asset : item));
     return true;
   }
+  /**
+   * The other half of following D1 on chain identity: its insert stores the two columns a later
+   * upload reads a chain by, defaulted the same way — `logicalKey ?? logicalAssetKey(asset)` and
+   * `versionGroupId ?? id`. Deriving the key only at read time was the divergence; deriving it
+   * nowhere would be the mirror image of it, leaving this store *stricter* than the real one, so
+   * a fixture that adds an asset here and one that inserts it there must agree on what is
+   * stored. The group travels with the key because `replaceLatestAsset` answers with the group
+   * it found on the chain: a keyed row with no group of its own would be found and then reported
+   * under the *new* asset's id, which is a group D1 would never answer.
+   *
+   * `versionNumber` and `isLatest` are deliberately left as they came. Every read of them in
+   * this file already applies D1's own defaults (`?? 1`, `!== false`), so writing them here
+   * would change nothing but the bytes a fixture's `toEqual` compares against.
+   *
+   * Rows handed to the constructor are the deliberate exception, and they stay keyless: that is
+   * the raw `INSERT` a seed file writes, and a store that cannot hold a keyless row cannot be
+   * used to test what becomes of one.
+   */
   async addAsset(asset: SpeakerAsset) {
-    this.assets = [...this.assets, asset];
+    this.assets = [
+      ...this.assets,
+      {
+        ...asset,
+        logicalKey: asset.logicalKey ?? logicalAssetKey(asset),
+        versionGroupId: asset.versionGroupId ?? asset.id,
+      },
+    ];
   }
   async deleteAsset(assetId: string) {
     const deleted = this.assets.find(({ id }) => id === assetId);
