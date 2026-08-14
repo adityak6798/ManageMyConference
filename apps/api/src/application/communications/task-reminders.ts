@@ -10,10 +10,26 @@
  * fourteen hundred times a day, and no amount of care in this file's control flow would fix
  * that — a crash between "decide to remind" and "record that we did" would still double-send.
  * So there is no bookkeeping table and no "last reminded at" column. The key
- * `task-reminder:{taskId}:d{offsetDays}` *is* the record: the second tick prepares the same key,
+ * `task-reminder:{taskId}:{dueAt}` *is* the record: the second tick prepares the same key,
  * the unique index on `(organization_id, idempotency_key)` returns the first delivery, and
  * nothing is written or sent. The state that says "this speaker has been reminded" is the
  * delivery itself, which is also the thing an organizer can read, retry and audit.
+ *
+ * ## The occurrence is the deadline, not the offset
+ *
+ * It used to be `d{offsetDays}`, which had two costs this key does not. Changing `offsetDays`
+ * changed the key, so every task already reminded about was reminded again under the new offset
+ * — a wart this header used to record rather than fix. And an organizer extending one speaker's
+ * deadline could not chase them again, because the key did not move when the deadline did.
+ *
+ * The key is now built by `taskReminderKey`, which content's organizer-initiated reminder uses
+ * too, so a deliberate chase and this sweep converge on one delivery per (task, deadline)
+ * instead of writing to the speaker twice about the same thing (#189).
+ *
+ * One deploy-time consequence, stated rather than discovered: a task already reminded about
+ * under the old `d{offsetDays}` key is reminded once more under the new one. That is the
+ * conservative direction — the speaker hears about work that is genuinely still open — and it
+ * happens once.
  *
  * ## What "due soon" means here, and what it does not
  *
@@ -22,14 +38,16 @@
  * "was due last week" are the same fact, and excluding the second would silently skip every task
  * whose window passed while nothing was running.
  *
- * One reminder per task, ever. An escalating series — three days before, then on the day, then
- * weekly while overdue — is a different feature: each step needs its own key, and somebody has
- * to decide when nagging stops. Changing `offsetDays` is not that feature either; it changes the
- * key, so tasks already reminded about would be reminded again under the new offset.
+ * One reminder per task per deadline. An escalating series — three days before, then on the day,
+ * then weekly while overdue — is a different feature: each step needs its own key, and somebody
+ * has to decide when nagging stops. Moving the deadline *is* a new occurrence, which is the one
+ * case where a speaker hears about the same task twice, and deliberately so.
  *
  * @spec PRD-COM-001 PRD-SPK-002
  */
-import type { CommunicationsContentQuery } from "../content/public";
+// The key both reminder paths build, so this sweep and an organizer's own send cannot disagree
+// about whether a speaker has already been told. Content's declared surface, not a deep import.
+import { type CommunicationsContentQuery, taskReminderKey } from "../content/public";
 import { CommunicationsInputError, CommunicationsNotFoundError } from "./errors";
 import type { CommunicationsEnqueue } from "./public";
 
@@ -125,7 +143,7 @@ export async function enqueueDueTaskReminders(
       const delivery = await dependencies.enqueue.enqueue({
         organizationId,
         eventId: task.eventId,
-        idempotencyKey: `task-reminder:${task.taskId}:d${offsetDays}`,
+        idempotencyKey: taskReminderKey(task.taskId, task.dueAt),
         triggerType: "speaker.task_reminder",
         channel: "email",
         recipientRef: task.email,

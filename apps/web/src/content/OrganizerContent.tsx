@@ -134,7 +134,7 @@ export function OrganizerView({
       const covered =
         sent === 0 && alreadySent > 0
           ? `Every speaker already has the current invitation (${alreadySent}).`
-          : `${plural(sent, "invitation")} queued${alreadySent ? `, ${alreadySent} already sent` : ""}.`;
+          : `${sent} ${plural(sent, "invitation")} queued${alreadySent ? `, ${alreadySent} already sent` : ""}.`;
       sessionFeedback.announce(
         unreachable.length ? "error" : "success",
         unreachable.length
@@ -588,7 +588,7 @@ export function OrganizerView({
                             {prior.length ? (
                               <details className="asset-history">
                                 <summary>
-                                  {plural(prior.length, "earlier version")}
+                                  {prior.length} {plural(prior.length, "earlier version")}
                                   <span className="visually-hidden"> of {asset.name}</span>
                                 </summary>
                                 <ul>

@@ -526,6 +526,7 @@
         "apps/api/test/d1-event-template-repository.integration.test.ts",
         "apps/api/test/outstanding-configuration.test.ts",
         "apps/api/test/event-mappers.test.ts",
+        "apps/api/test/event-timezone.test.ts",
         "apps/api/test/event-service.test.ts",
         "apps/api/test/event-templates.test.ts",
         "apps/api/test/event-templates-http.test.ts",
@@ -743,6 +744,7 @@
         "apps/web/test/accelevents-sync-panel.test.tsx",
         "apps/web/test/content-operations.test.tsx",
         "apps/web/src/content/ChecklistEditor.tsx",
+        "apps/web/src/content/DeliverableTracker.tsx",
         "apps/web/test/speaker-checklist.test.tsx"
       ]
     },

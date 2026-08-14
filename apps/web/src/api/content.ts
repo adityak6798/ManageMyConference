@@ -3,7 +3,10 @@ import {
   acceptContentInputSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
+  remindSpeakerTasksInputSchema,
+  remindSpeakerTasksResponseSchema,
   setSpeakerPhotoInputSchema,
+  type SpeakerReminderOutcomeDto,
   speakerCalendarInviteResultSchema,
   speakerChecklistAssignmentResponseSchema,
   speakerCsvImportResultSchema,
@@ -347,6 +350,25 @@ export async function downloadDeliverables(
   anchor.download = "speaker-deliverables.zip";
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Chase a chosen set of open tasks.
+ *
+ * The response is per task, including the ones nothing was sent for, because "0 queued" and
+ * "3 speakers have no address" are different things for the organizer to do next.
+ */
+export async function remindSpeakerTasks(
+  eventId: string,
+  taskIds: string[],
+  fetcher: typeof fetch = fetch,
+): Promise<SpeakerReminderOutcomeDto[]> {
+  const response = await contentMutation(
+    "/api/content-task-reminders",
+    remindSpeakerTasksInputSchema.parse({ eventId, taskIds }),
+    fetcher,
+  );
+  return [...remindSpeakerTasksResponseSchema.parse(await response.json()).reminders];
 }
 
 export async function publishSpeakerAsset(

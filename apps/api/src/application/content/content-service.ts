@@ -12,6 +12,12 @@ import {
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import {
+  SPEAKER_REMINDER_TEMPLATE_KEY,
+  type SpeakerReminderDispatchPort,
+  SpeakerReminderRejectedError,
+  taskReminderKey,
+} from "./reminder-dispatch";
+import {
   type Actor,
   CapabilityDeniedError,
   requireCapability,
@@ -214,6 +220,18 @@ export class SpeakerChecklistAnchorError extends Error {}
  */
 export class SpeakerChecklistTitleTakenError extends Error {}
 
+/** A task this event does not carry. Named rather than skipped: the caller asked for it. */
+export class ContentNotFoundError extends Error {}
+
+/**
+ * Reminders were asked for in a deployment that cannot send them.
+ *
+ * A composition with no delivering domain bound, or an event with no owning organization. Both
+ * are configuration rather than a bad request, and both must say so — a reminder action that
+ * quietly reported "0 sent" would look exactly like a roster with nothing due.
+ */
+export class SpeakerRemindersUnavailableError extends Error {}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   /** Resolves the actor ids on revisions to the names an organizer recognises. */
@@ -257,6 +275,26 @@ export interface ContentServiceDependencies {
     errors: { row: number; message: string }[];
   };
   createDeliverablesZip?: (files: readonly { name: string; bytes: Uint8Array }[]) => Uint8Array;
+  /**
+   * Queues a reminder about work a speaker owes. Optional for the same reason
+   * `speakerNotifications` is: a composition exercising only the workspace has nobody to write
+   * to, and the reminder action reports that it is unavailable rather than failing silently.
+   */
+  reminders?: SpeakerReminderDispatchPort;
+  /** Which organization runs an event. Events owns the answer; content asks rather than joins. */
+  organizationOf?: (eventId: string) => Promise<string | null>;
+}
+
+/** One task a reminder was asked for, and what happened to it. */
+export interface SpeakerReminderOutcome {
+  readonly taskId: string;
+  readonly speakerName: string;
+  readonly title: string;
+  readonly dueAt: string;
+  /** `queued` wrote a delivery; `already-sent` converged on one this deadline already had. */
+  readonly outcome: "queued" | "already-sent" | "unreachable" | "refused";
+  /** Why, for the two outcomes that are not a send. Empty otherwise. */
+  readonly reason: string;
 }
 
 function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
@@ -1688,6 +1726,87 @@ export class ContentService {
     };
     await this.dependencies.repository.addComment(comment);
     return comment;
+  }
+
+  /**
+   * Remind the speakers behind a chosen set of open tasks.
+   *
+   * The organizer's counterpart to the cron sweep, and deliberately the same delivery key: both
+   * are "this task, at this deadline", so pressing Remind on something the sweep already covered
+   * converges on that delivery and says so rather than writing to the speaker twice
+   * (`taskReminderKey`). Extending a deadline moves the key, which is how a chase after an
+   * extension is a new reminder rather than a suppressed duplicate.
+   *
+   * Every task is reported, including the ones nothing was sent for — a speaker with no address
+   * is a real state the roster carries, and an organizer who is not told will keep waiting for a
+   * reply to a message that never left. A single refusal does not take the others down with it,
+   * for the same reason the sweep's does not.
+   */
+  async remindTasks(
+    actor: Actor | null,
+    eventId: string,
+    taskIds: readonly string[],
+  ): Promise<readonly SpeakerReminderOutcome[]> {
+    requireEventCapability(actor, eventId, "content:manage");
+    const dispatch = this.dependencies.reminders;
+    if (!dispatch) throw new SpeakerRemindersUnavailableError("Speaker reminders are not enabled");
+    const organizationId = await this.dependencies.organizationOf?.(eventId);
+    if (!organizationId)
+      throw new SpeakerRemindersUnavailableError("This event has no owning organization");
+    const workspace = await this.dependencies.repository.workspace(eventId);
+    const profiles = new Map(workspace.speakers.map((profile) => [profile.id, profile]));
+    const unique = [...new Set(taskIds)];
+    const chosen = unique.map((taskId) => workspace.tasks.find((task) => task.id === taskId));
+    // A task id this event does not carry is refused before anything is sent, rather than
+    // skipped — the caller named something that does not exist and should hear so.
+    if (chosen.some((task) => !task)) throw new ContentNotFoundError("Speaker task not found");
+
+    const outcomes: SpeakerReminderOutcome[] = [];
+    for (const task of chosen) {
+      if (!task) continue;
+      const profile = profiles.get(task.speakerProfileId);
+      const describe = {
+        taskId: task.id,
+        speakerName: profile?.name ?? "Unknown speaker",
+        title: task.title,
+        dueAt: task.dueAt,
+      };
+      if (task.status === "complete") {
+        outcomes.push({ ...describe, outcome: "refused", reason: "already complete" });
+        continue;
+      }
+      if (!profile?.email) {
+        outcomes.push({ ...describe, outcome: "unreachable", reason: "no email address" });
+        continue;
+      }
+      try {
+        const delivery = await dispatch.send({
+          organizationId,
+          eventId,
+          idempotencyKey: taskReminderKey(task.id, task.dueAt),
+          recipientRef: profile.email,
+          templateKey: SPEAKER_REMINDER_TEMPLATE_KEY,
+          payload: { speakerName: profile.name, taskTitle: task.title, dueAt: task.dueAt },
+        });
+        outcomes.push({
+          ...describe,
+          outcome: delivery.created ? "queued" : "already-sent",
+          reason: "",
+        });
+      } catch (error) {
+        // ERROR-INTENT: one speaker's reminder failing — an unknown template, a payload the
+        // template cannot fill — must not stop the rest of the selection. It is reported in this
+        // task's own row, which is where the organizer can act on it, rather than discarded or
+        // turned into a failure for the whole request.
+        outcomes.push({
+          ...describe,
+          outcome: "refused",
+          reason:
+            error instanceof SpeakerReminderRejectedError ? error.message : "could not be queued",
+        });
+      }
+    }
+    return outcomes;
   }
 
   async bulkDownload(actor: Actor | null, eventId: string, assetIds: readonly string[]) {

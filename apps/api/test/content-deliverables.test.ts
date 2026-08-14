@@ -6,7 +6,13 @@ import { describe, expect, it } from "vitest";
 import { createDeliverablesZip } from "../src/adapters/content/create-deliverables-zip";
 import { MemoryContentRepository } from "../src/adapters/persistence/memory-content-repository";
 import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic-asset-storage";
-import { ContentService } from "../src/application/content/content-service";
+import {
+  ContentNotFoundError,
+  ContentService,
+  type ContentServiceDependencies,
+  SpeakerRemindersUnavailableError,
+} from "../src/application/content/content-service";
+import { SpeakerReminderRejectedError } from "../src/application/content/reminder-dispatch";
 import type { Actor } from "../src/application/identity/actor";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -382,5 +388,157 @@ describe("speaker social links", () => {
     });
     await service.restoreRevision(organizer, revision?.id ?? "");
     expect((await repository.findProfile(profileId))?.socialLinks).toEqual({});
+  });
+});
+
+/**
+ * Organizer-initiated reminders.
+ *
+ * The property under test is the *key*, not the send: reminders converge on one delivery per
+ * (task, deadline), so a chase on work the automatic sweep already covered must report that
+ * rather than write to the speaker twice — and moving a deadline must let the chase through
+ * again, because that is a different occurrence (#189).
+ */
+describe("speaker task reminders", () => {
+  const taskId = "30000000-0000-4000-8000-000000000001";
+
+  /** A dispatch port that behaves like the delivering domain: idempotent on the key. */
+  function dispatcher() {
+    const sent: { key: string; recipient: string; payload: unknown }[] = [];
+    return {
+      sent,
+      port: {
+        async send(reminder: {
+          idempotencyKey: string;
+          recipientRef: string;
+          payload: Readonly<Record<string, unknown>>;
+        }) {
+          const existing = sent.findIndex(({ key }) => key === reminder.idempotencyKey);
+          if (existing >= 0) return { deliveryId: `d${existing}`, created: false };
+          sent.push({
+            key: reminder.idempotencyKey,
+            recipient: reminder.recipientRef,
+            payload: reminder.payload,
+          });
+          return { deliveryId: `d${sent.length - 1}`, created: true };
+        },
+      },
+    };
+  }
+
+  /** The same fixture, with a delivering domain bound and an owning organization. */
+  function remindable(overrides: Partial<ContentServiceDependencies> = {}) {
+    const { repository, service } = fixture();
+    const dispatch = dispatcher();
+    const dependencies = (service as unknown as { dependencies: ContentServiceDependencies })
+      .dependencies;
+    const withReminders = new ContentService({
+      ...dependencies,
+      reminders: dispatch.port,
+      organizationOf: async () => "00000000-0000-4000-8000-000000000010",
+      ...overrides,
+    });
+    return { repository, service: withReminders, dispatch };
+  }
+
+  it("queues once, then converges on the delivery that deadline already had", async () => {
+    const { service, dispatch } = remindable();
+    const first = await service.remindTasks(organizer, eventId, [taskId]);
+    expect(first).toEqual([
+      {
+        taskId,
+        speakerName: "Sam",
+        title: "Slides",
+        dueAt: "2026-09-01T00:00:00.000Z",
+        outcome: "queued",
+        reason: "",
+      },
+    ]);
+    const second = await service.remindTasks(organizer, eventId, [taskId]);
+    expect(second[0]?.outcome).toBe("already-sent");
+    // One delivery, not two: the key is the record.
+    expect(dispatch.sent).toHaveLength(1);
+    expect(dispatch.sent[0]?.key).toBe(`task-reminder:${taskId}:2026-09-01T00:00:00.000Z`);
+    expect(dispatch.sent[0]?.recipient).toBe("sam@example.test");
+  });
+
+  it("lets a chase through again when the deadline moves", async () => {
+    const { repository, service, dispatch } = remindable();
+    await service.remindTasks(organizer, eventId, [taskId]);
+    // The extension #189's private set asks for: the occurrence follows the new deadline.
+    const task = (await repository.workspace(eventId)).tasks.find(({ id }) => id === taskId);
+    if (!task) throw new Error("Seeded task is missing");
+    await repository.updateTask({ ...task, dueAt: "2026-09-08T00:00:00.000Z" });
+    const again = await service.remindTasks(organizer, eventId, [taskId]);
+    expect(again[0]?.outcome).toBe("queued");
+    expect(dispatch.sent.map(({ key }) => key)).toEqual([
+      `task-reminder:${taskId}:2026-09-01T00:00:00.000Z`,
+      `task-reminder:${taskId}:2026-09-08T00:00:00.000Z`,
+    ]);
+  });
+
+  it("reports a completed task rather than reminding about it", async () => {
+    const { repository, service, dispatch } = remindable();
+    const task = (await repository.workspace(eventId)).tasks.find(({ id }) => id === taskId);
+    if (!task) throw new Error("Seeded task is missing");
+    await repository.updateTask({ ...task, status: "complete" });
+    const outcomes = await service.remindTasks(organizer, eventId, [taskId]);
+    expect(outcomes[0]).toMatchObject({ outcome: "refused", reason: "already complete" });
+    expect(dispatch.sent).toHaveLength(0);
+  });
+
+  it("names a speaker with no address instead of silently skipping them", async () => {
+    const { repository, service, dispatch } = remindable();
+    const profile = await repository.findProfile(profileId);
+    if (!profile) throw new Error("Seeded profile is missing");
+    await repository.updateProfile({ ...profile, email: "" });
+    const outcomes = await service.remindTasks(organizer, eventId, [taskId]);
+    expect(outcomes[0]).toMatchObject({ outcome: "unreachable", reason: "no email address" });
+    expect(dispatch.sent).toHaveLength(0);
+  });
+
+  it("keeps one refusal from taking the rest of the selection down", async () => {
+    const secondTaskId = "30000000-0000-4000-8000-000000000002";
+    const { repository, service } = remindable({
+      reminders: {
+        async send(reminder) {
+          if (reminder.idempotencyKey.includes(taskId))
+            throw new SpeakerReminderRejectedError("Template speaker-task-reminder was not found");
+          return { deliveryId: "d0", created: true };
+        },
+      },
+    });
+    await repository.addTasks([
+      {
+        id: secondTaskId,
+        eventId,
+        speakerProfileId: profileId,
+        title: "Headshot",
+        dueAt: "2026-09-02T00:00:00.000Z",
+        status: "open" as const,
+      },
+    ]);
+    const outcomes = await service.remindTasks(organizer, eventId, [taskId, secondTaskId]);
+    expect(outcomes.map(({ outcome }) => outcome)).toEqual(["refused", "queued"]);
+    expect(outcomes[0]?.reason).toContain("was not found");
+  });
+
+  it("refuses a task this event does not carry rather than silently sending fewer", async () => {
+    const { service } = remindable();
+    await expect(
+      service.remindTasks(organizer, eventId, [taskId, "30000000-0000-4000-8000-000000000999"]),
+    ).rejects.toBeInstanceOf(ContentNotFoundError);
+  });
+
+  it("says so when the deployment cannot send reminders at all", async () => {
+    const { service } = fixture();
+    await expect(service.remindTasks(organizer, eventId, [taskId])).rejects.toBeInstanceOf(
+      SpeakerRemindersUnavailableError,
+    );
+  });
+
+  it("refuses a caller without content:manage on this event", async () => {
+    const { service } = remindable();
+    await expect(service.remindTasks(speaker, eventId, [taskId])).rejects.toThrow();
   });
 });

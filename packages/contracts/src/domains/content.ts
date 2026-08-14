@@ -314,6 +314,38 @@ export const bulkDownloadDeliverablesInputSchema = z.object({
   eventId: z.string().uuid(),
   assetIds: z.array(z.string().uuid()).min(1).max(100),
 });
+
+/**
+ * Remind the speakers behind a chosen set of open tasks.
+ *
+ * Bounded for the same reason the download is: this is one request an organizer presses, and an
+ * unbounded selection would meet a Worker's subrequest budget rather than a refusal.
+ */
+export const remindSpeakerTasksInputSchema = z.object({
+  eventId: z.string().uuid(),
+  taskIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export type RemindSpeakerTasksInput = z.infer<typeof remindSpeakerTasksInputSchema>;
+
+/**
+ * What happened for each task, including the ones nothing was sent for.
+ *
+ * `alreadySent` is not a failure: reminders converge on one delivery per (task, deadline), so an
+ * organizer pressing this on work the automatic sweep already covered must be told the speaker
+ * has been reminded rather than that a second message was queued.
+ */
+export const speakerReminderOutcomeSchema = z.object({
+  taskId: z.string().uuid(),
+  speakerName: z.string(),
+  title: z.string(),
+  dueAt: z.string().datetime(),
+  outcome: z.enum(["queued", "already-sent", "unreachable", "refused"]),
+  reason: z.string(),
+});
+export type SpeakerReminderOutcomeDto = z.infer<typeof speakerReminderOutcomeSchema>;
+export const remindSpeakerTasksResponseSchema = z.object({
+  reminders: z.array(speakerReminderOutcomeSchema),
+});
 export const recordSpeakerMessageInputSchema = z.object({
   profileId: z.string().uuid(),
   subject: z.string().trim().min(1).max(200),

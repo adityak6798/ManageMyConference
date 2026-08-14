@@ -617,7 +617,7 @@ export function SpeakerView({
                     {prior.length ? (
                       <details className="upload-history">
                         <summary>
-                          {plural(prior.length, "earlier version")} of {asset.name}
+                          {prior.length} {plural(prior.length, "earlier version")} of {asset.name}
                         </summary>
                         <ul>
                           {prior.map((old) => (

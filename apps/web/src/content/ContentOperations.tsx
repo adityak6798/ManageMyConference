@@ -13,9 +13,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
-  addContentComment,
   bulkRequestSpeakerTasks,
-  downloadDeliverables,
   importSpeakerCsv,
   restoreContentRevision,
   updateSpeakerWorkflow,
@@ -23,6 +21,7 @@ import {
 import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import { AccelEventsSync } from "./AccelEventsSync";
 import { ChecklistEditor } from "./ChecklistEditor";
+import { DeliverableTracker } from "./DeliverableTracker";
 import { ResourceEditor } from "./ResourceEditor";
 import { memberName, type Run, SOCIAL_PLATFORMS, shortDateTime, type Workspace } from "./shared";
 
@@ -69,15 +68,11 @@ export function ContentOperations({
 }) {
   const feedback = useActionFeedback();
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
-  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof importSpeakerCsv>> | null>(null);
   const [workflowFilter, setWorkflowFilter] = useState("all");
   // Which speaker's workflow is being edited. One form is mounted at a time, so the panel does
   // not grow with the roster the way the old column did.
   const [workflowSpeakerId, setWorkflowSpeakerId] = useState("");
-  const toggle = (values: string[], id: string, set: (next: string[]) => void) =>
-    set(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
-
   function csv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -136,7 +131,6 @@ export function ContentOperations({
     );
   }
 
-  const latest = workspace.assets.filter((asset) => asset.isLatest !== false);
   const filteredSpeakers = workspace.speakers.filter(
     (speaker) => workflowFilter === "all" || speaker.workflowStatus === workflowFilter,
   );
@@ -415,52 +409,16 @@ export function ContentOperations({
       </ToolPanel>
 
       <ToolPanel
-        title="Latest deliverables"
-        hint="The ZIP contains only the latest selected version, with deterministic filenames."
+        title="Requested work"
+        hint="What every speaker still owes, what has arrived, and who to chase."
       >
-        {latest.length ? (
-          <>
-            {latest.map((asset) => (
-              <div key={asset.id} className="deliverable-row">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selectedAssets.includes(asset.id)}
-                    onChange={() => toggle(selectedAssets, asset.id, setSelectedAssets)}
-                  />{" "}
-                  {asset.name} · v{asset.versionNumber ?? 1}
-                </label>
-                <form
-                  className="row-actions"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const form = event.currentTarget;
-                    const body = String(new FormData(form).get("body"));
-                    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                    void run(() => addContentComment(asset.id, body)).then((result) => {
-                      if (result.ok) form.reset();
-                    });
-                  }}
-                >
-                  <input name="body" aria-label={`Comment on ${asset.name}`} required />
-                  <button type="submit">Comment</button>
-                </form>
-              </div>
-            ))}
-            <button
-              type="button"
-              disabled={!selectedAssets.length || busy}
-              onClick={() => {
-                // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-                void run(() => downloadDeliverables(eventId, selectedAssets));
-              }}
-            >
-              Download selected ZIP
-            </button>
-          </>
-        ) : (
-          <EmptyState title="No deliverables yet">Requested uploads appear here.</EmptyState>
-        )}
+        <DeliverableTracker
+          eventId={eventId}
+          workspace={workspace}
+          busy={busy}
+          run={run}
+          announce={feedback.announce}
+        />
       </ToolPanel>
 
       <ToolPanel

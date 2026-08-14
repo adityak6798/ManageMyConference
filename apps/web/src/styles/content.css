@@ -545,14 +545,100 @@
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 }
 
-.deliverable-row {
+/* ------------------------ requested work tracker -------------------------- */
+
+.deliverables {
   display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+}
+.deliverable-filters {
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  align-items: end;
+}
+.deliverable-count {
+  align-self: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.deliverable-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.deliverable-select-all {
+  display: flex;
+  align-items: center;
   gap: var(--s-2);
-  padding: var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  color: var(--ink-2);
   font-size: var(--text-sm);
+  font-weight: 620;
+  white-space: nowrap;
+}
+.deliverable-select-all input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+}
+/* `width: 1%` is the table idiom for "shrink to content"; it is scoped to the table layout
+   here so it cannot leak into the card layout below, which is what collapsed the triage
+   checkboxes to 0x0 on a phone (#206). */
+.deliverable-table th:first-child,
+.deliverable-table td.select-cell {
+  width: 1%;
+  padding-right: 0;
+}
+.deliverable-table .sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 780px) {
+  .deliverable-table,
+  .deliverable-table tbody,
+  .deliverable-table tr,
+  .deliverable-table td {
+    display: block;
+    width: 100%;
+  }
+  .deliverable-table thead {
+    display: none;
+  }
+  .deliverable-table tbody {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-3);
+  }
+  .deliverable-table tr {
+    padding: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .deliverable-table td {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+    gap: var(--s-2);
+    padding: var(--s-2) 0;
+    border: 0;
+    /* Overrides the shrink-to-content width above, which means nothing once the cell is no
+       longer a table cell — and which, left in place, is what makes a checkbox 0x0. */
+    width: 100%;
+  }
+  .deliverable-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+  .deliverable-table td.select-cell input[type="checkbox"] {
+    justify-self: start;
+  }
 }
 
 /* Row actions read as one word, never as a two-line block inside a dense table.

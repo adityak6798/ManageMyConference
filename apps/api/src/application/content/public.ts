@@ -112,3 +112,13 @@ export {
 } from "./speaker-calendar-invites";
 export { speakerResourceTemplateSlice } from "./template-slice";
 export { speakerChecklistTemplateSlice } from "./checklist-template-slice";
+
+/**
+ * The delivery key one reminder about one task at one deadline converges on.
+ *
+ * Re-exported here rather than deep-imported for the same reason the calendar service is:
+ * communications' sweep and content's organizer-initiated send must build the *same* key, or a
+ * speaker hears about one deadline twice, and the crossing that allows it belongs on content's
+ * declared surface rather than on a path blessed one file at a time.
+ */
+export { SPEAKER_REMINDER_TEMPLATE_KEY, taskReminderKey } from "./reminder-dispatch";
