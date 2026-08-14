@@ -1564,3 +1564,85 @@ staffed — issue #190's reviewer-provisioning discoverability, which the issue 
 by routing into the existing workflow rather than building a second one. It is covered by
 `apps/web/test/review-decisions.test.tsx`, which asserts both that the notice names the role and the
 event and that it disappears once a reviewer exists.
+
+## Wave R deployment ruling — one deployment, personas stay, Google leads (2026-08-14)
+
+**The decision.** The demo and a real conference share **one** Cloudflare Worker and one D1.
+Demo personas stay. Google sign-in is the primary path for real people.
+
+This supersedes the open question of whether the real conference gets its own deployment. It was
+taken after three options were costed, and the reasoning is recorded because two of the three look
+more attractive than they are.
+
+### Why not turn `DEMO_MODE` off
+
+The tempting version of this decision is "one deployment, demo mode off, everybody uses Google" —
+it makes Google the primary path in the strongest sense and removes the persona switcher. It is
+wrong, and the reason is not obvious:
+
+**An automated browser cannot complete Google OAuth.** Google detects and refuses automated
+sign-in. #193's evaluator workflow must be *"credential-optional"*, and its baseline records all 18
+required browser scenarios completing. Removing personas removes the evaluator's only door and
+takes a 60.5% score to zero.
+
+The same wall exists for humans. A shared Google account for judges means sharing credentials, and
+**invitations are single-use by design** — `1003_identity_invitations.sql` implements single use as
+a conditional `UPDATE ... WHERE accepted_at IS NULL`, deliberately, so the table can answer "who
+let this person in". One link admits one judge.
+
+### Why not two deployments
+
+`index.ts:578-581` refuses to boot with `demoMode: false` unless `AUTH_EMAIL_ENDPOINT` and
+`AUTH_EMAIL_TOKEN` are bound. **Google-only is not a configuration this Worker will start in**, so
+a second `DEMO_MODE=false` deployment costs an identity change *plus* a second pipeline, second
+secrets, second D1 and migration drift between two databases kept in step by hand.
+
+Cost was not the deciding factor — Workers Paid covers multiple Workers and a second D1 is free.
+The deciding factor was drift.
+
+### What one deployment costs, and what pays for it
+
+The real cost is that `tools/remote-demo-reset.mjs` refuses once real data exists (correctly —
+that is #208's `GAP-019` fix), and the only override deletes the conference. **That is paid for by
+scoping the seed cleanup to seeded ids**, which is assigned to lane R1. The guard is unchanged; the
+teardown stops being able to destroy what it did not create.
+
+### Facts established while taking this decision
+
+- **`ENVIRONMENT` gates exactly one thing** — the legality of `DEMO_MODE` (`index.ts:541-543`).
+  Nothing else in the API reads it. "development" is a label, not a loosened posture.
+- **Personas cannot reach another organization's data.** `requireEventCapability` is event-scoped
+  with no organization-wide fallback, and `findByPersona` binds `id = 'seed-' || persona`.
+- **Invitation acceptance binds to the accepting session's identity, never the invited address** —
+  `1003`'s own comment anticipated this exact co-hosting risk: acceptance by address lookup would
+  let a real organizer invite `organizer@greenroom.test` and turn the demo's "Continue as
+  organizer" button into a door onto a real organization.
+- **`ENVIRONMENT=development` and fixture providers agree.** `resolveProviders` *refuses* fixture
+  mode when `ENVIRONMENT` names a production deployment, so no deployment can call itself
+  production while silently faking its mail.
+
+### Consequence: #132 is reopened
+
+A real conference must send real mail, which means `COMMUNICATIONS_PROVIDERS=live` on a deployment
+that also exposes the anonymous CFP route — precisely the action #132 says arms the primitive. It
+had been closed on 2026-08-14 as deferred to #103, and **#103 did not record the deferral**, so for
+a period it was a live blocker tracked nowhere. Reopened and assigned to R1; the pointer is now
+recorded on #103 as well.
+
+## Wave R lanes
+
+Prompts live outside the repository at `~/greenroom-lane-prompts/`.
+
+| Lane | Issues | Depends on | Notes |
+|---|---|---|---|
+| R1 communications reality | #217, #132, #210, #211, + provider split, + scoped reset | — | The lane that makes a real conference able to send anything. Four independent reasons it cannot today; fixing a subset changes nothing. |
+| R2 review | #191 | — | Untouched by the earlier lane that owned it (PR #218 closed its three siblings). Lowest evaluator area at 46.4%. |
+| R3 programme & portals | #192 residual, #196 | #214 (landed) | #196 has no prior lane and no rulings. Per-field access must be enforced on exports, not only on screen. |
+| R4 egress | #194 | Workers Paid (done) | Unblocked 2026-08-14. Container conversion + CI image build; no local Docker on the dev machine. |
+| R5 closure | #193, #10, #30, #200 | R1–R4, #219 | Last. Evidence and prose from the same commit. |
+
+**Still cut:** #101 (MCP), #103 (production SaaS), #23 (gated on #132).
+
+**In flight at the time of writing:** PR #219 (`lane/crm-speakers-206-197-189`) — #206, #189,
+partial #197, with `GAP-028` recording #197's remainder. It was 55 commits behind main and
+conflicting; it rebases rather than merge-resolves.
