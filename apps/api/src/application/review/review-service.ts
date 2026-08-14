@@ -10,6 +10,14 @@ import {
   type ReviewCompletedEvent,
   type ReviewCriterion,
 } from "../../domain/review/review";
+import {
+  roundAdmits,
+  type ReviewRound,
+  type ReviewRoundPoolMode,
+  type ReviewRoundState,
+  roundClosedReason,
+  roundCriteria,
+} from "../../domain/review/round";
 import type {
   EvaluationSource,
   ReviewSuggestion,
@@ -70,6 +78,22 @@ export class SuggestionsDisabledError extends Error {}
  *
  * @spec PRD-REV-001 PRD-COM-001 ARC-DOM-001
  */
+/**
+ * What became of one reviewer's reminder.
+ *
+ * - `queued`: a delivery was written and the outbox will send it.
+ * - `already_sent`: this reviewer had already been reminded about this round, so nothing new was
+ *   written. Not a failure — it is the idempotency working, and the organizer needs to see the
+ *   difference or they will press again.
+ * - `unaddressable`: the reviewer has no linked email. A real state and one this domain reports
+ *   rather than hides, because the organizer's repair is to fix the address, and a silent skip
+ *   would leave them believing somebody was told.
+ *
+ * Review states the outcome; it does not carry a delivery id, a template or a channel, because
+ * none of those is review's to know.
+ */
+export type ReviewReminderResult = "queued" | "already_sent" | "unaddressable";
+
 export interface ReviewNotificationPort {
   /**
    * A reviewer was given abstracts to evaluate in this round.
@@ -84,6 +108,25 @@ export interface ReviewNotificationPort {
     readonly assignmentIds: readonly string[];
     readonly proposalCount: number;
   }): Promise<void>;
+  /**
+   * A reviewer still has outstanding work in a round, and an organizer asked for them to be told.
+   *
+   * Unlike the other two, this one **answers**: the organizer pressed a button and has to be told
+   * what happened to each person, so the delivering domain reports whether this reminder was
+   * newly queued or had already been sent. That is the send state the console renders, and it is
+   * why the return type is not `void`.
+   *
+   * Reported once per reviewer per round however many times the organizer presses. The
+   * idempotency key is the delivering domain's to construct, but the fact carries everything that
+   * key needs, so pressing twice queues one message rather than two.
+   */
+  remindOutstanding(fact: {
+    readonly eventId: string;
+    readonly reviewerId: string;
+    readonly round: number;
+    readonly roundName: string;
+    readonly outstanding: number;
+  }): Promise<ReviewReminderResult>;
   /**
    * A submitter's proposal was accepted or declined.
    *
@@ -203,6 +246,36 @@ const withCoAuthors = (submitted: SubmittedProposal) => {
     return { ...proposal, coAuthors: [] };
   }
 };
+
+/**
+ * The reviewer's proposal in a round that is **not** anonymized.
+ *
+ * Open review is a real setting — a programme committee reading each other's names is how many
+ * second rounds actually run — but it is not the organizer's projection. The author's *name* and
+ * the co-author roles are shown, because that is what "not blind" means; the contact address is
+ * not, because it is organizer-only in every round and no reviewer surface has ever needed it.
+ * The owning account id goes too, for the same reason `withoutSubmitter` drops it: it is a stable
+ * identifier for one person across every event, and open authorship on one round is not consent
+ * to be joined across all of them.
+ */
+const withOpenAuthorship = (proposal: SubmittedProposal) => ({
+  ...withCoAuthors(proposal),
+  submitter: null,
+});
+
+/**
+ * The reviewer's proposal in a blind round: no name, no address, no account, **no co-authors**.
+ *
+ * Co-authors are absent rather than masked, because a masked list still leaks its length — "three
+ * co-authors, one of them a professor" is enough to identify a submission in a small field — and
+ * because `withoutSubmitter` never added the key in the first place. This wrapper exists so that
+ * the choice is visible at the call site beside its open-review sibling rather than being a
+ * property of which helper somebody happened to reach for.
+ */
+const blindProjection = (proposal: SubmittedProposal) => ({
+  ...withoutSubmitter(proposal),
+  coAuthors: [] as readonly { name: string; role: string }[],
+});
 
 /**
  * Why an assignment cannot be removed once it has been scored. Named here so the service and
@@ -331,6 +404,305 @@ export class ReviewService implements AcceptedProposalQuery {
    * printed a raw user id in the Reviewers column for every assignment the viewer could not
    * have made herself.
    */
+  /**
+   * The round an event falls back to when nobody has configured one.
+   *
+   * An event that has never had a round behaves exactly as it did before rounds existed: the
+   * first assignment creates `Round 1`, open, blind, scoring against the event plan, admitting
+   * every reviewer staffed on the event. That is not a convenience — it is the compatibility
+   * contract. Migration `1312` installs a trigger that refuses an assignment naming a round that
+   * does not exist, so without this every existing caller (the template slice, the seeded demo,
+   * every test that assigns before configuring anything) would start failing on a rule about a
+   * concept it has never heard of.
+   *
+   * It creates **only** when the event has no rounds at all. Once an organizer has configured
+   * rounds, their configuration governs and a request naming a round they did not create is
+   * refused rather than quietly granted one.
+   */
+  private async ensureDefaultRound(eventId: string): Promise<readonly ReviewRound[]> {
+    const existing = await this.dependencies.repository.listRounds(eventId);
+    if (existing.length) return existing;
+    const now = this.dependencies.now().toISOString();
+    const round: ReviewRound = {
+      eventId,
+      sequence: 1,
+      name: "Round 1",
+      opensAt: null,
+      closesAt: null,
+      state: "open",
+      anonymized: true,
+      criteria: null,
+      poolMode: "event",
+      reviewerIds: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await this.dependencies.repository.createRound(round);
+    } catch (error) {
+      // Two requests arriving together both see no rounds and both create one; the loser reads
+      // what the winner wrote rather than failing a request that asked for nothing unusual.
+      if (error instanceof ReviewStateConflictError)
+        return this.dependencies.repository.listRounds(eventId);
+      throw error;
+    }
+    return [round];
+  }
+
+  /**
+   * The round work is about to be recorded in, or a refusal naming the round and the reason.
+   *
+   * Every write path that touches a round goes through here — assignment, distribution,
+   * advancement, evaluation, conflict declaration and suggestion drafting — because "this round is
+   * accepting work" has to mean one thing. `field` names the request field the refusal belongs to
+   * so the caller's own form can point at it.
+   */
+  private async openRound(eventId: string, sequence: number, field: string): Promise<ReviewRound> {
+    await this.ensureDefaultRound(eventId);
+    const round = await this.dependencies.repository.findRound(eventId, sequence);
+    if (!round)
+      throw new ReviewValidationError({
+        [field]: [
+          `Round ${sequence} does not exist for this event. Create it in Review rounds first.`,
+        ],
+      });
+    const closed = roundClosedReason(round, this.dependencies.now());
+    if (closed) throw new ReviewValidationError({ [field]: [closed] });
+    return round;
+  }
+
+  /**
+   * The round this assignment sits in, refusing if it is not currently taking work.
+   *
+   * The reviewer-side counterpart of `openRound`, and read-only where that one may create the
+   * default round: a reviewer holding an assignment is not the caller who should be writing an
+   * event's first round row, and an event whose rounds were never configured must keep behaving
+   * exactly as it did — so a missing round is `null` and permissive here rather than a refusal.
+   *
+   * This is what makes "preserve immutable completed-round history" true on the reviewer's side:
+   * once a round closes, its evaluations, conflicts and drafts stay readable and stop being
+   * writable, on every path rather than on the ones somebody remembered.
+   */
+  private async workableRound(
+    eventId: string,
+    sequence: number,
+    field: string,
+  ): Promise<ReviewRound | null> {
+    const round = await this.dependencies.repository.findRound(eventId, sequence);
+    if (!round) return null;
+    const closed = roundClosedReason(round, this.dependencies.now());
+    if (closed) throw new ReviewValidationError({ [field]: [closed] });
+    return round;
+  }
+
+  /** Every round of this event with its pool. Organizer-only; the pool is staffing information. */
+  async listRounds(actor: Actor | null, eventId: string): Promise<readonly ReviewRound[]> {
+    this.organizer(actor, eventId);
+    return this.ensureDefaultRound(eventId);
+  }
+
+  /**
+   * Create a round.
+   *
+   * The sequence is allocated here rather than chosen by the caller: it is the number every
+   * assignment, outcome and suggestion of this round will carry, and letting a client pick it is
+   * how two clients end up describing different rounds with the same number. `criteria` absent
+   * means "score against the event plan"; supplied, it is this round's own scorecard and the
+   * aggregate is weighted under it.
+   */
+  async createRound(
+    actor: Actor | null,
+    eventId: string,
+    input: {
+      readonly name: string;
+      readonly opensAt?: string | null | undefined;
+      readonly closesAt?: string | null | undefined;
+      readonly state?: ReviewRoundState | undefined;
+      readonly anonymized?: boolean | undefined;
+      readonly criteria?: EvaluationPlan["criteria"] | null | undefined;
+      readonly poolMode?: ReviewRoundPoolMode | undefined;
+      readonly reviewerIds?: readonly string[] | undefined;
+    },
+  ): Promise<ReviewRound> {
+    const authorized = this.organizer(actor, eventId);
+    const existing = await this.ensureDefaultRound(eventId);
+    const reviewerIds = await this.validatedPool(
+      authorized,
+      eventId,
+      input.reviewerIds ?? [],
+      "reviewerIds",
+    );
+    this.validateWindow(input.opensAt ?? null, input.closesAt ?? null);
+    if (input.criteria) this.validateCriteria(input.criteria);
+    const now = this.dependencies.now().toISOString();
+    const round: ReviewRound = {
+      eventId,
+      sequence: Math.max(0, ...existing.map(({ sequence }) => sequence)) + 1,
+      name: input.name,
+      opensAt: input.opensAt ?? null,
+      closesAt: input.closesAt ?? null,
+      state: input.state ?? "draft",
+      anonymized: input.anonymized ?? true,
+      criteria: input.criteria ?? null,
+      // A round an organizer creates is `named` unless they say otherwise, which is what makes
+      // "a reviewer in round 1 is absent from round 2 until explicitly added" true by default.
+      poolMode: input.poolMode ?? "named",
+      reviewerIds,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await this.dependencies.repository.createRound(round);
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ name: [error.message] });
+      throw error;
+    }
+    return round;
+  }
+
+  /**
+   * Change a round's name, window, state, anonymization policy or scorecard.
+   *
+   * The pool is not changed here — `setRoundPool` owns it — so an organizer editing dates cannot
+   * silently restate a membership list somebody else just edited. A closed round's terms are
+   * refused by storage; reopening one is allowed, because closing early has to be undoable.
+   */
+  async updateRound(
+    actor: Actor | null,
+    eventId: string,
+    sequence: number,
+    input: {
+      readonly name: string;
+      readonly opensAt?: string | null | undefined;
+      readonly closesAt?: string | null | undefined;
+      readonly state: ReviewRoundState;
+      readonly anonymized: boolean;
+      readonly criteria?: EvaluationPlan["criteria"] | null | undefined;
+      readonly poolMode: ReviewRoundPoolMode;
+    },
+  ): Promise<ReviewRound> {
+    this.organizer(actor, eventId);
+    const existing = await this.dependencies.repository.findRound(eventId, sequence);
+    if (!existing) throw new ReviewNotFoundError("Review round not found");
+    this.validateWindow(input.opensAt ?? null, input.closesAt ?? null);
+    if (input.criteria) this.validateCriteria(input.criteria);
+    /*
+     * Switching a round to `named` with reviewers already holding work in it would leave those
+     * assignments outside the pool that authorized them. Refused here with the list, because the
+     * repair is to add them to the pool or unassign them, and neither is guessable from a bare
+     * "pool violation".
+     */
+    if (input.poolMode === "named" && existing.poolMode === "event") {
+      const assigned = [
+        ...new Set(
+          (await this.dependencies.repository.listAssignments(eventId))
+            .filter((assignment) => (assignment.round ?? 1) === sequence)
+            .map(({ reviewerId }) => reviewerId),
+        ),
+      ];
+      const outside = assigned.filter((reviewerId) => !existing.reviewerIds.includes(reviewerId));
+      if (outside.length)
+        throw new ReviewValidationError({
+          poolMode: [
+            `${outside.length} reviewer${outside.length === 1 ? "" : "s"} already hold assignments in this round but ${outside.length === 1 ? "is" : "are"} not in its pool. Add them to the pool, or unassign them, before restricting the round.`,
+          ],
+        });
+    }
+    const round = {
+      eventId,
+      sequence,
+      name: input.name,
+      opensAt: input.opensAt ?? null,
+      closesAt: input.closesAt ?? null,
+      state: input.state,
+      anonymized: input.anonymized,
+      criteria: input.criteria ?? null,
+      poolMode: input.poolMode,
+      updatedAt: this.dependencies.now().toISOString(),
+    };
+    try {
+      await this.dependencies.repository.updateRound(round);
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ state: [error.message] });
+      throw error;
+    }
+    return { ...round, reviewerIds: existing.reviewerIds, createdAt: existing.createdAt };
+  }
+
+  /** Replace a round's reviewer pool. Refused for a reviewer who already holds work in it. */
+  async setRoundPool(
+    actor: Actor | null,
+    eventId: string,
+    sequence: number,
+    reviewerIds: readonly string[],
+  ): Promise<ReviewRound> {
+    const authorized = this.organizer(actor, eventId);
+    const existing = await this.dependencies.repository.findRound(eventId, sequence);
+    if (!existing) throw new ReviewNotFoundError("Review round not found");
+    const validated = await this.validatedPool(authorized, eventId, reviewerIds, "reviewerIds");
+    try {
+      await this.dependencies.repository.setRoundMembers(
+        eventId,
+        sequence,
+        validated,
+        this.dependencies.now().toISOString(),
+      );
+    } catch (error) {
+      if (error instanceof ReviewStateConflictError)
+        throw new ReviewValidationError({ reviewerIds: [error.message] });
+      throw error;
+    }
+    return { ...existing, reviewerIds: validated };
+  }
+
+  /** Every named reviewer, checked against this event's directory and against self-assignment. */
+  private async validatedPool(
+    actor: Actor,
+    eventId: string,
+    reviewerIds: readonly string[],
+    field: string,
+  ): Promise<readonly string[]> {
+    const unique = [...new Set(reviewerIds)].sort();
+    // The same refusal `assign` gives, at the moment the pool is set rather than at the moment
+    // somebody is given work: the organizer console has no reviewer queue, so an organizer in a
+    // pool is work nobody can do.
+    if (unique.includes(actor.id))
+      throw new ReviewValidationError({
+        [field]: ["You cannot be a reviewer on your own event"],
+      });
+    for (const reviewerId of unique)
+      if (!(await this.dependencies.identities.isReviewerForEvent(reviewerId, eventId)))
+        throw new ReviewValidationError({
+          [field]: ["Every reviewer in a pool must be staffed on this event"],
+        });
+    return unique;
+  }
+
+  private validateWindow(opensAt: string | null, closesAt: string | null): void {
+    if (opensAt && closesAt && opensAt >= closesAt)
+      throw new ReviewValidationError({ closesAt: ["The round must close after it opens"] });
+  }
+
+  /**
+   * The rules `configurePlan` applies to the event rubric, applied to a round's own scorecard.
+   *
+   * Stated once and called from both round writers, because a round scorecard that could omit a
+   * numeric criterion would produce an aggregate divided by zero — the failure the event plan has
+   * refused since it existed, and there is no reason a round's copy should be allowed to reach it.
+   */
+  private validateCriteria(criteria: EvaluationPlan["criteria"]): void {
+    if (!criteria.length)
+      throw new ReviewValidationError({ criteria: ["At least one criterion is required"] });
+    if (!criteria.some((criterion) => !criterion.type || criterion.type === "numeric"))
+      throw new ReviewValidationError({
+        criteria: ["At least one numeric criterion is required for the aggregate"],
+      });
+    if (new Set(criteria.map(({ id }) => id)).size !== criteria.length)
+      throw new ReviewValidationError({ criteria: ["Criterion IDs must be unique"] });
+  }
+
   private async reviewerLists(actor: Actor, eventId: string) {
     const directory = await this.dependencies.identities.listReviewersForEvent(eventId);
     return { directory, assignable: directory.filter(({ id }) => id !== actor.id) };
@@ -350,23 +722,46 @@ export class ReviewService implements AcceptedProposalQuery {
         this.dependencies.repository.listDecisions(eventId),
       ]);
     const evaluations = await this.dependencies.repository.listEvaluations(eventId);
-    const progress = reviewers.directory.map(({ id: reviewerId }) => {
-      const owned = assignments.filter((assignment) => assignment.reviewerId === reviewerId);
-      const completed = owned.filter(
-        (assignment) =>
-          evaluations.find((evaluation) => evaluation.assignmentId === assignment.id)?.state ===
-          "completed",
-      ).length;
-      return {
-        reviewerId,
-        assigned: owned.length,
-        completed,
-        outstanding: owned.length - completed,
-      };
-    });
+    const rounds = await this.ensureDefaultRound(eventId);
+    /*
+     * Progress per reviewer, and per reviewer *per round*.
+     *
+     * Both, not one. The event-wide row is what the reminder list and the "is anybody late?"
+     * question need, and it is the shape the console already renders — but an outstanding count
+     * that pools a finished first round with a live second one is the number that makes a
+     * reviewer look behind when they are not, and the issue asks for counts "per reviewer and
+     * round". Neither is derivable from the other without the assignments, which the caller has,
+     * so both are computed once here rather than twice on the surface.
+     */
+    const completedAssignmentIds = new Set(
+      evaluations
+        .filter((evaluation) => evaluation.state === "completed")
+        .map(({ assignmentId }) => assignmentId),
+    );
+    const countOf = (owned: readonly ReviewAssignment[]) => {
+      const completed = owned.filter(({ id }) => completedAssignmentIds.has(id)).length;
+      return { assigned: owned.length, completed, outstanding: owned.length - completed };
+    };
+    const progress = reviewers.directory.map(({ id: reviewerId }) => ({
+      reviewerId,
+      ...countOf(assignments.filter((assignment) => assignment.reviewerId === reviewerId)),
+    }));
+    const roundProgress = rounds.flatMap((round) =>
+      reviewers.directory.flatMap(({ id: reviewerId }) => {
+        const owned = assignments.filter(
+          (assignment) =>
+            assignment.reviewerId === reviewerId && (assignment.round ?? 1) === round.sequence,
+        );
+        // A reviewer with nothing in this round is omitted rather than listed as 0/0: the list is
+        // read as "who is working on this round", and padding it with everybody staffed on the
+        // event turns a short answer into a table nobody can scan.
+        return owned.length ? [{ round: round.sequence, reviewerId, ...countOf(owned) }] : [];
+      }),
+    );
     return {
       proposals: proposals.map(withCoAuthors),
       plan,
+      rounds,
       assignments,
       outcomes,
       evaluations,
@@ -376,6 +771,7 @@ export class ReviewService implements AcceptedProposalQuery {
       reviewerDirectory: reviewers.directory,
       decisions,
       progress,
+      roundProgress,
     };
   }
 
@@ -443,15 +839,7 @@ export class ReviewService implements AcceptedProposalQuery {
     criteria: EvaluationPlan["criteria"],
   ): Promise<EvaluationPlan> {
     this.organizer(actor, eventId);
-    if (!criteria.length)
-      throw new ReviewValidationError({ criteria: ["At least one criterion is required"] });
-    if (!criteria.some((criterion) => !criterion.type || criterion.type === "numeric"))
-      throw new ReviewValidationError({
-        criteria: ["At least one numeric criterion is required for the aggregate"],
-      });
-    const ids = new Set(criteria.map(({ id }) => id));
-    if (ids.size !== criteria.length)
-      throw new ReviewValidationError({ criteria: ["Criterion IDs must be unique"] });
+    this.validateCriteria(criteria);
     const [existing, assignments] = await Promise.all([
       this.dependencies.repository.getPlan(eventId),
       this.dependencies.repository.listAssignments(eventId),
@@ -493,6 +881,16 @@ export class ReviewService implements AcceptedProposalQuery {
       });
     if (!(await this.dependencies.identities.isReviewerForEvent(reviewerId, eventId)))
       throw new ReviewValidationError({ reviewerId: ["Choose a reviewer assigned to this event"] });
+    // The round has to exist, be open, be inside its window, and admit this reviewer. Checked here
+    // so the organizer gets a sentence naming the round; `1312` installs the same four rules as
+    // triggers, which is what catches a round closed between this read and the insert.
+    const target = await this.openRound(eventId, round, "round");
+    if (!roundAdmits(target, reviewerId))
+      throw new ReviewValidationError({
+        reviewerId: [
+          `That reviewer is not in “${target.name}”'s pool. Add them to the round's reviewers first — membership in one round does not carry into another.`,
+        ],
+      });
     const uniqueProposalIds = [...new Set(proposalIds)];
     const proposals = await this.dependencies.proposals.findMany(eventId, uniqueProposalIds);
     if (proposals.length !== uniqueProposalIds.length)
@@ -555,6 +953,17 @@ export class ReviewService implements AcceptedProposalQuery {
     if (found.length !== proposals.length) throw new ReviewNotFoundError("Proposal not found");
     const existing = await this.dependencies.repository.listAssignments(eventId);
     const targetRound = round ?? Math.max(1, ...existing.map((item) => item.round ?? 1));
+    const openTarget = await this.openRound(eventId, targetRound, "round");
+    // Named before the loop, not discovered inside it. Distribution that dropped an inadmissible
+    // reviewer silently would answer 201 having quietly given the work to somebody else, and the
+    // organizer would learn about it by reading the Reviewers column.
+    const outside = uniqueReviewers.filter((reviewerId) => !roundAdmits(openTarget, reviewerId));
+    if (outside.length)
+      throw new ReviewValidationError({
+        reviewerIds: [
+          `${outside.length} of the selected reviewers ${outside.length === 1 ? "is" : "are"} not in “${openTarget.name}”'s pool. Add them to the round's reviewers first.`,
+        ],
+      });
     const counts = new Map(
       uniqueReviewers.map((reviewerId) => [
         reviewerId,
@@ -651,6 +1060,20 @@ export class ReviewService implements AcceptedProposalQuery {
       });
   }
 
+  /**
+   * Advance the abstracts in one status into the next round, creating that round if it is new.
+   *
+   * The round it creates is `named` and its pool is exactly the reviewers this call distributes
+   * to, which is what makes the issue's "a reviewer in round 1 is absent from round 2 until
+   * explicitly added" true through the ordinary path rather than only through the rounds console:
+   * advancing does not carry the previous round's pool forward, because the reviewers of a second
+   * pass are usually not the reviewers of the first.
+   *
+   * It inherits the previous round's anonymization policy and scorecard override. Inheriting is
+   * the safer default of the two: a second round that silently stopped being blind would expose
+   * authors to reviewers who have every reason to assume they are still reading blind, and the
+   * rounds console is where that is changed deliberately.
+   */
   async advanceRound(
     actor: Actor | null,
     eventId: string,
@@ -659,7 +1082,7 @@ export class ReviewService implements AcceptedProposalQuery {
     maxAssignmentsPerReviewer: number,
     currentRound: number,
   ) {
-    this.organizer(actor, eventId);
+    const authorized = this.organizer(actor, eventId);
     const [proposals, existing] = await Promise.all([
       this.dependencies.proposals.list(eventId, fromStatus),
       this.dependencies.repository.listAssignments(eventId),
@@ -681,6 +1104,32 @@ export class ReviewService implements AcceptedProposalQuery {
       throw new ReviewValidationError({
         currentRound: ["Review assignments changed; reload before starting another round"],
       });
+    const rounds = await this.ensureDefaultRound(eventId);
+    const previous = rounds.find((item) => item.sequence === currentRound);
+    if (!rounds.some((item) => item.sequence === round)) {
+      const pool = await this.validatedPool(authorized, eventId, reviewerIds, "reviewerIds");
+      const now = this.dependencies.now().toISOString();
+      try {
+        await this.dependencies.repository.createRound({
+          eventId,
+          sequence: round,
+          name: `Round ${round}`,
+          opensAt: null,
+          closesAt: null,
+          state: "open",
+          anonymized: previous?.anonymized ?? true,
+          criteria: previous?.criteria ?? null,
+          poolMode: "named",
+          reviewerIds: pool,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (error) {
+        // Another organizer advanced first. Their round is the one this distributes into, which
+        // is the same outcome the idempotent early return above produces.
+        if (!(error instanceof ReviewStateConflictError)) throw error;
+      }
+    }
     const assignments = await this.distribute(
       actor,
       eventId,
@@ -690,6 +1139,92 @@ export class ReviewService implements AcceptedProposalQuery {
       round,
     );
     return { round, assignments };
+  }
+
+  /**
+   * Remind selected reviewers that they still have outstanding evaluations in a round.
+   *
+   * The half of `GAP-010` that belonged to review, and the reason it stayed open: there was no
+   * `reviewer.reminder` trigger type, and the recorded ruling was that review must not substitute
+   * `reviewer.assigned` for one. Migration `1706` adds the value; this is the caller.
+   *
+   * Three properties, each of which is a way the obvious version goes wrong:
+   *
+   * **Only reviewers who actually have outstanding work.** A reviewer who finished between the
+   * organizer's page load and their click is reported as `nothing_outstanding` rather than sent a
+   * message telling them to do work they have already done. The count is recomputed here rather
+   * than taken from the request, because the request is a snapshot of a screen.
+   *
+   * **Only reviewers in the round.** A request naming somebody with no assignments in it is a
+   * refusal, not a message about nothing.
+   *
+   * **Idempotent per reviewer per round.** Pressing twice queues one delivery; the second answers
+   * `already_sent`, which the console shows, so the organizer can tell "sent" from "sent again".
+   */
+  async remindOutstandingReviewers(
+    actor: Actor | null,
+    eventId: string,
+    round: number,
+    reviewerIds: readonly string[],
+  ): Promise<
+    readonly {
+      readonly reviewerId: string;
+      readonly outstanding: number;
+      readonly state: ReviewReminderResult | "nothing_outstanding";
+    }[]
+  > {
+    this.organizer(actor, eventId);
+    const notifications = this.dependencies.notifications;
+    if (!notifications)
+      throw new ReviewValidationError({
+        reviewerIds: ["This deployment has no communications binding, so nothing can be sent"],
+      });
+    const target = await this.dependencies.repository.findRound(eventId, round);
+    if (!target) throw new ReviewNotFoundError("Review round not found");
+    const [assignments, evaluations] = await Promise.all([
+      this.dependencies.repository.listAssignments(eventId),
+      this.dependencies.repository.listEvaluations(eventId),
+    ]);
+    const completed = new Set(
+      evaluations
+        .filter((evaluation) => evaluation.state === "completed")
+        .map(({ assignmentId }) => assignmentId),
+    );
+    const unique = [...new Set(reviewerIds)].sort();
+    if (!unique.length)
+      throw new ReviewValidationError({ reviewerIds: ["Choose at least one reviewer"] });
+    const results: {
+      reviewerId: string;
+      outstanding: number;
+      state: ReviewReminderResult | "nothing_outstanding";
+    }[] = [];
+    for (const reviewerId of unique) {
+      const owned = assignments.filter(
+        (assignment) =>
+          assignment.reviewerId === reviewerId && (assignment.round ?? 1) === target.sequence,
+      );
+      if (!owned.length)
+        throw new ReviewValidationError({
+          reviewerIds: [`That reviewer has no assignments in “${target.name}”`],
+        });
+      const outstanding = owned.filter(({ id }) => !completed.has(id)).length;
+      if (outstanding === 0) {
+        results.push({ reviewerId, outstanding, state: "nothing_outstanding" });
+        continue;
+      }
+      results.push({
+        reviewerId,
+        outstanding,
+        state: await notifications.remindOutstanding({
+          eventId,
+          reviewerId,
+          round: target.sequence,
+          roundName: target.name,
+          outstanding,
+        }),
+      });
+    }
+    return results;
   }
 
   /**
@@ -904,9 +1439,22 @@ export class ReviewService implements AcceptedProposalQuery {
     return Boolean(this.dependencies.suggestions);
   }
 
+  /**
+   * The reviewer's queue, each item projected under the policy of the round it belongs to.
+   *
+   * Two things are per-round here and both used to be per-event. **Anonymization** decides which
+   * projection the abstract goes through, so a reviewer in a blind round and a reviewer in an open
+   * one reading the same abstract genuinely receive different bytes. And **the scorecard** the
+   * item carries is the round's own where it has one, so the form a reviewer fills in is the form
+   * their save is validated against — a reviewer scoring a round-2 rubric against a round-1 form
+   * would meet a refusal naming criteria their screen never showed.
+   *
+   * `roundState` and `roundClosedReason` travel with the item because a queue that silently
+   * refuses a save is worse than one that says the round is closed before the reviewer types.
+   */
   async reviewerQueue(actor: Actor | null, eventId: string) {
     const authorized = this.reviewer(actor, eventId);
-    const [assignments, plan, suggestions] = await Promise.all([
+    const [assignments, plan, suggestions, rounds] = await Promise.all([
       this.dependencies.repository.listAssignments(eventId, authorized.id),
       this.dependencies.repository.getPlan(eventId),
       // One read for the whole queue rather than one per assignment: a reviewer with twelve
@@ -914,7 +1462,9 @@ export class ReviewService implements AcceptedProposalQuery {
       this.dependencies.suggestions
         ? this.dependencies.repository.listSuggestionsForReviewer(eventId, authorized.id)
         : Promise.resolve([]),
+      this.dependencies.repository.listRounds(eventId),
     ]);
+    const now = this.dependencies.now();
     return Promise.all(
       assignments.map(async (assignment) => {
         const [proposal, conflict, evaluation] = await Promise.all([
@@ -923,17 +1473,37 @@ export class ReviewService implements AcceptedProposalQuery {
           this.dependencies.repository.getEvaluation(assignment.id, authorized.id),
         ]);
         if (!proposal) throw new ReviewNotFoundError("Assigned proposal not found");
-        // Reviewers evaluate the proposal, never the person: the submitter is masked here rather
-        // than left as a constant the storage layer happens to produce.
-        const masked = withoutSubmitter(proposal);
+        const round = rounds.find((item) => item.sequence === (assignment.round ?? 1)) ?? null;
+        /*
+         * Reviewers evaluate the proposal, never the person — unless this round says otherwise,
+         * which is a policy an organizer sets rather than a default anything falls into. A round
+         * this queue cannot find is treated as blind: an unknown policy is not a licence to
+         * publish an author's name, and the failure of masking when we should not have is a
+         * reviewer seeing less than they could.
+         */
+        const projected =
+          round?.anonymized === false ? withOpenAuthorship(proposal) : blindProjection(proposal);
         // Recomputed from what the reviewer is about to read, so a suggestion drafted against an
         // earlier version of the abstract can be shown as exactly that rather than presented as
         // current. The comparison is the surface's; supplying both halves is this method's.
-        const proposalRevision = proposalRevisionOf(masked);
+        const proposalRevision = proposalRevisionOf(projected);
+        const criteria = roundCriteria(round, plan?.criteria);
         return {
           assignment,
-          proposal: masked,
-          plan,
+          proposal: projected,
+          // The round's scorecard where it has one, the event plan where it does not — presented
+          // in the same shape either way so the surface has one thing to render.
+          plan: criteria.length
+            ? {
+                eventId,
+                criteria,
+                updatedAt: round?.criteria
+                  ? round.updatedAt
+                  : (plan?.updatedAt ?? round?.updatedAt ?? ""),
+              }
+            : null,
+          round,
+          roundClosedReason: round ? roundClosedReason(round, now) : null,
           conflict,
           evaluation,
           proposalRevision,
@@ -968,6 +1538,7 @@ export class ReviewService implements AcceptedProposalQuery {
     const assignment = await this.ownedAssignment(eventId, assignmentId, authorized.id);
     if (await this.dependencies.repository.getConflict(assignment.id, authorized.id))
       throw new ReviewConflictError("Conflicted assignments cannot be evaluated");
+    const round = await this.workableRound(eventId, assignment.round ?? 1, "round");
     const [existingEvaluation, plan, proposal] = await Promise.all([
       this.dependencies.repository.getEvaluation(assignment.id, authorized.id),
       this.dependencies.repository.getPlan(eventId),
@@ -977,11 +1548,21 @@ export class ReviewService implements AcceptedProposalQuery {
       throw new ReviewValidationError({
         evaluation: ["A completed evaluation cannot be redrafted"],
       });
-    if (!plan)
+    const criteria = roundCriteria(round, plan?.criteria);
+    if (!criteria.length)
       throw new ReviewValidationError({
         plan: ["The organizer has not configured a plan, so there is nothing to draft against"],
       });
     if (!proposal) throw new ReviewNotFoundError("Assigned proposal not found");
+    /*
+     * Masked in **every** round, blind or open.
+     *
+     * This is deliberately not `round.anonymized`. "The provider never receives an author" is a
+     * stronger promise than "the provider receives whatever this round's reviewers receive", it is
+     * the one the staging smoke verified over the wire, and an open-review round is not a reason
+     * to weaken it: the reviewer can see the name on their own screen without it being sent to a
+     * model. The invariant `PRD-AI-001` states is identity-free provider input, full stop.
+     */
     const masked = withoutSubmitter(proposal);
 
     const draft = await withDeadline(
@@ -989,7 +1570,7 @@ export class ReviewService implements AcceptedProposalQuery {
         title: masked.title,
         abstract: masked.abstract,
         answers: masked.answers.map(({ label, value }) => ({ label, value })),
-        criteria: plan.criteria,
+        criteria,
         round: assignment.round ?? 1,
         timeoutMs: this.dependencies.suggestionTimeoutMs ?? SUGGESTION_TIMEOUT_MS,
       }),
@@ -1002,7 +1583,7 @@ export class ReviewService implements AcceptedProposalQuery {
     // stored — it can never be accepted, and storing it would render a score against a criterion
     // the reviewer's form does not show. A criterion left with no draft is visible on the screen
     // and named when acceptance is refused, which is where the reviewer needs it.
-    const planCriteria = new Set(plan.criteria.map(({ id }) => id));
+    const planCriteria = new Set(criteria.map(({ id }) => id));
     const seen = new Set<string>();
     const scores: SuggestedScore[] = draft.scores.filter(({ criterionId }) => {
       if (!planCriteria.has(criterionId) || seen.has(criterionId)) return false;
@@ -1101,18 +1682,24 @@ export class ReviewService implements AcceptedProposalQuery {
 
     if (await this.dependencies.repository.getConflict(assignment.id, authorized.id))
       throw new ReviewConflictError("Conflicted assignments cannot be evaluated");
+    // Accepting writes the reviewer's draft, so it is a write into the round and refused once
+    // that round closes — the same rule as saving scores by hand, because it produces the same
+    // record. Rejecting, above, is not: dismissing an offer left over from a closed round is
+    // tidying, and it changes no evaluation.
+    const round = await this.workableRound(eventId, assignment.round ?? 1, "round");
     const [plan, existingEvaluation] = await Promise.all([
       this.dependencies.repository.getPlan(eventId),
       this.dependencies.repository.getEvaluation(assignment.id, authorized.id),
     ]);
-    if (!plan)
+    const criteria = roundCriteria(round, plan?.criteria);
+    if (!criteria.length)
       throw new ReviewValidationError({ plan: ["The organizer has not configured a plan"] });
     if (existingEvaluation?.state === "completed")
       throw new ReviewValidationError({
         evaluation: ["A completed evaluation cannot be replaced by a suggestion"],
       });
     const values = new Map(suggestion.scores.map(({ criterionId, value }) => [criterionId, value]));
-    const unusable = criteriaWithoutUsableValue(plan.criteria, values);
+    const unusable = criteriaWithoutUsableValue(criteria, values);
     if (unusable.length)
       throw new ReviewValidationError({
         scores: [
@@ -1123,7 +1710,7 @@ export class ReviewService implements AcceptedProposalQuery {
     const evaluation: Evaluation = {
       assignmentId: assignment.id,
       reviewerId: authorized.id,
-      scores: plan.criteria.map(({ id }) => {
+      scores: criteria.map(({ id }) => {
         const value = values.get(id) as number | string;
         return { criterionId: id, value, ...(typeof value === "number" ? { score: value } : {}) };
       }),
@@ -1170,6 +1757,10 @@ export class ReviewService implements AcceptedProposalQuery {
   ) {
     const authorized = this.reviewer(actor, eventId);
     const assignment = await this.ownedAssignment(eventId, assignmentId, authorized.id);
+    // A conflict is a record about work in this round, so it is refused once the round is history
+    // — recusing yourself from a round that finished changes nothing and would rewrite what the
+    // organizer already read.
+    await this.workableRound(eventId, assignment.round ?? 1, "round");
     if (
       (await this.dependencies.repository.getEvaluation(assignment.id, authorized.id))?.state ===
       "completed"
@@ -1206,17 +1797,22 @@ export class ReviewService implements AcceptedProposalQuery {
     const assignment = await this.ownedAssignment(eventId, assignmentId, authorized.id);
     if (await this.dependencies.repository.getConflict(assignment.id, authorized.id))
       throw new ReviewConflictError("Conflicted assignments cannot be evaluated");
+    // A closed round is view-only. This is the refusal that makes completed-round history
+    // immutable, and it is checked before the scores are looked at so the reviewer is told the
+    // round is shut rather than that their perfectly good scores are wrong.
+    const round = await this.workableRound(eventId, assignment.round ?? 1, "round");
     const plan = await this.dependencies.repository.getPlan(eventId);
-    if (!plan)
+    const criteria = roundCriteria(round, plan?.criteria);
+    if (!criteria.length)
       throw new ReviewValidationError({ plan: ["The organizer has not configured a plan"] });
     const scoreMap = new Map(
       input.scores.map((score) => [score.criterionId, score.value ?? score.score]),
     );
-    const invalid = criteriaWithoutUsableValue(plan.criteria, scoreMap);
+    const invalid = criteriaWithoutUsableValue(criteria, scoreMap);
     if (
       invalid.length ||
-      scoreMap.size !== plan.criteria.length ||
-      input.scores.length !== plan.criteria.length
+      scoreMap.size !== criteria.length ||
+      input.scores.length !== criteria.length
     )
       throw new ReviewValidationError({
         scores: ["Provide one in-range score for every evaluation criterion"],
@@ -1233,7 +1829,7 @@ export class ReviewService implements AcceptedProposalQuery {
     const requestedEvaluation: Evaluation = {
       assignmentId,
       reviewerId: authorized.id,
-      scores: plan.criteria.map(({ id }) => {
+      scores: criteria.map(({ id }) => {
         const value = scoreMap.get(id) as number | string;
         return { criterionId: id, value, ...(typeof value === "number" ? { score: value } : {}) };
       }),

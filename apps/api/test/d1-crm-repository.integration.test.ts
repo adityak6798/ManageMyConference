@@ -457,10 +457,11 @@ describe("D1 CRM persistence", () => {
     const database = migrated.database;
     const directory = new D1IdentityDirectory(database);
 
-    // Seeded event one: an organizer who also reviews there, plus a reviewer. `seed-speaker`
-    // holds only the speaker role, so it is not offered — the identity the live API used to
-    // accept as a prospect owner.
+    // Seeded event one: an organizer who also reviews there, plus its two reviewers.
+    // `seed-speaker` holds only the speaker role, so it is not offered — the identity the live
+    // API used to accept as a prospect owner.
     await expect(directory.listAssignableOwnersForEvent(eventId)).resolves.toEqual([
+      { id: "review-nina-alvarez", name: "Nina Alvarez" },
       { id: "seed-organizer", name: "Olivia Organizer" },
       { id: "seed-reviewer", name: "Ravi Reviewer" },
     ]);

@@ -139,6 +139,97 @@ export const configureReviewPlanInputSchema = z.object({
       message: "At least one numeric criterion is required for the aggregate",
     }),
 });
+// @spec PRD-REV-001 PRD-ABS-001
+export const reviewRoundStateSchema = z.enum(["draft", "open", "closed"]);
+/**
+ * `event` admits every reviewer staffed on the event; `named` admits only this round's pool.
+ * A round an organizer creates is `named` by default, which is what makes membership in one round
+ * not carry into another.
+ */
+export const reviewRoundPoolModeSchema = z.enum(["event", "named"]);
+export const reviewRoundSchema = z.object({
+  eventId: z.string().uuid(),
+  /**
+   * The round's number, and the key everything about it is stored under.
+   *
+   * `review_assignments.round`, `review_outcomes.round` and `review_suggestions.round` all carry
+   * exactly this integer, which is how rounds became first-class over a deployed database without
+   * rebuilding any of those tables (migration `1312`). Allocated by the server; a client never
+   * chooses it.
+   */
+  sequence: z.number().int().positive(),
+  name: z.string().trim().min(1).max(80),
+  /** `null` is unbounded on that side. */
+  opensAt: z.string().datetime().nullable(),
+  closesAt: z.string().datetime().nullable(),
+  state: reviewRoundStateSchema,
+  /** Whether reviewers in this round see the author. A correctness property, not a display one. */
+  anonymized: z.boolean(),
+  /** This round's own scorecard, or `null` to score against the event plan. */
+  criteria: z.array(reviewCriterionSchema).nullable(),
+  poolMode: reviewRoundPoolModeSchema,
+  reviewerIds: z.array(z.string()),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+const reviewRoundTermsSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  opensAt: z.string().datetime().nullable().optional(),
+  closesAt: z.string().datetime().nullable().optional(),
+  anonymized: z.boolean(),
+  /**
+   * Absent or null means "score against the event plan", which is what a round does when nobody
+   * gives it a rubric of its own. Supplied, it must satisfy the same rules the event plan does —
+   * at least one numeric criterion, unique ids — because an aggregate over a rubric with no
+   * numeric criterion divides by zero.
+   */
+  criteria: z
+    .array(reviewCriterionSchema)
+    .min(1)
+    .max(12)
+    .refine((criteria) => criteria.some(({ type }) => !type || type === "numeric"), {
+      message: "At least one numeric criterion is required for the aggregate",
+    })
+    .nullable()
+    .optional(),
+  poolMode: reviewRoundPoolModeSchema,
+});
+export const createReviewRoundInputSchema = reviewRoundTermsSchema.extend({
+  state: reviewRoundStateSchema.default("draft"),
+  reviewerIds: z.array(z.string().trim().min(1)).max(100).default([]),
+});
+export const updateReviewRoundInputSchema = reviewRoundTermsSchema.extend({
+  state: reviewRoundStateSchema,
+});
+export const setReviewRoundPoolInputSchema = z.object({
+  reviewerIds: z.array(z.string().trim().min(1)).max(100),
+});
+export const reviewRoundParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  sequence: z.coerce.number().int().positive(),
+});
+export const reviewRoundResponseSchema = z.object({ round: reviewRoundSchema });
+export const reviewRoundsResponseSchema = z.object({ rounds: z.array(reviewRoundSchema) });
+/**
+ * What became of one reviewer's reminder.
+ *
+ * `already_sent` is not a failure — it is the idempotency working — but the organizer has to see
+ * the difference or they will press again. `nothing_outstanding` means the reviewer finished
+ * between the page load and the click, and no message was sent because there was nothing to
+ * remind them about.
+ */
+export const reviewReminderResultSchema = z.object({
+  reviewerId: z.string(),
+  outstanding: z.number().int().nonnegative(),
+  state: z.enum(["queued", "already_sent", "unaddressable", "nothing_outstanding"]),
+});
+export const remindReviewersInputSchema = z.object({
+  round: z.number().int().positive(),
+  reviewerIds: z.array(z.string().trim().min(1)).min(1).max(100),
+});
+export const remindReviewersResponseSchema = z.object({
+  reminders: z.array(reviewReminderResultSchema),
+});
 export const reviewAssignmentSchema = z.object({
   id: z.string().uuid(),
   eventId: z.string().uuid(),
@@ -150,6 +241,11 @@ export const reviewAssignmentSchema = z.object({
 export const assignReviewersInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
   reviewerId: z.string().trim().min(1),
+  /**
+   * Which round this assignment belongs to. Optional, and defaulted to 1 by the server rather
+   * than here, so a client written before rounds were first-class keeps working unchanged.
+   */
+  round: z.number().int().positive().optional(),
 });
 export const distributeReviewersInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
@@ -189,6 +285,18 @@ export const reviewProgressSchema = z.object({
   assigned: z.number().int().nonnegative(),
   completed: z.number().int().nonnegative(),
   outstanding: z.number().int().nonnegative(),
+});
+/**
+ * The same counts, per round.
+ *
+ * Both shapes ship because neither answers the other's question: the event-wide row is "is
+ * anybody late?", and this one is "is this round finished?". A single outstanding count that
+ * pooled a closed first round with a live second one is the number that makes a reviewer look
+ * behind when they are not. A reviewer with nothing in a round is omitted rather than listed as
+ * 0/0.
+ */
+export const reviewRoundProgressSchema = reviewProgressSchema.extend({
+  round: z.number().int().positive(),
 });
 export const evaluationScoreSchema = z
   .object({
@@ -301,6 +409,14 @@ export const organizerReviewWorkspaceSchema = z.object({
   // the server always sends it.
   decisions: z.array(proposalDecisionSchema).optional(),
   progress: z.array(reviewProgressSchema).optional(),
+  /**
+   * Every round of this event with its pool, lowest sequence first. Optional so a client written
+   * before rounds were first-class still parses this response; the server always sends it, and an
+   * event that has never configured one is answered with the default `Round 1` rather than an
+   * empty list.
+   */
+  rounds: z.array(reviewRoundSchema).optional(),
+  roundProgress: z.array(reviewRoundProgressSchema).optional(),
 });
 export const reviewConflictSchema = z.object({
   assignmentId: z.string().uuid(),
@@ -332,6 +448,18 @@ export const reviewerQueueItemSchema = z.object({
    * empty when the deployment has no assistant; the server always sends it otherwise.
    */
   suggestions: z.array(reviewSuggestionSchema).optional(),
+  /**
+   * The round this assignment sits in, whose anonymization policy chose the projection above and
+   * whose scorecard is the `plan` beside it. Optional for clients written before rounds.
+   */
+  round: reviewRoundSchema.nullable().optional(),
+  /**
+   * Why this round is not taking work, or `null` when it is.
+   *
+   * Sent so the queue can say the round is closed before the reviewer types, rather than letting
+   * them fill in a form whose save is refused.
+   */
+  roundClosedReason: z.string().nullable().optional(),
 });
 export const reviewerQueueSchema = z.object({
   assignments: z.array(reviewerQueueItemSchema),

@@ -11,9 +11,11 @@ import type {
   ReviewConflict,
   ReviewOutcome,
 } from "../../domain/review/review";
+import type { ReviewRound } from "../../domain/review/round";
 import type { ReviewSuggestion } from "../../domain/review/suggestion";
 
 export class MemoryReviewRepository implements ReviewRepository {
+  private rounds = new Map<string, ReviewRound>();
   private plans = new Map<string, EvaluationPlan>();
   private assignments = new Map<string, ReviewAssignment>();
   private conflicts = new Map<string, ReviewConflict>();
@@ -23,6 +25,80 @@ export class MemoryReviewRepository implements ReviewRepository {
   private suggestions = new Map<string, ReviewSuggestion>();
   readonly events: ReviewCompletedEvent[] = [];
 
+  private roundKey = (eventId: string, sequence: number) => `${eventId}:${sequence}`;
+
+  async listRounds(eventId: string) {
+    return [...this.rounds.values()]
+      .filter((round) => round.eventId === eventId)
+      .sort((left, right) => left.sequence - right.sequence);
+  }
+  async findRound(eventId: string, sequence: number) {
+    return this.rounds.get(this.roundKey(eventId, sequence)) ?? null;
+  }
+  async createRound(round: ReviewRound) {
+    const key = this.roundKey(round.eventId, round.sequence);
+    // The two UNIQUE constraints `1312` declares, restated so the suites that drive this twin
+    // meet the same refusal the deployed database gives.
+    if (this.rounds.has(key))
+      throw new ReviewStateConflictError("A round with that number or name already exists");
+    if (
+      [...this.rounds.values()].some(
+        (item) => item.eventId === round.eventId && item.name === round.name,
+      )
+    )
+      throw new ReviewStateConflictError("A round with that number or name already exists");
+    this.rounds.set(key, { ...round, reviewerIds: [...new Set(round.reviewerIds)].sort() });
+  }
+  async updateRound(round: Omit<ReviewRound, "reviewerIds" | "createdAt">) {
+    const key = this.roundKey(round.eventId, round.sequence);
+    const existing = this.rounds.get(key);
+    if (!existing) throw new ReviewStateConflictError("Review round not found");
+    if (
+      existing.state === "closed" &&
+      (JSON.stringify(existing.criteria) !== JSON.stringify(round.criteria) ||
+        existing.anonymized !== round.anonymized ||
+        existing.opensAt !== round.opensAt ||
+        existing.closesAt !== round.closesAt ||
+        existing.poolMode !== round.poolMode)
+    )
+      throw new ReviewStateConflictError("A closed round's terms cannot be changed");
+    if (
+      [...this.rounds.values()].some(
+        (item) =>
+          item.eventId === round.eventId &&
+          item.sequence !== round.sequence &&
+          item.name === round.name,
+      )
+    )
+      throw new ReviewStateConflictError("Another round of this event already has that name");
+    this.rounds.set(key, { ...existing, ...round });
+  }
+  async setRoundMembers(
+    eventId: string,
+    sequence: number,
+    reviewerIds: readonly string[],
+    _addedAt: string,
+  ) {
+    const key = this.roundKey(eventId, sequence);
+    const existing = this.rounds.get(key);
+    if (!existing) throw new ReviewStateConflictError("Review round not found");
+    const keeping = new Set(reviewerIds);
+    const removed = existing.reviewerIds.filter((reviewerId) => !keeping.has(reviewerId));
+    if (
+      removed.some((reviewerId) =>
+        [...this.assignments.values()].some(
+          (assignment) =>
+            assignment.eventId === eventId &&
+            (assignment.round ?? 1) === sequence &&
+            assignment.reviewerId === reviewerId,
+        ),
+      )
+    )
+      throw new ReviewStateConflictError(
+        "A reviewer who already holds assignments in this round cannot be removed from its pool",
+      );
+    this.rounds.set(key, { ...existing, reviewerIds: [...keeping].sort() });
+  }
   async getPlan(eventId: string) {
     return this.plans.get(eventId) ?? null;
   }
@@ -39,6 +115,18 @@ export class MemoryReviewRepository implements ReviewRepository {
   async createAssignments(assignments: readonly ReviewAssignment[]) {
     if (assignments.some(({ eventId }) => !this.plans.has(eventId)))
       throw new ReviewStateConflictError("Review plan is required");
+    // The three round guards `1312` installs as triggers, restated here so a suite driven against
+    // this twin cannot pass a write the deployed database would refuse. The service checks all
+    // three first and says why; these are the storage-level backstops, and they answer with the
+    // same sentences the D1 adapter translates its triggers into.
+    for (const assignment of assignments) {
+      const round = this.rounds.get(this.roundKey(assignment.eventId, assignment.round ?? 1));
+      if (!round) throw new ReviewStateConflictError("That review round does not exist");
+      if (round.state !== "open")
+        throw new ReviewStateConflictError("That review round is not open");
+      if (round.poolMode === "named" && !round.reviewerIds.includes(assignment.reviewerId))
+        throw new ReviewStateConflictError("That reviewer is not in this round's pool");
+    }
     for (const assignment of assignments) this.assignments.set(assignment.id, assignment);
     return assignments;
   }
@@ -141,9 +229,14 @@ export class MemoryReviewRepository implements ReviewRepository {
     const completed = (await this.listCompletedEvaluations(event.eventId, event.proposalId)).filter(
       (item) => roundAssignmentIds.has(item.assignmentId),
     );
+    // The round's own scorecard where it has one, the event plan where it does not — the same
+    // `COALESCE(r.criteria_json, p.criteria_json)` the D1 aggregate does, so the two cannot
+    // disagree about what a round was judged under.
     const plan = this.plans.get(event.eventId);
+    const criteria =
+      this.rounds.get(this.roundKey(event.eventId, round))?.criteria ?? plan?.criteria ?? [];
     const numeric = new Map(
-      (plan?.criteria ?? [])
+      criteria
         .filter((criterion) => !criterion.type || criterion.type === "numeric")
         .map((criterion) => [criterion.id, criterion.weight ?? 1]),
     );

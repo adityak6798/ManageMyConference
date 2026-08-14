@@ -99,6 +99,39 @@ describe("review D1 persistence", () => {
         updatedAt: "2026-08-10T12:15:00.000Z",
       }),
     ).rejects.toThrow("locked");
+    /*
+     * Two storage guards stand between this request and a row, and the second one is new.
+     * The secondary event has neither a review plan (`0009`) nor a round (`1312`), and SQLite
+     * does not promise which `BEFORE INSERT` trigger fires first — so asserting one exact
+     * sentence here would be asserting an ordering nothing guarantees. Each guard is therefore
+     * driven on its own, against a database where only that one can fire.
+     */
+    await expect(
+      reviews.createAssignments([
+        {
+          id: "20000000-0000-4000-8000-000000000003",
+          eventId: "00000000-0000-4000-8000-000000000002",
+          proposalId: "10000000-0000-4000-8000-000000000003",
+          reviewerId: "seed-reviewer",
+          createdAt: "2026-08-10T12:15:00.000Z",
+        },
+      ]),
+    ).rejects.toThrow(/Review plan is required|That review round does not exist/);
+    // With a round in place, the plan guard is the only one left, and it is the one that answers.
+    await reviews.createRound({
+      eventId: "00000000-0000-4000-8000-000000000002",
+      sequence: 1,
+      name: "Round 1",
+      opensAt: null,
+      closesAt: null,
+      state: "open",
+      anonymized: true,
+      criteria: null,
+      poolMode: "event",
+      reviewerIds: [],
+      createdAt: "2026-08-10T12:15:00.000Z",
+      updatedAt: "2026-08-10T12:15:00.000Z",
+    });
     await expect(
       reviews.createAssignments([
         {
@@ -110,6 +143,20 @@ describe("review D1 persistence", () => {
         },
       ]),
     ).rejects.toThrow("required");
+    // And in the other direction: a round number nobody configured is refused on an event whose
+    // plan is fine, so the two guards are proven to be two rather than one.
+    await expect(
+      reviews.createAssignments([
+        {
+          id: "20000000-0000-4000-8000-000000000004",
+          eventId,
+          proposalId: "10000000-0000-4000-8000-000000000002",
+          reviewerId: "seed-reviewer",
+          round: 9,
+          createdAt: "2026-08-10T12:15:00.000Z",
+        },
+      ]),
+    ).rejects.toThrow("That review round does not exist");
     const completedAt = "2026-08-10T12:30:00.000Z";
     const evaluation = {
       assignmentId: "20000000-0000-4000-8000-000000000001",
@@ -142,7 +189,9 @@ describe("review D1 persistence", () => {
       id: "40000000-0000-4000-8000-000000000002",
       correlationId: "retry-correlation",
     });
-    await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
+    const outcomesFor = async (proposalId: string) =>
+      (await reviews.listOutcomes(eventId)).filter((outcome) => outcome.proposalId === proposalId);
+    expect(await outcomesFor(completionEvent.proposalId)).toMatchObject([
       { round: 1, completedEvaluationCount: 1, averageScore: 4 },
     ]);
     const roundTwoAssignment = {
@@ -153,14 +202,42 @@ describe("review D1 persistence", () => {
       round: 2,
       createdAt: "2026-08-10T13:00:00.000Z",
     };
+    /*
+     * Round 2 is a `named` round whose pool is the other reviewer, so this one is refused until
+     * somebody adds them — the acceptance criterion "a reviewer in round 1 is absent from round 2
+     * until explicitly added", driven against real D1 rather than against the service's own
+     * check. The refusal comes from `review_assignment_requires_pool_membership` (`1312`), which
+     * is what makes the pool a property of the schema instead of a rule in a service.
+     */
+    await expect(reviews.createAssignments([roundTwoAssignment])).rejects.toThrow(
+      "not in this round's pool",
+    );
+    const roundTwo = await reviews.findRound(eventId, 2);
+    expect(roundTwo).toMatchObject({ poolMode: "named", state: "open" });
+    expect(roundTwo?.reviewerIds).not.toContain("seed-reviewer");
+    await reviews.setRoundMembers(
+      eventId,
+      2,
+      [...(roundTwo?.reviewerIds ?? []), "seed-reviewer"],
+      "2026-08-10T13:00:00.000Z",
+    );
     await expect(reviews.createAssignments([roundTwoAssignment])).resolves.toMatchObject([
       { reviewerId: "seed-reviewer", round: 2 },
     ]);
+    /*
+     * Scored against **round 2's own scorecard**, not the event plan.
+     *
+     * The seeded second round carries its own rubric, so `programme_fit` is what the aggregate
+     * for this round weighs and `relevance` is a criterion it has never heard of. Scoring the
+     * latter here is not merely wrong-looking — it produces no outcome row at all, because the
+     * aggregate joins the round's criteria and finds nothing to join. That is the behaviour this
+     * line exists to pin: `(2 × 3) / 3 = 2`, under a weight of 3 that only round 2 defines.
+     */
     await reviews.completeEvaluation(
       {
         ...evaluation,
         assignmentId: roundTwoAssignment.id,
-        scores: [{ criterionId: "relevance", value: 2 }],
+        scores: [{ criterionId: "programme_fit", value: 2 }],
       },
       {
         ...completionEvent,
@@ -170,7 +247,7 @@ describe("review D1 persistence", () => {
         causationId: roundTwoAssignment.id,
       },
     );
-    await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
+    expect(await outcomesFor(completionEvent.proposalId)).toMatchObject([
       { round: 2, completedEvaluationCount: 1, averageScore: 2 },
       { round: 1, completedEvaluationCount: 1, averageScore: 4 },
     ]);
@@ -254,7 +331,7 @@ describe("review D1 persistence", () => {
     await expect(
       reviews.getEvaluation(evaluation.assignmentId, evaluation.reviewerId),
     ).resolves.toMatchObject({ state: "completed" });
-    await expect(reviews.listOutcomes(eventId)).resolves.toMatchObject([
+    expect(await outcomesFor(completionEvent.proposalId)).toMatchObject([
       { round: 2, completedEvaluationCount: 1, averageScore: 2 },
       { round: 1, completedEvaluationCount: 1, averageScore: 4 },
     ]);
@@ -309,6 +386,7 @@ describe("review D1 persistence", () => {
       createdAt: "2026-08-10T12:00:00.000Z",
     };
 
+    const outcomesBefore = await reviews.listOutcomes(eventId);
     await reviews.saveSuggestion(suggestion);
 
     // Provenance round-trips as four columns, not a blob nobody can query.
@@ -317,9 +395,10 @@ describe("review D1 persistence", () => {
     );
     // Another reviewer's read is indistinguishable from a suggestion that does not exist.
     await expect(reviews.findSuggestion(eventId, suggestionId, "someone-else")).resolves.toBeNull();
-    await expect(
-      reviews.listSuggestionsForReviewer(eventId, "seed-reviewer"),
-    ).resolves.toHaveLength(1);
+    // The seed offers one suggestion on this assignment already, so the claim is that this one
+    // joined it rather than that it is the only one in the database.
+    const suggestionsNow = await reviews.listSuggestionsForReviewer(eventId, "seed-reviewer");
+    expect(suggestionsNow.filter(({ id }) => id === suggestionId)).toHaveLength(1);
 
     // Accepting writes the draft and the answer together.
     const evaluation = {
@@ -355,8 +434,10 @@ describe("review D1 persistence", () => {
       source: "suggested",
       suggestionId,
     });
-    // Accepting moved no aggregate: only the reviewer's own completion does that.
-    await expect(reviews.listOutcomes(eventId)).resolves.toEqual([]);
+    // Accepting moved no aggregate: only the reviewer's own completion does that. Asserted
+    // against the seeded baseline rather than against an empty table — the seed now holds three
+    // real outcomes, and "unchanged" is the claim, not "absent".
+    expect(await reviews.listOutcomes(eventId)).toEqual(outcomesBefore);
 
     // The reviewer then edits their draft. A replayed acceptance must not undo that.
     await reviews.saveEvaluation({
@@ -468,6 +549,7 @@ describe("review D1 persistence", () => {
     const eventId = "00000000-0000-4000-8000-000000000001";
     const assignmentId = "20000000-0000-4000-8000-000000000001";
     const suggestionId = "40000000-0000-4000-8000-000000000003";
+    const outcomesBefore = await reviews.listOutcomes(eventId);
     await reviews.saveSuggestion({
       id: suggestionId,
       eventId,
@@ -492,7 +574,9 @@ describe("review D1 persistence", () => {
     await reviews.rejectSuggestion(suggestionId, "seed-reviewer", "2026-08-10T12:05:00.000Z");
 
     await expect(reviews.getEvaluation(assignmentId, "seed-reviewer")).resolves.toBeNull();
-    await expect(reviews.listOutcomes(eventId)).resolves.toEqual([]);
+    // Unchanged rather than empty: the seed holds three real outcomes and a rejection moves none
+    // of them, which is the claim.
+    expect(await reviews.listOutcomes(eventId)).toEqual(outcomesBefore);
     // The row survives as the audit record of what was offered and declined.
     await expect(
       reviews.findSuggestion(eventId, suggestionId, "seed-reviewer"),
@@ -563,8 +647,35 @@ describe("review round rebuild correction", () => {
             outcomes: number;
           }>()
       ).results?.[0];
+    /*
+     * `1301` predates `review_suggestions`, and that is a fact about the replay rather than a
+     * bug in either file.
+     *
+     * `1310` added `review_suggestions.assignment_id`, making that table a **fourth** child of
+     * `review_assignments` — one this migration's copy-and-drop recipe knows nothing about,
+     * because no suggestion could exist when it ran. Replaying it over a modern seed that holds
+     * one fails at `DROP TABLE review_assignments` with a bare foreign key error.
+     *
+     * So the seeded suggestions are removed first, restoring the shape `1301` actually met. The
+     * observation is left here because it is what the next person to rebuild this table needs:
+     * the chain is now assignments → conflicts, evaluations and suggestions, with evaluations
+     * citing suggestions in turn. `1310`'s own header says so; this is the test that shows it.
+     */
+    await database.prepare("DELETE FROM review_suggestions").run();
+
     const before = await counts();
-    expect(before).toEqual({ assignments: 2, evaluations: 1, conflicts: 1, outcomes: 1 });
+    /*
+     * The point of this test is that the rebuild runs over *populated* tables, so the fixture is
+     * asserted to be populated rather than trusted to be. Lower bounds rather than exact counts:
+     * the seed grew a multi-round review history when rounds became first-class (`1312`), and an
+     * exact expectation here would turn every future seed change into a failure of this test
+     * while proving nothing extra — what matters is that all four tables have rows before the
+     * DROP, which is the arrangement that would have caught `1300`.
+     */
+    expect(before?.assignments).toBeGreaterThanOrEqual(2);
+    expect(before?.evaluations).toBeGreaterThanOrEqual(1);
+    expect(before?.conflicts).toBeGreaterThanOrEqual(1);
+    expect(before?.outcomes).toBeGreaterThanOrEqual(1);
 
     await applyMigrationFile(database, "1301_review_rounds_safe_rebuild.sql");
 
@@ -576,7 +687,8 @@ describe("review round rebuild correction", () => {
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'review_%' ORDER BY name",
       )
       .all<{ name: string }>();
-    expect((triggers.results ?? []).map(({ name }: { name: string }) => name)).toEqual(
+    const names = (triggers.results ?? []).map(({ name }: { name: string }) => name);
+    expect(names).toEqual(
       expect.arrayContaining([
         "review_assignment_cap",
         "review_assignment_requires_plan",
@@ -585,6 +697,26 @@ describe("review round rebuild correction", () => {
         "review_plan_lock",
       ]),
     );
+    /*
+     * And the hazard the next rebuild has to know about, asserted rather than described.
+     *
+     * SQLite drops a table's triggers with the table, so this replay of `1301` — which restates
+     * only the five triggers that existed when it was written — leaves the three round guards
+     * `1312` added **gone**. On a real deployment that never happens, because migrations run once
+     * and in order: `1301` ran long before `1312` existed. It matters for the *next* rebuild of
+     * `review_assignments`, which will drop these three and must restate them or the round, open
+     * -round and pool rules quietly stop being schema rules while every service check still
+     * passes. This is the line that turns "remember to restate them" into a failing test.
+     */
+    expect(names).not.toContain("review_assignment_requires_round");
+    expect(names).not.toContain("review_assignment_requires_open_round");
+    expect(names).not.toContain("review_assignment_requires_pool_membership");
+    // The round tables themselves are untouched by a rebuild of `review_assignments`, which is
+    // the whole reason `1312` keyed a round on the number the history already carried.
+    const rounds = await database
+      .prepare("SELECT COUNT(*) AS total FROM review_rounds")
+      .all<{ total: number }>();
+    expect(rounds.results?.[0]?.total).toBeGreaterThan(0);
   });
   /**
    * The three defects automated review found in this lane, each against real D1.
